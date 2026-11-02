@@ -134,6 +134,16 @@ impl SurfaceSizeHost {
         self.0.pending.take()
     }
 
+    /// Return an unexecuted request after a transient host interruption.
+    pub fn defer(&self, request: SurfaceSizeRequest) {
+        if self.0.alive.get()
+            && self.0.generation.get() == request.generation
+            && self.0.state.get_untracked().requested == Some(request.size)
+        {
+            self.0.pending.set(Some(request));
+        }
+    }
+
     /// Publish actual host geometry without completing a pending request.
     pub fn observe_size(&self, width: u16, height: u16) {
         if width == 0 || height == 0 {
@@ -182,6 +192,51 @@ impl Drop for SurfaceSizeHost {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "std")]
+    #[test]
+    fn third_party_hosts_keep_size_control_through_nested_surface_wrappers() {
+        use crate::surface::{DisplayInfo, Surface};
+        struct Host(SurfaceSizeHost);
+        impl crate::core::cache::InspectCaches for Host {}
+        impl Surface for Host {
+            fn display_info(&self) -> DisplayInfo {
+                let (width, height) = self.0.control().state_untracked().actual;
+                DisplayInfo {
+                    width,
+                    height,
+                    scale: crate::types::Fixed::ONE,
+                    format: crate::render::texture::ColorFormat::RGBA8888,
+                }
+            }
+            fn size_control(&mut self) -> Option<SurfaceSizeControl> {
+                Some(self.0.control())
+            }
+            fn flush(
+                &mut self,
+                _: crate::types::PhysicalRect,
+            ) -> Result<(), crate::render::RenderError> {
+                Ok(())
+            }
+            fn poll_event(&mut self) -> Option<crate::surface::InputEvent> {
+                if let Some(request) = self.0.take_request() {
+                    self.0.complete(request, Ok(request.size()));
+                }
+                None
+            }
+        }
+        let host = Host(SurfaceSizeHost::new(640, 480));
+        let mut wrapped = crate::surface::slow::SlowSurface::new(
+            crate::surface::slow::SlowSurface::new(host, 0),
+            0,
+        );
+        let control = wrapped.size_control().unwrap();
+        control.request_size(940, 480).unwrap();
+        wrapped.poll_event();
+        assert_eq!(wrapped.viewport().logical_size(), (940, 480));
+        drop(wrapped);
+        assert!(!control.state().available);
+    }
+
     #[test]
     fn requests_coalesce_and_old_completions_cannot_acknowledge_the_latest_intent() {
         let host = SurfaceSizeHost::new(640, 480);
@@ -191,6 +246,10 @@ mod tests {
         assert_eq!(control.state().actual, (640, 480));
         control.request_size(1100, 600).unwrap();
         let latest = host.take_request().unwrap();
+        host.defer(old);
+        assert!(host.take_request().is_none());
+        host.defer(latest);
+        assert_eq!(host.take_request(), Some(latest));
         host.complete(old, Ok((940, 480)));
         assert_eq!(control.state().requested, Some((1100, 600)));
         host.complete(latest, Ok((1100, 600)));

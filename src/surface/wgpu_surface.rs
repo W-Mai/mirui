@@ -301,6 +301,7 @@ pub trait WgpuTarget: Surface {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 struct WgpuHandler {
+    resize_revision: u64,
     #[cfg(target_os = "macos")]
     // Detach native responders before Runtime releases its window.
     menu: Option<super::native_menu::Registration>,
@@ -843,6 +844,9 @@ impl ApplicationHandler<HostEvent> for WgpuHandler {
             .and_then(|window| self.runtime.resume(Arc::new(window)));
         #[cfg(target_os = "macos")]
         let result = result.and_then(|()| self.attach_menu());
+        if result.is_ok() {
+            self.resize_revision = self.resize_revision.wrapping_add(1);
+        }
         if let Err(error) = result {
             self.error = Some(error);
             event_loop.exit();
@@ -850,6 +854,13 @@ impl ApplicationHandler<HostEvent> for WgpuHandler {
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(state) = &self.runtime.state {
+            let size = state
+                .window
+                .inner_size()
+                .to_logical::<u32>(state.window.scale_factor());
+            self.requested_size = (size.width, size.height);
+        }
         #[cfg(target_os = "macos")]
         self.menu.take();
         self.runtime.suspend(false);
@@ -871,6 +882,12 @@ impl ApplicationHandler<HostEvent> for WgpuHandler {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
+        if matches!(
+            event,
+            WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }
+        ) {
+            self.resize_revision = self.resize_revision.wrapping_add(1);
+        }
         if self.runtime.window_event(event) {
             event_loop.exit();
         }
@@ -980,6 +997,9 @@ fn configure_wgpu_state(
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub struct WgpuSurface {
+    size_host: Option<super::SurfaceSizeHost>,
+    pending_size: Option<(super::SurfaceSizeRequest, u64, WindowId)>,
+    observed_size_revision: u64,
     event_loop: EventLoop<HostEvent>,
     handler: WgpuHandler,
     /// macOS `pump_app_events(Duration::ZERO)` costs ~6 ms per call
@@ -1022,8 +1042,12 @@ impl WgpuSurface {
         let proxy = event_loop.create_proxy();
 
         let mut this = Self {
+            size_host: None,
+            pending_size: None,
+            observed_size_revision: 0,
             event_loop,
             handler: WgpuHandler {
+                resize_revision: 0,
                 title: title.to_string(),
                 requested_size: (width as u32, height as u32),
                 runtime: WgpuRuntime::new(config),
@@ -1056,8 +1080,103 @@ impl WgpuSurface {
     }
 
     fn pump_once(&mut self) -> winit::platform::pump_events::PumpStatus {
-        self.event_loop
-            .pump_app_events(Some(Duration::ZERO), &mut self.handler)
+        let result = self
+            .event_loop
+            .pump_app_events(Some(Duration::ZERO), &mut self.handler);
+        self.observe_size_feedback();
+        result
+    }
+
+    fn observe_size_feedback(&mut self) {
+        if self.size_host.is_none() {
+            return;
+        }
+        if self.pending_size.is_none()
+            && self.observed_size_revision == self.handler.resize_revision
+        {
+            return;
+        }
+        let Some(state) = self.state() else {
+            return;
+        };
+        let window_id = state.window.id();
+        let physical = mobile_window_drawable_size(&state.window);
+        let reconfigure = physical.width > 0
+            && physical.height > 0
+            && (state.config.width != physical.width || state.config.height != physical.height);
+        if reconfigure {
+            self.handler
+                .runtime
+                .window_event(WindowEvent::Resized(physical));
+        }
+        let info = self.display_info();
+        self.observed_size_revision = self.handler.resize_revision;
+        let host = self.size_host.as_ref().unwrap();
+        host.observe_size(info.width, info.height);
+        if let Some((request, revision, original_window)) = self.pending_size {
+            if original_window != window_id {
+                self.pending_size = None;
+                host.defer(request);
+            } else if request.size() == (info.width, info.height)
+                || revision != self.handler.resize_revision
+            {
+                self.pending_size = None;
+                host.complete(request, Ok((info.width, info.height)));
+            }
+        }
+    }
+
+    fn service_size_request(&mut self) {
+        if self.size_host.is_none() {
+            return;
+        }
+        if self.pending_size.is_some() {
+            return;
+        }
+        let Some(state) = self.state() else {
+            return;
+        };
+        if state.window.is_minimized() == Some(true) {
+            return;
+        }
+        let Some(host) = &self.size_host else {
+            return;
+        };
+        let Some(request) = host.take_request() else {
+            return;
+        };
+        if state.window.fullscreen().is_some() || state.window.is_maximized() {
+            host.complete(request, Err(super::SurfaceSizeError::Restricted));
+            return;
+        }
+        let window_id = state.window.id();
+        let scale = self.display_info().scale;
+        let size = request.size();
+        let factor = scale.to_int().max(1) as u32;
+        let physical =
+            winit::dpi::PhysicalSize::new(u32::from(size.0) * factor, u32::from(size.1) * factor);
+        let limit = state
+            .device
+            .limits()
+            .max_texture_dimension_2d
+            .min(u32::from(u16::MAX));
+        if physical.width > limit || physical.height > limit {
+            host.complete(request, Err(super::SurfaceSizeError::Restricted));
+            return;
+        }
+        let actual = state.window.request_inner_size(physical);
+        if let Some(actual) = actual {
+            self.handler
+                .runtime
+                .window_event(WindowEvent::Resized(actual));
+            let info = self.display_info();
+            self.size_host
+                .as_ref()
+                .unwrap()
+                .complete(request, Ok((info.width, info.height)));
+        } else {
+            self.pending_size = Some((request, self.handler.resize_revision, window_id));
+        }
     }
 }
 
@@ -1104,6 +1223,18 @@ impl WgpuTarget for WgpuSurface {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl Surface for WgpuSurface {
+    fn size_control(&mut self) -> Option<super::SurfaceSizeControl> {
+        let state = self.state()?;
+        if state.window.fullscreen().is_some() {
+            return None;
+        }
+        let info = self.display_info();
+        Some(
+            self.size_host
+                .get_or_insert_with(|| super::SurfaceSizeHost::new(info.width, info.height))
+                .control(),
+        )
+    }
     fn needs_redraw(&self) -> bool {
         self.handler.runtime.needs_redraw
     }
@@ -1173,6 +1304,7 @@ impl Surface for WgpuSurface {
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
+        self.service_size_request();
         if let Some(e) = self.handler.runtime.poll_event() {
             return Some(e);
         }

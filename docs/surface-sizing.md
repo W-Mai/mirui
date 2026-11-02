@@ -23,3 +23,7 @@ assert_eq!(control.state().actual, (940, 480));
 ```
 
 Actual dimensions that differ from the requested size report `Restricted`. Hosts can also reject unavailable or unsupported modes without changing the content. Native framebuffer and attachment changes continue through the backend's existing viewport and resize paths; size control does not create render targets or remap input coordinates.
+
+SDL, SDL-GPU and desktop WGPU expose size control for windowed hosts. Native operations run at the existing event boundary; maximized or fullscreen modes can reject a request. `SlowSurface` forwards the same control through nested wrappers. Asynchronous hosts can `defer(request)` across a temporary interruption; only the current request can return to the pending slot.
+
+Web canvas hosts opt in with `data-mirui-size-host="true"`. The surface writes the requested `width,height` to `data-mirui-size-request` and dispatches `mirui-size-request` on the canvas. The document host applies its CSS sizing policy after the current App call returns, then writes `data-mirui-size-result="ok"` or a rejection. The surface confirms actual canvas dimensions on subsequent polling. Do not synchronously call back into the App from that event handler. A host replacing its application can call `WebCanvasSurface::reset_size_control()` to retire old requests and handles before reusing the canvas.

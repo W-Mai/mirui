@@ -89,6 +89,7 @@ struct MultiGestureState {
 }
 
 pub struct SdlGpuSurface {
+    size_host: Option<crate::surface::SurfaceSizeHost>,
     #[cfg(target_os = "macos")]
     menu: Option<crate::surface::native_menu::SdlMenu>,
     #[cfg(target_os = "linux")]
@@ -235,6 +236,7 @@ impl SdlGpuSurface {
             #[cfg(target_os = "android")]
             clipboard: Default::default(),
             viewport,
+            size_host: None,
             needs_redraw: true,
             last_mouse_x: 0,
             last_mouse_y: 0,
@@ -267,7 +269,43 @@ impl SdlGpuSurface {
             .map_err(|_| {
                 config::backend_error("SDL persistent render target", "target creation failed")
             })?;
+        if let Some(host) = &self.size_host {
+            let size = self.viewport.logical_size();
+            host.observe_size(size.0, size.1);
+        }
         Ok(())
+    }
+
+    fn service_size_request(&mut self) {
+        let Some(request) = self
+            .size_host
+            .as_ref()
+            .and_then(crate::surface::SurfaceSizeHost::take_request)
+        else {
+            return;
+        };
+        if self
+            .device
+            .canvas()
+            .is_ok_and(|canvas| canvas.window().is_minimized())
+        {
+            self.size_host.as_ref().unwrap().defer(request);
+            return;
+        }
+        let result = self
+            .device
+            .canvas()
+            .map_err(|_| crate::surface::SurfaceSizeError::Backend)
+            .and_then(|mut canvas| {
+                crate::surface::sdl_size::request(canvas.window_mut(), request.size())
+            });
+        let result = result.and_then(|_| {
+            self.refresh_viewport()
+                .map_err(|_| crate::surface::SurfaceSizeError::Backend)?;
+            self.needs_redraw = true;
+            Ok(self.viewport.logical_size())
+        });
+        self.size_host.as_ref().unwrap().complete(request, result);
     }
 
     fn handle_multi_gesture(
@@ -379,6 +417,21 @@ impl Drop for SdlGpuSurface {
 }
 
 impl Surface for SdlGpuSurface {
+    fn size_control(&mut self) -> Option<crate::surface::SurfaceSizeControl> {
+        let supported = {
+            let canvas = self.device.canvas().ok()?;
+            crate::surface::sdl_size::supported(canvas.window())
+        };
+        if !supported {
+            return None;
+        }
+        let size = self.viewport.logical_size();
+        Some(
+            self.size_host
+                .get_or_insert_with(|| crate::surface::SurfaceSizeHost::new(size.0, size.1))
+                .control(),
+        )
+    }
     #[cfg(feature = "sync")]
     fn frame_end(&mut self) -> Result<(), RenderError> {
         self.device.collect_targets()
@@ -544,6 +597,7 @@ impl Surface for SdlGpuSurface {
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
+        self.service_size_request();
         if let Some(e) = self.pending.pop_front() {
             return Some(e);
         }

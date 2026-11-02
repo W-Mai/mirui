@@ -279,5 +279,9 @@ path = "examples/tools/lifecycle_suspend.rs"
 required-features = ["sdl"]
 
 [[example]]
+name = "surface_size_probe"
+path = "examples/tools/surface_size_probe.rs"
+
+[[example]]
 name = "persistence_counter_demo"
 required-features = ["persistence"]

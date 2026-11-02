@@ -41,6 +41,7 @@ struct MultiGestureState {
 }
 
 pub struct SdlSurface {
+    size_host: Option<super::SurfaceSizeHost>,
     #[cfg(target_os = "android")]
     clipboard: super::host_clipboard::android::Clipboard,
     #[cfg(target_os = "macos")]
@@ -139,6 +140,7 @@ impl SdlSurface {
         };
 
         Self {
+            size_host: None,
             #[cfg(target_os = "macos")]
             menu,
             tex,
@@ -166,6 +168,76 @@ impl SdlSurface {
 
     pub fn scale_factor(&self) -> Fixed {
         self.scale
+    }
+
+    fn refresh_size(&mut self) -> Result<(), super::SurfaceSizeError> {
+        let (width, height) = self
+            .canvas
+            .output_size()
+            .map_err(|_| super::SurfaceSizeError::Backend)?;
+        let width = u16::try_from(width).map_err(|_| super::SurfaceSizeError::Restricted)?;
+        let height = u16::try_from(height).map_err(|_| super::SurfaceSizeError::Restricted)?;
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
+        let logical = self.canvas.window().size();
+        if logical.0 == 0 || logical.1 == 0 {
+            return Ok(());
+        }
+        let scale = Fixed::from_ratio(
+            i32::from(width),
+            i32::try_from(logical.0).map_err(|_| super::SurfaceSizeError::Restricted)?,
+        );
+        if (self.width, self.height) != (width, height) {
+            let len = usize::from(width) * usize::from(height) * 4;
+            let texture = self
+                .texture_creator
+                .create_texture_streaming(
+                    PixelFormatEnum::RGBA32,
+                    u32::from(width),
+                    u32::from(height),
+                )
+                .map_err(|_| super::SurfaceSizeError::Backend)?;
+            if len > self.buf.len() {
+                self.buf
+                    .try_reserve_exact(len - self.buf.len())
+                    .map_err(|_| super::SurfaceSizeError::Backend)?;
+            }
+            self.buf.resize(len, 0);
+            self.tex = texture;
+            self.width = width;
+            self.height = height;
+            self.needs_redraw = true;
+        }
+        self.scale = scale;
+        if let Some(host) = &self.size_host {
+            let size = logical_from_physical(width, height, scale);
+            host.observe_size(size.0, size.1);
+        }
+        Ok(())
+    }
+
+    fn service_size_request(&mut self) {
+        if self.size_host.is_none() {
+            return;
+        }
+        if self.canvas.window().is_minimized() {
+            return;
+        }
+        let Some(request) = self
+            .size_host
+            .as_ref()
+            .and_then(super::SurfaceSizeHost::take_request)
+        else {
+            return;
+        };
+        let result =
+            super::sdl_size::request(self.canvas.window_mut(), request.size()).and_then(|_| {
+                self.refresh_size()?;
+                let info = self.display_info();
+                Ok((info.width, info.height))
+            });
+        self.size_host.as_ref().unwrap().complete(request, result);
     }
 
     fn handle_multi_gesture(
@@ -275,6 +347,17 @@ fn rotate_scale_around(p: &mut (f32, f32), cx: f32, cy: f32, theta: f32, scale: 
 impl crate::core::cache::InspectCaches for SdlSurface {}
 
 impl Surface for SdlSurface {
+    fn size_control(&mut self) -> Option<super::SurfaceSizeControl> {
+        if !super::sdl_size::supported(self.canvas.window()) {
+            return None;
+        }
+        let info = self.display_info();
+        Some(
+            self.size_host
+                .get_or_insert_with(|| super::SurfaceSizeHost::new(info.width, info.height))
+                .control(),
+        )
+    }
     fn display_info(&self) -> DisplayInfo {
         let (lw, lh) = logical_from_physical(self.width, self.height, self.scale);
         DisplayInfo {
@@ -424,6 +507,7 @@ impl Surface for SdlSurface {
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
+        self.service_size_request();
         if let Some(e) = self.pending.pop_front() {
             return Some(e);
         }
@@ -537,6 +621,16 @@ impl Surface for SdlSurface {
                     }
                 }
                 Event::Window { win_event, .. } => {
+                    if matches!(
+                        win_event,
+                        sdl2::event::WindowEvent::SizeChanged(..)
+                            | sdl2::event::WindowEvent::Resized(..)
+                            | sdl2::event::WindowEvent::DisplayChanged(..)
+                    ) {
+                        if let Err(error) = self.refresh_size() {
+                            crate::warn!("SDL size update failed: {:?}", error);
+                        }
+                    }
                     if matches!(
                         win_event,
                         sdl2::event::WindowEvent::Exposed

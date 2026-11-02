@@ -124,7 +124,8 @@ pub fn switch_demo(slug: &str) {
     let Some(cell) = cell else { return };
     let old = cell.borrow_mut().take();
     let Some(old) = old else { return };
-    let backend = old.into_backend();
+    let mut backend = old.into_backend();
+    backend.reset_size_control();
     let app = build_app_for(demo, backend);
     *cell.borrow_mut() = Some(app);
 }

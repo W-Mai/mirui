@@ -51,6 +51,9 @@ impl<S: Surface> crate::core::cache::InspectCaches for SlowSurface<S> {
 }
 
 impl<S: Surface> Surface for SlowSurface<S> {
+    fn size_control(&mut self) -> Option<super::SurfaceSizeControl> {
+        self.inner.size_control()
+    }
     fn display_info(&self) -> DisplayInfo {
         self.inner.display_info()
     }

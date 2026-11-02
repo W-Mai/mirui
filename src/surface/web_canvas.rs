@@ -50,6 +50,8 @@ impl Drop for Listener {
 /// The backing store tracks the logical viewport, device scale, and optional
 /// uniform CSS display scale.
 pub struct WebCanvasSurface {
+    size_host: Option<super::SurfaceSizeHost>,
+    pending_size: Option<super::SurfaceSizeRequest>,
     canvas: HtmlCanvasElement,
     ctx: CanvasRenderingContext2d,
     backbuffer: BackbufferInvalidation,
@@ -77,6 +79,8 @@ impl WebCanvasSurface {
         let listeners = attach_listeners(&canvas, &event_queue, &logical_size, &text_input.focus);
 
         Self {
+            size_host: None,
+            pending_size: None,
             canvas,
             ctx,
             backbuffer: BackbufferInvalidation::new((css_w, css_h, scale)),
@@ -99,11 +103,71 @@ impl WebCanvasSurface {
     pub fn set_logical_size(&self, size: Option<(u16, u16)>) {
         self.logical_size.set(size);
     }
+
+    /// Retire a document host's size controls before replacing its application.
+    pub fn reset_size_control(&mut self) {
+        self.size_host = None;
+        self.pending_size = None;
+        let _ = self.canvas.remove_attribute("data-mirui-size-result");
+        let _ = self.canvas.remove_attribute("data-mirui-size-request");
+    }
+
+    fn service_size_request(&mut self) {
+        let Some(host) = &self.size_host else {
+            return;
+        };
+        let info = self.display_info();
+        host.observe_size(info.width, info.height);
+        if let Some(request) = self.pending_size {
+            if let Some(result) = self.canvas.get_attribute("data-mirui-size-result") {
+                self.pending_size = None;
+                let result = if result == "ok" {
+                    Ok((info.width, info.height))
+                } else {
+                    Err(super::SurfaceSizeError::Restricted)
+                };
+                host.complete(request, result);
+            } else {
+                return;
+            }
+        }
+        let Some(request) = host.take_request() else {
+            return;
+        };
+        let size = request.size();
+        let result = self
+            .canvas
+            .remove_attribute("data-mirui-size-result")
+            .and_then(|_| {
+                self.canvas.set_attribute(
+                    "data-mirui-size-request",
+                    &alloc::format!("{},{}", size.0, size.1),
+                )
+            })
+            .and_then(|_| web_sys::Event::new("mirui-size-request"))
+            .and_then(|event| self.canvas.dispatch_event(&event));
+        if result.is_err() {
+            host.complete(request, Err(super::SurfaceSizeError::Backend));
+        } else {
+            self.pending_size = Some(request);
+        }
+    }
 }
 
 impl InspectCaches for WebCanvasSurface {}
 
 impl Surface for WebCanvasSurface {
+    fn size_control(&mut self) -> Option<super::SurfaceSizeControl> {
+        if self.canvas.get_attribute("data-mirui-size-host").as_deref() != Some("true") {
+            return None;
+        }
+        let info = self.display_info();
+        Some(
+            self.size_host
+                .get_or_insert_with(|| super::SurfaceSizeHost::new(info.width, info.height))
+                .control(),
+        )
+    }
     fn display_info(&self) -> DisplayInfo {
         // Re-sync each query so window resizes / OS zoom are picked up
         // without a dedicated `resize` listener.
@@ -125,6 +189,7 @@ impl Surface for WebCanvasSurface {
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
+        self.service_size_request();
         self.event_queue.borrow_mut().pop_front()
     }
 

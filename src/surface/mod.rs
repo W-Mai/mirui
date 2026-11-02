@@ -45,6 +45,8 @@ pub mod sdl;
 pub(crate) mod sdl_events;
 #[cfg(feature = "sdl-gpu")]
 pub mod sdl_gpu;
+#[cfg(any(feature = "sdl", feature = "sdl-gpu"))]
+pub(crate) mod sdl_size;
 #[cfg(feature = "std")]
 pub mod slow;
 #[cfg(any(
