@@ -914,6 +914,19 @@ impl Launcher {
             self.audio_feedback.emit(super::sound::Cue::Back);
             return;
         }
+        if self.screen == Screen::Favorites {
+            let first = self
+                .games
+                .iter()
+                .find(|game| game.favorite())
+                .map(|game| game.key() as usize);
+            if let Some(first) = first {
+                self.select(first);
+            }
+            #[cfg(feature = "audio")]
+            self.audio_feedback.emit(super::sound::Cue::Back);
+            return;
+        }
         let target = if self.screen == Screen::Games {
             self.origin
         } else {

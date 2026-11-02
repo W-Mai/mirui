@@ -92,6 +92,35 @@ pub(super) fn move_selection(state: &super::model::DisplayStateHandle, delta: is
     }
 }
 
+pub(super) fn navigate_favorites(
+    state: &super::model::DisplayStateHandle,
+    horizontal: isize,
+    vertical: isize,
+) {
+    let library = state.launcher();
+    let games = library.games();
+    let keys = || games.iter().filter(|game| game.favorite());
+    let current = keys()
+        .position(|game| game.key() as usize == library.selected())
+        .unwrap_or(0);
+    if vertical > 0 && keys().nth(current).is_some_and(|game| game.directory()) {
+        let key = keys().nth(current).map(|game| game.key());
+        if let Some(key) = key {
+            library.choose_game(key, key as usize);
+        }
+        return;
+    }
+    let next = library
+        .shelf()
+        .plan()
+        .grid
+        .navigate(current, keys().count(), horizontal, vertical);
+    let key = keys().nth(next).map(|game| game.key());
+    if let Some(key) = key {
+        library.select(key as usize);
+    }
+}
+
 pub(super) fn begin_play(state: &super::model::DisplayStateHandle) {
     let library = state.launcher();
     let query = library.query().to_lowercase();

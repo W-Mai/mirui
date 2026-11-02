@@ -6,6 +6,40 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn favorites_navigation_uses_the_layout_grid_and_modal_back_keeps_its_owner() {
+    let mut app = App::headless(640, 480);
+    let state = app.add_model(model::DisplayState::default()).finish();
+    let library = state.launcher();
+    library.shelf().set_size(560.into(), 350.into());
+    let grid = library.shelf().plan().grid;
+    assert_eq!(
+        grid,
+        shelf::Grid {
+            columns: 3,
+            rows: 2
+        }
+    );
+    library.select(2);
+    launcher_view::navigate_favorites(&state, 1, 0);
+    assert_eq!(library.selected(), 8);
+    assert_eq!(library.screen(), launcher::Screen::Favorites);
+    launcher_view::navigate_favorites(&state, -1, 0);
+    assert_eq!(library.selected(), 2);
+    library.select(8);
+    library.show_overlay(launcher::Overlay::System);
+    library.back();
+    assert_eq!(library.selected(), 8);
+    assert_eq!(library.screen(), launcher::Screen::Favorites);
+    library.back();
+    assert_eq!(library.selected(), 0);
+    launcher_view::navigate_favorites(&state, 0, 1);
+    assert_eq!(library.selected(), 3);
+    library.select(8);
+    launcher_view::navigate_favorites(&state, 0, 1);
+    assert_ne!(library.screen(), launcher::Screen::Favorites);
+}
+
+#[test]
 fn launcher_query_bindings_subscribe_without_manual_revision_reads() {
     use crate::core::reactive::flush_signal_dirty;
     use crate::ui::widgets::Text;

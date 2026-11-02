@@ -310,16 +310,23 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
                         .saturating_add_signed(delta)
                         .min(39),
                 );
-            } else {
-                let vertical = matches!(
-                    event.physical,
-                    Some(PhysicalKey::ArrowUp | PhysicalKey::ArrowDown)
+            } else if library.screen() == super::launcher::Screen::Favorites {
+                let vertical = match event.physical {
+                    Some(PhysicalKey::ArrowUp) => -1,
+                    Some(PhysicalKey::ArrowDown) => 1,
+                    _ => 0,
+                };
+                super::launcher_view::navigate_favorites(
+                    state,
+                    if vertical == 0 {
+                        if forward { 1 } else { -1 }
+                    } else {
+                        0
+                    },
+                    vertical,
                 );
-                let step = if vertical && library.screen() == super::launcher::Screen::Favorites {
-                    library.shelf().plan().grid.columns
-                } else {
-                    1
-                } as isize;
+            } else {
+                let step = 1_isize;
                 super::launcher_view::move_selection(state, if forward { step } else { -step });
             }
             return true;

@@ -405,8 +405,8 @@ fn cartridge_grid(
                         text: ${ game.name() },
                         grow: 1.0,
                         min_width: 0,
-                        font: FONT,
-                        font_size: 12,
+                        font: font(24),
+                        font_size: 24,
                         text_color: FOREGROUND,
                         paragraph: paragraph(crate::ui::widgets::TextAlign::Start, 1)
                     ) [

@@ -3,33 +3,154 @@ use crate::prelude::*;
 pub(super) const INSET: i32 = 12;
 pub(super) const GAP: i32 = 12;
 pub(super) const CARD_INSET: i32 = 2;
-pub(super) const LABEL_HEIGHT: i32 = 18;
+pub(super) const LABEL_HEIGHT: i32 = 30;
 pub(super) const LABEL_ACTOR_SPACE: i32 = 24;
 pub(super) const SHADOW: i32 = 2;
-const MIN_CARD_WIDTH: i32 = 164;
+const MIN_CARD_WIDTH: i32 = 160;
 const MAX_CARD_WIDTH: i32 = 280;
 const IMAGE_CHROME_WIDTH: i32 = 28;
-const IMAGE_CHROME_HEIGHT: i32 = 40;
+const IMAGE_CHROME_HEIGHT: i32 = 52;
 const PAGE_MARK_HEIGHT: i32 = 4;
 const PAGE_MARK_GAP: i32 = 4;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) const WINDOW_BUDGET: usize = 128;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Grid {
     pub columns: usize,
     pub rows: usize,
+}
+
+impl Default for Grid {
+    fn default() -> Self {
+        Self {
+            columns: 3,
+            rows: 1,
+        }
+    }
+}
+
+impl Grid {
+    pub fn valid(self) -> bool {
+        self.columns > 0
+            && self.rows > 0
+            && self
+                .columns
+                .checked_mul(self.rows)
+                .is_some_and(|size| size <= WINDOW_BUDGET)
+    }
+
+    pub fn capacity(self) -> usize {
+        self.columns * self.rows
+    }
+
+    pub fn first(self, selected: usize) -> usize {
+        selected / self.capacity() * self.capacity()
+    }
+
+    pub fn navigate(
+        self,
+        selected: usize,
+        count: usize,
+        horizontal: isize,
+        vertical: isize,
+    ) -> usize {
+        if count == 0 {
+            return 0;
+        }
+        let selected = selected.min(count - 1);
+        let first = self.first(selected);
+        let local = selected - first;
+        let row = local / self.columns;
+        let column = local % self.columns;
+        let next = match (horizontal.signum(), vertical.signum()) {
+            (0, -1) if row > 0 => Some(selected - self.columns),
+            (0, -1) if first > 0 => Some(first - self.columns + column),
+            (0, 1) if row + 1 < self.rows && selected + self.columns < count => {
+                Some(selected + self.columns)
+            }
+            (0, 1) if first + self.capacity() < count => Some(first + self.capacity() + column),
+            (0, 1) if row + 1 < self.rows => Some(count - 1),
+            (-1, 0) if column > 0 => Some(selected - 1),
+            (1, 0) if column + 1 < self.columns => (selected + 1 < count).then_some(selected + 1),
+            (-1, 0) if first > 0 => {
+                Some(first - self.capacity() + row * self.columns + self.columns - 1)
+            }
+            (1, 0) if first + self.capacity() < count => {
+                Some(first + self.capacity() + row * self.columns)
+            }
+            _ => None,
+        };
+        next.unwrap_or(selected).min(count - 1)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
+    fn bounded_grids_reach_every_entry_across_partial_pages() {
+        use alloc::collections::{BTreeSet, VecDeque};
+        for columns in 1..=4 {
+            for rows in 1..=7 {
+                let grid = Grid { columns, rows };
+                assert!(grid.valid());
+                for count in 1..=35 {
+                    let mut seen = BTreeSet::from([0]);
+                    let mut queue = VecDeque::from([0]);
+                    while let Some(selected) = queue.pop_front() {
+                        for (horizontal, vertical) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                            let next = grid.navigate(selected, count, horizontal, vertical);
+                            assert!(next < count);
+                            assert!(next - grid.first(next) < grid.capacity());
+                            if seen.insert(next) {
+                                queue.push_back(next);
+                            }
+                        }
+                    }
+                    assert_eq!(seen.len(), count);
+                }
+            }
+        }
+        assert!(
+            !Grid {
+                columns: 0,
+                rows: 1
+            }
+            .valid()
+        );
+        assert!(
+            !Grid {
+                columns: usize::MAX,
+                rows: 2
+            }
+            .valid()
+        );
+        assert!(
+            !Grid {
+                columns: 3,
+                rows: WINDOW_BUDGET
+            }
+            .valid()
+        );
+        let grid = Grid {
+            columns: 3,
+            rows: 2,
+        };
+        assert_eq!(grid.navigate(2, 8, 1, 0), 6);
+        assert_eq!(grid.navigate(5, 8, 1, 0), 7);
+        assert_eq!(grid.navigate(6, 8, -1, 0), 2);
+        assert_eq!(grid.navigate(6, 8, 0, -1), 3);
+        assert_eq!(grid.navigate(6, 8, 0, 1), 7);
+    }
+
+    #[test]
     fn grid_fits_available_bounds_and_retains_landscape_artwork() {
         for width in [424, 560, 720] {
-            for height in (190..=440).step_by(8) {
+            for height in (190..=1040).step_by(17) {
                 for total in 1..=17 {
                     let plan = Plan::fit(width, height, total);
-                    assert!((1..=2).contains(&plan.grid.rows));
-                    assert!(plan.grid.columns * plan.grid.rows <= 8);
+                    assert!(plan.grid.valid());
                     assert!(plan.width() <= width - INSET * 2);
                     assert!(
                         plan.card_height * plan.grid.rows as i32
@@ -55,6 +176,7 @@ mod tests {
             }
         );
         assert_eq!(Plan::fit(424, 205, 6).grid.rows, 1);
+        assert!(Plan::fit(600, 900, 24).grid.rows > 2);
     }
 }
 
@@ -78,9 +200,12 @@ impl Plan {
             card_height: available_height,
         };
         let mut score = 0;
-        for rows in 1..=2 {
-            for columns in 1..=4 {
-                if rows > 1 && total <= columns {
+        let minimum_height = (MIN_CARD_WIDTH - IMAGE_CHROME_WIDTH) * 3 / 4 + IMAGE_CHROME_HEIGHT;
+        let row_limit = ((available_height + GAP) / (minimum_height + GAP)).max(1) as usize;
+        let column_limit = ((available_width + GAP) / (MIN_CARD_WIDTH + GAP)).max(1) as usize;
+        for rows in 1..=row_limit.min(WINDOW_BUDGET) {
+            for columns in 1..=column_limit.min(WINDOW_BUDGET) {
+                if rows * columns > WINDOW_BUDGET || rows > 1 && (rows - 1) * columns >= total {
                     continue;
                 }
                 let row_height = (available_height - GAP * (rows as i32 - 1)) / rows as i32;
@@ -104,6 +229,7 @@ impl Plan {
                 }
             }
         }
+        debug_assert!(best.grid.valid());
         best
     }
 

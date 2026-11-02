@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Nearby favorites derive a bounded multi-row grid from their full viewport, support directional page navigation and return to the first page without escaping an open modal.
 - Nearby compositions use declared Model captures directly and retain static page conditions without reactive wrappers or an owned snapshot copy.
 - Nearby uses forest, sunset and night palettes, pixel-art backgrounds and viewport-dependent typography.
 - Nearby retains the favorites layer while the catalog expands, with responsive cartridge grids, paging and independent selection.
