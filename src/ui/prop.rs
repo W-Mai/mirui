@@ -14,6 +14,11 @@ enum Value<T> {
 }
 
 impl<T> Prop<T> {
+    #[doc(hidden)]
+    pub fn __mirui_is_static(&self) -> bool {
+        matches!(self.value, Value::Static(_))
+    }
+
     /// Retain a getter without evaluating it or registering a reactive consumer.
     ///
     /// Construction allocates one shared closure. Clones share that closure;
@@ -63,5 +68,12 @@ impl From<&str> for Prop<String> {
 impl<T: Default> Default for Prop<T> {
     fn default() -> Self {
         Self::from(T::default())
+    }
+}
+
+impl<T: Clone> crate::core::model::SharedValue for Prop<T> {
+    fn binding_owner(&self) -> crate::core::model::BindingOwner {
+        // Opaque getters validate their captured sources when read.
+        crate::core::model::BindingOwner::unbound()
     }
 }

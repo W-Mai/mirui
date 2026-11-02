@@ -38,8 +38,21 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
         )
         .to_compile_error();
     }
+    for (index, parameter) in function.sig.inputs.iter_mut().enumerate() {
+        if let syn::FnArg::Typed(parameter) = parameter {
+            let mut lowering = ArgumentImplTraits {
+                index,
+                parameters: Vec::new(),
+                attributes: crate::function_attrs::cfg_attrs(&parameter.attrs),
+            };
+            lowering.visit_type_mut(&mut parameter.ty);
+            function.sig.generics.params.extend(lowering.parameters);
+        }
+    }
     let mut captures = Vec::new();
-    for input in &mut function.sig.inputs {
+    let mut models = Vec::new();
+    let mut props = Vec::new();
+    for (index, input) in function.sig.inputs.iter_mut().enumerate() {
         let syn::FnArg::Typed(parameter) = input else {
             return syn::Error::new_spanned(
                 input,
@@ -62,9 +75,33 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
             Ok(role) => role,
             Err(error) => return error.to_compile_error(),
         };
-        let Some((role, _)) = role else {
+        let Some((role, type_role)) = role else {
             continue;
         };
+        if role == RoleKind::Prop {
+            let ty = match syn::parse2::<syn::Type>(type_role.mac.tokens) {
+                Ok(ty) => ty,
+                Err(error) => return error.to_compile_error(),
+            };
+            let syn::Pat::Ident(pattern) = &*parameter.pat else {
+                return syn::Error::new_spanned(
+                    &parameter.pat,
+                    "Prop parameters must use an identifier",
+                )
+                .to_compile_error();
+            };
+            if pattern.by_ref.is_some() || pattern.subpat.is_some() {
+                return syn::Error::new_spanned(
+                    &parameter.pat,
+                    "Prop parameters must use an identifier",
+                )
+                .to_compile_error();
+            }
+            *parameter.ty = syn::parse_quote!(::mirui::ui::Prop<#ty>);
+            props.push(index);
+            captures.push(pattern.ident.clone());
+            continue;
+        }
         debug_assert_eq!(role, RoleKind::Model);
 
         if let Some(attribute) = parameter.attrs.first() {
@@ -139,15 +176,28 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                 .to_compile_error();
             }
         };
+        models.push(binding.name.clone());
         captures.push(binding.name);
     }
 
     if !captures.is_empty() {
-        let checks = captures
+        let checks = models
             .iter()
             .map(|name| syn::parse_quote!(cx.assert_binding(&#name);))
             .collect::<Vec<syn::Stmt>>();
-        BoundUiCalls { captures }.visit_block_mut(&mut function.block);
+        let props = props
+            .iter()
+            .map(|index| {
+                let syn::FnArg::Typed(parameter) = &function.sig.inputs[*index] else {
+                    unreachable!()
+                };
+                let syn::Pat::Ident(pattern) = &*parameter.pat else {
+                    unreachable!()
+                };
+                pattern.ident.clone()
+            })
+            .collect();
+        BoundUiCalls { captures, props }.visit_block_mut(&mut function.block);
         function.block.stmts.splice(0..0, checks);
     }
 
@@ -170,6 +220,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let mut arguments = Vec::with_capacity(function.sig.inputs.len());
+    let mut conversions = Vec::new();
     for (index, input) in function.sig.inputs.iter_mut().enumerate() {
         let syn::FnArg::Typed(parameter) = input else {
             unreachable!("compose receiver validation already completed");
@@ -180,6 +231,14 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
         );
         parameter.pat = syn::parse_quote!(#argument);
         let attributes = crate::function_attrs::cfg_attrs(&parameter.attrs);
+        if props.contains(&index) {
+            let ty = &parameter.ty;
+            conversions.push(quote! {
+                #(#attributes)*
+                let #argument = ::core::convert::Into::<#ty>::into(#argument);
+            });
+            *parameter.ty = syn::parse_quote!(impl ::core::convert::Into<#ty>);
+        }
         arguments.push(quote!(#(#attributes)* #argument));
     }
     function.sig.output = syn::parse_quote! {
@@ -187,10 +246,37 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
     function.block = syn::parse_quote! {
         {
+            #(#conversions)*
             move |cx| (#execution)(cx, #(#arguments),*)
         }
     };
     quote! { #function }
+}
+
+struct ArgumentImplTraits {
+    index: usize,
+    parameters: Vec<syn::GenericParam>,
+    attributes: Vec<syn::Attribute>,
+}
+
+impl VisitMut for ArgumentImplTraits {
+    fn visit_type_mut(&mut self, ty: &mut syn::Type) {
+        if let syn::Type::ImplTrait(implementation) = ty {
+            let name = format_ident!(
+                "__MiruiComposeInput{}_{}",
+                self.index,
+                self.parameters.len(),
+                span = proc_macro2::Span::mixed_site()
+            );
+            let bounds = &implementation.bounds;
+            let attributes = &self.attributes;
+            self.parameters
+                .push(syn::parse_quote!(#(#attributes)* #name: #bounds));
+            *ty = syn::parse_quote!(#name);
+        } else {
+            syn::visit_mut::visit_type_mut(self, ty);
+        }
+    }
 }
 
 struct ResourceExpressions {
@@ -202,7 +288,11 @@ pub(crate) fn prepare_event_composition(
     captures: Vec<syn::Ident>,
 ) -> syn::Result<()> {
     if !captures.is_empty() {
-        BoundUiCalls { captures }.visit_block_mut(body);
+        BoundUiCalls {
+            captures,
+            props: Vec::new(),
+        }
+        .visit_block_mut(body);
     }
     let mut resources = ResourceExpressions { error: None };
     resources.visit_block_mut(body);
@@ -267,6 +357,7 @@ fn lower_resource_receiver(receiver: &mut syn::Expr) -> syn::Result<()> {
 
 struct BoundUiCalls {
     captures: Vec<syn::Ident>,
+    props: Vec<syn::Ident>,
 }
 
 impl VisitMut for BoundUiCalls {
@@ -292,7 +383,13 @@ impl VisitMut for BoundUiCalls {
             return;
         }
         let original = macro_call.tokens.clone();
-        let captures = &self.captures;
+        let captures = self.captures.iter().map(|name| {
+            if self.props.contains(name) {
+                quote!(prop(#name))
+            } else {
+                quote!(#name)
+            }
+        });
         macro_call.tokens = quote! {
             __mirui_bind(#(#captures),*); #original
         };

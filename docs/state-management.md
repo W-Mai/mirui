@@ -83,6 +83,34 @@ Calling a `#[compose]` function prepares a stack-held composition without execut
 
 `Prop<T>` carries a static value or a shared read-only getter. `Prop::from(value)` stores a value; `Prop::new(move || source.get())` retains a getter without evaluating it. `get()` reads in the caller's reactive scope, so a widget binding subscribes to the original sources. Cloning a dynamic prop shares its getter without allocating or registering another consumer. Each read evaluates the getter; use `Computed` when a result needs caching. Static props add no framework allocation, while each dynamic prop allocates one shared closure during preparation. Allocations performed by the value or getter, including String creation, remain separate.
 
+Declare composition inputs with `prop!(T)`. Pass an ordinary value for static content or `${expression}` for a getter. Intermediate compositions forward the input directly; the final widget's `${text}` reads the prop in its existing binding. This registers no intermediate effects and does not reconstruct the subtree when a source changes. String inputs accept `&str` and `String`; ordinary parameters retain Rust value semantics.
+
+```rust
+# use mirui::prelude::*;
+# use mirui::ui::widgets::Text;
+#[compose]
+fn caption(text: prop!(String)) -> Entity {
+    ui! { Text(text: ${text}) }
+}
+
+#[compose]
+fn header(text: prop!(String)) -> Entity {
+    ui! { caption(text) }
+}
+
+#[compose]
+fn panel(count: model!(Signal<u32>)) {
+    ui! {
+        Column() {
+            header("Status")
+            header(${count.get().to_string()})
+        }
+    };
+}
+```
+
+`ui!(header(${expression}))` also accepts reactive inputs, including qualified function paths and generic calls. In ordinary Rust, pass `Prop::new(move || expression)` to the composition factory. Explicit Model parameters are validated before execution; opaque getters retain their captured values' existing read-time ownership checks.
+
 For construction without the UI DSL, pass a closure to `App::compose`. Its scope accepts components, typed widget builders, and tuples of both. `children` returns the container entity and the closure's result. Scope creation and raw widget builders are internal; generated UI and Niche construction use the same implementation through hidden macro support. The supplied scope does not expose World access or require manual parent wiring.
 
 ```rust

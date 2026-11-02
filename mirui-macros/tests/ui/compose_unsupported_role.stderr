@@ -1,4 +1,4 @@
-error: binding role `res!` is not available in `#[compose]`; expected `model!`
+error: binding role `res!` is not available in `#[compose]`; expected `model!`, `prop!`
  --> tests/ui/compose_unsupported_role.rs:6:16
   |
 6 | fn panel(time: res!(Time)) {

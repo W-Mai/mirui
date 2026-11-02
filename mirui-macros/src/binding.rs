@@ -107,6 +107,7 @@ pub(crate) enum BindingCapability {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RoleKind {
     Model,
+    Prop,
     Event,
     Res,
     Query,
@@ -122,6 +123,7 @@ impl RoleKind {
         let name = role.path.get_ident()?;
         Some(match name.to_string().as_str() {
             "model" => Self::Model,
+            "prop" => Self::Prop,
             "event" => Self::Event,
             "res" => Self::Res,
             "query" => Self::Query,
@@ -137,6 +139,7 @@ impl RoleKind {
     pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::Model => "model",
+            Self::Prop => "prop",
             Self::Event => "event",
             Self::Res => "res",
             Self::Query => "query",
@@ -155,7 +158,7 @@ pub(crate) struct RoleSet {
 }
 
 pub(crate) const COMPONENT_FIELD_ROLES: RoleSet = RoleSet::new(&[RoleKind::Model]);
-pub(crate) const COMPOSE_ROLES: RoleSet = RoleSet::new(&[RoleKind::Model]);
+pub(crate) const COMPOSE_ROLES: RoleSet = RoleSet::new(&[RoleKind::Model, RoleKind::Prop]);
 pub(crate) const VIEW_ROLES: RoleSet = RoleSet::new(&[
     RoleKind::Component,
     RoleKind::Model,

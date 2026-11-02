@@ -1855,6 +1855,10 @@ pub(crate) mod widget_binding {
     }
 
     impl<F: Fn() + 'static> PreparedWidgetEffect<F> {
+        pub fn install_once(self, world: &mut World) {
+            with_world_scope(world, self.run);
+        }
+
         pub fn install(self, world: &mut World) {
             with_world_scope(world, || effect_with_role(self.entity, self.role, self.run));
         }
@@ -2522,6 +2526,61 @@ mod tests {
         signal.set(1);
         flush_signal_dirty(&mut world);
         assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn static_widget_input_runs_once_without_retaining_an_effect() {
+        reset();
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let calls = Rc::new(core::cell::Cell::new(0));
+        let counted = calls.clone();
+        widget_binding::prepare_widget_effect(entity, BindingRole::Display, move || {
+            counted.set(counted.get() + 1);
+        })
+        .install_once(&mut world);
+        assert_eq!(calls.get(), 1);
+        assert_eq!(effect_count(), 0);
+        assert_eq!(Rc::strong_count(&calls), 1);
+        flush_signal_dirty(&mut world);
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn composition_inputs_register_only_dynamic_leaf_consumers() {
+        use crate::ui::Prop;
+        use crate::ui::widgets::Text;
+
+        #[crate::compose]
+        fn leaf(text: prop!(alloc::string::String)) -> Entity {
+            crate::ui! {
+                Text (text: ${ text })
+            }
+        }
+
+        #[crate::compose]
+        fn forwarded(text: prop!(alloc::string::String)) -> Entity {
+            crate::ui! {
+                Column () {
+                    leaf (text)
+                    leaf (text)
+                }
+            }
+        }
+
+        reset();
+        let mut app = crate::app::App::headless(32, 32);
+        let root = app.spawn_root().id();
+        app.compose(root, forwarded("static"));
+        assert_eq!(effect_count(), 0);
+        let source = Signal::new(alloc::string::String::from("before"));
+        let observed = source.clone();
+        app.compose(root, forwarded(Prop::new(move || observed.get())));
+        assert_eq!(effect_count(), 2);
+        assert_eq!(with_reactive(|r| r.computeds.len()), 0);
+        source.set(alloc::string::String::from("after"));
+        flush_signal_dirty(&mut app.world);
+        assert_eq!(effect_count(), 2);
     }
 
     #[test]

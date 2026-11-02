@@ -7,6 +7,7 @@ mod child_scope;
 mod component_attr;
 mod compose;
 mod compose_attr;
+mod compose_input;
 mod diag;
 mod event_attr;
 mod function_attrs;
@@ -218,6 +219,7 @@ struct ReactiveBind {
     property: syn::Ident,
     expr: proc_macro2::TokenStream,
     format_expr: syn::Expr,
+    static_input: Option<syn::Ident>,
 }
 
 fn reactive_read(value: &syn::Expr) -> proc_macro2::TokenStream {
@@ -428,6 +430,7 @@ struct MiruiRune {
     widget_kind_stack: Vec<Option<syn::Ident>>,
     counter: usize,
     mold_mode: bool,
+    props: Vec<syn::Ident>,
 }
 
 impl MiruiRune {
@@ -439,6 +442,7 @@ impl MiruiRune {
             widget_kind_stack: Vec::new(),
             counter: 0,
             mold_mode: false,
+            props: Vec::new(),
         }
     }
 
@@ -450,6 +454,7 @@ impl MiruiRune {
             widget_kind_stack: Vec::new(),
             counter: 0,
             mold_mode: true,
+            props: Vec::new(),
         }
     }
 
@@ -501,6 +506,13 @@ impl MiruiRune {
                 &mut rewritten,
             );
             let value = &rewritten;
+            let normalized;
+            let value = if attr.reactive {
+                normalized = compose_input::normalize(value, &self.props);
+                &normalized
+            } else {
+                value
+            };
 
             let name = match &attr.name {
                 Some(n) => n.to_string(),
@@ -625,6 +637,8 @@ impl MiruiRune {
                             property: syn::Ident::new(property, attr_span),
                             expr: reactive_read(value),
                             format_expr: value.clone(),
+                            static_input: compose_input::direct_prop(&attr.value, &self.props)
+                                .cloned(),
                         });
                         continue;
                     }
@@ -1193,6 +1207,11 @@ impl MiruiRune {
                 proc_macro2::Span::mixed_site(),
             );
             let property = &binding.property;
+            let once = binding.static_input.as_ref().map(|input| {
+                let flag = quote::format_ident!("{prepared}_once");
+                tokens.extend(quote! { let #flag = #input.__mirui_is_static(); });
+                flag
+            });
             let role = binding_role(property);
             let expr = &binding.expr;
             let body = if property == "Page" || property == "PageTransition" {
@@ -1243,7 +1262,7 @@ impl MiruiRune {
                     #body
                 });
             });
-            prepared_bindings.push(prepared);
+            prepared_bindings.push((prepared, once));
         }
 
         let enchants = &cmd.enchants;
@@ -1262,8 +1281,14 @@ impl MiruiRune {
             ::mirui::__macro_support::finish_widget_static(#world, __widget_parent, #var);
         });
 
-        for prepared in prepared_bindings {
-            tokens.extend(quote! { #prepared.install(#world); });
+        for (prepared, once) in prepared_bindings {
+            if let Some(once) = once {
+                tokens.extend(quote! {
+                    if #once { #prepared.install_once(#world); } else { #prepared.install(#world); }
+                });
+            } else {
+                tokens.extend(quote! { #prepared.install(#world); });
+            }
         }
 
         if !cmd.layout_binds.is_empty() {
@@ -2019,17 +2044,11 @@ impl DsRune for MiruiRune {
                     );
                     continue;
                 }
-                if attr.reactive {
-                    errors.push(
-                        syn::Error::new(
-                            syn::spanned::Spanned::span(&attr.value),
-                            "compose call arguments cannot use reactive binding syntax",
-                        )
-                        .to_compile_error(),
-                    );
-                    continue;
-                }
-                let mut value = attr.value.clone();
+                let mut value = if attr.reactive {
+                    compose_input::getter(&attr.value, &self.props)
+                } else {
+                    attr.value.clone()
+                };
                 syn::visit_mut::VisitMut::visit_expr_mut(
                     &mut crate::visit_id::IdRewriter {
                         captured: &mut id_lookups,
@@ -2160,7 +2179,11 @@ impl DsRune for MiruiRune {
         use xrune::ds_node::node_enum::DsNode;
 
         let mut branches = vec![Branch {
-            cond: Some(condition.clone()),
+            cond: Some(if reactive {
+                compose_input::normalize(condition, &self.props)
+            } else {
+                condition.clone()
+            }),
             body: self.collect_children(children),
         }];
 
@@ -2169,7 +2192,11 @@ impl DsRune for MiruiRune {
             let node_children = tree.borrow().get_children().to_vec();
             let chain_next = tree.borrow().get_else_branch().cloned();
             let cond = match tree.borrow().get_node() {
-                DsNode::If(if_node) => Some(if_node.get_condition().clone()),
+                DsNode::If(if_node) => Some(if reactive {
+                    compose_input::normalize(if_node.get_condition(), &self.props)
+                } else {
+                    if_node.get_condition().clone()
+                }),
                 _ => None,
             };
             branches.push(Branch {
@@ -2263,7 +2290,11 @@ impl DsRune for MiruiRune {
         }
 
         let cmd = Cmd::Match(MatchCmd {
-            scrutinee: scrutinee.clone(),
+            scrutinee: if reactive {
+                compose_input::normalize(scrutinee, &self.props)
+            } else {
+                scrutinee.clone()
+            },
             reactive,
             arms: arm_cmds,
         });
@@ -2338,6 +2369,8 @@ impl DsRune for MiruiRune {
 /// Calling the function creates a stack-owned composition closure without executing its body. Use `app.compose(parent, counter_panel(counter))` to execute it in the application's construction scope. Parameter patterns, generic bounds, and concrete result types belong to the execution body. A function used as a child node must return its root `Entity`; `ui!(helper(...))` executes the closure in the current scope and forwards its result.
 ///
 /// Resource expressions borrow the current application's storage through `res!(T).with(...)`, `res!(optional T).with(...)`, or `res!(mut T).with(...)`. Closure outputs cannot retain resource references. `res!().insert(value)` and `res!().remove::<T>()` perform immediate setup operations; callback `commands!` remains deferred.
+///
+/// A `prop!(T)` parameter accepts a static value or a shared read-only getter. UI calls pass `${expression}` to retain a getter; intermediate compositions forward the prop directly. A widget's `${name}` reads a declared prop in that widget's binding, subscribing to the original sources. Ordinary Rust callers can pass `Prop::new(move || expression)`. Getters do not create intermediate signals or effects.
 ///
 /// Compute resource-backed values in the Rust body before passing them to `ui!` or another macro. Resource expressions do not expand inside another macro's token stream.
 ///
@@ -2425,7 +2458,7 @@ pub fn compose(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn ui(input: TokenStream) -> TokenStream {
     let input2: proc_macro2::TokenStream = input.into();
-    let (captures, input2) = match strip_bound_captures(input2) {
+    let (captures, props, input2) = match strip_bound_captures(input2) {
         Ok(value) => value,
         Err(error) => return error.to_compile_error().into(),
     };
@@ -2434,8 +2467,9 @@ pub fn ui(input: TokenStream) -> TokenStream {
         return mold::expand(after).into();
     }
 
-    if let Some(call) = try_parse_fn_call_form(&input2) {
-        return expand_ui_fn_call(call).into();
+    if let Some(call) = compose_input::call(&input2, &props) {
+        let output = expand_ui_fn_call(call);
+        return capture_output(output, captures).into();
     }
 
     let input2 = match crate::layout_reactive::preprocess(input2) {
@@ -2447,6 +2481,7 @@ pub fn ui(input: TokenStream) -> TokenStream {
         Err(e) => return e.to_compile_error().into(),
     };
     let mut rune = MiruiRune::new();
+    rune.props = props;
 
     rune.world_expr = scope_world_expr();
     rune.parent_expr = quote! { __mirui_parent };
@@ -2464,27 +2499,34 @@ pub fn ui(input: TokenStream) -> TokenStream {
             #body
         }
     };
+    capture_output(output, captures).into()
+}
+
+fn capture_output(
+    output: proc_macro2::TokenStream,
+    captures: Vec<syn::Ident>,
+) -> proc_macro2::TokenStream {
     if captures.is_empty() {
-        return output.into();
+        return output;
     }
     let mut output: syn::Expr = match syn::parse2(output) {
         Ok(output) => output,
-        Err(error) => return error.to_compile_error().into(),
+        Err(error) => return error.to_compile_error(),
     };
     BoundCaptureRewriter { captures }.visit_expr_mut(&mut output);
-    quote!(#output).into()
+    quote!(#output)
 }
 
 fn strip_bound_captures(
     input: proc_macro2::TokenStream,
-) -> syn::Result<(Vec<syn::Ident>, proc_macro2::TokenStream)> {
+) -> syn::Result<(Vec<syn::Ident>, Vec<syn::Ident>, proc_macro2::TokenStream)> {
     use proc_macro2::{Delimiter, TokenTree};
     let mut iter = input.clone().into_iter();
     let Some(TokenTree::Ident(marker)) = iter.next() else {
-        return Ok((Vec::new(), input));
+        return Ok((Vec::new(), Vec::new(), input));
     };
     if marker != "__mirui_bind" {
-        return Ok((Vec::new(), input));
+        return Ok((Vec::new(), Vec::new(), input));
     }
     let Some(TokenTree::Group(group)) = iter.next() else {
         return Err(syn::Error::new_spanned(marker, "expected bound names"));
@@ -2493,7 +2535,7 @@ fn strip_bound_captures(
         return Err(syn::Error::new_spanned(group, "expected bound names"));
     }
     let names = syn::parse::Parser::parse2(
-        syn::punctuated::Punctuated::<syn::Ident, syn::Token![,]>::parse_terminated,
+        syn::punctuated::Punctuated::<CaptureName, syn::Token![,]>::parse_terminated,
         group.stream(),
     )?;
     let Some(TokenTree::Punct(end)) = iter.next() else {
@@ -2508,7 +2550,38 @@ fn strip_bound_captures(
             "expected `;` after bound names",
         ));
     }
-    Ok((names.into_iter().collect(), iter.collect()))
+    let props = names
+        .iter()
+        .filter(|name| name.prop)
+        .map(|name| name.name.clone())
+        .collect();
+    Ok((
+        names.into_iter().map(|name| name.name).collect(),
+        props,
+        iter.collect(),
+    ))
+}
+
+struct CaptureName {
+    name: syn::Ident,
+    prop: bool,
+}
+
+impl syn::parse::Parse for CaptureName {
+    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
+        let name: syn::Ident = input.parse()?;
+        if name == "prop" && input.peek(syn::token::Paren) {
+            let body;
+            syn::parenthesized!(body in input);
+            let name = body.parse()?;
+            if !body.is_empty() {
+                return Err(body.error("expected one prop name"));
+            }
+            Ok(Self { name, prop: true })
+        } else {
+            Ok(Self { name, prop: false })
+        }
+    }
 }
 
 struct BoundCaptureRewriter {
@@ -2928,11 +3001,19 @@ impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
         let syn::Expr::Path(path) = &*call.func else {
             return;
         };
-        if !path.path.segments.last().is_some_and(|segment| {
-            segment.ident == "effect_with_widget"
-                || segment.ident == "effect_with_role"
-                || segment.ident == "prepare_widget_effect"
-        }) {
+        let input_getter = path
+            .path
+            .segments
+            .iter()
+            .map(|part| part.ident.to_string())
+            .eq(["mirui", "ui", "Prop", "new"].map(String::from));
+        if !input_getter
+            && !path.path.segments.last().is_some_and(|segment| {
+                segment.ident == "effect_with_widget"
+                    || segment.ident == "effect_with_role"
+                    || segment.ident == "prepare_widget_effect"
+            })
+        {
             return;
         }
         if let Some(closure @ syn::Expr::Closure(_)) = call.args.last_mut() {
@@ -2952,22 +3033,6 @@ fn try_strip_compose_keyword(input: &proc_macro2::TokenStream) -> Option<proc_ma
     Some(iter.collect())
 }
 
-fn try_parse_fn_call_form(input: &proc_macro2::TokenStream) -> Option<syn::ExprCall> {
-    let call: syn::ExprCall = syn::parse2(input.clone()).ok()?;
-    let path = match &*call.func {
-        syn::Expr::Path(p) => p,
-        _ => return None,
-    };
-    let last = path.path.segments.last()?;
-    let name = last.ident.to_string();
-    let first_char = name.chars().next()?;
-    if first_char.is_ascii_lowercase() || first_char == '_' {
-        Some(call)
-    } else {
-        None
-    }
-}
-
 fn scope_world_expr() -> proc_macro2::TokenStream {
     quote! {{
         use ::mirui::__macro_support::ScopeWorldAccess as _;
@@ -2979,7 +3044,10 @@ fn expand_ui_fn_call(call: syn::ExprCall) -> proc_macro2::TokenStream {
     let func = &call.func;
     let args = &call.args;
     quote! {
-        (#func(#args))(cx)
+        {
+            let __compose_factory = #func(#args);
+            __compose_factory(cx)
+        }
     }
 }
 
@@ -3158,9 +3226,10 @@ mod typed_on_tests {
     }
 
     fn expand_tree(input: proc_macro2::TokenStream) -> syn::Expr {
-        let (captures, input) = strip_bound_captures(input).unwrap();
+        let (captures, props, input) = strip_bound_captures(input).unwrap();
         let tree = syn::parse2::<DsTree>(input).unwrap().into_ref();
         let mut rune = MiruiRune::new();
+        rune.props = props;
         rune.world_expr = scope_world_expr();
         rune.parent_expr = quote!(__parent);
         decipher(&tree, &mut rune);
@@ -3276,7 +3345,11 @@ mod typed_on_tests {
         let expression: syn::Expr = syn::parse2(output).unwrap();
         assert_eq!(
             quote!(#expression).to_string(),
-            quote!((helpers::value::<u8>(source, 7))(cx)).to_string(),
+            quote!({
+                let __compose_factory = helpers::value::<u8>(source, 7);
+                __compose_factory(cx)
+            })
+            .to_string(),
         );
     }
 }
