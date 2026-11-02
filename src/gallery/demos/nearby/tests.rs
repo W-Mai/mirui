@@ -1682,6 +1682,50 @@ fn simulation_inspector_keeps_the_original_viewport_and_renders_after_repeated_r
             let bounds = app.world.get::<ComputedRect>(panel).unwrap().0;
             assert!(bounds.w > Fixed::ZERO && bounds.w <= Fixed::from_int(width.into()));
             assert_eq!(app.world.get::<ComputedRect>(shelf).unwrap().0, original);
+            let options = app.world.find_by_id("nearby_simulation_options").unwrap();
+            let area = app.world.get::<ComputedRect>(options).unwrap().0;
+            let point = (area.x + area.w / 2, area.y + area.h / 2);
+            let root = app.root;
+            crate::input::event::dispatch_input(
+                &mut app.world,
+                root,
+                &crate::input::event::input::InputEvent::Wheel {
+                    dx: Fixed::ZERO,
+                    dy: Fixed::from_int(-200),
+                    x: area.x + area.w / 2,
+                    y: area.y + Fixed::ONE,
+                },
+                1,
+                width,
+                height,
+            );
+            app.render_dirty().unwrap();
+            let before = app
+                .world
+                .get::<crate::input::event::scroll::ScrollOffset>(options)
+                .unwrap()
+                .y;
+            assert!(before > Fixed::ZERO);
+            crate::input::event::dispatch_input(
+                &mut app.world,
+                root,
+                &crate::input::event::input::InputEvent::Wheel {
+                    dx: Fixed::ZERO,
+                    dy: Fixed::from_int(100),
+                    x: point.0,
+                    y: point.1,
+                },
+                2,
+                width,
+                height,
+            );
+            assert!(
+                app.world
+                    .get::<crate::input::event::scroll::ScrollOffset>(options)
+                    .unwrap()
+                    .y
+                    < before
+            );
             state.toggle_controls();
             app.prepare_text_layout().unwrap();
             app.render_dirty().unwrap();

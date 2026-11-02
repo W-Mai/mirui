@@ -256,7 +256,13 @@ pub(super) fn controls(state: model!(DisplayState)) -> Entity {
                 Button ("Repeat case", grow: 1.0, min_width: 0, font: FONT, font_size: 12) on Tap { state.run_simulation(state.simulation_route(), state.scenario()); }
                 Button ("Stop case", grow: 1.0, min_width: 0, font: FONT, font_size: 12) on Tap { state.stop_simulation(); }
             }
-            Column (grow: 1.0, min_height: 0, row_gap: 4, clip_children: true) [
+            Column (
+                id: "nearby_simulation_options",
+                grow: 1.0,
+                min_height: 0,
+                row_gap: 4,
+                clip_children: true
+            ) [
                 ScrollOffset::default(),
                 ScrollConfig::default(),
             ] {
@@ -358,6 +364,7 @@ fn reply_button(state: model!(DisplayState), action: Action) -> Entity {
                     font_size: 12
                 ) [
                     UserState::Disabled,
+                    crate::ui::IgnoreHitTest,
                 ]
             }
         }

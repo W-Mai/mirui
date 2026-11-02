@@ -66,6 +66,7 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
             }
         }
         "favorites" => {}
+        "simulation" => state.toggle_controls(),
         "platforms" => library.open(Screen::Platforms),
         "games" => library.choose_platform(0),
         "connection-games" | "empty-games" => {

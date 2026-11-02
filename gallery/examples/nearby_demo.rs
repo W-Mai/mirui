@@ -1,5 +1,5 @@
 fn main() {
-    gallery::run("mirui — Nearby", 640, 480, |setup| {
+    gallery::run("mirui — Nearby · F2: Simulation", 640, 480, |setup| {
         #[cfg(all(any(feature = "sdl", feature = "sdl-gpu"), not(target_arch = "wasm32")))]
         setup.app.add_plugin(mirui::app::plugins::AudioPlugin::new(
             mirui::audio::SdlAudioSink::new(),

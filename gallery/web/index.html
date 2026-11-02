@@ -712,7 +712,7 @@
       }
       .icon-btn:active,
       .copy-btn:active { transform: translateY(1px); }
-      .audio-toggle[hidden] { display: none; }
+      .audio-toggle[hidden], #simulation-btn[hidden] { display: none; }
       .audio-toggle[data-muted="false"] {
         color: var(--signal);
         border-color: var(--signal-edge);
@@ -1507,6 +1507,7 @@
                 <span class="name" id="stage-name">—</span>
                 <span class="meta-right">
                   <span class="size" id="stage-size">—</span>
+                  <button class="icon-btn" id="simulation-btn" type="button" hidden title="Toggle network simulation (F2)" data-i18n="gallery.simulation">Simulate</button>
                   <button class="icon-btn audio-toggle" id="audio-btn" type="button" hidden aria-pressed="false" title="Enable sound" aria-label="Enable sound">
                     <svg class="audio-on" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <path d="M2.5 6.2v3.6h2.2l3 2.5V3.7l-3 2.5H2.5Z" fill="currentColor"/>
@@ -1604,6 +1605,7 @@
             "gallery.source": "Source", "gallery.copy": "Copy", "gallery.copied": "Copied!",
             "gallery.backHome": "Back to home", "gallery.choose": "Choose demo", "gallery.themeLight": "Switch to light theme", "gallery.themeDark": "Switch to dark theme",
             "gallery.rotate": "Swap portrait and landscape", "gallery.fixed": "This demo has a fixed logical canvas", "gallery.reset": "Reset canvas size", "gallery.audioOn": "Mute sound", "gallery.audioOff": "Enable sound", "gallery.audioUnlock": "Click to enable sound",
+            "gallery.simulation": "Simulate", "gallery.simulationHint": "Toggle network simulation (F2)",
             "gallery.noSource": "No source available for"
           },
           zh: {
@@ -1634,6 +1636,7 @@
             "gallery.source": "源码", "gallery.copy": "复制", "gallery.copied": "已复制",
             "gallery.backHome": "返回首页", "gallery.choose": "选择 Demo", "gallery.themeLight": "切换到亮色主题", "gallery.themeDark": "切换到暗色主题",
             "gallery.rotate": "交换横屏与竖屏", "gallery.fixed": "此 Demo 使用固定逻辑画布", "gallery.reset": "重置画布尺寸", "gallery.audioOn": "关闭声音", "gallery.audioOff": "打开声音", "gallery.audioUnlock": "点击启用声音",
+            "gallery.simulation": "模拟联机", "gallery.simulationHint": "打开或关闭联机模拟面板（F2）",
             "gallery.noSource": "没有可用源码："
           }
         };
@@ -1708,6 +1711,7 @@
         const resetBtn = document.getElementById("reset-btn");
         const rotateBtn = document.getElementById("rotate-btn");
         const audioBtn = document.getElementById("audio-btn");
+        const simulationBtn = document.getElementById("simulation-btn");
         const portraitQuery = window.matchMedia("(orientation: portrait)");
         const defaultFixedCanvasMaxScale = 1.5;
         const defaultFixedCanvasInset = () => mobileQuery.matches ? 12 : 24;
@@ -1907,6 +1911,20 @@
           audioBtn.querySelector(".audio-on").style.display = muted ? "none" : "block";
           audioBtn.querySelector(".audio-off").style.display = muted ? "block" : "none";
         }
+
+        function syncSimulationControl() {
+          simulationBtn.hidden = activeSlug !== "nearby";
+          simulationBtn.title = window.miruiLanguage.t("gallery.simulationHint");
+        }
+
+        simulationBtn.addEventListener("click", () => {
+          canvas.focus({ preventScroll: true });
+          for (const type of ["keydown", "keyup"]) {
+            canvas.dispatchEvent(new KeyboardEvent(type, {
+              key: "F2", code: "F2", bubbles: true, cancelable: true
+            }));
+          }
+        });
 
         function applyStoredAudioPreference() {
           const muted = storedAudioMuted();
@@ -2389,6 +2407,7 @@
 
           activeDemo = demo;
           activeSlug = slug;
+          syncSimulationControl();
 
           stageName.textContent = demo.label;
           focusTitle.textContent = demo.label;
@@ -3363,6 +3382,7 @@
           homeButton.setAttribute("aria-label", homeButton.title);
           applyCanvasSize(currentSize || resolveCanvasSize());
           syncAudioControl();
+          syncSimulationControl();
           renderSource();
           applyTheme(isDark(), false);
         }

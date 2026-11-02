@@ -1066,6 +1066,9 @@ impl DisplayStateHandle {
             return "Choose a flow or case to begin";
         }
         let view = self.presentation();
+        if view.page == Page::Unavailable {
+            return "Press B to return";
+        }
         if matches!(self.scenario(), Scenario::PeerClosed | Scenario::Reconnect)
             && matches!(
                 view.phase,
