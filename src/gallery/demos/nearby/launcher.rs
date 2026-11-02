@@ -856,7 +856,7 @@ impl LauncherHandle {
             Screen::Favorites => "X 游玩 / 长按联机 · Y 排序",
             Screen::Platforms => "Y 搜索",
             Screen::Games => "X 游玩 / 长按联机 · Y 收藏",
-            Screen::Search if self.keyboard() => "Y 退格 · START 结果",
+            Screen::Search if self.keyboard() => "Y 退格 · K 结果",
             Screen::Search => {
                 let query = self.query().to_lowercase();
                 if !query.trim().is_empty()
@@ -865,7 +865,7 @@ impl LauncherHandle {
                         .iter()
                         .any(|game| game.key() as usize == self.selected() && game.matches(&query))
                 {
-                    "X 游玩 · Y 收藏 · START 键盘"
+                    "X 游玩 · Y 收藏 · K 键盘"
                 } else {
                     "Y 键盘"
                 }

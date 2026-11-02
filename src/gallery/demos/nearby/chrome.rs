@@ -224,11 +224,11 @@ fn footer_controls(
                 FONT_PAINT,
             ]
             if launcher {
-                control_key ("SELECT", metrics, false)
+                control_key ("J", metrics, false)
                 control_label (|| "联机".into(), metrics)
             }
             if ${ launcher && state.launcher().screen() != super::launcher::Screen::Search } {
-                control_key ("START", metrics, false)
+                control_key ("K", metrics, false)
                 control_label (|| "设置".into(), metrics)
             }
         }

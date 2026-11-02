@@ -754,6 +754,52 @@ fn catalog_windows_keyboard_and_game_selection_share_the_native_routes() {
 }
 
 #[test]
+fn launcher_j_k_shortcuts_keep_connection_and_settings_interactive() {
+    use crate::input::event::input::PhysicalKey;
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    app.render_dirty().unwrap();
+    let mut press = |key, now| {
+        let root = app.root;
+        crate::input::event::dispatch_input(
+            &mut app.world,
+            root,
+            &crate::test_support::physical_key(key).into(),
+            now,
+            640,
+            480,
+        );
+        for _ in 0..20 {
+            app.tick();
+            app.render_dirty().unwrap();
+        }
+    };
+    press(PhysicalKey::KeyK, 1);
+    assert!(library.menu());
+    assert_eq!(library.overlay(), Some(launcher::Overlay::System));
+    press(PhysicalKey::KeyB, 2);
+    assert!(!library.menu());
+    press(PhysicalKey::KeyJ, 3);
+    assert!(!library.active());
+    assert_eq!(state.focus_page(), Page::Lobby);
+    press(PhysicalKey::ArrowDown, 4);
+    press(PhysicalKey::KeyB, 5);
+    assert!(library.active());
+    library.open(launcher::Screen::Search);
+    assert!(library.keyboard());
+    press(PhysicalKey::KeyK, 6);
+    assert!(!library.keyboard());
+    press(PhysicalKey::KeyK, 7);
+    assert!(library.keyboard());
+    library.open(launcher::Screen::Favorites);
+    press(PhysicalKey::Space, 8);
+    press(PhysicalKey::F1, 9);
+    assert!(library.active());
+    assert!(!library.menu());
+}
+
+#[test]
 fn physical_keyboard_controls_the_active_launcher_instead_of_the_hidden_connection_page() {
     use crate::input::event::input::PhysicalKey;
     let (mut app, state) = fixture();

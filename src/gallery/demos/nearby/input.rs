@@ -242,7 +242,7 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
             });
             return true;
         }
-        if event.physical == Some(PhysicalKey::F1) {
+        if event.physical == Some(PhysicalKey::KeyK) {
             if library.screen() == super::launcher::Screen::Search {
                 if library.keyboard() {
                     library.type_key("结果");
@@ -254,7 +254,7 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
             }
             return true;
         }
-        if event.physical == Some(PhysicalKey::Space) {
+        if event.physical == Some(PhysicalKey::KeyJ) {
             state.open_network();
             return true;
         }
