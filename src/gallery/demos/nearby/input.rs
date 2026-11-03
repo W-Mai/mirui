@@ -194,7 +194,7 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
         Some(PhysicalKey::Enter) => KEY_RETURN,
         _ => event.code,
     };
-    if library.active() && library.wifi_active() {
+    if library.active() && (library.wifi_active() || library.configuration_active()) {
         if event.pressed {
             use super::wifi::Action;
             let action = match event.physical {
@@ -218,7 +218,11 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
                         Action::Up | Action::Down | Action::Left | Action::Right
                     )
                 {
-                    library.wifi_input(action);
+                    if library.configuration_active() {
+                        library.configuration_input(action);
+                    } else {
+                        library.wifi_input(action);
+                    }
                 }
             }
         }

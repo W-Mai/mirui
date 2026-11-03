@@ -18,6 +18,10 @@ use alloc::vec::Vec;
 
 pub(super) fn confirm(state: &super::model::DisplayStateHandle) {
     let library = state.launcher();
+    if library.configuration_active() {
+        library.configuration_input(super::wifi::Action::Confirm);
+        return;
+    }
     if library.wifi_active() {
         library.wifi_input(super::wifi::Action::Confirm);
         return;
@@ -182,6 +186,7 @@ fn activate_action(state: &super::model::DisplayStateHandle, action: MenuAction)
         Multiplayer => join_game(state),
         ToggleFavorite => library.toggle_favorite(),
         ShowGameDetails => library.show_game_details(),
+        ShowGameSettings => library.open_configuration(),
         ShowCoreDetails | ShowFirmwareDetails | ShowSaveDetails | ExpandDetail => {
             library.confirm_detail()
         }

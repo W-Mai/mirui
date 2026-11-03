@@ -5,6 +5,7 @@ mod choices;
 mod chrome;
 mod composition;
 pub mod configuration;
+mod configuration_view;
 mod consoles;
 mod copy;
 pub mod data;
@@ -79,6 +80,7 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.with_widget(library::library_focus::view());
     app.with_widget(actor::actor_frame::view());
     app.with_widget(detail_view::details_scroll::view());
+    app.with_widget(configuration_view::config_scroll::view());
     app.with_widget(pixel::scenery::view());
     app.with_widget(pixel::choice_sprite::view());
     app.with_widget(pixel::walker_sprite::view());

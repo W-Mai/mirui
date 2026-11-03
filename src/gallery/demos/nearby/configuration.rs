@@ -176,6 +176,11 @@ impl Editor {
             .is_some_and(|v| matches!(v.load, Load::Loading))
     }
     #[observe]
+    pub fn ready(&self) -> bool {
+        let _ = self.revision;
+        self.document().is_some()
+    }
+    #[observe]
     pub fn saving(&self) -> bool {
         let _ = self.revision;
         self.view.as_ref().is_some_and(|v| v.saving)

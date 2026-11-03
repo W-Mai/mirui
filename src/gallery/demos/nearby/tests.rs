@@ -6,6 +6,71 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn configuration_input_keeps_the_actual_row_actor_and_nested_routes_inside_the_panel() {
+    use crate::input::event::input::PhysicalKey;
+    use crate::ui::{ComputedRect, widgets::FollowBounds};
+    use configuration::schema::Section;
+    for (width, height) in [(480, 320), (640, 480)] {
+        let (mut app, state) = fixture_at(width, height);
+        let library = state.launcher();
+        library.resume();
+        library.configuration_fixture();
+        app.add_resource(crate::ecs::DeltaTimeMs(250));
+        for stage in 0..7 {
+            let keys = match stage {
+                0 => alloc::vec::Vec::new(),
+                1 => alloc::vec![PhysicalKey::ArrowDown, PhysicalKey::KeyA],
+                2 => alloc::vec![PhysicalKey::ArrowDown; 20],
+                3 => alloc::vec![PhysicalKey::KeyA],
+                4 => alloc::vec![PhysicalKey::ArrowDown; 3],
+                _ => alloc::vec![PhysicalKey::KeyB],
+            };
+            for key in keys {
+                crate::input::event::dispatch_input(
+                    &mut app.world,
+                    app.root,
+                    &crate::test_support::physical_key(key).into(),
+                    stage as u32 + 1,
+                    width,
+                    height,
+                );
+            }
+            for _ in 0..8 {
+                app.tick();
+                app.render_dirty().unwrap();
+            }
+            let actor = app
+                .world
+                .query::<actor::ActorFrame>()
+                .iter()
+                .find_map(|(node, marker)| marker.launcher.then_some(node))
+                .unwrap();
+            let target = app.world.get::<FollowBounds>(actor).unwrap().target;
+            let anchor = app.world.get::<actions::ActionAnchor>(target).unwrap();
+            assert!(matches!(
+                anchor,
+                actions::ActionAnchor::Item {
+                    layout: actions::ActionLayout::Configuration,
+                    ..
+                }
+            ));
+            assert_eq!(anchor.index(), Some(library.configuration().selected()));
+            assert_eq!(library.menu_selection(), library.configuration().selected());
+            assert_eq!(library.selection_age(), library.configuration().age());
+            let rect = app.world.get::<ComputedRect>(target).unwrap().0;
+            let top = if width == 480 { 8 } else { 32 };
+            assert!(rect.y >= Fixed::from_int(top));
+            assert!(
+                rect.y + rect.h <= Fixed::from_int(i32::from(height) - top),
+                "{width} stage{stage} {rect:?}"
+            );
+            assert!(!library.holding());
+        }
+        assert_eq!(library.configuration().section(), Section::Home);
+    }
+}
+
+#[test]
 fn wifi_actor_follows_all_real_keys_and_the_transformed_loading_frontier() {
     use crate::ui::{ComputedRect, LayoutGeometry, Outputs, widgets::FollowBounds};
     for (width, height) in [(480, 320), (640, 480)] {
@@ -1104,7 +1169,7 @@ fn action_overlay_keeps_all_game_actions_inside_the_panel() {
                     .then_some((anchor.index()?, app.world.get::<ComputedRect>(entity)?.0))
             })
             .collect();
-        assert_eq!(tiles.len(), 5);
+        assert_eq!(tiles.len(), 6);
         for (index, rect) in &tiles {
             assert!(rect.x >= panel.x, "{index}: {rect:?}");
             assert!(rect.w > Fixed::ZERO && rect.h > Fixed::ZERO);

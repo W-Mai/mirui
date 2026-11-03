@@ -2,8 +2,24 @@ mod snapshot_render;
 
 use std::env;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use mirui::gallery::DemoSize;
+
+static REFERENCE_TIME_NS: AtomicU64 = AtomicU64::new(0);
+
+fn reference_clock() -> u64 {
+    REFERENCE_TIME_NS.load(Ordering::Relaxed)
+}
+
+fn advance_reference(app: &mut snapshot_render::SnapshotApp, current: &mut u64, target: u64) {
+    while *current < target {
+        *current = (*current + 16).min(target);
+        REFERENCE_TIME_NS.store(*current * 1_000_000, Ordering::Relaxed);
+        app.tick();
+        app.render_dirty().expect("configuration reference stage");
+    }
+}
 
 fn clamp_axis(preferred: u16, minimum: Option<u16>, maximum: Option<u16>) -> u16 {
     let lower = minimum.unwrap_or(1);
@@ -63,6 +79,33 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
             .expect("detail reference inventory");
     }
     match scene {
+        scene if scene.starts_with("configuration-") => {
+            use nearby::wifi::Action;
+            let step = scene[14..].parse::<usize>().expect("configuration step");
+            assert!(step < 7);
+            REFERENCE_TIME_NS.store(0, Ordering::Relaxed);
+            app.add_resource(mirui::ecs::MonoClock::new(reference_clock));
+            library.configuration_fixture();
+            app.prepare_text_layout()
+                .expect("prepare configuration reference");
+            app.render().expect("initial configuration reference");
+            let mut time = 0;
+            advance_reference(app, &mut time, 800);
+            for current in 0..=step {
+                let actions = match current {
+                    0 => Vec::new(),
+                    1 => vec![Action::Down, Action::Confirm],
+                    2 => vec![Action::Down; 20],
+                    3 => vec![Action::Confirm],
+                    4 => vec![Action::Down; 3],
+                    _ => vec![Action::Back],
+                };
+                for action in actions {
+                    library.configuration_input(action);
+                }
+                advance_reference(app, &mut time, 1000 + current as u64 * 200);
+            }
+        }
         scene if scene.starts_with("wifi-") => {
             use nearby::wifi::Page;
             let page = match &scene[5..] {

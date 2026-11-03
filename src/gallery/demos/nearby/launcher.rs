@@ -802,10 +802,10 @@ impl Launcher {
         if self.overlay != Some(Overlay::Configuration) {
             return;
         }
+        #[cfg(feature = "audio")]
         let previous = self.configuration.selected();
         self.configuration.input(action);
         self.menu_index = self.configuration.selected();
-        self.menu_age = 0;
         #[cfg(feature = "audio")]
         self.audio_feedback
             .emit(if action == super::wifi::Action::Back {
@@ -1709,6 +1709,14 @@ impl Launcher {
 }
 
 impl LauncherHandle {
+    pub fn configuration_active(&self) -> bool {
+        self.overlay() == Some(Overlay::Configuration)
+    }
+
+    pub fn configuration_scenario(&self) -> super::configuration::service::Scenario {
+        self.configuration_revision();
+        self.read_configuration_scenario()
+    }
     pub fn wifi_active(&self) -> bool {
         self.overlay() == Some(Overlay::Wifi)
     }
@@ -1897,6 +1905,9 @@ impl LauncherHandle {
         }
     }
     pub fn overlay_title(&self) -> String {
+        if self.configuration_active() {
+            return self.configuration().heading();
+        }
         self.overlay();
         self.selected_game();
         if self.wifi_active() {
@@ -1951,7 +1962,11 @@ mod tests {
             state.read_item(3).unwrap().action,
             MenuAction::ShowGameDetails
         );
-        assert_eq!(state.read_item(4).unwrap().action, MenuAction::Back);
+        assert_eq!(
+            state.read_item(4).unwrap().action,
+            MenuAction::ShowGameSettings
+        );
+        assert_eq!(state.read_item(5).unwrap().action, MenuAction::Back);
         state.show_game_details();
         assert_eq!(state.item_count(), 3);
         for (section, parent) in [
@@ -2139,10 +2154,10 @@ mod tests {
         assert!(!launcher.read_item(3).unwrap().reason.is_empty());
     }
     #[test]
-    fn game_overlay_keeps_existing_actions_and_adds_details_before_back() {
+    fn game_overlay_keeps_existing_actions_and_adds_details_and_settings_before_back() {
         let mut launcher = Launcher::default();
         launcher.choose_game(2, 2);
-        assert_eq!(launcher.item_count(), 5);
+        assert_eq!(launcher.item_count(), 6);
         assert!(!launcher.read_item(1).unwrap().enabled);
         launcher.back();
         assert!(!launcher.menu());

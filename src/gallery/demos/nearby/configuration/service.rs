@@ -317,6 +317,19 @@ fn example(key: u32, title: String, platform: &str) -> Document {
     ] {
         add(id, Section::Saves, label, boolean.clone(), "cfg");
     }
+    document.fields.push(Field {
+        id: Id::Option("netplay_mode".into()),
+        section: Section::Core,
+        label: "运行模式".into(),
+        choices: vec![Choice {
+            value: Value::Text("单机".into()),
+            label: "单机".into(),
+        }],
+        values: core::array::from_fn(|_| Value::Text("单机".into())),
+        inherited: core::array::from_fn(|_| Value::Text("单机".into())),
+        origins: core::array::from_fn(|_| "单机运行模式".into()),
+        targets: core::array::from_fn(|_| String::new()),
+    });
     document.saves = paths(&document, Scope::Game, &[]);
     document.sources = vec![Fact::new(
         "说明",
