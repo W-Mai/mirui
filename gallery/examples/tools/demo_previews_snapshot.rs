@@ -63,6 +63,28 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
             .expect("detail reference inventory");
     }
     match scene {
+        scene if scene.starts_with("wifi-") => {
+            use nearby::wifi::Page;
+            let page = match &scene[5..] {
+                "list" => Page::List,
+                "password" => Page::Password,
+                "hidden" => Page::Hidden,
+                "security" => Page::Security,
+                "connecting" => Page::Connecting,
+                "cancelling" => Page::Cancelling,
+                "restoring" => Page::Restoring,
+                "success" => Page::Success,
+                "info" => Page::Info,
+                "details" => Page::Details,
+                "forget" => Page::Forget,
+                "off" => Page::Off,
+                "empty" => Page::Empty,
+                "busy" => Page::Busy,
+                "failed" => Page::Failed,
+                _ => panic!("unknown Wi-Fi snapshot scene: {scene}"),
+            };
+            library.wifi_fixture(page);
+        }
         "actions" | "details-game" => library.choose_game(0, 0),
         "details" | "details-core" | "details-firmware" | "details-saves" | "details-expanded"
         | "details-loading" | "details-failed" => {

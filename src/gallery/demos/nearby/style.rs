@@ -52,6 +52,12 @@ impl Default for Metrics {
 }
 
 impl Metrics {
+    pub(super) fn wifi_row_height(self) -> i32 {
+        24 + self.gap * 2 + 8
+    }
+    pub(super) fn wifi_row_extent(self) -> i32 {
+        self.wifi_row_height() + self.shadow_height() + self.gap
+    }
     pub(super) fn row_height(self) -> i32 {
         self.sized(40, 44, 68)
     }

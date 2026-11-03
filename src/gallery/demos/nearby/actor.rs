@@ -46,6 +46,11 @@ fn resolve<'a, 'b, 'c, 'd>(
         return None;
     }
     if library.active() && library.menu() {
+        if library.wifi_active() && (library.wifi_keyboard() || library.wifi_page().pending()) {
+            return action_targets.into_iter().find_map(|(entity, anchor)| {
+                (anchor.active(&library) && anchor.index().is_none()).then_some((entity, false))
+            });
+        }
         if library.detail_expanded() {
             return action_targets.into_iter().find_map(|(entity, anchor)| {
                 matches!(anchor, super::actions::ActionAnchor::Reading).then_some((entity, false))
@@ -211,7 +216,12 @@ pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
                 position: Position::Absolute,
                 left: ${
                     Dimension::Percent(
-                        if state.launcher().active()
+                        if state.launcher().wifi_active()
+                            && (state.launcher().wifi_keyboard()
+                                || state.launcher().wifi_page().pending())
+                        {
+                            state.launcher().wifi_actor_position()
+                        } else if state.launcher().active()
                             && (state.launcher().menu()
                                 || state.launcher().screen() == super::launcher::Screen::Favorites
                                 || state.launcher().keyboard())

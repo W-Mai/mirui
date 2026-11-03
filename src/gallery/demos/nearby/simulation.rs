@@ -329,6 +329,41 @@ pub(super) fn controls(state: model!(DisplayState)) -> Entity {
                     }
                 }
                 Text (
+                    "ORDINARY WI-FI / LOCAL MOCK",
+                    height: 20,
+                    shrink: 0.0,
+                    font: FONT,
+                    font_size: 12,
+                    text_color: SECONDARY
+                )
+                walk super::wifi::Scenario::ALL.into_iter() with scenario {
+                    Button (
+                        scenario.label(),
+                        height: 28,
+                        shrink: 0.0,
+                        min_width: 0,
+                        font: FONT,
+                        font_size: 12,
+                        normal_color: ${
+                            if state.launcher().wifi_active() && state.launcher().wifi_scenario() == scenario {
+                                ACCENT
+                            } else {
+                                PANEL
+                            }
+                        },
+                        text_color: ${
+                            if state.launcher().wifi_active() && state.launcher().wifi_scenario() == scenario {
+                                ON_ACCENT
+                            } else {
+                                FOREGROUND
+                            }
+                        }
+                    ) on Tap {
+                        state.launcher().resume();
+                        state.launcher().set_wifi_scenario(scenario);
+                    }
+                }
+                Text (
                     "Grey replies do not apply to this state. Local A/B keep the app confirmation and cancel paths.",
                     height: 60,
                     shrink: 0.0,

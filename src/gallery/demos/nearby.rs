@@ -31,6 +31,7 @@ mod sound;
 mod style;
 mod widgets;
 pub mod wifi;
+mod wifi_view;
 
 #[cfg(test)]
 mod tests;

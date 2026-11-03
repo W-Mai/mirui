@@ -149,7 +149,7 @@ pub(super) struct State {
     connected: Option<usize>,
     saved: u8,
     target: Option<usize>,
-    list_selection: usize,
+    list_selection: Option<usize>,
     info_entry: bool,
     radio: bool,
     count: usize,
@@ -176,7 +176,7 @@ impl Default for State {
             connected: Some(0),
             saved: 1,
             target: None,
-            list_selection: 0,
+            list_selection: Some(0),
             info_entry: false,
             radio: true,
             count: NETWORKS.len(),
@@ -189,13 +189,20 @@ impl Default for State {
 }
 
 impl State {
+    pub fn close(&mut self) {
+        self.editor.clear();
+        self.scanning = false;
+        self.notice = "";
+        self.target = None;
+        self.elapsed = 0;
+    }
     pub fn open(&mut self, info: bool) {
         self.editor.clear();
         self.target = None;
         self.ssid.clear();
         self.notice = "";
         self.selected = 0;
-        self.list_selection = 0;
+        self.list_selection = self.slot(0);
         self.info_entry = info;
         self.frozen = false;
         self.elapsed = 0;
@@ -228,6 +235,7 @@ impl State {
         self.page = page;
         self.stage = 1;
         self.scanning = page == Page::List;
+        self.pulse = if self.scanning { 2 } else { 0 };
         self.count = 2;
         self.target = Some(0);
         self.ssid.push_str(NETWORKS[0].ssid);
@@ -238,10 +246,21 @@ impl State {
             ""
         };
     }
-    pub fn row(&self, index: usize) -> Option<Network> {
+    fn slot(&self, index: usize) -> Option<usize> {
         if index >= self.count {
             return None;
         }
+        Some(match self.connected.filter(|&key| key < self.count) {
+            Some(key) if index == 0 => key,
+            Some(key) if index <= key => index - 1,
+            _ => index,
+        })
+    }
+    fn index(&self, key: usize) -> Option<usize> {
+        (0..self.count).find(|&index| self.slot(index) == Some(key))
+    }
+    pub fn row(&self, index: usize) -> Option<Network> {
+        let index = self.slot(index)?;
         let mut row = if index == NETWORKS.len() {
             Network {
                 ssid: "",
@@ -258,7 +277,7 @@ impl State {
         Some(row)
     }
     pub fn name(&self, index: usize) -> String {
-        if index == NETWORKS.len() && index < self.count {
+        if self.slot(index) == Some(NETWORKS.len()) {
             self.hidden_name.clone()
         } else {
             self.row(index)
@@ -292,7 +311,8 @@ impl State {
         }
     }
     pub fn fact(&self, index: usize) -> String {
-        let Some(row) = self.connected.and_then(|index| self.row(index)) else {
+        let connected_row = self.connected.and_then(|key| self.index(key));
+        let Some(row) = connected_row.and_then(|index| self.row(index)) else {
             return if index == 0 {
                 "尚未连接".into()
             } else {
@@ -300,9 +320,7 @@ impl State {
             };
         };
         match index {
-            0 => self
-                .connected
-                .map_or_else(String::new, |index| self.name(index)),
+            0 => connected_row.map_or_else(String::new, |index| self.name(index)),
             1 => "192.168.1.14/24".into(),
             2 => "192.168.1.1".into(),
             3 => alloc::format!("{}%", row.signal),
@@ -321,7 +339,10 @@ impl State {
         } else {
             Page::List
         };
-        self.selected = self.list_selection.min(self.count);
+        self.selected = self
+            .list_selection
+            .and_then(|key| self.index(key))
+            .unwrap_or(self.count);
         self.editor.clear();
         self.elapsed = 0;
     }
@@ -335,10 +356,16 @@ impl State {
         if self.frozen || (!self.page.pending() && !self.scanning) {
             return false;
         }
+        let previous = (self.page, self.stage, self.scanning, self.pulse);
         self.elapsed = self.elapsed.saturating_add(delta);
-        self.pulse = self.elapsed / 140;
+        self.pulse = if self.scanning {
+            (self.elapsed / 125) % 4
+        } else {
+            0
+        };
         if self.scanning && self.elapsed >= 700 {
             self.scanning = false;
+            self.pulse = 0;
         }
         if self.page.pending() && self.elapsed >= 700 {
             self.elapsed -= 700;
@@ -375,7 +402,7 @@ impl State {
                                 self.hidden_name.push_str(&self.ssid);
                                 self.hidden_security = self.target_security;
                                 self.count = NETWORKS.len() + 1;
-                                self.list_selection = index;
+                                self.list_selection = Some(index);
                             }
                         }
                         self.page = Page::Success;
@@ -387,7 +414,7 @@ impl State {
                 _ => {}
             }
         }
-        true
+        previous != (self.page, self.stage, self.scanning, self.pulse)
     }
     // Returns true only when the owning Tools entry should regain focus.
     pub fn input(&mut self, action: Action) -> bool {
@@ -442,7 +469,7 @@ impl State {
             return false;
         }
         if action == Action::Auxiliary && self.page == Page::List {
-            self.list_selection = self.selected;
+            self.list_selection = self.slot(self.selected);
             self.info_entry = false;
             self.page = Page::Info;
             self.selected = 0;
@@ -467,9 +494,9 @@ impl State {
         }
         match self.page {
             Page::List => {
-                self.list_selection = self.selected;
+                self.list_selection = self.slot(self.selected);
                 if let Some(row) = self.row(self.selected) {
-                    self.target = Some(self.selected);
+                    self.target = self.slot(self.selected);
                     self.target_security = row.security;
                     self.ssid.clear();
                     self.ssid.push_str(&self.name(self.selected));
@@ -869,9 +896,9 @@ mod tests {
         state.tick(700);
         assert_eq!(state.fact(0), "  Hidden's Wi-Fi  ");
         state.input(Action::Back);
-        assert_eq!(state.selected, 4);
-        assert_eq!(state.name(4), "  Hidden's Wi-Fi  ");
-        assert!(state.row(4).unwrap().connected);
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.name(0), "  Hidden's Wi-Fi  ");
+        assert!(state.row(0).unwrap().connected);
     }
 
     #[test]
@@ -923,5 +950,47 @@ mod tests {
         state.fixture(Page::Connecting);
         assert!(!state.tick(2000));
         assert_eq!(state.stage, 1);
+    }
+
+    #[test]
+    fn mock_clock_only_publishes_visible_changes() {
+        let mut state = State::default();
+        state.open(false);
+        assert!(!state.tick(16));
+        assert!(state.tick(125));
+        state.tick(700);
+        assert!(!state.tick(16));
+        state.select(1);
+        state.input(Action::Confirm);
+        assert!(!state.tick(16));
+        assert!(state.tick(700));
+        assert!(!state.tick(16));
+    }
+
+    #[test]
+    fn connected_first_order_preserves_selected_network_identity() {
+        let mut state = State::default();
+        state.open(false);
+        state.select(1);
+        let name = state.name(1);
+        state.input(Action::Confirm);
+        state.tick(700);
+        state.tick(700);
+        state.input(Action::Back);
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.name(state.selected), name);
+        assert!(state.row(0).unwrap().connected);
+        state.input(Action::Confirm);
+        state.input(Action::Confirm);
+        assert_eq!(state.page, Page::List);
+        assert_eq!(state.selected, 1);
+        assert_eq!(state.name(state.selected), name);
+        state.input(Action::Confirm);
+        assert_eq!(state.page, Page::Connecting);
+        state.editor.value.push_str("temporary");
+        state.close();
+        assert!(state.editor.value.is_empty());
+        assert!(!state.scanning);
+        assert_eq!(state.target, None);
     }
 }

@@ -6,6 +6,108 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn wifi_actor_scope_facts_and_keyboard_pointer_input_follow_the_active_page() {
+    use crate::ui::{
+        ComputedRect, Parent,
+        widgets::{FollowBounds, Text},
+    };
+    for (width, height) in [(480, 320), (640, 480)] {
+        let (mut app, state) = fixture_at(width, height);
+        let library = state.launcher();
+        library.resume();
+        for page in [
+            wifi::Page::Password,
+            wifi::Page::Connecting,
+            wifi::Page::List,
+            wifi::Page::Info,
+        ] {
+            library.wifi_fixture(page);
+            for _ in 0..4 {
+                app.tick();
+                app.render_dirty().unwrap();
+            }
+            let actor = app
+                .world
+                .query::<actor::ActorFrame>()
+                .iter()
+                .find_map(|(node, marker)| marker.launcher.then_some(node))
+                .unwrap();
+            let target = app.world.get::<FollowBounds>(actor).unwrap().target;
+            assert!(!app.world.has::<crate::ui::Hidden>(actor));
+            assert!(
+                app.world
+                    .get::<ComputedRect>(actor)
+                    .is_some_and(|rect| rect.0.w > Fixed::ZERO && rect.0.h > Fixed::ZERO)
+            );
+            let anchor = app.world.get::<actions::ActionAnchor>(target).unwrap();
+            assert!(anchor.active(&library));
+            match page {
+                wifi::Page::Password => {
+                    assert!(matches!(anchor, actions::ActionAnchor::WifiKeyboard));
+                    let text = app
+                        .world
+                        .query::<Text>()
+                        .iter()
+                        .find_map(|(node, text)| {
+                            (text.resolve(app.world.resource()) == "q").then_some(node)
+                        })
+                        .unwrap();
+                    let key = app.world.get::<Parent>(text).unwrap().0;
+                    let rect = app.world.get::<ComputedRect>(key).unwrap().0;
+                    crate::ui::delivery::dispatch_gesture(
+                        &mut app.world,
+                        &crate::input::event::gesture::GestureEvent::Tap {
+                            x: rect.x + Fixed::ONE,
+                            y: rect.y + Fixed::ONE,
+                            target: text,
+                        },
+                        1,
+                    )
+                    .unwrap();
+                    assert_eq!(library.wifi_length(), 1);
+                    assert_eq!(library.overlay_title(), "Camp Wi-Fi");
+                }
+                wifi::Page::Connecting => {
+                    assert!(matches!(anchor, actions::ActionAnchor::WifiProgress))
+                }
+                _ => assert_eq!(anchor.index(), Some(0)),
+            }
+            if page == wifi::Page::Info {
+                let texts: alloc::vec::Vec<_> = app
+                    .world
+                    .query::<Text>()
+                    .iter()
+                    .map(|(_, text)| text.resolve(app.world.resource()).to_string())
+                    .collect();
+                for field in [
+                    "网络",
+                    "Camp Wi-Fi",
+                    "IP 地址",
+                    "192.168.1.14/24",
+                    "网关",
+                    "192.168.1.1",
+                    "信号",
+                    "82%",
+                    "安全",
+                    "WPA / WPA2",
+                ] {
+                    assert!(
+                        texts.iter().any(|text| text == field),
+                        "missing field {field}"
+                    );
+                }
+            }
+            let panel = app.world.find_by_id("nearby_actions_panel").unwrap();
+            let panel = app.world.get::<ComputedRect>(panel).unwrap().0;
+            let target = app.world.get::<ComputedRect>(target).unwrap().0;
+            assert!(target.x >= panel.x && target.y >= panel.y);
+            assert!(target.x + target.w <= panel.x + panel.w);
+            assert!(target.y + target.h <= panel.y + panel.h);
+        }
+    }
+}
+
+#[test]
 fn wifi_keys_use_the_shared_tools_owner_and_never_enter_game_hold() {
     use crate::input::event::input::{Key, PhysicalKey};
     let mut app = App::headless(640, 480);

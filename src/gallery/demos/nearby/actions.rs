@@ -4,6 +4,7 @@ use super::model::DisplayState;
 use super::pixel::{Scenery::Margins, backdrop};
 use super::style::*;
 use super::widgets::{control_key, control_label, shadow, text_block};
+use super::wifi_view::{heading as wifi_heading, hints as wifi_hints, panel as wifi_panel};
 use crate::prelude::*;
 use crate::ui::widgets::{
     Image, Text,
@@ -15,6 +16,8 @@ use ActionLayout::{Grid, Levels};
 pub(super) enum ActionAnchor {
     Item { index: usize, layout: ActionLayout },
     Reading,
+    WifiKeyboard,
+    WifiProgress,
 }
 
 #[derive(Clone, Copy)]
@@ -22,25 +25,41 @@ pub(super) enum ActionLayout {
     Grid,
     Levels,
     Details,
+    WifiList,
+    WifiOptions,
 }
 
 impl ActionAnchor {
     pub(super) fn index(&self) -> Option<usize> {
         match self {
             Self::Item { index, .. } => Some(*index),
-            Self::Reading => None,
+            Self::Reading | Self::WifiKeyboard | Self::WifiProgress => None,
         }
     }
     pub(super) fn active(&self, state: &super::launcher::LauncherHandle) -> bool {
-        let Self::Item { layout, .. } = self else {
-            return state.detail_expanded();
+        let layout = match self {
+            Self::Item { layout, .. } => layout,
+            Self::Reading => return state.detail_expanded(),
+            Self::WifiKeyboard => return state.wifi_active() && state.wifi_keyboard(),
+            Self::WifiProgress => return state.wifi_active() && state.wifi_page().pending(),
         };
         match layout {
             ActionLayout::Grid => {
-                state.overlay() != Some(Overlay::Controls) && !state.detail_active()
+                state.overlay() != Some(Overlay::Controls)
+                    && !state.detail_active()
+                    && !state.wifi_active()
             }
             ActionLayout::Levels => state.overlay() == Some(Overlay::Controls),
             ActionLayout::Details => state.detail_active(),
+            ActionLayout::WifiList => {
+                state.wifi_active() && state.wifi_page() == super::wifi::Page::List
+            }
+            ActionLayout::WifiOptions => {
+                state.wifi_active()
+                    && !state.wifi_keyboard()
+                    && !state.wifi_page().pending()
+                    && state.wifi_page() != super::wifi::Page::List
+            }
         }
     }
 }
@@ -108,38 +127,48 @@ fn graphical_overlay(
                         border_color: DIVIDER
                     ) {
                         backdrop (Margins)
-                        overlay_label (state, None)
+                        if ${ state.wifi_active() } {
+                            wifi_heading (state, metrics)
+                        } else {
+                            overlay_label (state, None)
+                        }
                         View (height: metrics.rule_height(), bg_color: WARNING, shrink: 0.0)
                         Row (grow: 1.0, min_height: 0, column_gap: metrics.gap * 2) {
-                            if ${ state.overlay() == Some(Overlay::Controls) } {
-                                level_panel (state, display, metrics)
+                            if ${ state.wifi_active() } {
+                                wifi_panel (state, metrics)
                             } else {
-                                Column (grow: 1.0, min_width: 0, min_height: 0) {
-                                    if ${ state.detail_active() } {
-                                        details_panel (state, metrics)
+                                Column (grow: 1.0, min_height: 0, min_width: 0) {
+                                    if ${ state.overlay() == Some(Overlay::Controls) } {
+                                        level_panel (state, display, metrics)
                                     } else {
-                                        Column (
-                                            grow: 1.0,
-                                            min_width: 0,
-                                            min_height: 0,
-                                            row_gap: metrics.gap
-                                        ) {
-                                            walk 0_usize..3 with line {
-                                                if ${ line * 2 < state.item_count() } {
-                                                    Row (
-                                                        grow: 1.0,
-                                                        min_height: 0,
-                                                        column_gap: metrics.gap
-                                                    ) {
-                                                        walk 0_usize..2 with column {
-                                                            if ${ line * 2 + column < state.item_count() } {
-                                                                action_tile (
-                                                                    state,
-                                                                    display,
-                                                                    line * 2 + column,
-                                                                    metrics,
-                                                                    Grid
-                                                                )
+                                        Column (grow: 1.0, min_width: 0, min_height: 0) {
+                                            if ${ state.detail_active() } {
+                                                details_panel (state, metrics)
+                                            } else {
+                                                Column (
+                                                    grow: 1.0,
+                                                    min_width: 0,
+                                                    min_height: 0,
+                                                    row_gap: metrics.gap
+                                                ) {
+                                                    walk 0_usize..3 with line {
+                                                        if ${ line * 2 < state.item_count() } {
+                                                            Row (
+                                                                grow: 1.0,
+                                                                min_height: 0,
+                                                                column_gap: metrics.gap
+                                                            ) {
+                                                                walk 0_usize..2 with column {
+                                                                    if ${ line * 2 + column < state.item_count() } {
+                                                                        action_tile (
+                                                                            state,
+                                                                            display,
+                                                                            line * 2 + column,
+                                                                            metrics,
+                                                                            Grid
+                                                                        )
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -152,38 +181,50 @@ fn graphical_overlay(
                         }
                         Row (
                             height: metrics.footer_height(),
+                            shrink: 0.0,
                             column_gap: metrics.gap * 2,
                             align: AlignItems::Center
                         ) {
-                            if ${ state.overlay() == Some(Overlay::Controls) && state.menu_selection() < 2 } {
-                                control_key ("左右", metrics, true)
-                                control_label ("调节", metrics)
+                            if ${ state.wifi_active() } {
+                                wifi_hints (state, metrics)
                             } else {
-                                control_key ("A", metrics, true)
-                                control_label (
-                                    ${
-                                        if state.detail_expanded() {
-                                            "收起"
-                                        } else if matches!(
-                                            state.overlay(), Some(Overlay::Details(section)) if section !=
-                                            super::details::Section::Overview
-                                        ) {
-                                            "查看来源"
-                                        } else {
-                                            "确认"
-                                        }
-                                    },
-                                    metrics
-                                )
-                            }
-                            if ${ state.detail_expanded() } {
-                                control_key ("上下", metrics, false)
-                                control_label ("滚动", metrics)
-                            }
-                            control_key ("B", metrics, false)
-                            control_label ("返回", metrics)
-                            Column (grow: 1.0, min_width: 0) {
-                                action_reason (state, metrics)
+                                Row (
+                                    grow: 1.0,
+                                    min_width: 0,
+                                    column_gap: metrics.gap * 2,
+                                    align: AlignItems::Center
+                                ) {
+                                    if ${ state.overlay() == Some(Overlay::Controls) && state.menu_selection() < 2 } {
+                                        control_key ("左右", metrics, true)
+                                        control_label ("调节", metrics)
+                                    } else {
+                                        control_key ("A", metrics, true)
+                                        control_label (
+                                            ${
+                                                if state.detail_expanded() {
+                                                    "收起"
+                                                } else if matches!(
+                                                    state.overlay(), Some(Overlay::Details(section)) if section !=
+                                                    super::details::Section::Overview
+                                                ) {
+                                                    "查看来源"
+                                                } else {
+                                                    "确认"
+                                                }
+                                            },
+                                            metrics
+                                        )
+                                    }
+                                    if ${ state.detail_expanded() } {
+                                        control_key ("上下", metrics, false)
+                                        control_label ("滚动", metrics)
+                                    }
+                                    control_key ("B", metrics, false)
+                                    control_label ("返回", metrics)
+                                    Column (grow: 1.0, min_width: 0) {
+                                        action_reason (state, metrics)
+                                    }
+                                }
                             }
                         }
                     }

@@ -651,6 +651,9 @@ impl Launcher {
     }
 
     pub fn dismiss_menu(&mut self) {
+        if self.overlay == Some(Overlay::Wifi) {
+            self.wifi.close();
+        }
         #[cfg(feature = "audio")]
         if self.overlay.is_some() {
             self.audio_feedback.emit(super::sound::Cue::Back);
@@ -1366,6 +1369,9 @@ impl Launcher {
         })
     }
     pub fn show_overlay(&mut self, overlay: Overlay) {
+        if self.overlay == Some(Overlay::Wifi) && overlay != Overlay::Wifi {
+            self.wifi.close();
+        }
         #[cfg(feature = "audio")]
         if self.overlay != Some(overlay) {
             self.audio_feedback.emit(super::sound::Cue::Confirm);
@@ -1456,6 +1462,7 @@ impl Launcher {
 
     pub fn close(&mut self) {
         self.cancel_hold();
+        self.wifi.close();
         self.active = false;
         self.overlay = None;
     }
