@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Nearby configuration editing includes typed drafts, game/core/frontend scopes, source inspection and independent save/discard/conflict return routes.
+- Nearby simulates configuration loading, scoped saves, write failures and external revision conflicts through one bounded request and typed Model effects, without system file access.
 - Nearby Wi-Fi settings share typed simulated state across tool entries, with password and hidden-network keyboards, cancellation, restoration, saved networks and failure cases.
 - Nearby Wi-Fi panels include responsive network rows, independent information fields, four keyboard layers, signal animation and separate keyboard/progress character anchors. The simulation dock exposes ordinary Wi-Fi outcomes without host network access.
 - Nearby game details display independent label/value fields, measured wrapping, a clipped reading viewport and fixed navigation hints.

@@ -148,7 +148,14 @@ pub struct View {
     pub saving: bool,
     pub saved: u64,
     pub error: String,
-    pub projected: Vec<Fact>,
+    pub projection: Option<Projection>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Projection {
+    pub scope: Scope,
+    pub changes: Vec<Change>,
+    pub facts: Vec<Fact>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

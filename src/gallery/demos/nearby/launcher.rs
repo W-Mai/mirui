@@ -92,6 +92,7 @@ pub enum MenuAction {
     Multiplayer,
     ToggleFavorite,
     ShowGameDetails,
+    ShowGameSettings,
     ShowCoreDetails,
     ShowFirmwareDetails,
     ShowSaveDetails,
@@ -125,6 +126,7 @@ pub enum Overlay {
     Power,
     Network,
     Wifi,
+    Configuration,
     Details(super::details::Section),
 }
 
@@ -137,6 +139,7 @@ impl Overlay {
                 (Multiplayer, "附近联机"),
                 (ToggleFavorite, "收藏游戏"),
                 (ShowGameDetails, "游戏详情"),
+                (ShowGameSettings, "游戏设置"),
                 (Back, "返回"),
             ],
             Self::System => &[
@@ -174,6 +177,7 @@ impl Overlay {
             ],
             Self::Details(_) => &[],
             Self::Wifi => &[],
+            Self::Configuration => &[],
         }
     }
 }
@@ -267,7 +271,7 @@ pub struct Launcher {
     #[observe]
     pub overlay: Option<Overlay>,
     #[observe]
-    pub menu_selection: usize,
+    menu_index: usize,
     #[observe]
     pub notice: &'static str,
     #[observe]
@@ -317,6 +321,11 @@ pub struct Launcher {
     #[observe]
     detail_geometry: u64,
     wifi: super::wifi::State,
+    pub configuration: model!(owned super::configuration::Editor),
+    configuration_service: super::configuration::service::Control,
+    configuration_now: u64,
+    #[observe]
+    configuration_revision: u64,
     pub(super) wifi_document: model!(owned TextDocument),
     input_session: Option<TextInputSession>,
     input_edits: VecDeque<super::text_input::Edit>,
@@ -396,7 +405,7 @@ impl Default for Launcher {
             recent_sort: false,
             play_count: 0,
             overlay: None,
-            menu_selection: 0,
+            menu_index: 0,
             notice: "",
             sound: true,
             connected: false,
@@ -430,6 +439,10 @@ impl Default for Launcher {
             detail_offset: Fixed::ZERO,
             detail_geometry: 0,
             wifi: super::wifi::State::default(),
+            configuration: super::configuration::Editor::default().into(),
+            configuration_service: Default::default(),
+            configuration_now: 0,
+            configuration_revision: 0,
             wifi_document: wifi_document.into(),
             input_session: None,
             input_edits: VecDeque::with_capacity(super::text_input::EDIT_CAPACITY),
@@ -512,6 +525,20 @@ impl Launcher {
         }
     }
     pub(super) fn animate(&mut self, delta: u16) {
+        if self.overlay == Some(Overlay::Configuration) {
+            self.configuration_now = self.configuration_now.saturating_add(u64::from(delta));
+            self.configuration.tick(self.configuration_now);
+            let changed = self.configuration_service.borrow_mut().tick(delta);
+            if changed || self.configuration_service.borrow().view().is_none() {
+                self.configuration
+                    .sync(self.configuration_service.borrow().view());
+                self.menu_index = self.configuration.selected();
+                if self.configuration_service.borrow().view().is_none() {
+                    self.show_overlay(Overlay::Game);
+                    self.select_action(4);
+                }
+            }
+        }
         if self.overlay == Some(Overlay::Wifi) && self.wifi.page.pending() {
             self.wifi_loading_phase =
                 ((u32::from(self.wifi_loading_phase) + u32::from(delta)) % 3000) as u16;
@@ -522,7 +549,7 @@ impl Launcher {
         if self.overlay == Some(Overlay::Wifi) && self.wifi.tick(delta) {
             self.sync_wifi_input(wifi_page);
             self.wifi_revision = self.wifi_revision.wrapping_add(1);
-            self.menu_selection = self.wifi.selection();
+            self.menu_index = self.wifi.selection();
         }
         #[cfg(feature = "audio")]
         self.audio_feedback.advance(delta);
@@ -555,7 +582,9 @@ impl Launcher {
     }
     #[observe]
     pub(super) fn selection_age(&self) -> u16 {
-        if self.overlay.is_some() {
+        if self.overlay == Some(Overlay::Configuration) {
+            self.configuration.age()
+        } else if self.overlay.is_some() {
             self.menu_age
         } else if self.screen == Screen::Favorites {
             self.shelf_age
@@ -595,6 +624,10 @@ impl Launcher {
     }
 
     pub fn open(&mut self, screen: Screen) {
+        if self.overlay == Some(Overlay::Configuration) {
+            self.configuration_service.borrow_mut().close();
+            self.configuration.sync(None);
+        }
         #[cfg(feature = "audio")]
         if self.screen != screen {
             self.audio_feedback.emit(super::sound::Cue::Confirm);
@@ -685,6 +718,10 @@ impl Launcher {
     }
 
     pub fn dismiss_menu(&mut self) {
+        if self.overlay == Some(Overlay::Configuration) {
+            self.configuration_service.borrow_mut().close();
+            self.configuration.sync(None);
+        }
         if self.overlay == Some(Overlay::Wifi) {
             self.wifi.close();
             self.clear_wifi_input();
@@ -696,15 +733,20 @@ impl Launcher {
         self.overlay = None;
     }
     pub fn select_action(&mut self, index: usize) {
+        if self.overlay == Some(Overlay::Configuration) {
+            self.configuration.select(index);
+            self.menu_index = self.configuration.selected();
+            return;
+        }
         if self.overlay == Some(Overlay::Wifi) {
             self.wifi.select(index);
-            self.menu_selection = self.wifi.selection();
+            self.menu_index = self.wifi.selection();
             self.wifi_revision = self.wifi_revision.wrapping_add(1);
             self.menu_age = 0;
             return;
         }
         let index = index.min(self.item_count().saturating_sub(1));
-        if self.menu_selection != index {
+        if self.menu_index != index {
             self.menu_age = 0;
             if matches!(self.overlay, Some(Overlay::Details(_))) {
                 self.details.expanded = false;
@@ -714,7 +756,7 @@ impl Launcher {
             #[cfg(feature = "audio")]
             self.audio_feedback.emit(super::sound::Cue::Focus);
         }
-        self.menu_selection = index;
+        self.menu_index = index;
         self.update_detail_offset();
     }
 
@@ -724,6 +766,75 @@ impl Launcher {
         self.wifi.open(info);
         self.show_overlay(Overlay::Wifi);
         self.wifi_revision = self.wifi_revision.wrapping_add(1);
+    }
+
+    pub fn open_configuration(&mut self) {
+        let Some((key, title, platform)) = self
+            .games
+            .iter()
+            .find(|game| Some(game.key()) == self.selected_game)
+            .map(|game| {
+                (
+                    game.key(),
+                    game.name(),
+                    game.platform().map_or("", |index| PLATFORMS[index].1),
+                )
+            })
+        else {
+            return;
+        };
+        self.configuration_service
+            .borrow_mut()
+            .open(key, title, platform);
+        self.configuration
+            .sync(self.configuration_service.borrow().view());
+        self.show_overlay(Overlay::Configuration);
+    }
+
+    pub fn configuration_fixture(&mut self) {
+        self.configuration_service.borrow_mut().reference();
+        self.configuration
+            .sync(self.configuration_service.borrow().view());
+        self.show_overlay(Overlay::Configuration);
+    }
+
+    pub fn configuration_input(&mut self, action: super::wifi::Action) {
+        if self.overlay != Some(Overlay::Configuration) {
+            return;
+        }
+        let previous = self.configuration.selected();
+        self.configuration.input(action);
+        self.menu_index = self.configuration.selected();
+        self.menu_age = 0;
+        #[cfg(feature = "audio")]
+        self.audio_feedback
+            .emit(if action == super::wifi::Action::Back {
+                super::sound::Cue::Back
+            } else if previous != self.menu_index {
+                super::sound::Cue::Focus
+            } else {
+                super::sound::Cue::Confirm
+            });
+    }
+
+    pub(super) fn configuration_control(&self) -> super::configuration::service::Control {
+        self.configuration_service.clone()
+    }
+
+    pub fn set_configuration_scenario(
+        &mut self,
+        scenario: super::configuration::service::Scenario,
+    ) {
+        if self.configuration_service.borrow().scenario() != scenario {
+            self.configuration_service
+                .borrow_mut()
+                .set_scenario(scenario);
+            self.configuration_revision = self.configuration_revision.wrapping_add(1);
+        }
+    }
+
+    pub fn read_configuration_scenario(&self) -> super::configuration::service::Scenario {
+        self.configuration_service.borrow().scenario()
     }
     pub fn set_wifi_scenario(&mut self, scenario: super::wifi::Scenario) {
         self.clear_wifi_input();
@@ -756,8 +867,8 @@ impl Launcher {
                 }
             }
             super::wifi::Response::Stay => {
-                self.menu_selection = self.wifi.selection();
-                if old != self.menu_selection {
+                self.menu_index = self.wifi.selection();
+                if old != self.menu_index {
                     self.menu_age = 0;
                 }
             }
@@ -767,7 +878,7 @@ impl Launcher {
         self.audio_feedback
             .emit(if action == super::wifi::Action::Back {
                 super::sound::Cue::Back
-            } else if old != self.menu_selection {
+            } else if old != self.menu_index {
                 super::sound::Cue::Focus
             } else {
                 super::sound::Cue::Confirm
@@ -808,7 +919,7 @@ impl Launcher {
             self.audio_feedback.emit(super::sound::Cue::Error);
         }
         self.sync_wifi_input(page);
-        self.menu_selection = self.wifi.selection();
+        self.menu_index = self.wifi.selection();
         self.wifi_revision = self.wifi_revision.wrapping_add(1);
     }
     pub(super) fn text_session(&mut self, session: Option<TextInputSession>) {
@@ -920,7 +1031,7 @@ impl Launcher {
 
     pub fn toggle_detail(&mut self) {
         if matches!(self.overlay, Some(Overlay::Details(section)) if section != super::details::Section::Overview)
-            && self.menu_selection < self.item_count()
+            && self.menu_index < self.item_count()
         {
             self.details.expanded = !self.details.expanded;
             self.details.scroll = 0;
@@ -933,7 +1044,7 @@ impl Launcher {
 
     pub fn confirm_detail(&mut self) {
         use super::details::Section;
-        match self.read_item(self.menu_selection).map(|item| item.action) {
+        match self.read_item(self.menu_index).map(|item| item.action) {
             Some(MenuAction::ShowCoreDetails) => self.detail_section(Section::Core),
             Some(MenuAction::ShowFirmwareDetails) => self.detail_section(Section::Firmware),
             Some(MenuAction::ShowSaveDetails) => self.detail_section(Section::Saves),
@@ -953,7 +1064,7 @@ impl Launcher {
                 .saturating_add_signed(direction.signum() as i32 * 24)
                 .min(8192);
         } else {
-            self.select_action(self.menu_selection.saturating_add_signed(direction));
+            self.select_action(self.menu_index.saturating_add_signed(direction));
             self.details.expanded = false;
             self.details.scroll = 0;
         }
@@ -972,7 +1083,7 @@ impl Launcher {
         self.prepare_detail_geometry();
         self.details.expanded = false;
         self.details.scroll = 0;
-        self.menu_selection = self.menu_selection.min(self.item_count().saturating_sub(1));
+        self.menu_index = self.menu_index.min(self.item_count().saturating_sub(1));
         self.detail_revision = self.detail_revision.wrapping_add(1);
     }
 
@@ -1010,7 +1121,7 @@ impl Launcher {
             let count = self.item_count();
             self.detail_offset =
                 self.details
-                    .offset(section, self.menu_selection, count, self.detail_offset);
+                    .offset(section, self.menu_index, count, self.detail_offset);
         }
     }
     pub fn detail_viewport(&mut self, height: Fixed) {
@@ -1054,7 +1165,7 @@ impl Launcher {
     }
     fn read_detail_size(&self, index: usize, gap: i32) -> Fixed {
         self.details
-            .size(self.detail_section_value(), self.menu_selection, index, gap)
+            .size(self.detail_section_value(), self.menu_index, index, gap)
     }
 
     pub fn set_query(&mut self, query: String) {
@@ -1350,12 +1461,21 @@ impl Launcher {
     }
 
     #[observe]
+    pub fn menu_selection(&self) -> usize {
+        if self.overlay == Some(Overlay::Configuration) {
+            self.configuration.selected()
+        } else {
+            self.menu_index
+        }
+    }
+    #[observe]
     pub fn menu(&self) -> bool {
         self.overlay.is_some()
     }
     #[observe]
     pub fn item_count(&self) -> usize {
         match self.overlay {
+            Some(Overlay::Configuration) => self.configuration.count(),
             Some(Overlay::Wifi) => 0,
             Some(Overlay::Details(section)) if section != super::details::Section::Overview => {
                 self.details.rows(section).len()
@@ -1378,6 +1498,7 @@ impl Launcher {
             Some(Overlay::Power) => "关闭掌机？".into(),
             Some(Overlay::Network) => "当前保留着直连网络".into(),
             Some(Overlay::Wifi) => self.wifi.title(),
+            Some(Overlay::Configuration) => self.configuration.heading_value(),
             Some(Overlay::Details(super::details::Section::Overview)) => "游戏详情".into(),
             Some(Overlay::Details(super::details::Section::Core)) => "运行核心".into(),
             Some(Overlay::Details(super::details::Section::Firmware)) => "BIOS 文件".into(),
@@ -1473,6 +1594,10 @@ impl Launcher {
         })
     }
     pub fn show_overlay(&mut self, overlay: Overlay) {
+        if self.overlay == Some(Overlay::Configuration) && overlay != Overlay::Configuration {
+            self.configuration_service.borrow_mut().close();
+            self.configuration.sync(None);
+        }
         if self.overlay == Some(Overlay::Wifi) && overlay != Overlay::Wifi {
             self.wifi.close();
             self.clear_wifi_input();
@@ -1483,7 +1608,7 @@ impl Launcher {
         }
         self.cancel_hold();
         self.overlay = Some(overlay);
-        self.menu_selection = 0;
+        self.menu_index = 0;
         self.menu_age = 0;
         self.notice = "";
     }
@@ -1491,6 +1616,10 @@ impl Launcher {
         self.cancel_hold();
         if let Some(overlay) = self.overlay {
             match overlay {
+                Overlay::Configuration => {
+                    self.configuration_input(super::wifi::Action::Back);
+                    return;
+                }
                 Overlay::Wifi => {
                     self.wifi_input(super::wifi::Action::Back);
                     return;
@@ -1566,6 +1695,8 @@ impl Launcher {
     }
 
     pub fn close(&mut self) {
+        self.configuration_service.borrow_mut().close();
+        self.configuration.sync(None);
         self.cancel_hold();
         self.wifi.close();
         self.clear_wifi_input();
@@ -1834,18 +1965,18 @@ mod tests {
             assert!(state.details.expanded);
             state.move_detail(1, true);
             assert_eq!(state.details.scroll, 24);
-            let current = state.menu_selection;
+            let current = state.menu_index;
             state.back();
             assert_eq!(state.overlay, Some(Overlay::Details(section)));
             assert!(!state.details.expanded);
-            assert_eq!(state.menu_selection, current);
+            assert_eq!(state.menu_index, current);
             state.back();
             assert_eq!(state.overlay, Some(Overlay::Details(Section::Overview)));
-            assert_eq!(state.menu_selection, parent);
+            assert_eq!(state.menu_index, parent);
         }
         state.back();
         assert_eq!(state.overlay, Some(Overlay::Game));
-        assert_eq!(state.menu_selection, 3);
+        assert_eq!(state.menu_index, 3);
         state.back();
         assert!(!state.menu());
         assert_eq!((state.selected, state.selected_game), (1, Some(1)));
@@ -1895,9 +2026,9 @@ mod tests {
             state.move_detail(1, true);
         }
         assert_eq!(state.details.scroll, 8192);
-        assert_eq!(state.menu_selection, 0);
+        assert_eq!(state.menu_index, 0);
         state.move_detail(1, false);
-        assert_eq!(state.menu_selection, 1);
+        assert_eq!(state.menu_index, 1);
         assert!(!state.details.expanded);
         assert_eq!(state.details.scroll, 0);
     }
@@ -1929,10 +2060,10 @@ mod tests {
         state.show_overlay(Overlay::Tools);
         state.back();
         assert_eq!(state.overlay, Some(Overlay::Controls));
-        assert_eq!(state.menu_selection, 2);
+        assert_eq!(state.menu_index, 2);
         state.back();
         assert_eq!(state.overlay, Some(Overlay::System));
-        assert_eq!(state.menu_selection, 2);
+        assert_eq!(state.menu_index, 2);
         assert_eq!(state.volume, 55);
     }
 
@@ -1992,10 +2123,10 @@ mod tests {
         launcher.show_overlay(Overlay::Tools);
         launcher.back();
         assert_eq!(launcher.overlay, Some(Overlay::Controls));
-        assert_eq!(launcher.menu_selection, 2);
+        assert_eq!(launcher.menu_index, 2);
         launcher.back();
         assert_eq!(launcher.overlay, Some(Overlay::System));
-        assert_eq!(launcher.menu_selection, 2);
+        assert_eq!(launcher.menu_index, 2);
         launcher.back();
         assert_eq!(launcher.overlay, None);
         assert_eq!((launcher.screen, launcher.selected), (Screen::Games, 3));

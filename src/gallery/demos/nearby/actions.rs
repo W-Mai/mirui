@@ -589,7 +589,7 @@ fn action_glyph(action: MenuAction) -> ActionGlyph {
         ToggleFavorite => ActionGlyph::Favorite,
         ToggleSound | Volume => ActionGlyph::Sound,
         Brightness => ActionGlyph::Brightness,
-        ShowControls => ActionGlyph::Settings,
+        ShowControls | ShowGameSettings => ActionGlyph::Settings,
         ShowTools => ActionGlyph::Toolbox,
         SystemInfo | ShowGameDetails | ExpandDetail => ActionGlyph::Info,
         ShowCoreDetails => ActionGlyph::Core,

@@ -1,4 +1,5 @@
 pub mod schema;
+pub mod service;
 use super::wifi::Action;
 use crate::prelude::*;
 use alloc::collections::BTreeMap;
@@ -82,6 +83,7 @@ impl Default for Editor {
 impl Editor {
     pub fn sync(&mut self, view: Option<&View>) {
         let fresh = self.view.as_ref().map(|v| v.epoch) != view.map(|v| v.epoch);
+        let new_error = self.view.as_ref().map(|v| &v.error) != view.map(|v| &v.error);
         let loaded =
             self.document().is_none() && view.is_some_and(|v| matches!(v.load, Load::Ready { .. }));
         if fresh {
@@ -144,7 +146,7 @@ impl Editor {
         }
         if self.view.as_ref().is_some_and(|v| !v.error.is_empty()) {
             self.after_save = false;
-            if self.dirty() && self.section != Section::Conflict {
+            if new_error && self.dirty() && self.section != Section::Conflict {
                 self.enter(Section::Conflict);
                 self.selected = 1;
             }
@@ -183,7 +185,7 @@ impl Editor {
         let _ = self.revision;
         !self.draft.is_empty()
     }
-    fn snapshot_heading(&self) -> String {
+    pub fn heading_value(&self) -> String {
         match self.section {
             Section::Home => "游戏设置",
             Section::Video => "画面",
@@ -372,6 +374,15 @@ impl Editor {
         self.row_metrics = (gap, shadow);
         self.viewport_height = height;
         self.scroll();
+    }
+    pub fn select(&mut self, index: usize) {
+        let index = index.min(self.count().saturating_sub(1));
+        if self.selected != index && !self.saving() {
+            self.selected = index;
+            self.changed_at = self.now;
+            self.age = 0;
+            self.scroll();
+        }
     }
     pub fn measure(&mut self, index: usize, height: Fixed) {
         if self.section != Section::Sources || index >= self.count() {
@@ -717,7 +728,7 @@ impl EditorHandle {
     pub fn heading(&self) -> String {
         self.revision();
         self.section();
-        self.snapshot_heading()
+        self.heading_value()
     }
     pub fn identity(&self) -> String {
         self.revision();
@@ -752,7 +763,16 @@ impl Editor {
         let document = self.document();
         self.view
             .iter()
-            .flat_map(|view| &view.projected)
+            .filter_map(|view| view.projection.as_ref())
+            .filter(|projection| {
+                self.dirty()
+                    && projection.scope == self.scope
+                    && self.draft.iter().eq(projection
+                        .changes
+                        .iter()
+                        .map(|change| (&change.id, &change.value)))
+            })
+            .flat_map(|projection| &projection.facts)
             .filter(move |fact| {
                 document.is_some_and(|document| {
                     document
@@ -845,6 +865,48 @@ pub fn fixture() -> View {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    #[test]
+    fn path_projection_requires_the_current_scope_and_complete_ordered_draft() {
+        let mut view = fixture();
+        let change = Change {
+            id: Id::AutoLoad,
+            value: Some(Value::Bool(true)),
+        };
+        view.projection = Some(schema::Projection {
+            scope: Scope::Game,
+            changes: vec![change.clone()],
+            facts: vec![Fact::new("SRAM 文件", "/new.srm")],
+        });
+        let mut editor = Editor::default();
+        editor.sync(Some(&view));
+        editor.draft.insert(change.id, change.value);
+        assert_eq!(editor.extra_facts().count(), 1);
+        editor.scope = Scope::Core;
+        assert_eq!(editor.extra_facts().count(), 0);
+        editor.scope = Scope::Game;
+        editor
+            .draft
+            .insert(Id::IntegerScale, Some(Value::Bool(true)));
+        assert_eq!(editor.extra_facts().count(), 0);
+        editor.draft.clear();
+        assert_eq!(editor.extra_facts().count(), 0);
+    }
+
+    #[test]
+    fn an_unchanged_error_does_not_reopen_a_dismissed_conflict() {
+        let mut view = fixture();
+        let mut editor = Editor::default();
+        editor.sync(Some(&view));
+        editor.input(Action::Confirm);
+        editor.input(Action::Right);
+        view.error = "外部修改".into();
+        editor.sync(Some(&view));
+        assert_eq!(editor.section, Section::Conflict);
+        editor.input(Action::Confirm);
+        assert_eq!(editor.section, Section::Video);
+        editor.sync(Some(&view));
+        assert_eq!(editor.section, Section::Video);
+    }
     #[test]
     fn unopened_editor_has_no_prepared_rows_and_loaded_geometry_reuses_capacity() {
         let mut editor = Editor::default();

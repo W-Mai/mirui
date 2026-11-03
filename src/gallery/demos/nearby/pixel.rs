@@ -32,7 +32,7 @@ pub(super) fn actor_sprite(
         cursor_frame(
             frame,
             Some(if actions.menu() {
-                actions.menu_selection
+                actions.menu_selection()
             } else {
                 frame.selected.unwrap_or(0)
             }),

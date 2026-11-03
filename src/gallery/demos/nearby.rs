@@ -90,6 +90,14 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     #[cfg(feature = "std")]
     app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
     let state = app.add_model(model::DisplayState::default()).finish();
+    let configuration = state.launcher().configuration_control();
+    state
+        .launcher()
+        .configuration()
+        .on_effect(move |request: &configuration::schema::Request| {
+            configuration.borrow_mut().submit(request);
+        })
+        .expect("Nearby configuration consumer is registered once");
     text_input::install(app, state.clone());
     #[cfg(feature = "audio")]
     {
