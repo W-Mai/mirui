@@ -1,3 +1,4 @@
+use super::keyboard::keycap as keyboard_keycap;
 use super::launcher::Launcher;
 use super::text_input::WifiEditor;
 use super::wifi::Page;
@@ -7,11 +8,14 @@ use super::{
     widgets::{control_key, control_label, shadow, text_block},
 };
 use crate::prelude::*;
-use crate::ui::widgets::TextAlign::Start;
+use crate::ui::widgets::TextAlign::{Center, Start};
 use crate::ui::widgets::{Image, Text, TextEditing};
 use alloc::string::{String, ToString};
 const TITLE_SIZE: u16 = 24;
 const BODY_SIZE: u16 = 12;
+
+#[component]
+pub(super) struct LoadingTrack;
 
 fn label(state: &super::launcher::LauncherHandle, index: usize) -> String {
     match state.wifi_page() {
@@ -346,8 +350,10 @@ fn keyboard(state: model!(Launcher), metrics: Metrics) -> Entity {
         Column (grow: 1.0, min_width: 0, min_height: 0, row_gap: metrics.gap) [
             PointerFocus::Preserve,
         ] {
-            walk ${ core::iter::once(state.wifi_epoch()) } with epoch by epoch {
-                editing_field (state, epoch)
+            Column (height: 36, shrink: 0.0, min_width: 0, min_height: 0) {
+                walk ${ core::iter::once(state.wifi_epoch()) } with epoch by epoch {
+                    editing_field (state, epoch)
+                }
             }
             Column (grow: 1.0, min_height: 0, min_width: 0, row_gap: 3) {
                 walk 0_usize..4 with line {
@@ -362,9 +368,6 @@ fn keyboard(state: model!(Launcher), metrics: Metrics) -> Entity {
                     }
                 }
             }
-            View (height: 20, shrink: 0.0, min_width: 0) [
-                ActionAnchor::WifiKeyboard,
-            ]
         }
     }
 }
@@ -409,39 +412,32 @@ fn editing_field(state: model!(Launcher), epoch: u64) -> Entity {
     }
 }
 #[compose]
-fn key(state: model!(Launcher), index: usize, _metrics: Metrics) -> Entity {
+fn key(state: model!(Launcher), index: usize, metrics: Metrics) -> Entity {
+    let anchor = ActionAnchor::Item {
+        index,
+        layout: ActionLayout::WifiKeyboard,
+    };
     ui! {
-        Column (
-            grow: 1.0,
-            min_width: 0,
-            min_height: 0,
-            bg_color: ${ if state.menu_selection() == index { ACCENT } else { PANEL } },
-            border_width: 1,
-            border_color: ${ if state.menu_selection() == index { FOREGROUND } else { DIVIDER } },
-            transform: ${
-                crate::types::Transform::translate(
-                    Fixed::ZERO,
-                    Fixed::from_int(
-                        if state.menu_selection() == index {
-                            super::motion::hop(state.selection_age(), 2.0)
-                        } else {
-                            0
-                        },
-                    ),
-                )
-            },
-            align: AlignItems::Center,
-            justify: JustifyContent::Center
-        ) {
-            Text (
-                text: ${ state.wifi_editor(index) },
-                font: font(if index >= 30 { BODY_SIZE } else { TITLE_SIZE }),
-                font_size: if index >= 30 { BODY_SIZE } else { TITLE_SIZE },
-                text_color: ${ if state.menu_selection() == index { BACKGROUND } else { FOREGROUND } },
-                paragraph: super::widgets::paragraph(Start, 1)
-            ) [
-                FONT_PAINT,
-            ]
+        Column (grow: 1.0, min_width: 0, min_height: 0) {
+            keyboard_keycap (
+                ${ state.wifi_editor(index) },
+                ${ state.menu_selection() == index },
+                ${
+                    crate::types::Transform::translate(
+                        Fixed::ZERO,
+                        Fixed::from_int(
+                            if state.menu_selection() == index {
+                                super::motion::hop(state.selection_age(), 2.0)
+                            } else {
+                                0
+                            },
+                        ),
+                    )
+                },
+                anchor,
+                if index >= 30 { BODY_SIZE } else { TITLE_SIZE },
+                metrics
+            )
         } on HoverChanged {
             if event.hovered {
                 state.select_action(index);
@@ -456,34 +452,66 @@ fn key(state: model!(Launcher), index: usize, _metrics: Metrics) -> Entity {
 fn progress(state: model!(Launcher), metrics: Metrics) -> Entity {
     ui! {
         Column (grow: 1.0, min_height: 0, row_gap: metrics.gap) {
-            Row (
+            Column (
                 grow: 1.0,
                 min_height: 50,
-                align: AlignItems::Center,
-                column_gap: metrics.gap,
+                justify: JustifyContent::Center,
+                row_gap: metrics.gap * 3,
                 bg_color: PANEL,
                 padding: Padding::all(metrics.gap * 2)
             ) {
-                walk 0_usize..3 with stage {
-                    Column (
-                        grow: 1.0,
-                        min_width: 0,
-                        row_gap: metrics.gap,
-                        align: AlignItems::Center
+                text_block (
+                    ${
+                        match state.wifi_page() {
+                            Page::Cancelling => "正在取消连接",
+                            Page::Restoring => "恢复原来的网络",
+                            _ => {
+                                [
+                                    "连接网络",
+                                    "获取 IP 地址",
+                                    "连接完成",
+                                ][usize::from(state.wifi_stage())]
+                            }
+                        }
+                    },
+                    FOREGROUND,
+                    TITLE_SIZE,
+                    Center,
+                    0,
+                    1
+                )
+                View (height: 12, min_width: 0, bg_color: DIVIDER, clip_children: false) [
+                    LoadingTrack,
+                ] {
+                    View (
+                        position: Position::Absolute,
+                        width: Dimension::percent(100),
+                        height: 12,
+                        bg_color: ACCENT,
+                        transform: ${
+                            let span = state.wifi_loading_end() - state.wifi_loading_start();
+                            crate::types::Transform::translate(
+                                    (state.wifi_loading_start() - (Fixed::ONE - span) * Fixed::HALF)
+                                        * state.wifi_track(),
+                                    Fixed::ZERO,
+                                )
+                                .compose(&crate::types::Transform::scale(span, Fixed::ONE))
+                        }
                     ) {
                         View (
-                            width: 24,
-                            height: 24,
-                            border_width: 2,
-                            border_color: DIVIDER,
-                            bg_color: ${ if usize::from(state.wifi_stage()) >= stage { ACCENT } else { BACKGROUND } }
-                        )
+                            position: Position::Absolute,
+                            left: Dimension::percent(100),
+                            width: 0,
+                            height: 0
+                        ) [
+                            ActionAnchor::Item {
+                                index: 0,
+                                layout: ActionLayout::WifiProgress,
+                            },
+                        ]
                     }
-                }
+                } on SizeChanged { state.wifi_track_width(event.new.width); }
             }
-            View (height: 24, shrink: 0.0) [
-                ActionAnchor::WifiProgress,
-            ]
             Row (shrink: 0.0, min_height: i32::from(BODY_SIZE), column_gap: metrics.gap) {
                 walk 0_usize..3 with stage {
                     Column (grow: 1.0, min_width: 0, min_height: i32::from(BODY_SIZE)) {

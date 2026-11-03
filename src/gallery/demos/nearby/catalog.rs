@@ -1,4 +1,5 @@
 use super::consoles::{Platform, console};
+use super::keyboard::keycap as keyboard_keycap;
 use super::launcher::Screen::Search;
 use super::launcher::{Game, Launcher, PLATFORMS, Screen};
 use super::library::{LibraryTarget, focus};
@@ -389,44 +390,35 @@ fn search(library: model!(Launcher), metrics: Metrics) -> Entity {
 
 #[compose]
 fn keycap(library: model!(Launcher), index: usize, metrics: Metrics) -> Entity {
+    let anchor = super::actions::ActionAnchor::Item {
+        index,
+        layout: super::actions::ActionLayout::SearchKeyboard,
+    };
     ui! {
         Column (
             grow: 1.0,
             min_width: 0,
             min_height: 0,
             transform: ${ library.card_motion().card_transform(100 + index) }
-        ) {
-            Column (
-                grow: 1.0,
-                min_width: 0,
-                min_height: 0,
-                justify: JustifyContent::Center,
-                padding: Padding {
-                    right: 12.into(),
-                    ..Default::default()
-                },
-                bg_color: ${ if library.selected() == 100 + index { ACCENT } else { PANEL } }
-            ) [
-                LibraryTarget {
-                    key: 100 + index,
-                    screen: Screen::Search,
-                },
-            ] {
-                caption (
-                    KEYS[index],
-                    ${ if library.selected() == 100 + index { ON_ACCENT } else { FOREGROUND } },
-                    if KEYS[index].len() == 1 { metrics.title } else { metrics.body },
-                    Center,
-                    LABEL_LEADING
-                )
-            } on HoverChanged {
-                let hovered = event.hovered;
-                if hovered {
-                    library.select(100 + index);
-                }
-            } on Tap { library.type_key(KEYS[index]); }
-            shadow (metrics)
-        }
+        ) [
+            LibraryTarget {
+                key: 100 + index,
+                screen: Screen::Search,
+            },
+        ] {
+            keyboard_keycap (
+                KEYS[index],
+                ${ library.selected() == 100 + index },
+                crate::types::Transform::IDENTITY,
+                anchor,
+                if KEYS[index].len() == 1 { metrics.title } else { metrics.body },
+                metrics
+            )
+        } on HoverChanged {
+            if event.hovered {
+                library.select(100 + index);
+            }
+        } on Tap { library.type_key(KEYS[index]); }
     }
 }
 

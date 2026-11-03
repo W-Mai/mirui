@@ -322,6 +322,13 @@ pub struct Launcher {
     input_edits: VecDeque<super::text_input::Edit>,
     #[observe]
     pub(super) wifi_epoch: u64,
+    wifi_loading_phase: u16,
+    #[observe]
+    pub(super) wifi_loading_start: Fixed,
+    #[observe]
+    pub(super) wifi_loading_end: Fixed,
+    #[observe]
+    pub(super) wifi_track: Fixed,
     wifi_origin: usize,
     #[observe]
     wifi_revision: u64,
@@ -427,6 +434,10 @@ impl Default for Launcher {
             input_session: None,
             input_edits: VecDeque::with_capacity(super::text_input::EDIT_CAPACITY),
             wifi_epoch: 0,
+            wifi_loading_phase: 0,
+            wifi_loading_start: Fixed::ZERO,
+            wifi_loading_end: Fixed::ZERO,
+            wifi_track: Fixed::ZERO,
             wifi_origin: 0,
             wifi_revision: 0,
             #[cfg(feature = "audio")]
@@ -501,6 +512,12 @@ impl Launcher {
         }
     }
     pub(super) fn animate(&mut self, delta: u16) {
+        if self.overlay == Some(Overlay::Wifi) && self.wifi.page.pending() {
+            self.wifi_loading_phase =
+                ((u32::from(self.wifi_loading_phase) + u32::from(delta)) % 3000) as u16;
+            (self.wifi_loading_start, self.wifi_loading_end) =
+                self.wifi.loading_span(self.wifi_loading_phase);
+        }
         let wifi_page = self.wifi.page;
         if self.overlay == Some(Overlay::Wifi) && self.wifi.tick(delta) {
             self.sync_wifi_input(wifi_page);
@@ -812,6 +829,9 @@ impl Launcher {
             self.wifi.visible_rows = rows;
             self.wifi_revision = self.wifi_revision.wrapping_add(1);
         }
+    }
+    pub fn wifi_track_width(&mut self, width: Fixed) {
+        self.wifi_track = width;
     }
     fn read_wifi_page(&self) -> super::wifi::Page {
         self.wifi.page
@@ -1618,18 +1638,6 @@ impl LauncherHandle {
             self.wifi_document().revision();
         }
         self.read_wifi_editor(index)
-    }
-    pub fn wifi_actor_position(&self) -> Fixed {
-        let selected = self.menu_selection();
-        Fixed::from_int(if self.wifi_keyboard() {
-            if selected >= 30 {
-                (selected - 30) * 20 + 10
-            } else {
-                (selected % 10) * 10 + 5
-            }
-        } else {
-            usize::from(self.wifi_stage()) * 34 + 16
-        } as i32)
     }
     pub fn detail_active(&self) -> bool {
         matches!(self.overlay(), Some(Overlay::Details(_)))

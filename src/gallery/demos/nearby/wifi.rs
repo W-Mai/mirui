@@ -1,6 +1,30 @@
 //! Simulated ordinary Wi-Fi settings. No host network access is performed.
 
 use super::text_input::Edit;
+use crate::anim::{Tween, TweenConfig, ease};
+use crate::types::Fixed;
+
+pub(super) fn loading_span(now: u64) -> (Fixed, Fixed) {
+    const TRAVEL_MS: u64 = 1500;
+    const STRETCH_MS: u16 = 350;
+    let elapsed = (now % TRAVEL_MS) as u16;
+    let sample = |offset: u16| {
+        let mut tween = Tween::preset(
+            Fixed::ZERO,
+            Fixed::ONE,
+            TweenConfig::new(TRAVEL_MS as u16 - STRETCH_MS, &ease::IN_OUT_CUBIC),
+        );
+        tween.tick(elapsed.saturating_sub(offset));
+        tween.value()
+    };
+    let tail = sample(STRETCH_MS) * Fixed::from_ratio(4, 5);
+    let head = sample(0) * Fixed::from_ratio(4, 5) + Fixed::from_ratio(1, 5);
+    if now / TRAVEL_MS % 2 == 0 {
+        (tail, head)
+    } else {
+        (Fixed::ONE - head, Fixed::ONE - tail)
+    }
+}
 use alloc::string::{String, ToString};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -196,6 +220,9 @@ impl Default for State {
 }
 
 impl State {
+    pub fn loading_span(&self, phase: u16) -> (Fixed, Fixed) {
+        loading_span(if self.frozen { 800 } else { u64::from(phase) })
+    }
     pub fn close(&mut self) {
         self.editor.clear();
         self.scanning = false;
@@ -754,6 +781,19 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loading_span_stays_bounded_and_continuous_across_reversals() {
+        let mut previous = loading_span(0);
+        for now in (16..=6000).step_by(16) {
+            let span = loading_span(now);
+            assert!(span.0 >= Fixed::ZERO && span.1 <= Fixed::ONE);
+            assert!(span.1 - span.0 >= Fixed::from_ratio(19, 100));
+            assert!((span.0 - previous.0).abs() < Fixed::from_ratio(1, 20));
+            assert!((span.1 - previous.1).abs() < Fixed::from_ratio(1, 20));
+            previous = span;
+        }
+    }
 
     #[test]
     fn four_layers_cover_printable_ascii_and_apostrophe_follows_l() {

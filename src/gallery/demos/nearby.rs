@@ -12,6 +12,7 @@ mod detail_view;
 pub mod details;
 mod feedback;
 mod input;
+mod keyboard;
 pub mod launcher;
 mod launcher_view;
 mod library;

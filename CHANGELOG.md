@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Nearby search and Wi-Fi share key surfaces; characters follow actual keys and the moving edge of a continuous loading span with explicit connection, cancellation and restoration text.
 - Nearby Wi-Fi input uses a Launcher-owned text document and the software input method, preserving ordered character, delete and submit actions with bounded dispatch and session retirement.
 - Nearby catalog windows use their available height for one to eight rows while retaining native-size titles and selected entry identities.
 - Nearby system controls use pixel sliders with typed levels, 5% key adjustments, native-size labels, availability feedback and distinct system icons.

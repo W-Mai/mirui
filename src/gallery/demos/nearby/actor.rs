@@ -46,19 +46,18 @@ fn resolve<'a, 'b, 'c, 'd>(
         return None;
     }
     if library.active() && library.menu() {
-        if library.wifi_active() && (library.wifi_keyboard() || library.wifi_page().pending()) {
-            return action_targets.into_iter().find_map(|(entity, anchor)| {
-                (anchor.active(&library) && anchor.index().is_none()).then_some((entity, false))
-            });
-        }
         if library.detail_expanded() {
             return action_targets.into_iter().find_map(|(entity, anchor)| {
                 matches!(anchor, super::actions::ActionAnchor::Reading).then_some((entity, false))
             });
         }
+        let selected = if library.wifi_active() && library.wifi_page().pending() {
+            0
+        } else {
+            library.menu_selection()
+        };
         return action_targets.into_iter().find_map(|(entity, row)| {
-            (row.index() == Some(library.menu_selection()) && row.active(&library))
-                .then_some((entity, false))
+            (row.index() == Some(selected) && row.active(&library)).then_some((entity, false))
         });
     }
     let inside = |entity| root.is_some_and(|root| contains(root, entity, &parent));
@@ -137,7 +136,11 @@ fn initialize(
         commands.remove::<Hidden>(node);
         commands.insert(
             node,
-            FollowBounds::new(target).with_transition(crate::anim::SNAPPY),
+            if state.launcher().wifi_active() && state.launcher().wifi_page().pending() {
+                FollowBounds::new(target)
+            } else {
+                FollowBounds::new(target).with_transition(crate::anim::SNAPPY)
+            },
         );
     } else {
         commands.insert(node, Hidden);
@@ -185,7 +188,11 @@ pub(super) fn follow(
             if bounds.is_none_or(|old| old.target != target) {
                 commands.insert(
                     entity,
-                    FollowBounds::new(target).with_transition(crate::anim::SNAPPY),
+                    if state.launcher().wifi_active() && state.launcher().wifi_page().pending() {
+                        FollowBounds::new(target)
+                    } else {
+                        FollowBounds::new(target).with_transition(crate::anim::SNAPPY)
+                    },
                 );
             }
             if hidden.is_some() {
@@ -216,11 +223,8 @@ pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
                 position: Position::Absolute,
                 left: ${
                     Dimension::Percent(
-                        if state.launcher().wifi_active()
-                            && (state.launcher().wifi_keyboard()
-                                || state.launcher().wifi_page().pending())
-                        {
-                            state.launcher().wifi_actor_position()
+                        if state.launcher().wifi_active() && state.launcher().wifi_page().pending() {
+                            Fixed::ZERO
                         } else if state.launcher().active()
                             && (state.launcher().menu()
                                 || state.launcher().screen() == super::launcher::Screen::Favorites
@@ -240,7 +244,9 @@ pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
                 },
                 top: ${
                     Dimension::percent(
-                        if state.actor_stage()
+                        if state.launcher().wifi_active() && state.launcher().wifi_page().pending() {
+                            0
+                        } else if state.actor_stage()
                             || (state.launcher().active()
                                 && (state.launcher().menu()
                                     || state.launcher().screen() == super::launcher::Screen::Favorites
@@ -260,7 +266,17 @@ pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
                             || state.launcher().screen() == super::launcher::Screen::Favorites
                             || state.launcher().keyboard());
                     Transform::translate(
-                            Fixed::from_int(if compact { -24 } else { -16 }),
+                            Fixed::from_int(
+                                if state.launcher().wifi_active()
+                                    && state.launcher().wifi_page().pending()
+                                {
+                                    -16
+                                } else if compact {
+                                    -24
+                                } else {
+                                    -16
+                                },
+                            ),
                             Fixed::from_int(if compact { -36 } else { -48 }),
                         )
                         .compose(

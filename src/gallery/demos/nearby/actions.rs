@@ -16,8 +16,6 @@ use ActionLayout::{Grid, Levels};
 pub(super) enum ActionAnchor {
     Item { index: usize, layout: ActionLayout },
     Reading,
-    WifiKeyboard,
-    WifiProgress,
 }
 
 #[derive(Clone, Copy)]
@@ -27,21 +25,22 @@ pub(super) enum ActionLayout {
     Details,
     WifiList,
     WifiOptions,
+    WifiKeyboard,
+    WifiProgress,
+    SearchKeyboard,
 }
 
 impl ActionAnchor {
     pub(super) fn index(&self) -> Option<usize> {
         match self {
             Self::Item { index, .. } => Some(*index),
-            Self::Reading | Self::WifiKeyboard | Self::WifiProgress => None,
+            Self::Reading => None,
         }
     }
     pub(super) fn active(&self, state: &super::launcher::LauncherHandle) -> bool {
         let layout = match self {
             Self::Item { layout, .. } => layout,
             Self::Reading => return state.detail_expanded(),
-            Self::WifiKeyboard => return state.wifi_active() && state.wifi_keyboard(),
-            Self::WifiProgress => return state.wifi_active() && state.wifi_page().pending(),
         };
         match layout {
             ActionLayout::Grid => {
@@ -59,6 +58,13 @@ impl ActionAnchor {
                     && !state.wifi_keyboard()
                     && !state.wifi_page().pending()
                     && state.wifi_page() != super::wifi::Page::List
+            }
+            ActionLayout::WifiKeyboard => state.wifi_keyboard(),
+            ActionLayout::WifiProgress => state.wifi_active() && state.wifi_page().pending(),
+            ActionLayout::SearchKeyboard => {
+                !state.menu()
+                    && state.screen() == super::launcher::Screen::Search
+                    && state.keyboard()
             }
         }
     }

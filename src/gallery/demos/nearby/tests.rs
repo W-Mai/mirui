@@ -6,6 +6,87 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn wifi_actor_follows_all_real_keys_and_the_transformed_loading_frontier() {
+    use crate::ui::{ComputedRect, LayoutGeometry, Outputs, widgets::FollowBounds};
+    for (width, height) in [(480, 320), (640, 480)] {
+        let (mut app, state) = fixture_at(width, height);
+        let library = state.launcher();
+        library.resume();
+        for page in [
+            wifi::Page::List,
+            wifi::Page::Password,
+            wifi::Page::Connecting,
+            wifi::Page::Password,
+            wifi::Page::Info,
+            wifi::Page::List,
+            wifi::Page::Success,
+        ] {
+            library.wifi_fixture(page);
+            for _ in 0..4 {
+                app.tick();
+                app.render_dirty().unwrap();
+            }
+            let actor = app
+                .world
+                .query::<actor::ActorFrame>()
+                .iter()
+                .find_map(|(node, marker)| marker.launcher.then_some(node))
+                .unwrap();
+            let bounds = *app.world.get::<FollowBounds>(actor).unwrap();
+            let anchor = app
+                .world
+                .get::<actions::ActionAnchor>(bounds.target)
+                .unwrap();
+            assert!(anchor.active(&library));
+            if page == wifi::Page::Password {
+                let field = app
+                    .world
+                    .query::<text_input::WifiEditor>()
+                    .iter()
+                    .find_map(|(node, editor)| {
+                        (editor.0 == library.wifi_epoch())
+                            .then(|| app.world.get::<ComputedRect>(node).unwrap().0)
+                    })
+                    .unwrap();
+                for index in 0..35 {
+                    library.select_action(index);
+                    app.tick();
+                    app.render_dirty().unwrap();
+                    let target = app.world.get::<FollowBounds>(actor).unwrap().target;
+                    assert!(matches!(app.world.get::<actions::ActionAnchor>(target),
+                        Some(actions::ActionAnchor::Item { index: key, layout: actions::ActionLayout::WifiKeyboard }) if *key == index));
+                    let rect = app.world.get::<ComputedRect>(target).unwrap().0;
+                    assert!(rect.w > Fixed::ZERO && rect.h > Fixed::ZERO);
+                    assert!(rect.y >= field.y + field.h);
+                }
+            } else if page.pending() {
+                assert!(bounds.transition.is_none());
+                let track = app
+                    .world
+                    .query::<wifi_view::LoadingTrack>()
+                    .iter()
+                    .find_map(|(node, _)| app.world.get::<ComputedRect>(node).map(|rect| rect.0))
+                    .unwrap();
+                let outputs = app.world.resource::<Outputs<LayoutGeometry>>().unwrap();
+                let geometry = outputs.get(bounds.target).unwrap();
+                let ink = Rect::bounding_quad(
+                    &geometry
+                        .transform()
+                        .apply_rect(geometry.border_rect())
+                        .unwrap(),
+                );
+                let expected = track.x + library.wifi_loading_end() * track.w;
+                assert!(
+                    (ink.x - expected).abs() <= Fixed::from_int(2),
+                    "{ink:?} {track:?}"
+                );
+                assert!(ink.x >= track.x && ink.x <= track.x + track.w + Fixed::ONE);
+            }
+        }
+    }
+}
+
+#[test]
 fn wifi_actor_scope_facts_and_keyboard_pointer_input_follow_the_active_page() {
     use crate::ui::{
         ComputedRect, Parent,
@@ -36,14 +117,21 @@ fn wifi_actor_scope_facts_and_keyboard_pointer_input_follow_the_active_page() {
             assert!(!app.world.has::<crate::ui::Hidden>(actor));
             assert!(
                 app.world
-                    .get::<ComputedRect>(actor)
-                    .is_some_and(|rect| rect.0.w > Fixed::ZERO && rect.0.h > Fixed::ZERO)
+                    .resource::<crate::ui::Outputs<crate::ui::LayoutGeometry>>()
+                    .and_then(|outputs| outputs.get(target))
+                    .is_some()
             );
             let anchor = app.world.get::<actions::ActionAnchor>(target).unwrap();
             assert!(anchor.active(&library));
             match page {
                 wifi::Page::Password => {
-                    assert!(matches!(anchor, actions::ActionAnchor::WifiKeyboard));
+                    assert!(matches!(
+                        anchor,
+                        actions::ActionAnchor::Item {
+                            index: 0,
+                            layout: actions::ActionLayout::WifiKeyboard
+                        }
+                    ));
                     let text = app
                         .world
                         .query::<Text>()
@@ -69,9 +157,13 @@ fn wifi_actor_scope_facts_and_keyboard_pointer_input_follow_the_active_page() {
                     assert_eq!(library.wifi_length(), 1);
                     assert_eq!(library.overlay_title(), "Camp Wi-Fi");
                 }
-                wifi::Page::Connecting => {
-                    assert!(matches!(anchor, actions::ActionAnchor::WifiProgress))
-                }
+                wifi::Page::Connecting => assert!(matches!(
+                    anchor,
+                    actions::ActionAnchor::Item {
+                        index: 0,
+                        layout: actions::ActionLayout::WifiProgress
+                    }
+                )),
                 _ => assert_eq!(anchor.index(), Some(0)),
             }
             if page == wifi::Page::Info {
