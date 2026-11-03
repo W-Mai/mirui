@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Nearby detail reading reverses immediately after repeated scrolling at the content boundary without replaying clamped input during geometry updates.
 - Nearby search text and empty-state bindings subscribe through the query getter, including updates that retain the same result branch.
 
 ### Added

@@ -783,9 +783,11 @@ impl Launcher {
     }
     fn update_detail_offset(&mut self) {
         if matches!(self.overlay, Some(Overlay::Details(_))) {
+            let section = self.detail_section_value();
+            let count = self.item_count();
             self.detail_offset =
                 self.details
-                    .offset(self.menu_selection, self.item_count(), self.detail_offset);
+                    .offset(section, self.menu_selection, count, self.detail_offset);
         }
     }
     pub fn detail_viewport(&mut self, height: Fixed) {

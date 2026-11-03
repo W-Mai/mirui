@@ -9,6 +9,8 @@ pub(super) struct State {
     pub scroll: u32,
     viewport: Fixed,
     measures: Vec<Measure>,
+    reading: Option<(Section, usize)>,
+    last_scroll_input: u32,
 }
 
 #[derive(Default)]
@@ -20,6 +22,8 @@ struct Measure {
 
 impl State {
     pub fn prepare_geometry(&mut self) {
+        self.reading = None;
+        self.last_scroll_input = 0;
         let sections = [Section::Core, Section::Firmware, Section::Saves];
         let count = sections
             .into_iter()
@@ -104,7 +108,13 @@ impl State {
             }
             + Fixed::from_int(gap * 2 + 8)
     }
-    pub fn offset(&self, selected: usize, count: usize, previous: Fixed) -> Fixed {
+    pub fn offset(
+        &mut self,
+        section: Section,
+        selected: usize,
+        count: usize,
+        previous: Fixed,
+    ) -> Fixed {
         let top = self
             .measures
             .iter()
@@ -119,8 +129,17 @@ impl State {
             .iter()
             .take(count)
             .fold(Fixed::ZERO, |sum, measure| sum + measure.height);
+        let maximum = (total - self.viewport).max(Fixed::ZERO);
         let offset = if self.expanded {
-            top + Fixed::from_int(self.scroll as i32)
+            let reading = Some((section, selected));
+            let offset = if self.reading == reading {
+                previous + Fixed::from_int(self.scroll as i32 - self.last_scroll_input as i32)
+            } else {
+                top + Fixed::from_int(self.scroll as i32)
+            };
+            self.reading = reading;
+            self.last_scroll_input = self.scroll;
+            offset.max(top.min(maximum))
         } else if top < previous {
             top
         } else if top + height > previous + self.viewport {
@@ -128,7 +147,11 @@ impl State {
         } else {
             previous
         };
-        offset.clamp(Fixed::ZERO, (total - self.viewport).max(Fixed::ZERO))
+        if !self.expanded {
+            self.reading = None;
+            self.last_scroll_input = 0;
+        }
+        offset.clamp(Fixed::ZERO, maximum)
     }
     pub fn rows(&self, section: Section) -> &'static [Row] {
         match &self.load {
@@ -384,6 +407,70 @@ mod tests {
     use super::*;
 
     #[test]
+    fn detail_reading_reverses_immediately_after_clamped_repeated_input() {
+        let mut state = State {
+            load: Load::Ready {
+                document: Document::example(0, "Example".into(), "NES"),
+            },
+            ..Default::default()
+        };
+        state.prepare_geometry();
+        state.viewport(100.into());
+        for index in 0..5 {
+            state.measure(index, 80.into());
+        }
+        state.expanded = true;
+        let mut offset = state.offset(Section::Saves, 0, 5, Fixed::ZERO);
+        state.scroll = 8192;
+        offset = state.offset(Section::Saves, 0, 5, offset);
+        assert_eq!(offset, 300.into());
+        state.scroll = 8168;
+        offset = state.offset(Section::Saves, 0, 5, offset);
+        assert_eq!(offset, 276.into());
+        assert_eq!(state.offset(Section::Saves, 0, 5, offset), offset);
+    }
+
+    #[test]
+    fn detail_reading_geometry_and_origin_changes_do_not_replay_consumed_input() {
+        let mut state = State {
+            load: Load::Ready {
+                document: Document::example(0, "Example".into(), "NES"),
+            },
+            ..Default::default()
+        };
+        state.prepare_geometry();
+        state.viewport(100.into());
+        for index in 0..5 {
+            state.measure(index, 80.into());
+        }
+        state.expanded = true;
+        state.scroll = 8192;
+        let mut offset = state.offset(Section::Saves, 0, 5, Fixed::ZERO);
+        assert_eq!(offset, 300.into());
+        state.viewport(200.into());
+        offset = state.offset(Section::Saves, 0, 5, offset);
+        assert_eq!(offset, 200.into());
+        assert_eq!(state.offset(Section::Saves, 0, 5, offset), offset);
+        state.scroll -= 24;
+        offset = state.offset(Section::Saves, 0, 5, offset);
+        assert_eq!(offset, 176.into());
+        state.scroll = 0;
+        offset = state.offset(Section::Core, 0, 3, offset);
+        assert_eq!(offset, Fixed::ZERO);
+        offset = state.offset(Section::Core, 1, 3, offset);
+        assert_eq!(offset, 40.into());
+        state.expanded = false;
+        offset = state.offset(Section::Core, 0, 3, offset);
+        assert_eq!(offset, Fixed::ZERO);
+        assert_eq!(state.reading, None);
+        state.expanded = true;
+        assert_eq!(state.offset(Section::Core, 0, 3, offset), Fixed::ZERO);
+        state.prepare_geometry();
+        assert_eq!(state.reading, None);
+        assert_eq!(state.last_scroll_input, 0);
+    }
+
+    #[test]
     fn detail_measurements_reuse_prepared_storage_and_bound_focused_scrolling() {
         let mut state = State {
             load: Load::Ready {
@@ -404,10 +491,10 @@ mod tests {
             state.text_size(index, 0, 26.into());
             state.text_size(index, 1, 14.into());
         }
-        assert_eq!(state.offset(4, 5, Fixed::ZERO), 300.into());
+        assert_eq!(state.offset(Section::Saves, 4, 5, Fixed::ZERO), 300.into());
         state.expanded = true;
         state.scroll = 8192;
-        assert_eq!(state.offset(4, 5, Fixed::ZERO), 300.into());
+        assert_eq!(state.offset(Section::Saves, 4, 5, Fixed::ZERO), 300.into());
         for _ in 0..20 {
             for (index, row) in SAVES.iter().enumerate() {
                 for field in 0..row.facts.len() {
