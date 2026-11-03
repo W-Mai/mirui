@@ -89,6 +89,11 @@ pub enum MenuAction {
     Play,
     Multiplayer,
     ToggleFavorite,
+    ShowGameDetails,
+    ShowCoreDetails,
+    ShowFirmwareDetails,
+    ShowSaveDetails,
+    ExpandDetail,
     CycleTheme,
     ToggleSound,
     ShowControls,
@@ -117,6 +122,7 @@ pub enum Overlay {
     Exit,
     Power,
     Network,
+    Details(super::details::Section),
 }
 
 impl Overlay {
@@ -127,6 +133,7 @@ impl Overlay {
                 (Play, "开始游戏"),
                 (Multiplayer, "附近联机"),
                 (ToggleFavorite, "收藏游戏"),
+                (ShowGameDetails, "游戏详情"),
                 (Back, "返回"),
             ],
             Self::System => &[
@@ -157,6 +164,12 @@ impl Overlay {
                 (RestorePlay, "恢复 Wi-Fi 后开始"),
                 (Back, "返回"),
             ],
+            Self::Details(super::details::Section::Overview) => &[
+                (ShowCoreDetails, "运行核心"),
+                (ShowFirmwareDetails, "BIOS 文件"),
+                (ShowSaveDetails, "存档与配置"),
+            ],
+            Self::Details(_) => &[],
         }
     }
 }
@@ -292,6 +305,9 @@ pub struct Launcher {
     origin: Screen,
     #[observe]
     selected_game: Option<u32>,
+    details: super::details::State,
+    #[observe]
+    detail_revision: u64,
     #[cfg(feature = "audio")]
     audio_feedback: super::sound::Feedback,
 }
@@ -381,6 +397,8 @@ impl Default for Launcher {
             direction: PageDirection::Forward,
             origin: Screen::Favorites,
             selected_game: None,
+            details: super::details::State::default(),
+            detail_revision: 0,
             #[cfg(feature = "audio")]
             audio_feedback: super::sound::Feedback::default(),
         };
@@ -628,6 +646,99 @@ impl Launcher {
             self.audio_feedback.emit(super::sound::Cue::Focus);
         }
         self.menu_selection = index;
+    }
+
+    pub fn show_game_details(&mut self) {
+        let game = self
+            .games
+            .iter()
+            .find(|game| Some(game.key()) == self.selected_game)
+            .map(|game| (game.key(), game.name(), game.platform()));
+        if let Some((key, title, platform)) = game {
+            self.details = super::details::State::default();
+            self.details.load = super::details::Load::Ready {
+                document: super::details::Document::example(
+                    key,
+                    title,
+                    platform
+                        .and_then(|index| PLATFORMS.get(index))
+                        .map_or("", |value| value.0),
+                ),
+            };
+            self.show_overlay(Overlay::Details(super::details::Section::Overview));
+            self.detail_revision = self.detail_revision.wrapping_add(1);
+        }
+    }
+
+    pub fn detail_section(&mut self, section: super::details::Section) {
+        if !matches!(self.overlay, Some(Overlay::Details(_))) {
+            return;
+        }
+        self.details.expanded = false;
+        self.details.scroll = 0;
+        self.show_overlay(Overlay::Details(section));
+        self.detail_revision = self.detail_revision.wrapping_add(1);
+    }
+
+    pub fn toggle_detail(&mut self) {
+        if matches!(self.overlay, Some(Overlay::Details(section)) if section != super::details::Section::Overview)
+            && self.menu_selection < self.item_count()
+        {
+            self.details.expanded = !self.details.expanded;
+            self.details.scroll = 0;
+            self.detail_revision = self.detail_revision.wrapping_add(1);
+            #[cfg(feature = "audio")]
+            self.audio_feedback.emit(super::sound::Cue::Confirm);
+        }
+    }
+
+    pub fn move_detail(&mut self, direction: isize, vertical: bool) {
+        if !matches!(self.overlay, Some(Overlay::Details(_))) {
+            return;
+        }
+        if self.details.expanded && vertical {
+            self.details.scroll = self
+                .details
+                .scroll
+                .saturating_add_signed(direction.signum() as i32 * 24)
+                .min(8192);
+        } else {
+            self.select_action(self.menu_selection.saturating_add_signed(direction));
+            self.details.expanded = false;
+            self.details.scroll = 0;
+        }
+        self.detail_revision = self.detail_revision.wrapping_add(1);
+    }
+
+    pub fn set_detail_load(&mut self, key: u32, load: super::details::Load) {
+        if !matches!(self.overlay, Some(Overlay::Details(_)))
+            || self.selected_game != Some(key)
+            || matches!(&load, super::details::Load::Ready { document } if document.key != key)
+        {
+            return;
+        }
+        self.details.load = load;
+        self.details.expanded = false;
+        self.details.scroll = 0;
+        self.menu_selection = self.menu_selection.min(self.item_count().saturating_sub(1));
+        self.detail_revision = self.detail_revision.wrapping_add(1);
+    }
+
+    fn read_detail_heading(&self) -> String {
+        match &self.details.load {
+            super::details::Load::Ready { document } => document.title.clone(),
+            super::details::Load::Failed { message } => alloc::format!("读取未完成：{message}"),
+            super::details::Load::Loading => "正在读取游戏信息…".into(),
+        }
+    }
+    fn read_detail_platform(&self) -> String {
+        match &self.details.load {
+            super::details::Load::Ready { document } => document.platform.into(),
+            _ => String::new(),
+        }
+    }
+    fn read_detail_expanded(&self) -> bool {
+        self.details.expanded
     }
 
     pub fn set_query(&mut self, query: String) {
@@ -928,7 +1039,12 @@ impl Launcher {
     }
     #[observe]
     pub fn item_count(&self) -> usize {
-        self.overlay.map_or(0, |overlay| overlay.items().len())
+        match self.overlay {
+            Some(Overlay::Details(section)) if section != super::details::Section::Overview => {
+                self.details.rows(section).len()
+            }
+            _ => self.overlay.map_or(0, |overlay| overlay.items().len()),
+        }
     }
     fn read_title(&self) -> String {
         match self.overlay {
@@ -944,11 +1060,25 @@ impl Launcher {
             Some(Overlay::Exit) => "返回原系统？".into(),
             Some(Overlay::Power) => "关闭掌机？".into(),
             Some(Overlay::Network) => "当前保留着直连网络".into(),
+            Some(Overlay::Details(_)) => "游戏详情".into(),
             None => String::new(),
         }
     }
     fn read_item(&self, index: usize) -> Option<MenuItem> {
         use MenuAction::*;
+        if let Some(Overlay::Details(section)) = self.overlay
+            && section != super::details::Section::Overview
+        {
+            let row = self.details.rows(section).get(index)?;
+            return Some(MenuItem {
+                action: ExpandDetail,
+                name: row.name,
+                value: row.summary.into(),
+                enabled: true,
+                reason: "",
+                level: None,
+            });
+        }
         let (action, mut name) = *self.overlay?.items().get(index)?;
         let mut enabled = true;
         let mut reason = "";
@@ -967,6 +1097,9 @@ impl Launcher {
             _ => None,
         };
         match action {
+            ShowCoreDetails => value = "共享选择规则与安装来源".into(),
+            ShowFirmwareDetails => value = "固件声明与文件状态".into(),
+            ShowSaveDetails => value = "单机来源与联机隔离".into(),
             Multiplayer => {
                 enabled = self
                     .games
@@ -1033,6 +1166,24 @@ impl Launcher {
         self.cancel_hold();
         if let Some(overlay) = self.overlay {
             match overlay {
+                Overlay::Details(section) => {
+                    if self.details.expanded {
+                        self.details.expanded = false;
+                        self.details.scroll = 0;
+                    } else if section == super::details::Section::Overview {
+                        self.show_overlay(Overlay::Game);
+                        self.select_action(3);
+                        self.details.load = super::details::Load::Loading;
+                    } else {
+                        self.show_overlay(Overlay::Details(super::details::Section::Overview));
+                        self.select_action(match section {
+                            super::details::Section::Core => 0,
+                            super::details::Section::Firmware => 1,
+                            _ => 2,
+                        });
+                    }
+                    self.detail_revision = self.detail_revision.wrapping_add(1);
+                }
                 Overlay::Tools => {
                     self.show_overlay(Overlay::Controls);
                     self.select_action(2);
@@ -1092,6 +1243,18 @@ impl Launcher {
 }
 
 impl LauncherHandle {
+    pub fn detail_heading(&self) -> String {
+        self.detail_revision();
+        self.read_detail_heading()
+    }
+    pub fn detail_platform(&self) -> String {
+        self.detail_revision();
+        self.read_detail_platform()
+    }
+    pub fn detail_expanded(&self) -> bool {
+        self.detail_revision();
+        self.read_detail_expanded()
+    }
     pub fn level(&self, index: usize) -> Option<Level> {
         self.volume();
         self.brightness();
@@ -1179,6 +1342,7 @@ impl LauncherHandle {
         self.read_title()
     }
     pub fn item(&self, index: usize) -> Option<MenuItem> {
+        self.detail_revision();
         self.overlay();
         self.sound();
         self.connected();
@@ -1197,6 +1361,96 @@ impl LauncherHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn detail_navigation_preserves_game_and_restores_each_parent_action() {
+        use super::super::details::Section;
+        let mut state = Launcher::default();
+        state.choose_game(1, 1);
+        assert_eq!(
+            state.read_item(3).unwrap().action,
+            MenuAction::ShowGameDetails
+        );
+        assert_eq!(state.read_item(4).unwrap().action, MenuAction::Back);
+        state.show_game_details();
+        assert_eq!(state.item_count(), 3);
+        for (section, parent) in [
+            (Section::Core, 0),
+            (Section::Firmware, 1),
+            (Section::Saves, 2),
+        ] {
+            state.detail_section(section);
+            assert!(state.item_count() > 0);
+            state.toggle_detail();
+            assert!(state.details.expanded);
+            state.move_detail(1, true);
+            assert_eq!(state.details.scroll, 24);
+            let current = state.menu_selection;
+            state.back();
+            assert_eq!(state.overlay, Some(Overlay::Details(section)));
+            assert!(!state.details.expanded);
+            assert_eq!(state.menu_selection, current);
+            state.back();
+            assert_eq!(state.overlay, Some(Overlay::Details(Section::Overview)));
+            assert_eq!(state.menu_selection, parent);
+        }
+        state.back();
+        assert_eq!(state.overlay, Some(Overlay::Game));
+        assert_eq!(state.menu_selection, 3);
+        state.back();
+        assert!(!state.menu());
+        assert_eq!((state.selected, state.selected_game), (1, Some(1)));
+    }
+
+    #[test]
+    fn detail_examples_distinguish_status_and_reject_unrelated_games() {
+        use super::super::details::{FileStatus, Load, Requirement, Section};
+        let mut state = Launcher::default();
+        state.choose_game(0, 0);
+        state.show_game_details();
+        state.detail_section(Section::Firmware);
+        let row = state.details.rows(Section::Firmware)[0];
+        assert_eq!(row.status, FileStatus::Missing);
+        assert_eq!(row.requirement, Some(Requirement::Optional));
+        assert!(
+            row.facts
+                .iter()
+                .all(|fact| !fact.label.is_empty() && !fact.value.is_empty())
+        );
+        state.set_detail_load(1, Load::Loading);
+        assert_eq!(state.item_count(), 1);
+        state.set_detail_load(0, Load::Loading);
+        assert_eq!(state.item_count(), 0);
+        assert_eq!(state.read_detail_heading(), "正在读取游戏信息…");
+        state.set_detail_load(
+            0,
+            Load::Failed {
+                message: "读取失败",
+            },
+        );
+        assert!(state.read_detail_heading().contains("读取失败"));
+        state.close();
+        state.set_detail_load(0, Load::Loading);
+        assert!(matches!(state.details.load, Load::Failed { .. }));
+    }
+
+    #[test]
+    fn expanded_detail_scroll_and_horizontal_navigation_have_separate_ownership() {
+        use super::super::details::Section;
+        let mut state = Launcher::default();
+        state.choose_game(0, 0);
+        state.show_game_details();
+        state.detail_section(Section::Saves);
+        state.toggle_detail();
+        for _ in 0..400 {
+            state.move_detail(1, true);
+        }
+        assert_eq!(state.details.scroll, 8192);
+        assert_eq!(state.menu_selection, 0);
+        state.move_detail(1, false);
+        assert_eq!(state.menu_selection, 1);
+        assert!(!state.details.expanded);
+        assert_eq!(state.details.scroll, 0);
+    }
     #[test]
     fn simulated_levels_keep_confirmed_values_bounds_and_parent_focus() {
         let mut state = Launcher::default();
@@ -1304,10 +1558,10 @@ mod tests {
         assert!(!launcher.read_item(3).unwrap().reason.is_empty());
     }
     #[test]
-    fn game_overlay_uses_four_actions_and_preserves_identity() {
+    fn game_overlay_keeps_existing_actions_and_adds_details_before_back() {
         let mut launcher = Launcher::default();
         launcher.choose_game(2, 2);
-        assert_eq!(launcher.item_count(), 4);
+        assert_eq!(launcher.item_count(), 5);
         assert!(!launcher.read_item(1).unwrap().enabled);
         launcher.back();
         assert!(!launcher.menu());

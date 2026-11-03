@@ -506,7 +506,8 @@ fn action_glyph(action: MenuAction) -> ActionGlyph {
         Brightness => ActionGlyph::Brightness,
         ShowControls => ActionGlyph::Settings,
         ShowTools => ActionGlyph::Toolbox,
-        SystemInfo => ActionGlyph::Info,
+        SystemInfo | ShowGameDetails | ShowCoreDetails | ShowFirmwareDetails | ShowSaveDetails
+        | ExpandDetail => ActionGlyph::Info,
         FileManager => ActionGlyph::Library,
         ShowPower | Poweroff => ActionGlyph::Power,
         ShowExit | Exit => ActionGlyph::Exit,

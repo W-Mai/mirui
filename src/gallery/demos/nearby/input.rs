@@ -396,7 +396,16 @@ fn move_menu(
     use super::launcher::{Overlay, SystemLevel};
     use crate::input::event::input::PhysicalKey;
     let selected = library.menu_selection();
-    if library.overlay() == Some(Overlay::Controls) {
+    if matches!(library.overlay(), Some(Overlay::Details(_))) {
+        library.move_detail(
+            if matches!(key, PhysicalKey::ArrowUp | PhysicalKey::ArrowLeft) {
+                -1
+            } else {
+                1
+            },
+            matches!(key, PhysicalKey::ArrowUp | PhysicalKey::ArrowDown),
+        );
+    } else if library.overlay() == Some(Overlay::Controls) {
         let (next, adjustment) = match key {
             PhysicalKey::ArrowUp => (
                 match selected {

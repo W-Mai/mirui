@@ -6,6 +6,55 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn detail_keys_remain_inside_the_modal_and_restore_the_original_game_action() {
+    use crate::input::event::input::{Key, PhysicalKey};
+    use launcher::Overlay;
+    let mut app = App::headless(640, 480);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let state = app.add_model(model::DisplayState::default()).finish();
+    app.on_event(Key::EVENT, input::keyboard::callback(state.clone()));
+    let library = state.launcher();
+    library.choose_game(2, 2);
+    library.select_action(3);
+    launcher_view::confirm(&state);
+    assert_eq!(
+        library.overlay(),
+        Some(Overlay::Details(details::Section::Overview))
+    );
+    let mut press = |key, now| {
+        crate::input::event::dispatch_input(
+            &mut app.world,
+            Some(root),
+            &crate::test_support::physical_key(key).into(),
+            now,
+            640,
+            480,
+        );
+    };
+    press(PhysicalKey::KeyA, 1);
+    press(PhysicalKey::KeyA, 2);
+    assert!(library.detail_expanded());
+    press(PhysicalKey::ArrowDown, 3);
+    assert_eq!(library.menu_selection(), 0);
+    press(PhysicalKey::ArrowRight, 4);
+    assert!(!library.detail_expanded());
+    assert_eq!(library.menu_selection(), 1);
+    press(PhysicalKey::KeyB, 5);
+    assert_eq!(
+        library.overlay(),
+        Some(Overlay::Details(details::Section::Overview))
+    );
+    assert_eq!(library.menu_selection(), 0);
+    press(PhysicalKey::KeyB, 6);
+    assert_eq!(library.overlay(), Some(Overlay::Game));
+    assert_eq!(library.menu_selection(), 3);
+    press(PhysicalKey::KeyB, 7);
+    assert!(!library.menu());
+    assert_eq!((library.selected(), library.game_key()), (2, Some(2)));
+}
+
+#[test]
 fn level_track_pointer_callbacks_share_the_typed_level_owner() {
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::{ComputedRect, Parent, Style};

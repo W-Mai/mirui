@@ -8,6 +8,7 @@ mod consoles;
 mod copy;
 pub mod data;
 mod deck;
+pub mod details;
 mod feedback;
 mod input;
 pub mod launcher;
