@@ -122,6 +122,7 @@ pub enum Overlay {
     Exit,
     Power,
     Network,
+    Wifi,
     Details(super::details::Section),
 }
 
@@ -170,6 +171,7 @@ impl Overlay {
                 (ShowSaveDetails, "存档与配置"),
             ],
             Self::Details(_) => &[],
+            Self::Wifi => &[],
         }
     }
 }
@@ -312,6 +314,10 @@ pub struct Launcher {
     pub detail_offset: Fixed,
     #[observe]
     detail_geometry: u64,
+    wifi: super::wifi::State,
+    wifi_origin: usize,
+    #[observe]
+    wifi_revision: u64,
     #[cfg(feature = "audio")]
     audio_feedback: super::sound::Feedback,
 }
@@ -405,6 +411,9 @@ impl Default for Launcher {
             detail_revision: 0,
             detail_offset: Fixed::ZERO,
             detail_geometry: 0,
+            wifi: super::wifi::State::default(),
+            wifi_origin: 0,
+            wifi_revision: 0,
             #[cfg(feature = "audio")]
             audio_feedback: super::sound::Feedback::default(),
         };
@@ -477,6 +486,10 @@ impl Launcher {
         }
     }
     pub(super) fn animate(&mut self, delta: u16) {
+        if self.overlay == Some(Overlay::Wifi) && self.wifi.tick(delta) {
+            self.wifi_revision = self.wifi_revision.wrapping_add(1);
+            self.menu_selection = self.wifi.selection();
+        }
         #[cfg(feature = "audio")]
         self.audio_feedback.advance(delta);
         for (index, control) in SystemLevel::ALL.into_iter().enumerate() {
@@ -645,6 +658,13 @@ impl Launcher {
         self.overlay = None;
     }
     pub fn select_action(&mut self, index: usize) {
+        if self.overlay == Some(Overlay::Wifi) {
+            self.wifi.select(index);
+            self.menu_selection = self.wifi.selection();
+            self.wifi_revision = self.wifi_revision.wrapping_add(1);
+            self.menu_age = 0;
+            return;
+        }
         let index = index.min(self.item_count().saturating_sub(1));
         if self.menu_selection != index {
             self.menu_age = 0;
@@ -658,6 +678,102 @@ impl Launcher {
         }
         self.menu_selection = index;
         self.update_detail_offset();
+    }
+
+    pub fn open_wifi(&mut self, info: bool) {
+        self.wifi_origin = usize::from(info);
+        self.wifi.open(info);
+        self.show_overlay(Overlay::Wifi);
+        self.wifi_revision = self.wifi_revision.wrapping_add(1);
+    }
+    pub fn set_wifi_scenario(&mut self, scenario: super::wifi::Scenario) {
+        self.wifi.set_scenario(scenario);
+        self.show_overlay(Overlay::Wifi);
+        self.wifi_revision = self.wifi_revision.wrapping_add(1);
+    }
+    pub fn wifi_fixture(&mut self, page: super::wifi::Page) {
+        self.wifi.fixture(page);
+        self.show_overlay(Overlay::Wifi);
+        self.wifi_revision = self.wifi_revision.wrapping_add(1);
+    }
+    pub fn wifi_input(&mut self, action: super::wifi::Action) {
+        if self.overlay != Some(Overlay::Wifi) {
+            return;
+        }
+        let old = self.wifi.selection();
+        if self.wifi.input(action) {
+            self.show_overlay(Overlay::Tools);
+            self.select_action(self.wifi_origin);
+        } else {
+            self.menu_selection = self.wifi.selection();
+            if old != self.menu_selection {
+                self.menu_age = 0;
+            }
+        }
+        #[cfg(feature = "audio")]
+        self.audio_feedback
+            .emit(if action == super::wifi::Action::Back {
+                super::sound::Cue::Back
+            } else if old != self.menu_selection {
+                super::sound::Cue::Focus
+            } else {
+                super::sound::Cue::Confirm
+            });
+        self.wifi_revision = self.wifi_revision.wrapping_add(1);
+    }
+    pub fn wifi_height(&mut self, height: Fixed, extent: i32, gap: i32) {
+        let rows = ((height.to_int() + gap).max(0) as usize / extent.max(1) as usize).clamp(1, 8);
+        if self.wifi.visible_rows != rows {
+            self.wifi.visible_rows = rows;
+            self.wifi_revision = self.wifi_revision.wrapping_add(1);
+        }
+    }
+    fn read_wifi_page(&self) -> super::wifi::Page {
+        self.wifi.page
+    }
+    fn read_wifi_stage(&self) -> u8 {
+        self.wifi.stage.min(2)
+    }
+    fn read_wifi_scanning(&self) -> bool {
+        self.wifi.scanning
+    }
+    fn read_wifi_pulse(&self) -> u16 {
+        self.wifi.pulse
+    }
+    fn read_wifi_scenario(&self) -> super::wifi::Scenario {
+        self.wifi.scenario
+    }
+    fn read_wifi_window(&self) -> core::ops::Range<usize> {
+        self.wifi.window()
+    }
+    fn read_wifi_row(&self, index: usize) -> Option<super::wifi::Network> {
+        self.wifi.row(index)
+    }
+    fn read_wifi_name(&self, index: usize) -> String {
+        self.wifi.name(index)
+    }
+    fn read_wifi_text(&self, index: usize) -> String {
+        self.wifi.text(index)
+    }
+    fn read_wifi_fact(&self, index: usize) -> String {
+        self.wifi.fact(index)
+    }
+    fn read_wifi_length(&self) -> usize {
+        self.wifi.editor.length()
+    }
+    fn read_wifi_echo(&self) -> String {
+        self.wifi.editor.echo_label()
+    }
+    fn read_wifi_editor(&self, index: usize) -> String {
+        if index == 35 {
+            self.wifi
+                .editor
+                .text(self.wifi.page == super::wifi::Page::Hidden)
+        } else {
+            self.wifi
+                .editor
+                .label(index, self.wifi.page == super::wifi::Page::Hidden)
+        }
     }
 
     pub fn show_game_details(&mut self) {
@@ -1133,6 +1249,7 @@ impl Launcher {
     #[observe]
     pub fn item_count(&self) -> usize {
         match self.overlay {
+            Some(Overlay::Wifi) => 0,
             Some(Overlay::Details(section)) if section != super::details::Section::Overview => {
                 self.details.rows(section).len()
             }
@@ -1153,6 +1270,7 @@ impl Launcher {
             Some(Overlay::Exit) => "返回原系统？".into(),
             Some(Overlay::Power) => "关闭掌机？".into(),
             Some(Overlay::Network) => "当前保留着直连网络".into(),
+            Some(Overlay::Wifi) => self.wifi.title(),
             Some(Overlay::Details(super::details::Section::Overview)) => "游戏详情".into(),
             Some(Overlay::Details(super::details::Section::Core)) => "运行核心".into(),
             Some(Overlay::Details(super::details::Section::Firmware)) => "BIOS 文件".into(),
@@ -1262,6 +1380,10 @@ impl Launcher {
         self.cancel_hold();
         if let Some(overlay) = self.overlay {
             match overlay {
+                Overlay::Wifi => {
+                    self.wifi_input(super::wifi::Action::Back);
+                    return;
+                }
                 Overlay::Details(section) => {
                     if self.details.expanded {
                         self.details.expanded = false;
@@ -1343,6 +1465,76 @@ impl Launcher {
 }
 
 impl LauncherHandle {
+    pub fn wifi_active(&self) -> bool {
+        self.overlay() == Some(Overlay::Wifi)
+    }
+    pub fn wifi_page(&self) -> super::wifi::Page {
+        self.wifi_revision();
+        self.read_wifi_page()
+    }
+    pub fn wifi_stage(&self) -> u8 {
+        self.wifi_revision();
+        self.read_wifi_stage()
+    }
+    pub fn wifi_scanning(&self) -> bool {
+        self.wifi_revision();
+        self.read_wifi_scanning()
+    }
+    pub fn wifi_pulse(&self) -> u16 {
+        self.wifi_revision();
+        self.read_wifi_pulse()
+    }
+    pub fn wifi_scenario(&self) -> super::wifi::Scenario {
+        self.wifi_revision();
+        self.read_wifi_scenario()
+    }
+    pub fn wifi_keyboard(&self) -> bool {
+        self.wifi_page().keyboard()
+    }
+    pub fn wifi_window(&self) -> core::ops::Range<usize> {
+        self.wifi_revision();
+        self.read_wifi_window()
+    }
+    pub fn wifi_row(&self, index: usize) -> Option<super::wifi::Network> {
+        self.wifi_revision();
+        self.read_wifi_row(index)
+    }
+    pub fn wifi_name(&self, index: usize) -> String {
+        self.wifi_revision();
+        self.read_wifi_name(index)
+    }
+    pub fn wifi_text(&self, index: usize) -> String {
+        self.wifi_revision();
+        self.read_wifi_text(index)
+    }
+    pub fn wifi_fact(&self, index: usize) -> String {
+        self.wifi_revision();
+        self.read_wifi_fact(index)
+    }
+    pub fn wifi_length(&self) -> usize {
+        self.wifi_revision();
+        self.read_wifi_length()
+    }
+    pub fn wifi_echo(&self) -> String {
+        self.wifi_revision();
+        self.read_wifi_echo()
+    }
+    pub fn wifi_editor(&self, index: usize) -> String {
+        self.wifi_revision();
+        self.read_wifi_editor(index)
+    }
+    pub fn wifi_actor_position(&self) -> Fixed {
+        let selected = self.menu_selection();
+        Fixed::from_int(if self.wifi_keyboard() {
+            if selected >= 30 {
+                (selected - 30) * 20 + 10
+            } else {
+                (selected % 10) * 10 + 5
+            }
+        } else {
+            usize::from(self.wifi_stage()) * 34 + 16
+        } as i32)
+    }
     pub fn detail_active(&self) -> bool {
         matches!(self.overlay(), Some(Overlay::Details(_)))
     }
@@ -1472,6 +1664,9 @@ impl LauncherHandle {
     pub fn overlay_title(&self) -> String {
         self.overlay();
         self.selected_game();
+        if self.wifi_active() {
+            self.wifi_revision();
+        }
         self.read_title()
     }
     pub fn item(&self, index: usize) -> Option<MenuItem> {

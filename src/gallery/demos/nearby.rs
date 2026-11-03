@@ -30,6 +30,7 @@ mod snapshot;
 mod sound;
 mod style;
 mod widgets;
+pub mod wifi;
 
 #[cfg(test)]
 mod tests;

@@ -6,6 +6,53 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn wifi_keys_use_the_shared_tools_owner_and_never_enter_game_hold() {
+    use crate::input::event::input::{Key, PhysicalKey};
+    let mut app = App::headless(640, 480);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let state = app.add_model(model::DisplayState::default()).finish();
+    app.on_event(Key::EVENT, input::keyboard::callback(state.clone()));
+    let library = state.launcher();
+    library.resume();
+    library.open_wifi(false);
+    library.select_action(2);
+    launcher_view::confirm(&state);
+    assert_eq!(library.wifi_page(), wifi::Page::Password);
+    let mut press = |key, now| {
+        crate::input::event::dispatch_input(
+            &mut app.world,
+            Some(root),
+            &crate::test_support::physical_key(key).into(),
+            now,
+            640,
+            480,
+        );
+    };
+    press(PhysicalKey::KeyA, 1);
+    assert_eq!(library.wifi_length(), 1);
+    press(PhysicalKey::KeyX, 2);
+    assert_eq!(library.wifi_length(), 0);
+    assert!(!library.holding());
+    assert!(library.pending_play().is_none());
+    press(PhysicalKey::KeyK, 3);
+    assert_eq!(library.wifi_page(), wifi::Page::Password);
+    assert!(!library.wifi_text(1).is_empty());
+    press(PhysicalKey::KeyJ, 4);
+    assert!(library.active());
+    press(PhysicalKey::KeyB, 5);
+    assert_eq!(library.wifi_page(), wifi::Page::List);
+    assert_eq!(library.menu_selection(), 2);
+    press(PhysicalKey::KeyB, 6);
+    assert_eq!(library.overlay(), Some(launcher::Overlay::Tools));
+    assert_eq!(library.menu_selection(), 0);
+    library.open_wifi(true);
+    press(PhysicalKey::KeyB, 7);
+    assert_eq!(library.overlay(), Some(launcher::Overlay::Tools));
+    assert_eq!(library.menu_selection(), 1);
+}
+
+#[test]
 fn detail_reading_keeps_fields_separate_and_actor_inside_the_clipped_viewport() {
     use crate::input::event::scroll::ScrollOffset;
     use crate::ui::{

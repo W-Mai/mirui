@@ -18,6 +18,10 @@ use alloc::vec::Vec;
 
 pub(super) fn confirm(state: &super::model::DisplayStateHandle) {
     let library = state.launcher();
+    if library.wifi_active() {
+        library.wifi_input(super::wifi::Action::Confirm);
+        return;
+    }
     if library.menu() {
         if let Some(item) = library.item(library.menu_selection()) {
             if item.enabled {
@@ -186,12 +190,8 @@ fn activate_action(state: &super::model::DisplayStateHandle, action: MenuAction)
         ShowExit => library.show_overlay(Overlay::Exit),
         ShowPower => library.show_overlay(Overlay::Power),
         ManageNetwork => state.manage_network(),
-        OpenWifi => library.network(),
-        NetworkInfo => library.result(if library.connected() {
-            "LOCAL DEMO: Nearby Guest / 192.168.4.2"
-        } else {
-            "LOCAL DEMO: OFFLINE"
-        }),
+        OpenWifi => library.open_wifi(false),
+        NetworkInfo => library.open_wifi(true),
         SystemInfo => library.result("LOCAL DEMO / MIRUI / 8 GAMES / 6 PLATFORMS"),
         FileManager => library.result("LOCAL DEMO: file manager opened"),
         Exit => library.result("LOCAL DEMO: exit requested"),

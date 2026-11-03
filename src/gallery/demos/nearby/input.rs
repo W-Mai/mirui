@@ -194,6 +194,36 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
         Some(PhysicalKey::Enter) => KEY_RETURN,
         _ => event.code,
     };
+    if library.active() && library.wifi_active() {
+        if event.pressed {
+            use super::wifi::Action;
+            let action = match event.physical {
+                Some(PhysicalKey::ArrowUp) => Some(Action::Up),
+                Some(PhysicalKey::ArrowDown) => Some(Action::Down),
+                Some(PhysicalKey::ArrowLeft) => Some(Action::Left),
+                Some(PhysicalKey::ArrowRight) => Some(Action::Right),
+                Some(PhysicalKey::KeyK) => Some(Action::Start),
+                _ => match code {
+                    KEY_A | KEY_RETURN => Some(Action::Confirm),
+                    KEY_ESCAPE | 0x62 => Some(Action::Back),
+                    KEY_X => Some(Action::Refresh),
+                    0x79 => Some(Action::Auxiliary),
+                    _ => None,
+                },
+            };
+            if let Some(action) = action {
+                if event.repeat != Some(true)
+                    || matches!(
+                        action,
+                        Action::Up | Action::Down | Action::Left | Action::Right
+                    )
+                {
+                    library.wifi_input(action);
+                }
+            }
+        }
+        return true;
+    }
     if code == KEY_X && (library.active() || !event.pressed) {
         if event.pressed && event.repeat != Some(true) {
             super::launcher_view::begin_play(state);

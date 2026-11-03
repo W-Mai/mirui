@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Nearby Wi-Fi settings share typed simulated state across tool entries, with password and hidden-network keyboards, cancellation, restoration, saved networks and failure cases.
 - Nearby game details display independent label/value fields, measured wrapping, a clipped reading viewport and fixed navigation hints.
 - Nearby game actions include typed detail categories, field values and simulated loading states with identity-preserving parent navigation.
 - Image sources accept reactive `${expression}` bindings and typed `prop::ImageSource` updates without replacing the component or its paint configuration.
