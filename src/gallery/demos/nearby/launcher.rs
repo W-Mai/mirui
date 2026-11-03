@@ -308,6 +308,10 @@ pub struct Launcher {
     details: super::details::State,
     #[observe]
     detail_revision: u64,
+    #[observe]
+    pub detail_offset: Fixed,
+    #[observe]
+    detail_geometry: u64,
     #[cfg(feature = "audio")]
     audio_feedback: super::sound::Feedback,
 }
@@ -399,6 +403,8 @@ impl Default for Launcher {
             selected_game: None,
             details: super::details::State::default(),
             detail_revision: 0,
+            detail_offset: Fixed::ZERO,
+            detail_geometry: 0,
             #[cfg(feature = "audio")]
             audio_feedback: super::sound::Feedback::default(),
         };
@@ -642,10 +648,16 @@ impl Launcher {
         let index = index.min(self.item_count().saturating_sub(1));
         if self.menu_selection != index {
             self.menu_age = 0;
+            if matches!(self.overlay, Some(Overlay::Details(_))) {
+                self.details.expanded = false;
+                self.details.scroll = 0;
+                self.detail_revision = self.detail_revision.wrapping_add(1);
+            }
             #[cfg(feature = "audio")]
             self.audio_feedback.emit(super::sound::Cue::Focus);
         }
         self.menu_selection = index;
+        self.update_detail_offset();
     }
 
     pub fn show_game_details(&mut self) {
@@ -655,7 +667,8 @@ impl Launcher {
             .find(|game| Some(game.key()) == self.selected_game)
             .map(|game| (game.key(), game.name(), game.platform()));
         if let Some((key, title, platform)) = game {
-            self.details = super::details::State::default();
+            self.details.expanded = false;
+            self.details.scroll = 0;
             self.details.load = super::details::Load::Ready {
                 document: super::details::Document::example(
                     key,
@@ -666,6 +679,7 @@ impl Launcher {
                 ),
             };
             self.show_overlay(Overlay::Details(super::details::Section::Overview));
+            self.prepare_detail_geometry();
             self.detail_revision = self.detail_revision.wrapping_add(1);
         }
     }
@@ -677,6 +691,7 @@ impl Launcher {
         self.details.expanded = false;
         self.details.scroll = 0;
         self.show_overlay(Overlay::Details(section));
+        self.prepare_detail_geometry();
         self.detail_revision = self.detail_revision.wrapping_add(1);
     }
 
@@ -687,8 +702,20 @@ impl Launcher {
             self.details.expanded = !self.details.expanded;
             self.details.scroll = 0;
             self.detail_revision = self.detail_revision.wrapping_add(1);
+            self.update_detail_offset();
             #[cfg(feature = "audio")]
             self.audio_feedback.emit(super::sound::Cue::Confirm);
+        }
+    }
+
+    pub fn confirm_detail(&mut self) {
+        use super::details::Section;
+        match self.read_item(self.menu_selection).map(|item| item.action) {
+            Some(MenuAction::ShowCoreDetails) => self.detail_section(Section::Core),
+            Some(MenuAction::ShowFirmwareDetails) => self.detail_section(Section::Firmware),
+            Some(MenuAction::ShowSaveDetails) => self.detail_section(Section::Saves),
+            Some(MenuAction::ExpandDetail) => self.toggle_detail(),
+            _ => {}
         }
     }
 
@@ -708,6 +735,7 @@ impl Launcher {
             self.details.scroll = 0;
         }
         self.detail_revision = self.detail_revision.wrapping_add(1);
+        self.update_detail_offset();
     }
 
     pub fn set_detail_load(&mut self, key: u32, load: super::details::Load) {
@@ -718,6 +746,7 @@ impl Launcher {
             return;
         }
         self.details.load = load;
+        self.prepare_detail_geometry();
         self.details.expanded = false;
         self.details.scroll = 0;
         self.menu_selection = self.menu_selection.min(self.item_count().saturating_sub(1));
@@ -739,6 +768,68 @@ impl Launcher {
     }
     fn read_detail_expanded(&self) -> bool {
         self.details.expanded
+    }
+
+    fn detail_section_value(&self) -> super::details::Section {
+        match self.overlay {
+            Some(Overlay::Details(section)) => section,
+            _ => super::details::Section::Overview,
+        }
+    }
+    fn prepare_detail_geometry(&mut self) {
+        self.details.prepare_geometry();
+        self.detail_geometry = self.detail_geometry.wrapping_add(1);
+        self.detail_offset = Fixed::ZERO;
+    }
+    fn update_detail_offset(&mut self) {
+        if matches!(self.overlay, Some(Overlay::Details(_))) {
+            self.detail_offset =
+                self.details
+                    .offset(self.menu_selection, self.item_count(), self.detail_offset);
+        }
+    }
+    pub fn detail_viewport(&mut self, height: Fixed) {
+        self.details.viewport(height);
+        self.update_detail_offset();
+    }
+    pub fn detail_measure(&mut self, index: usize, height: Fixed) {
+        self.details.measure(index, height);
+        self.update_detail_offset();
+    }
+    pub fn detail_text_size(&mut self, index: usize, part: usize, height: Fixed) {
+        if self.details.text_size(index, part, height) {
+            self.detail_geometry = self.detail_geometry.wrapping_add(1);
+        }
+    }
+    pub fn detail_fact_measure(&mut self, index: usize, field: usize, value: bool, height: Fixed) {
+        if self.details.fact_measure(index, field, value, height) {
+            self.detail_geometry = self.detail_geometry.wrapping_add(1);
+        }
+    }
+    fn read_detail_fact(&self, index: usize, field: usize) -> super::details::Fact {
+        self.details
+            .rows(self.detail_section_value())
+            .get(index)
+            .and_then(|row| row.facts.get(field))
+            .copied()
+            .unwrap_or_default()
+    }
+    fn read_detail_fact_count(&self, index: usize) -> usize {
+        self.details
+            .rows(self.detail_section_value())
+            .get(index)
+            .map_or(0, |row| row.facts.len())
+    }
+    fn read_detail_fact_height(&self, index: usize, field: usize) -> Fixed {
+        self.details.fact_height(index, field)
+    }
+    fn read_detail_facts_size(&self, index: usize, gap: i32) -> Fixed {
+        self.details
+            .facts_size(self.detail_section_value(), index, gap)
+    }
+    fn read_detail_size(&self, index: usize, gap: i32) -> Fixed {
+        self.details
+            .size(self.detail_section_value(), self.menu_selection, index, gap)
     }
 
     pub fn set_query(&mut self, query: String) {
@@ -1060,7 +1151,10 @@ impl Launcher {
             Some(Overlay::Exit) => "返回原系统？".into(),
             Some(Overlay::Power) => "关闭掌机？".into(),
             Some(Overlay::Network) => "当前保留着直连网络".into(),
-            Some(Overlay::Details(_)) => "游戏详情".into(),
+            Some(Overlay::Details(super::details::Section::Overview)) => "游戏详情".into(),
+            Some(Overlay::Details(super::details::Section::Core)) => "运行核心".into(),
+            Some(Overlay::Details(super::details::Section::Firmware)) => "BIOS 文件".into(),
+            Some(Overlay::Details(super::details::Section::Saves)) => "存档与配置".into(),
             None => String::new(),
         }
     }
@@ -1183,6 +1277,10 @@ impl Launcher {
                         });
                     }
                     self.detail_revision = self.detail_revision.wrapping_add(1);
+                    if self.overlay != Some(overlay) {
+                        self.prepare_detail_geometry();
+                    }
+                    self.update_detail_offset();
                 }
                 Overlay::Tools => {
                     self.show_overlay(Overlay::Controls);
@@ -1243,6 +1341,39 @@ impl Launcher {
 }
 
 impl LauncherHandle {
+    pub fn detail_active(&self) -> bool {
+        matches!(self.overlay(), Some(Overlay::Details(_)))
+    }
+    pub fn detail_count(&self) -> usize {
+        if self.detail_active() {
+            self.item_count()
+        } else {
+            0
+        }
+    }
+    pub fn detail_fact_count(&self, index: usize) -> usize {
+        self.detail_revision();
+        self.read_detail_fact_count(index)
+    }
+    pub fn detail_fact(&self, index: usize, field: usize) -> super::details::Fact {
+        self.detail_revision();
+        self.read_detail_fact(index, field)
+    }
+    pub fn detail_fact_height(&self, index: usize, field: usize) -> Fixed {
+        self.detail_geometry();
+        self.read_detail_fact_height(index, field)
+    }
+    pub fn detail_facts_size(&self, index: usize, gap: i32) -> Fixed {
+        self.detail_revision();
+        self.detail_geometry();
+        self.read_detail_facts_size(index, gap)
+    }
+    pub fn detail_size(&self, index: usize, gap: i32) -> Fixed {
+        self.detail_revision();
+        self.detail_geometry();
+        self.menu_selection();
+        self.read_detail_size(index, gap)
+    }
     pub fn detail_heading(&self) -> String {
         self.detail_revision();
         self.read_detail_heading()
@@ -1253,7 +1384,7 @@ impl LauncherHandle {
     }
     pub fn detail_expanded(&self) -> bool {
         self.detail_revision();
-        self.read_detail_expanded()
+        self.detail_active() && self.read_detail_expanded()
     }
     pub fn level(&self, index: usize) -> Option<Level> {
         self.volume();

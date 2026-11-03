@@ -178,10 +178,9 @@ fn activate_action(state: &super::model::DisplayStateHandle, action: MenuAction)
         Multiplayer => join_game(state),
         ToggleFavorite => library.toggle_favorite(),
         ShowGameDetails => library.show_game_details(),
-        ShowCoreDetails => library.detail_section(super::details::Section::Core),
-        ShowFirmwareDetails => library.detail_section(super::details::Section::Firmware),
-        ShowSaveDetails => library.detail_section(super::details::Section::Saves),
-        ExpandDetail => library.toggle_detail(),
+        ShowCoreDetails | ShowFirmwareDetails | ShowSaveDetails | ExpandDetail => {
+            library.confirm_detail()
+        }
         ShowControls => library.show_overlay(Overlay::Controls),
         ShowTools => library.show_overlay(Overlay::Tools),
         ShowExit => library.show_overlay(Overlay::Exit),

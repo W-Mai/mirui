@@ -6,6 +6,115 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn detail_reading_keeps_fields_separate_and_actor_inside_the_clipped_viewport() {
+    use crate::input::event::scroll::ScrollOffset;
+    use crate::ui::{
+        ComputedRect,
+        widgets::{FollowBounds, Text},
+    };
+    for (width, height) in [(480, 320), (640, 480)] {
+        let (mut app, state) = fixture_at(width, height);
+        let library = state.launcher();
+        library.resume();
+        library.choose_game(0, 0);
+        library.show_game_details();
+        app.tick();
+        app.render_dirty().unwrap();
+        let row = app
+            .world
+            .query::<actions::ActionAnchor>()
+            .iter()
+            .find_map(|(node, anchor)| {
+                (anchor.active(&library) && anchor.index() == Some(0)).then_some(node)
+            })
+            .unwrap();
+        let rect = app.world.get::<ComputedRect>(row).unwrap().0;
+        crate::ui::delivery::dispatch_gesture(
+            &mut app.world,
+            &crate::input::event::gesture::GestureEvent::Tap {
+                x: rect.x + Fixed::from_int(8),
+                y: rect.y + Fixed::from_int(8),
+                target: row,
+            },
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            library.overlay(),
+            Some(launcher::Overlay::Details(details::Section::Core))
+        );
+        for section in [
+            details::Section::Core,
+            details::Section::Firmware,
+            details::Section::Saves,
+        ] {
+            library.detail_section(section);
+            library.select_action(library.item_count() - 1);
+            library.toggle_detail();
+            for _ in 0..4 {
+                app.tick();
+                app.render_dirty().unwrap();
+            }
+            let reading = app
+                .world
+                .query::<actions::ActionAnchor>()
+                .iter()
+                .find_map(|(node, anchor)| {
+                    matches!(anchor, actions::ActionAnchor::Reading).then_some(node)
+                })
+                .unwrap();
+            let rect = app.world.get::<ComputedRect>(reading).unwrap().0;
+            assert!(rect.w > Fixed::ZERO && rect.h > Fixed::ZERO);
+            let actor = app
+                .world
+                .query::<actor::ActorFrame>()
+                .iter()
+                .find_map(|(node, marker)| marker.launcher.then_some(node))
+                .unwrap();
+            assert_eq!(
+                app.world.get::<FollowBounds>(actor).unwrap().target,
+                reading
+            );
+            let values = app
+                .world
+                .query::<Text>()
+                .iter()
+                .map(|(_, text)| text.resolve(app.world.resource()).to_string())
+                .collect::<alloc::vec::Vec<_>>();
+            for field in 0..library.detail_fact_count(library.menu_selection()) {
+                let fact = library.detail_fact(library.menu_selection(), field);
+                assert!(values.iter().any(|value| value == fact.label));
+                assert!(values.iter().any(|value| value == fact.value));
+            }
+            library.move_detail(1, true);
+            for _ in 0..3 {
+                app.tick();
+                app.render_dirty().unwrap();
+            }
+            assert_eq!(
+                app.world.get::<ScrollOffset>(reading).unwrap().y,
+                library.detail_offset()
+            );
+            assert_eq!(app.world.get::<ComputedRect>(reading).unwrap().0, rect);
+            let partial = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
+            app.render().unwrap();
+            assert_eq!(
+                partial,
+                app.backend.framebuffer().read_pixels().unwrap().bytes()
+            );
+            library.back();
+            assert!(!library.detail_expanded());
+        }
+    }
+}
+
+#[test]
 fn detail_keys_remain_inside_the_modal_and_restore_the_original_game_action() {
     use crate::input::event::input::{Key, PhysicalKey};
     use launcher::Overlay;
@@ -69,7 +178,7 @@ fn level_track_pointer_callbacks_share_the_typed_level_owner() {
         .query::<actions::ActionAnchor>()
         .iter()
         .find_map(|(entity, anchor)| {
-            (anchor.index == 0
+            (anchor.index() == Some(0)
                 && anchor.active(&library)
                 && app
                     .world
@@ -168,7 +277,7 @@ fn menu_actor_targets_only_its_active_layout_independently_of_the_background() {
                 let target = app.world.get::<FollowBounds>(frame).unwrap().target;
                 let anchor = app.world.get::<actions::ActionAnchor>(target).unwrap();
                 assert!(anchor.active(&library));
-                assert_eq!(anchor.index, selected);
+                assert_eq!(anchor.index(), Some(selected));
                 assert!(!state.actor_stage());
                 let body = app.world.get::<Children>(frame).unwrap().0[0];
                 let style = app.world.get::<crate::ui::Style>(body).unwrap();
@@ -673,7 +782,7 @@ fn discovery_loading_motion_uses_the_visible_mock_state() {
 }
 
 #[test]
-fn action_overlay_keeps_preview_and_all_menu_items_inside_the_panel() {
+fn action_overlay_keeps_all_game_actions_inside_the_panel() {
     use crate::ui::ComputedRect;
     for (width, height) in [(360, 480), (640, 480), (900, 600)] {
         let (mut app, state) = fixture_at(width, height);
@@ -685,8 +794,6 @@ fn action_overlay_keeps_preview_and_all_menu_items_inside_the_panel() {
         let panel = app.world.get::<ComputedRect>(panel).unwrap().0;
         assert!(panel.w > Fixed::from_int(i32::from(width) * 4 / 5));
         assert!(panel.h > Fixed::from_int(i32::from(height) * 3 / 5));
-        let preview = app.world.find_by_id("nearby_actions_preview").unwrap();
-        let preview = app.world.get::<ComputedRect>(preview).unwrap().0;
         let tiles: alloc::vec::Vec<_> = app
             .world
             .query::<actions::ActionAnchor>()
@@ -694,12 +801,12 @@ fn action_overlay_keeps_preview_and_all_menu_items_inside_the_panel() {
             .filter_map(|(entity, anchor)| {
                 anchor
                     .active(&library)
-                    .then_some((anchor.index, app.world.get::<ComputedRect>(entity)?.0))
+                    .then_some((anchor.index()?, app.world.get::<ComputedRect>(entity)?.0))
             })
             .collect();
-        assert_eq!(tiles.len(), 4);
+        assert_eq!(tiles.len(), 5);
         for (index, rect) in &tiles {
-            assert!(rect.x >= preview.x + preview.w, "{index}: {rect:?}");
+            assert!(rect.x >= panel.x, "{index}: {rect:?}");
             assert!(rect.w > Fixed::ZERO && rect.h > Fixed::ZERO);
             assert!(rect.x + rect.w <= panel.x + panel.w);
             assert!(rect.y >= panel.y && rect.y + rect.h <= panel.y + panel.h);
@@ -1314,7 +1421,7 @@ fn modal_panels_remain_drawable_without_offscreen_capacity() {
         .world
         .query::<actions::ActionAnchor>()
         .iter()
-        .find(|(_, marker)| marker.index == 0 && marker.active(&state.launcher()))
+        .find(|(_, marker)| marker.index() == Some(0) && marker.active(&state.launcher()))
         .unwrap()
         .0;
     let rect = app.world.get::<crate::ui::ComputedRect>(tile).unwrap().0;

@@ -1,13 +1,135 @@
+use crate::types::Fixed;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 #[derive(Default)]
 pub(super) struct State {
     pub load: Load,
     pub expanded: bool,
     pub scroll: u32,
+    viewport: Fixed,
+    measures: Vec<Measure>,
+}
+
+#[derive(Default)]
+struct Measure {
+    height: Fixed,
+    text: [Fixed; 2],
+    facts: Vec<[Fixed; 2]>,
 }
 
 impl State {
+    pub fn prepare_geometry(&mut self) {
+        let sections = [Section::Core, Section::Firmware, Section::Saves];
+        let count = sections
+            .into_iter()
+            .map(|section| self.rows(section).len())
+            .max()
+            .unwrap_or(0)
+            .max(3);
+        self.measures.resize_with(count, Measure::default);
+        for index in 0..count {
+            let fields = sections
+                .into_iter()
+                .filter_map(|section| self.rows(section).get(index))
+                .map(|row| row.facts.len())
+                .max()
+                .unwrap_or(0);
+            let measure = &mut self.measures[index];
+            measure.height = Fixed::ZERO;
+            measure.text = [Fixed::ZERO; 2];
+            measure.facts.resize(fields, [Fixed::ZERO; 2]);
+            measure.facts.fill([Fixed::ZERO; 2]);
+        }
+    }
+    pub fn viewport(&mut self, height: Fixed) {
+        self.viewport = height;
+    }
+    pub fn measure(&mut self, index: usize, height: Fixed) {
+        if let Some(measure) = self.measures.get_mut(index) {
+            measure.height = height;
+        }
+    }
+    pub fn text_size(&mut self, index: usize, part: usize, height: Fixed) -> bool {
+        let Some(size) = self
+            .measures
+            .get_mut(index)
+            .and_then(|measure| measure.text.get_mut(part))
+        else {
+            return false;
+        };
+        let changed = *size != height;
+        *size = height;
+        changed
+    }
+    pub fn fact_measure(&mut self, index: usize, field: usize, value: bool, height: Fixed) -> bool {
+        let Some(size) = self
+            .measures
+            .get_mut(index)
+            .and_then(|measure| measure.facts.get_mut(field))
+        else {
+            return false;
+        };
+        let part = usize::from(value);
+        let changed = size[part] != height;
+        size[part] = height;
+        changed
+    }
+    pub fn fact_height(&self, index: usize, field: usize) -> Fixed {
+        self.measures
+            .get(index)
+            .and_then(|measure| measure.facts.get(field))
+            .map_or(14.into(), |size| size[0].max(size[1]).max(14.into()))
+    }
+    pub fn facts_size(&self, section: Section, index: usize, gap: i32) -> Fixed {
+        let count = self
+            .rows(section)
+            .get(index)
+            .map_or(0, |row| row.facts.len());
+        (0..count).fold(Fixed::ZERO, |sum, field| {
+            sum + self.fact_height(index, field)
+        }) + Fixed::from_int(count as i32 + gap * count.saturating_sub(1) as i32)
+    }
+    pub fn size(&self, section: Section, selected: usize, index: usize, gap: i32) -> Fixed {
+        let sizes = self
+            .measures
+            .get(index)
+            .map_or([Fixed::ZERO; 2], |measure| measure.text);
+        sizes[0].max(26.into())
+            + sizes[1].max(14.into())
+            + if selected == index && self.expanded {
+                self.facts_size(section, index, gap) + Fixed::from_int(9)
+            } else {
+                Fixed::ZERO
+            }
+            + Fixed::from_int(gap * 2 + 8)
+    }
+    pub fn offset(&self, selected: usize, count: usize, previous: Fixed) -> Fixed {
+        let top = self
+            .measures
+            .iter()
+            .take(selected)
+            .fold(Fixed::ZERO, |sum, measure| sum + measure.height);
+        let height = self
+            .measures
+            .get(selected)
+            .map_or(Fixed::ZERO, |measure| measure.height);
+        let total = self
+            .measures
+            .iter()
+            .take(count)
+            .fold(Fixed::ZERO, |sum, measure| sum + measure.height);
+        let offset = if self.expanded {
+            top + Fixed::from_int(self.scroll as i32)
+        } else if top < previous {
+            top
+        } else if top + height > previous + self.viewport {
+            top + height - self.viewport
+        } else {
+            previous
+        };
+        offset.clamp(Fixed::ZERO, (total - self.viewport).max(Fixed::ZERO))
+    }
     pub fn rows(&self, section: Section) -> &'static [Row] {
         match &self.load {
             Load::Ready { document } => document.rows(section),
@@ -256,3 +378,53 @@ const SAVES: &[Row] = &[
         }],
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detail_measurements_reuse_prepared_storage_and_bound_focused_scrolling() {
+        let mut state = State {
+            load: Load::Ready {
+                document: Document::example(0, "Example".into(), "NES"),
+            },
+            ..Default::default()
+        };
+        state.prepare_geometry();
+        let rows = state.measures.as_ptr();
+        let facts = state
+            .measures
+            .iter()
+            .map(|measure| measure.facts.as_ptr())
+            .collect::<Vec<_>>();
+        state.viewport(100.into());
+        for index in 0..5 {
+            state.measure(index, 80.into());
+            state.text_size(index, 0, 26.into());
+            state.text_size(index, 1, 14.into());
+        }
+        assert_eq!(state.offset(4, 5, Fixed::ZERO), 300.into());
+        state.expanded = true;
+        state.scroll = 8192;
+        assert_eq!(state.offset(4, 5, Fixed::ZERO), 300.into());
+        for _ in 0..20 {
+            for (index, row) in SAVES.iter().enumerate() {
+                for field in 0..row.facts.len() {
+                    state.fact_measure(index, field, false, 14.into());
+                    state.fact_measure(index, field, true, 42.into());
+                }
+            }
+            state.prepare_geometry();
+        }
+        assert_eq!(state.measures.as_ptr(), rows);
+        assert_eq!(
+            state
+                .measures
+                .iter()
+                .map(|measure| measure.facts.as_ptr())
+                .collect::<Vec<_>>(),
+            facts
+        );
+    }
+}

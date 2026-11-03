@@ -47,8 +47,57 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
             library.adjust(nearby::launcher::MenuAction::CycleTheme);
         }
     }
+    if scene == "details-game" {
+        library
+            .games()
+            .load(core::iter::once(nearby::launcher::Game {
+                directory: false,
+                played: 0,
+                key: 0,
+                name: "魂斗罗",
+                search: "contra",
+                platform: Some(0),
+                multiplayer: true,
+                favorite: true,
+            }))
+            .expect("detail reference inventory");
+    }
     match scene {
-        "actions" => library.choose_game(0, 0),
+        "actions" | "details-game" => library.choose_game(0, 0),
+        "details" | "details-core" | "details-firmware" | "details-saves" | "details-expanded"
+        | "details-loading" | "details-failed" => {
+            use nearby::details::{Document, Load, Section};
+            library.choose_game(0, 0);
+            library.show_game_details();
+            library.set_detail_load(
+                0,
+                Load::Ready {
+                    document: Document::example(0, "魂斗罗".into(), "NES / FC"),
+                },
+            );
+            let section = match scene {
+                "details-core" => Section::Core,
+                "details-firmware" => Section::Firmware,
+                "details-saves" | "details-expanded" => Section::Saves,
+                _ => Section::Overview,
+            };
+            library.detail_section(section);
+            if scene == "details-expanded" {
+                library.select_action(1);
+                library.toggle_detail();
+            }
+            if scene == "details-loading" {
+                library.set_detail_load(0, Load::Loading);
+            }
+            if scene == "details-failed" {
+                library.set_detail_load(
+                    0,
+                    Load::Failed {
+                        message: "读取失败",
+                    },
+                );
+            }
+        }
         "panel" => state.open_network(),
         "lobby" | "discovery-actions" | "candidates" | "discovery-current" | "discovery-empty" => {
             if scene == "discovery-current" {

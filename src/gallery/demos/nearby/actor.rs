@@ -46,8 +46,13 @@ fn resolve<'a, 'b, 'c, 'd>(
         return None;
     }
     if library.active() && library.menu() {
+        if library.detail_expanded() {
+            return action_targets.into_iter().find_map(|(entity, anchor)| {
+                matches!(anchor, super::actions::ActionAnchor::Reading).then_some((entity, false))
+            });
+        }
         return action_targets.into_iter().find_map(|(entity, row)| {
-            (row.index == library.menu_selection() && row.active(&library))
+            (row.index() == Some(library.menu_selection()) && row.active(&library))
                 .then_some((entity, false))
         });
     }

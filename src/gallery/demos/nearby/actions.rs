@@ -1,5 +1,5 @@
-use super::consoles::{Platform, console};
-use super::launcher::{Launcher, MenuAction, Overlay, PLATFORMS};
+use super::detail_view::details_panel;
+use super::launcher::{Launcher, MenuAction, Overlay};
 use super::model::DisplayState;
 use super::pixel::{Scenery::Margins, backdrop};
 use super::style::*;
@@ -12,23 +12,35 @@ use crate::ui::widgets::{
 use ActionLayout::{Grid, Levels};
 
 #[component]
-pub(super) struct ActionAnchor {
-    pub index: usize,
-    layout: ActionLayout,
+pub(super) enum ActionAnchor {
+    Item { index: usize, layout: ActionLayout },
+    Reading,
 }
 
 #[derive(Clone, Copy)]
-enum ActionLayout {
+pub(super) enum ActionLayout {
     Grid,
     Levels,
+    Details,
 }
 
 impl ActionAnchor {
+    pub(super) fn index(&self) -> Option<usize> {
+        match self {
+            Self::Item { index, .. } => Some(*index),
+            Self::Reading => None,
+        }
+    }
     pub(super) fn active(&self, state: &super::launcher::LauncherHandle) -> bool {
-        let levels = state.overlay() == Some(Overlay::Controls);
-        match self.layout {
-            ActionLayout::Grid => !levels,
-            ActionLayout::Levels => levels,
+        let Self::Item { layout, .. } = self else {
+            return state.detail_expanded();
+        };
+        match layout {
+            ActionLayout::Grid => {
+                state.overlay() != Some(Overlay::Controls) && !state.detail_active()
+            }
+            ActionLayout::Levels => state.overlay() == Some(Overlay::Controls),
+            ActionLayout::Details => state.detail_active(),
         }
     }
 }
@@ -43,7 +55,9 @@ fn hover(
     if event.hovered
         && let Some(anchor) = anchors.get(node)
     {
-        state.select_action(anchor.index);
+        if let Some(index) = anchor.index() {
+            state.select_action(index);
+        }
     }
 }
 
@@ -97,37 +111,37 @@ fn graphical_overlay(
                         overlay_label (state, None)
                         View (height: metrics.rule_height(), bg_color: WARNING, shrink: 0.0)
                         Row (grow: 1.0, min_height: 0, column_gap: metrics.gap * 2) {
-                            if ${ state.overlay() == Some(Overlay::Game) } {
-                                Column (width: Dimension::percent(38), shrink: 0.0, min_height: 0) {
-                                    preview (state)
-                                    shadow (metrics)
-                                }
-                            }
                             if ${ state.overlay() == Some(Overlay::Controls) } {
                                 level_panel (state, display, metrics)
                             } else {
-                                Column (
-                                    grow: 1.0,
-                                    min_width: 0,
-                                    min_height: 0,
-                                    row_gap: metrics.gap
-                                ) {
-                                    walk 0_usize..3 with line {
-                                        if ${ line * 2 < state.item_count() } {
-                                            Row (
-                                                grow: 1.0,
-                                                min_height: 0,
-                                                column_gap: metrics.gap
-                                            ) {
-                                                walk 0_usize..2 with column {
-                                                    if ${ line * 2 + column < state.item_count() } {
-                                                        action_tile (
-                                                            state,
-                                                            display,
-                                                            line * 2 + column,
-                                                            metrics,
-                                                            Grid
-                                                        )
+                                Column (grow: 1.0, min_width: 0, min_height: 0) {
+                                    if ${ state.detail_active() } {
+                                        details_panel (state, metrics)
+                                    } else {
+                                        Column (
+                                            grow: 1.0,
+                                            min_width: 0,
+                                            min_height: 0,
+                                            row_gap: metrics.gap
+                                        ) {
+                                            walk 0_usize..3 with line {
+                                                if ${ line * 2 < state.item_count() } {
+                                                    Row (
+                                                        grow: 1.0,
+                                                        min_height: 0,
+                                                        column_gap: metrics.gap
+                                                    ) {
+                                                        walk 0_usize..2 with column {
+                                                            if ${ line * 2 + column < state.item_count() } {
+                                                                action_tile (
+                                                                    state,
+                                                                    display,
+                                                                    line * 2 + column,
+                                                                    metrics,
+                                                                    Grid
+                                                                )
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -146,7 +160,25 @@ fn graphical_overlay(
                                 control_label ("调节", metrics)
                             } else {
                                 control_key ("A", metrics, true)
-                                control_label ("确认", metrics)
+                                control_label (
+                                    ${
+                                        if state.detail_expanded() {
+                                            "收起"
+                                        } else if matches!(
+                                            state.overlay(), Some(Overlay::Details(section)) if section !=
+                                            super::details::Section::Overview
+                                        ) {
+                                            "查看来源"
+                                        } else {
+                                            "确认"
+                                        }
+                                    },
+                                    metrics
+                                )
+                            }
+                            if ${ state.detail_expanded() } {
+                                control_key ("上下", metrics, false)
+                                control_label ("滚动", metrics)
                             }
                             control_key ("B", metrics, false)
                             control_label ("返回", metrics)
@@ -252,7 +284,7 @@ fn level_row(state: model!(Launcher), index: usize, metrics: Metrics) -> Entity 
                     )
                 }
             ) [
-                ActionAnchor {
+                ActionAnchor::Item {
                     index,
                     layout: ActionLayout::Levels,
                 },
@@ -405,7 +437,10 @@ fn action_tile(
                 border_width: 2,
                 border_color: ${ if state.menu_selection() == index { WARNING } else { DIVIDER } }
             ) [
-                ActionAnchor { index, layout },
+                ActionAnchor::Item {
+                    index,
+                    layout,
+                },
             ] {
                 Row (
                     grow: 1.0,
@@ -492,6 +527,9 @@ enum ActionGlyph {
     Wifi,
     Network,
     Muted,
+    Core,
+    Firmware,
+    Storage,
 }
 
 fn action_glyph(action: MenuAction) -> ActionGlyph {
@@ -506,8 +544,10 @@ fn action_glyph(action: MenuAction) -> ActionGlyph {
         Brightness => ActionGlyph::Brightness,
         ShowControls => ActionGlyph::Settings,
         ShowTools => ActionGlyph::Toolbox,
-        SystemInfo | ShowGameDetails | ShowCoreDetails | ShowFirmwareDetails | ShowSaveDetails
-        | ExpandDetail => ActionGlyph::Info,
+        SystemInfo | ShowGameDetails | ExpandDetail => ActionGlyph::Info,
+        ShowCoreDetails => ActionGlyph::Core,
+        ShowFirmwareDetails => ActionGlyph::Firmware,
+        ShowSaveDetails => ActionGlyph::Storage,
         FileManager => ActionGlyph::Library,
         ShowPower | Poweroff => ActionGlyph::Power,
         ShowExit | Exit => ActionGlyph::Exit,
@@ -518,7 +558,7 @@ fn action_glyph(action: MenuAction) -> ActionGlyph {
 fn action_foreground(state: &super::launcher::LauncherHandle, index: usize) -> ColorToken {
     if !state.item(index).is_some_and(|item| item.enabled) {
         SECONDARY
-    } else if state.overlay() == Some(Overlay::Controls) && index < 2 {
+    } else if state.detail_active() || state.overlay() == Some(Overlay::Controls) && index < 2 {
         FOREGROUND
     } else if state.menu_selection() == index {
         ON_ACCENT
@@ -543,7 +583,7 @@ fn item_glyph(item: Option<super::launcher::MenuItem>) -> ActionGlyph {
 }
 
 #[compose]
-fn action_icon(state: model!(Launcher), index: usize) -> Entity {
+pub(super) fn action_icon(state: model!(Launcher), index: usize) -> Entity {
     ui! {
         Column (
             grow: 1.0,
@@ -571,6 +611,26 @@ fn action_icon(state: model!(Launcher), index: usize) -> Entity {
                     walk ${ core::iter::once((item_glyph(state.item(index)), action_foreground(&state, index))) } with icon by icon {
                         Image (
                             src: match icon.0 {
+                                ActionGlyph::Core => {
+                                    path!(
+                                        M 4 4 H 12 V 12 H 4 Z M 5 1 H 7 V 4 H 5 Z M 9 1 H 11 V 4 H 9 Z M 5 12 H 7
+                                        V 15 H 5 Z M 9 12 H 11 V 15 H 9 Z M 1 5 H 4 V 7 H 1 Z M 1 9 H 4 V 11 H 1
+                                        Z M 12 5 H 15 V 7 H 12 Z M 12 9 H 15 V 11 H 12 Z
+                                    )
+                                }
+                                ActionGlyph::Firmware => {
+                                    path!(
+                                        M 3 2 H 6 V 4 H 10 V 2 H 13 V 14 H 3 Z M 1 4 H 3 V 6 H 1 Z M 1 8 H 3 V 10
+                                        H 1 Z M 1 12 H 3 V 14 H 1 Z M 13 4 H 15 V 6 H 13 Z M 13 8 H 15 V 10 H 13
+                                        Z M 13 12 H 15 V 14 H 13 Z
+                                    )
+                                }
+                                ActionGlyph::Storage => {
+                                    path!(
+                                        M 2 1 H 12 L 15 4 V 15 H 1 V 1 Z M 4 2 V 6 H 11 V 2 Z M 4 9 V 14 H 12 V 9
+                                        Z
+                                    )
+                                }
                                 ActionGlyph::Play => {
                                     path!(M 3 2 H 6 V 4 H 10 V 7 H 14 V 10 H 10 V 13 H 6 V 15 H 3 Z)
                                 }
@@ -691,30 +751,5 @@ fn overlay_label(state: model!(Launcher), index: Option<usize>) -> Entity {
             LABEL_LEADING,
             2
         )
-    }
-}
-
-#[compose]
-fn preview(state: model!(Launcher)) -> Entity {
-    let platform = state
-        .games()
-        .iter()
-        .find(|game| Some(game.key()) == state.game_key())
-        .and_then(|game| game.platform())
-        .and_then(|index| PLATFORMS.get(index))
-        .map_or(Platform::Unknown, |(_, id)| Platform::from_id(id));
-    ui! {
-        Column (
-            id: "nearby_actions_preview",
-            grow: 1.0,
-            min_width: 0,
-            min_height: 0,
-            bg_color: PANEL,
-            padding: Padding::all(2),
-            justify: JustifyContent::Center,
-            row_gap: 8
-        ) {
-            console (platform)
-        }
     }
 }

@@ -8,6 +8,7 @@ mod consoles;
 mod copy;
 pub mod data;
 mod deck;
+mod detail_view;
 pub mod details;
 mod feedback;
 mod input;
@@ -72,6 +73,7 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.with_widget(input::selection_frame::view());
     app.with_widget(library::library_focus::view());
     app.with_widget(actor::actor_frame::view());
+    app.with_widget(detail_view::details_scroll::view());
     app.with_widget(pixel::scenery::view());
     app.with_widget(pixel::choice_sprite::view());
     app.with_widget(pixel::walker_sprite::view());

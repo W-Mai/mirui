@@ -26,6 +26,8 @@ Set `NEARBY_SCENE` when selecting `nearby` to capture a deterministic scene (640
 
 `NEARBY_SCENE=favorites-full` supplies a bounded 24-entry inventory for adaptive grid and paging captures. `controls-muted`, `controls-loading`, `controls-pending` and `controls-unavailable` capture the typed slider states. These fixtures simulate device values and do not access hardware controls.
 
+`details`, `details-core`, `details-firmware`, `details-saves` and `details-expanded` capture game metadata and field expansion. `details-loading` and `details-failed` exercise status presentation; `details-game` captures the five-action menu with matching reference inventory. Metadata, paths and file states in these scenes are synthetic fixtures.
+
 The Web pre-build hook invokes the same tool for all entries in `gallery::DEMOS` and caches the previews under `target/gallery-site/demo-previews`. A failed generation preserves the previous preview directory; a successful generation replaces it. Adding a demo does not require maintaining a separate image count.
 
 For a regression check, capture before and after a change with identical arguments into separate directories. Compare corresponding files and inspect the images for clipping, layering, and animation artifacts. These snapshots support manual visual checks; they do not replace unit tests for layout, event, or lifecycle contracts. Keep generated images under `.local/screenshots/` or a temporary directory, outside version control.
