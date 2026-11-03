@@ -29,6 +29,7 @@ mod snapshot;
 #[cfg(feature = "audio")]
 mod sound;
 mod style;
+mod text_input;
 mod widgets;
 pub mod wifi;
 mod wifi_view;
@@ -87,6 +88,7 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     #[cfg(feature = "std")]
     app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
     let state = app.add_model(model::DisplayState::default()).finish();
+    text_input::install(app, state.clone());
     #[cfg(feature = "audio")]
     {
         let audio = app.audio();

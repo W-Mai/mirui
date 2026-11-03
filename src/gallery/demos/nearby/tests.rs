@@ -64,6 +64,8 @@ fn wifi_actor_scope_facts_and_keyboard_pointer_input_follow_the_active_page() {
                         1,
                     )
                     .unwrap();
+                    app.tick();
+                    app.render_dirty().unwrap();
                     assert_eq!(library.wifi_length(), 1);
                     assert_eq!(library.overlay_title(), "Camp Wi-Fi");
                 }
@@ -109,18 +111,19 @@ fn wifi_actor_scope_facts_and_keyboard_pointer_input_follow_the_active_page() {
 
 #[test]
 fn wifi_keys_use_the_shared_tools_owner_and_never_enter_game_hold() {
-    use crate::input::event::input::{Key, PhysicalKey};
-    let mut app = App::headless(640, 480);
-    app.with_default_widgets().with_default_systems();
-    let root = app.spawn_root().id();
-    let state = app.add_model(model::DisplayState::default()).finish();
-    app.on_event(Key::EVENT, input::keyboard::callback(state.clone()));
+    use crate::input::event::input::PhysicalKey;
+    let (mut app, state) = fixture();
+    let root = app.root.unwrap();
     let library = state.launcher();
     library.resume();
     library.open_wifi(false);
     library.select_action(2);
     launcher_view::confirm(&state);
     assert_eq!(library.wifi_page(), wifi::Page::Password);
+    for _ in 0..4 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
     let mut press = |key, now| {
         crate::input::event::dispatch_input(
             &mut app.world,
@@ -130,6 +133,8 @@ fn wifi_keys_use_the_shared_tools_owner_and_never_enter_game_hold() {
             640,
             480,
         );
+        app.tick();
+        app.render_dirty().unwrap();
     };
     press(PhysicalKey::KeyA, 1);
     assert_eq!(library.wifi_length(), 1);
@@ -152,6 +157,60 @@ fn wifi_keys_use_the_shared_tools_owner_and_never_enter_game_hold() {
     press(PhysicalKey::KeyB, 7);
     assert_eq!(library.overlay(), Some(launcher::Overlay::Tools));
     assert_eq!(library.menu_selection(), 1);
+}
+
+#[test]
+fn wifi_software_input_orders_a_burst_and_retires_old_editor_sessions() {
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.wifi_fixture(wifi::Page::Password);
+    for _ in 0..4 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    let session = library.input_session().expect("software editor session");
+    let document = library.wifi_document();
+    for _ in 0..8 {
+        library.wifi_input(wifi::Action::Confirm);
+    }
+    library.wifi_input(wifi::Action::Refresh);
+    library.wifi_input(wifi::Action::Confirm);
+    library.wifi_input(wifi::Action::Start);
+    assert_eq!(document.len(), 0);
+    for length in 1..=8 {
+        app.tick();
+        app.render_dirty().unwrap();
+        assert_eq!(document.len(), length);
+    }
+    for _ in 0..3 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    document.read(|text| assert_eq!(text, "qqqqqqqq"));
+    assert_eq!(library.wifi_page(), wifi::Page::Connecting);
+    library.wifi_fixture(wifi::Page::Password);
+    crate::input::event::deliver_input(
+        &mut app.world,
+        app.root,
+        &session.commit("stale"),
+        1,
+        640,
+        480,
+    );
+    for _ in 0..4 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    assert!(document.is_empty());
+    assert_ne!(library.input_session(), Some(session));
+    library.wifi_input(wifi::Action::Confirm);
+    library.dismiss_menu();
+    app.tick();
+    app.render_dirty().unwrap();
+    assert!(document.is_empty());
+    assert!(library.input_edit().is_none());
+    assert!(library.input_session().is_none());
 }
 
 #[test]

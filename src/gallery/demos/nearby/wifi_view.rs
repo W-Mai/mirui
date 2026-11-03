@@ -1,4 +1,5 @@
 use super::launcher::Launcher;
+use super::text_input::WifiEditor;
 use super::wifi::Page;
 use super::{
     actions::{ActionAnchor, ActionLayout},
@@ -7,7 +8,7 @@ use super::{
 };
 use crate::prelude::*;
 use crate::ui::widgets::TextAlign::Start;
-use crate::ui::widgets::{Image, Text};
+use crate::ui::widgets::{Image, Text, TextEditing};
 use alloc::string::{String, ToString};
 const TITLE_SIZE: u16 = 24;
 const BODY_SIZE: u16 = 12;
@@ -342,37 +343,11 @@ fn network_glyph(state: &super::launcher::LauncherHandle, index: usize) -> Netwo
 #[compose]
 fn keyboard(state: model!(Launcher), metrics: Metrics) -> Entity {
     ui! {
-        Column (grow: 1.0, min_width: 0, min_height: 0, row_gap: metrics.gap) {
-            Row (
-                height: 36,
-                shrink: 0.0,
-                padding: Padding::all(4),
-                bg_color: PANEL,
-                border_width: 2,
-                border_color: ACCENT,
-                min_width: 0
-            ) {
-                Text (
-                    text: ${ state.wifi_editor(35) },
-                    font: font(TITLE_SIZE),
-                    font_size: TITLE_SIZE,
-                    text_color: FOREGROUND,
-                    grow: 1.0,
-                    min_width: 0,
-                    paragraph: super::widgets::paragraph(Start, 1)
-                ) [
-                    FONT_PAINT,
-                ]
-                Text (
-                    text: ${ state.wifi_length().to_string() },
-                    font: font(BODY_SIZE),
-                    font_size: BODY_SIZE,
-                    text_color: SECONDARY,
-                    width: 28,
-                    shrink: 0.0
-                ) [
-                    FONT_PAINT,
-                ]
+        Column (grow: 1.0, min_width: 0, min_height: 0, row_gap: metrics.gap) [
+            PointerFocus::Preserve,
+        ] {
+            walk ${ core::iter::once(state.wifi_epoch()) } with epoch by epoch {
+                editing_field (state, epoch)
             }
             Column (grow: 1.0, min_height: 0, min_width: 0, row_gap: 3) {
                 walk 0_usize..4 with line {
@@ -391,6 +366,46 @@ fn keyboard(state: model!(Launcher), metrics: Metrics) -> Entity {
                 ActionAnchor::WifiKeyboard,
             ]
         }
+    }
+}
+#[compose]
+fn editing_field(state: model!(Launcher), epoch: u64) -> Entity {
+    let document = state.wifi_document();
+    ui! {
+        Row (
+            height: 36,
+            shrink: 0.0,
+            padding: Padding::all(4),
+            bg_color: PANEL,
+            border_width: 2,
+            border_color: ACCENT,
+            min_width: 0
+        ) [
+            WifiEditor(epoch),
+            TextEditing::new(document),
+        ] {
+            Text (
+                text: ${ state.wifi_editor(35) },
+                font: font(TITLE_SIZE),
+                font_size: TITLE_SIZE,
+                text_color: FOREGROUND,
+                grow: 1.0,
+                min_width: 0,
+                paragraph: super::widgets::paragraph(Start, 1)
+            ) [
+                FONT_PAINT,
+            ]
+            Text (
+                text: ${ state.wifi_length().to_string() },
+                font: font(BODY_SIZE),
+                font_size: BODY_SIZE,
+                text_color: SECONDARY,
+                width: 28,
+                shrink: 0.0
+            ) [
+                FONT_PAINT,
+            ]
+        } on TextEditing::Submitted { state.wifi_submit(); }
     }
 }
 #[compose]

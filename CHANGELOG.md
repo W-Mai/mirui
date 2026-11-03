@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Nearby Wi-Fi input uses a Launcher-owned text document and the software input method, preserving ordered character, delete and submit actions with bounded dispatch and session retirement.
 - Nearby catalog windows use their available height for one to eight rows while retaining native-size titles and selected entry identities.
 - Nearby system controls use pixel sliders with typed levels, 5% key adjustments, native-size labels, availability feedback and distinct system icons.
 - Nearby page indicators retain absolute page identities and animate their widths with redirectable 260 ms tweens.

@@ -1,5 +1,6 @@
 //! Simulated ordinary Wi-Fi settings. No host network access is performed.
 
+use super::text_input::Edit;
 use alloc::string::{String, ToString};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -133,6 +134,12 @@ const NETWORKS: [Network; 4] = [
         connected: false,
     },
 ];
+
+pub(super) enum Response {
+    Stay,
+    Close,
+    Edit(Edit),
+}
 
 pub(super) struct State {
     pub page: Page,
@@ -417,21 +424,21 @@ impl State {
         previous != (self.page, self.stage, self.scanning, self.pulse)
     }
     // Returns true only when the owning Tools entry should regain focus.
-    pub fn input(&mut self, action: Action) -> bool {
+    pub fn input(&mut self, action: Action) -> Response {
         if action == Action::Back {
             if self.page.pending() {
                 if self.page == Page::Connecting {
                     self.page = Page::Cancelling;
                     self.elapsed = 0;
                 }
-                return false;
+                return Response::Stay;
             }
             match self.page {
                 Page::List | Page::Off | Page::Empty | Page::Busy => {
                     self.editor.clear();
-                    return true;
+                    return Response::Close;
                 }
-                Page::Info if self.info_entry => return true,
+                Page::Info if self.info_entry => return Response::Close,
                 Page::Forget => {
                     self.page = Page::Details;
                     self.selected = 1;
@@ -442,38 +449,28 @@ impl State {
                 }
                 _ => self.list(),
             }
-            return false;
+            return Response::Stay;
         }
         if self.page.pending() {
-            return false;
+            return Response::Stay;
         }
         if self.page.keyboard() {
-            if self.editor.input(self.page, action) {
-                if self.page == Page::Hidden {
-                    self.ssid.clear();
-                    self.ssid.push_str(&self.editor.value);
-                    self.target_security = Security::Psk;
-                    self.target = Some(NETWORKS.len());
-                    self.page = Page::Security;
-                    self.selected = 0;
-                    self.editor.clear();
-                } else {
-                    self.connect();
-                }
-            }
-            return false;
+            return self
+                .editor
+                .input(action)
+                .map_or(Response::Stay, Response::Edit);
         }
         if action == Action::Refresh && matches!(self.page, Page::List | Page::Empty) {
             self.scanning = true;
             self.elapsed = 0;
-            return false;
+            return Response::Stay;
         }
         if action == Action::Auxiliary && self.page == Page::List {
             self.list_selection = self.slot(self.selected);
             self.info_entry = false;
             self.page = Page::Info;
             self.selected = 0;
-            return false;
+            return Response::Stay;
         }
         let count = match self.page {
             Page::List => self.count + 1,
@@ -483,14 +480,14 @@ impl State {
         match action {
             Action::Up | Action::Left => {
                 self.selected = self.selected.saturating_sub(1);
-                return false;
+                return Response::Stay;
             }
             Action::Down | Action::Right => {
                 self.selected = (self.selected + 1).min(count - 1);
-                return false;
+                return Response::Stay;
             }
             Action::Confirm => {}
-            _ => return false,
+            _ => return Response::Stay,
         }
         match self.page {
             Page::List => {
@@ -567,11 +564,28 @@ impl State {
                     self.connect();
                 }
             }
-            Page::Busy => return true,
+            Page::Busy => return Response::Close,
             Page::Success | Page::Info | Page::Failed => return self.input(Action::Back),
             _ => {}
         }
-        false
+        Response::Stay
+    }
+    pub fn submit(&mut self, value: &str) -> bool {
+        if !self.page.keyboard() || !self.editor.submit(self.page, value) {
+            return false;
+        }
+        if self.page == Page::Hidden {
+            self.ssid.clear();
+            self.ssid.push_str(value);
+            self.target_security = Security::Psk;
+            self.target = Some(NETWORKS.len());
+            self.page = Page::Security;
+            self.selected = 0;
+            self.editor.clear();
+        } else {
+            self.connect();
+        }
+        true
     }
     pub fn select(&mut self, index: usize) {
         if self.page.keyboard() {
@@ -593,34 +607,19 @@ impl State {
     }
 }
 
+#[derive(Default)]
 pub(super) struct Editor {
     pub selected: usize,
     mode: u8,
-    value: String,
     visible: bool,
     pub error: &'static str,
-}
-impl Default for Editor {
-    fn default() -> Self {
-        Self {
-            selected: 0,
-            mode: 0,
-            value: String::with_capacity(64),
-            visible: false,
-            error: "",
-        }
-    }
 }
 impl Editor {
     pub fn clear(&mut self) {
         self.selected = 0;
         self.mode = 0;
-        self.value.clear();
         self.visible = false;
         self.error = "";
-    }
-    pub fn length(&self) -> usize {
-        self.value.len()
     }
     pub fn echo_label(&self) -> String {
         if self.visible { "隐藏" } else { "显示" }.into()
@@ -667,8 +666,8 @@ impl Editor {
         }
         .into()
     }
-    pub fn text(&self, hidden: bool) -> String {
-        if self.value.is_empty() {
+    pub fn text(&self, hidden: bool, value: &str) -> String {
+        if value.is_empty() {
             return if hidden {
                 "输入网络名称"
             } else {
@@ -677,34 +676,27 @@ impl Editor {
             .into();
         }
         if hidden || self.visible {
-            self.value.clone()
+            value.into()
         } else {
-            "*".repeat(self.value.len())
+            "*".repeat(value.chars().count())
         }
     }
-    fn push(&mut self, ch: char) {
-        if self.value.len() < 64 {
-            self.value.push(ch);
-            self.error = "";
-        } else {
-            self.error = "密码最多 64 字节";
-        }
-    }
-    fn submit(&mut self, page: Page) -> bool {
+    fn submit(&mut self, page: Page, value: &str) -> bool {
         if page == Page::Hidden {
-            if !(1..=32).contains(&self.value.len()) {
+            if !(1..=32).contains(&value.len()) || value.contains(['\0', '\n', '\r']) {
                 self.error = "网络名称需为 1–32 字节";
                 return false;
             }
-        } else if !((8..=63).contains(&self.value.len())
-            || self.value.len() == 64 && self.value.bytes().all(|ch| ch.is_ascii_hexdigit()))
+        } else if value.contains(['\0', '\n', '\r'])
+            || !((8..=63).contains(&value.len())
+                || value.len() == 64 && value.bytes().all(|ch| ch.is_ascii_hexdigit()))
         {
             self.error = "密码需 8–63 字节或 64 位十六进制";
             return false;
         }
         true
     }
-    fn input(&mut self, page: Page, action: Action) -> bool {
+    pub fn input(&mut self, action: Action) -> Option<Edit> {
         match action {
             Action::Up => {
                 self.selected = if self.selected >= 30 {
@@ -725,13 +717,16 @@ impl Editor {
             Action::Left => self.selected = self.selected.saturating_sub(1),
             Action::Right => self.selected = (self.selected + 1).min(34),
             Action::Refresh => {
-                self.value.pop();
                 self.error = "";
+                return Some(Edit::Backspace);
             }
             Action::Auxiliary => self.visible = !self.visible,
-            Action::Start => return self.submit(page),
+            Action::Start => return Some(Edit::Submit),
             Action::Confirm => match self.selected {
-                0..30 => self.push(self.character(self.selected)),
+                0..30 => {
+                    self.error = "";
+                    return Some(Edit::Insert(self.character(self.selected) as u8));
+                }
                 30 => self.mode = if self.mode == 1 { 0 } else { 1 },
                 31 => {
                     self.mode = match self.mode {
@@ -740,16 +735,19 @@ impl Editor {
                         _ => 2,
                     }
                 }
-                32 => self.push(' '),
-                33 => {
-                    self.value.pop();
+                32 => {
                     self.error = "";
+                    return Some(Edit::Insert(b' '));
                 }
-                _ => return self.submit(page),
+                33 => {
+                    self.error = "";
+                    return Some(Edit::Backspace);
+                }
+                _ => return Some(Edit::Submit),
             },
             Action::Back => {}
         }
-        false
+        None
     }
 }
 
@@ -778,33 +776,20 @@ mod tests {
     }
 
     #[test]
-    fn editor_keeps_exact_spaces_masks_and_validates_without_reallocation() {
+    fn editor_borrows_exact_text_and_returns_framework_edit_intents() {
         let mut editor = Editor::default();
-        let capacity = editor.value.capacity();
-        editor.value.push_str("  'camp'  ");
-        assert_eq!(editor.text(false), "**********");
-        editor.input(Page::Password, Action::Auxiliary);
-        assert_eq!(editor.text(false), "  'camp'  ");
-        assert!(editor.input(Page::Password, Action::Start));
-        editor.clear();
-        editor.value.push_str("short");
-        assert!(!editor.input(Page::Password, Action::Start));
-        editor.input(Page::Password, Action::Refresh);
-        assert_eq!(editor.value, "shor");
-        editor.clear();
-        assert_eq!(editor.value.capacity(), capacity);
-        for _ in 0..80 {
-            editor.push('q');
-        }
-        assert_eq!(editor.value.len(), 64);
-        assert_eq!(editor.value.capacity(), capacity);
-        assert!(!editor.submit(Page::Password));
-        editor.clear();
-        for _ in 0..64 {
-            editor.push('a');
-        }
-        assert!(editor.submit(Page::Password));
-        assert!(!editor.submit(Page::Hidden));
+        assert_eq!(editor.text(false, "  'camp'  "), "**********");
+        editor.input(Action::Auxiliary);
+        assert_eq!(editor.text(false, "  'camp'  "), "  'camp'  ");
+        assert!(editor.submit(Page::Password, "  'camp'  "));
+        assert!(!editor.submit(Page::Password, "short"));
+        assert!(matches!(
+            editor.input(Action::Refresh),
+            Some(Edit::Backspace)
+        ));
+        assert!(matches!(editor.input(Action::Start), Some(Edit::Submit)));
+        assert!(editor.submit(Page::Password, &"a".repeat(64)));
+        assert!(!editor.submit(Page::Hidden, &"a".repeat(64)));
     }
 
     #[test]
@@ -815,7 +800,7 @@ mod tests {
                     selected: start,
                     ..Editor::default()
                 };
-                editor.input(Page::Password, action);
+                editor.input(action);
                 assert!(editor.selected < 35);
             }
         }
@@ -828,8 +813,7 @@ mod tests {
         state.select(2);
         state.input(Action::Confirm);
         assert_eq!(state.page, Page::Password);
-        state.editor.value.push_str("password");
-        state.input(Action::Start);
+        assert!(state.submit("password"));
         assert_eq!(state.page, Page::Connecting);
         state.input(Action::Back);
         state.tick(300);
@@ -841,7 +825,6 @@ mod tests {
         assert_eq!(state.page, Page::List);
         assert_eq!(state.selected, 2);
         assert_eq!(state.connected, Some(0));
-        assert!(state.editor.value.is_empty());
     }
 
     #[test]
@@ -850,19 +833,16 @@ mod tests {
         state.set_scenario(Scenario::WrongPassword);
         state.select(2);
         state.input(Action::Confirm);
-        state.editor.value.push_str("password");
-        state.input(Action::Start);
+        assert!(state.submit("password"));
         state.tick(700);
         state.tick(700);
         assert_eq!(state.page, Page::Password);
-        assert_eq!(state.editor.value, "password");
         assert_eq!(state.connected, Some(0));
         state.scenario = Scenario::Normal;
-        state.input(Action::Start);
+        assert!(state.submit("password"));
         state.tick(700);
         state.tick(700);
         assert_eq!(state.page, Page::Success);
-        assert!(state.editor.value.is_empty());
         state.input(Action::Back);
         state.input(Action::Confirm);
         assert_eq!(state.page, Page::Details);
@@ -887,8 +867,7 @@ mod tests {
         state.select(4);
         state.input(Action::Confirm);
         assert_eq!(state.page, Page::Hidden);
-        state.editor.value.push_str("  Hidden's Wi-Fi  ");
-        state.input(Action::Start);
+        assert!(state.submit("  Hidden's Wi-Fi  "));
         assert_eq!(state.page, Page::Security);
         state.select(1);
         state.input(Action::Confirm);
@@ -915,15 +894,15 @@ mod tests {
         state.input(Action::Back);
         assert_eq!(state.page, Page::Empty);
         state.set_scenario(Scenario::Busy);
-        assert!(state.input(Action::Back));
+        assert!(matches!(state.input(Action::Back), Response::Close));
         state.set_scenario(Scenario::Normal);
         state.select(2);
         state.input(Action::Auxiliary);
         assert_eq!(state.page, Page::Info);
-        assert!(!state.input(Action::Back));
+        assert!(matches!(state.input(Action::Back), Response::Stay));
         assert_eq!(state.selected, 2);
         state.open(true);
-        assert!(state.input(Action::Back));
+        assert!(matches!(state.input(Action::Back), Response::Close));
         state.open(false);
         state.input(Action::Refresh);
         state.tick(700);
@@ -987,9 +966,7 @@ mod tests {
         assert_eq!(state.name(state.selected), name);
         state.input(Action::Confirm);
         assert_eq!(state.page, Page::Connecting);
-        state.editor.value.push_str("temporary");
         state.close();
-        assert!(state.editor.value.is_empty());
         assert!(!state.scanning);
         assert_eq!(state.target, None);
     }

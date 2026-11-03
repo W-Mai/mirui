@@ -1,7 +1,9 @@
 use crate::anim::{Tween, TweenConfig, ease};
 use crate::core::model::ModelList;
 use crate::prelude::*;
+use crate::ui::widgets::TextDocument;
 use crate::ui::widgets::navigation::{PageDirection, PageTransition};
+use alloc::collections::VecDeque;
 use alloc::string::String;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -315,6 +317,11 @@ pub struct Launcher {
     #[observe]
     detail_geometry: u64,
     wifi: super::wifi::State,
+    pub(super) wifi_document: model!(owned TextDocument),
+    input_session: Option<TextInputSession>,
+    input_edits: VecDeque<super::text_input::Edit>,
+    #[observe]
+    pub(super) wifi_epoch: u64,
     wifi_origin: usize,
     #[observe]
     wifi_revision: u64,
@@ -324,6 +331,10 @@ pub struct Launcher {
 
 impl Default for Launcher {
     fn default() -> Self {
+        let mut wifi_document = TextDocument::new();
+        wifi_document
+            .set_capacity(64)
+            .expect("Wi-Fi document storage");
         let games = [
             ("双人冒险", 0, true),
             ("街头赛车", 1, true),
@@ -412,6 +423,10 @@ impl Default for Launcher {
             detail_offset: Fixed::ZERO,
             detail_geometry: 0,
             wifi: super::wifi::State::default(),
+            wifi_document: wifi_document.into(),
+            input_session: None,
+            input_edits: VecDeque::with_capacity(super::text_input::EDIT_CAPACITY),
+            wifi_epoch: 0,
             wifi_origin: 0,
             wifi_revision: 0,
             #[cfg(feature = "audio")]
@@ -486,7 +501,9 @@ impl Launcher {
         }
     }
     pub(super) fn animate(&mut self, delta: u16) {
+        let wifi_page = self.wifi.page;
         if self.overlay == Some(Overlay::Wifi) && self.wifi.tick(delta) {
+            self.sync_wifi_input(wifi_page);
             self.wifi_revision = self.wifi_revision.wrapping_add(1);
             self.menu_selection = self.wifi.selection();
         }
@@ -653,6 +670,7 @@ impl Launcher {
     pub fn dismiss_menu(&mut self) {
         if self.overlay == Some(Overlay::Wifi) {
             self.wifi.close();
+            self.clear_wifi_input();
         }
         #[cfg(feature = "audio")]
         if self.overlay.is_some() {
@@ -684,17 +702,20 @@ impl Launcher {
     }
 
     pub fn open_wifi(&mut self, info: bool) {
+        self.clear_wifi_input();
         self.wifi_origin = usize::from(info);
         self.wifi.open(info);
         self.show_overlay(Overlay::Wifi);
         self.wifi_revision = self.wifi_revision.wrapping_add(1);
     }
     pub fn set_wifi_scenario(&mut self, scenario: super::wifi::Scenario) {
+        self.clear_wifi_input();
         self.wifi.set_scenario(scenario);
         self.show_overlay(Overlay::Wifi);
         self.wifi_revision = self.wifi_revision.wrapping_add(1);
     }
     pub fn wifi_fixture(&mut self, page: super::wifi::Page) {
+        self.clear_wifi_input();
         self.wifi.fixture(page);
         self.show_overlay(Overlay::Wifi);
         self.wifi_revision = self.wifi_revision.wrapping_add(1);
@@ -704,15 +725,27 @@ impl Launcher {
             return;
         }
         let old = self.wifi.selection();
-        if self.wifi.input(action) {
-            self.show_overlay(Overlay::Tools);
-            self.select_action(self.wifi_origin);
-        } else {
-            self.menu_selection = self.wifi.selection();
-            if old != self.menu_selection {
-                self.menu_age = 0;
+        let page = self.wifi.page;
+        match self.wifi.input(action) {
+            super::wifi::Response::Close => {
+                self.show_overlay(Overlay::Tools);
+                self.select_action(self.wifi_origin);
+            }
+            super::wifi::Response::Edit(edit) => {
+                if self.input_edits.len() < super::text_input::EDIT_CAPACITY {
+                    self.input_edits.push_back(edit);
+                } else {
+                    crate::warn!("Wi-Fi software keyboard input queue is full");
+                }
+            }
+            super::wifi::Response::Stay => {
+                self.menu_selection = self.wifi.selection();
+                if old != self.menu_selection {
+                    self.menu_age = 0;
+                }
             }
         }
+        self.sync_wifi_input(page);
         #[cfg(feature = "audio")]
         self.audio_feedback
             .emit(if action == super::wifi::Action::Back {
@@ -723,6 +756,55 @@ impl Launcher {
                 super::sound::Cue::Confirm
             });
         self.wifi_revision = self.wifi_revision.wrapping_add(1);
+    }
+    fn clear_wifi_input(&mut self) {
+        if let Err(error) = self.wifi_document.set_text("") {
+            crate::warn!("Wi-Fi draft could not be cleared: {:?}", error);
+        }
+        self.input_edits.clear();
+        self.input_session = None;
+        self.wifi_epoch = self.wifi_epoch.wrapping_add(1);
+    }
+    fn sync_wifi_input(&mut self, previous: super::wifi::Page) {
+        let page = self.wifi.page;
+        if !page.keyboard() && !page.pending() && (previous.keyboard() || previous.pending())
+            || page.keyboard() && page != previous && !previous.pending()
+        {
+            self.clear_wifi_input();
+        } else if !page.keyboard() {
+            self.input_edits.clear();
+            self.input_session = None;
+        }
+    }
+    pub fn wifi_submit(&mut self) {
+        if self.overlay != Some(Overlay::Wifi) || !self.wifi.page.keyboard() {
+            return;
+        }
+        let page = self.wifi.page;
+        #[cfg(feature = "audio")]
+        let previous_error = self.wifi.editor.error;
+        self.wifi_document.read(|text| {
+            self.wifi.submit(text);
+        });
+        #[cfg(feature = "audio")]
+        if !self.wifi.editor.error.is_empty() && self.wifi.editor.error != previous_error {
+            self.audio_feedback.emit(super::sound::Cue::Error);
+        }
+        self.sync_wifi_input(page);
+        self.menu_selection = self.wifi.selection();
+        self.wifi_revision = self.wifi_revision.wrapping_add(1);
+    }
+    pub(super) fn text_session(&mut self, session: Option<TextInputSession>) {
+        self.input_session = session;
+    }
+    pub(super) fn input_session(&self) -> Option<TextInputSession> {
+        self.input_session
+    }
+    pub(super) fn input_edit(&self) -> Option<super::text_input::Edit> {
+        self.input_edits.front().copied()
+    }
+    pub(super) fn finish_input_edit(&mut self) {
+        self.input_edits.pop_front();
     }
     pub fn wifi_height(&mut self, height: Fixed, extent: i32, gap: i32) {
         let rows = ((height.to_int() + gap).max(0) as usize / extent.max(1) as usize).clamp(1, 8);
@@ -762,16 +844,18 @@ impl Launcher {
         self.wifi.fact(index)
     }
     fn read_wifi_length(&self) -> usize {
-        self.wifi.editor.length()
+        self.wifi_document.len()
     }
     fn read_wifi_echo(&self) -> String {
         self.wifi.editor.echo_label()
     }
     fn read_wifi_editor(&self, index: usize) -> String {
         if index == 35 {
-            self.wifi
-                .editor
-                .text(self.wifi.page == super::wifi::Page::Hidden)
+            self.wifi_document.read(|text| {
+                self.wifi
+                    .editor
+                    .text(self.wifi.page == super::wifi::Page::Hidden, text)
+            })
         } else {
             self.wifi
                 .editor
@@ -1371,6 +1455,7 @@ impl Launcher {
     pub fn show_overlay(&mut self, overlay: Overlay) {
         if self.overlay == Some(Overlay::Wifi) && overlay != Overlay::Wifi {
             self.wifi.close();
+            self.clear_wifi_input();
         }
         #[cfg(feature = "audio")]
         if self.overlay != Some(overlay) {
@@ -1463,6 +1548,7 @@ impl Launcher {
     pub fn close(&mut self) {
         self.cancel_hold();
         self.wifi.close();
+        self.clear_wifi_input();
         self.active = false;
         self.overlay = None;
     }
@@ -1496,7 +1582,7 @@ impl LauncherHandle {
         self.read_wifi_scenario()
     }
     pub fn wifi_keyboard(&self) -> bool {
-        self.wifi_page().keyboard()
+        self.wifi_active() && self.wifi_page().keyboard()
     }
     pub fn wifi_window(&self) -> core::ops::Range<usize> {
         self.wifi_revision();
@@ -1519,7 +1605,7 @@ impl LauncherHandle {
         self.read_wifi_fact(index)
     }
     pub fn wifi_length(&self) -> usize {
-        self.wifi_revision();
+        self.wifi_document().revision();
         self.read_wifi_length()
     }
     pub fn wifi_echo(&self) -> String {
@@ -1528,6 +1614,9 @@ impl LauncherHandle {
     }
     pub fn wifi_editor(&self, index: usize) -> String {
         self.wifi_revision();
+        if index == 35 {
+            self.wifi_document().revision();
+        }
         self.read_wifi_editor(index)
     }
     pub fn wifi_actor_position(&self) -> Fixed {
@@ -1695,6 +1784,24 @@ impl LauncherHandle {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn wifi_software_input_capacity_is_prepared_and_reused_across_flow_epochs() {
+        let mut state = super::Launcher::default();
+        state.wifi_fixture(super::super::wifi::Page::Password);
+        let capacity = state.input_edits.capacity();
+        for _ in 0..=super::super::text_input::EDIT_CAPACITY {
+            state.wifi_input(super::super::wifi::Action::Confirm);
+        }
+        assert_eq!(
+            state.input_edits.len(),
+            super::super::text_input::EDIT_CAPACITY
+        );
+        assert_eq!(state.input_edits.capacity(), capacity);
+        state.wifi_fixture(super::super::wifi::Page::Password);
+        assert!(state.input_edits.is_empty());
+        assert_eq!(state.input_edits.capacity(), capacity);
+        assert!(state.wifi_document.is_empty());
+    }
     use super::*;
     #[test]
     fn detail_navigation_preserves_game_and_restores_each_parent_action() {
