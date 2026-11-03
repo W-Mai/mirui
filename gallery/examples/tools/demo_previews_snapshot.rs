@@ -83,6 +83,11 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
             use nearby::wifi::Action;
             let step = scene[14..].parse::<usize>().expect("configuration step");
             assert!(step < 7);
+            let settled = env::var("NEARBY_CONFIG_SETTLE_MS").map_or(0, |value| {
+                value
+                    .parse::<u64>()
+                    .expect("configuration settle milliseconds")
+            });
             REFERENCE_TIME_NS.store(0, Ordering::Relaxed);
             app.add_resource(mirui::ecs::MonoClock::new(reference_clock));
             library.configuration_fixture();
@@ -103,7 +108,11 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
                 for action in actions {
                     library.configuration_input(action);
                 }
-                advance_reference(app, &mut time, 1000 + current as u64 * 200);
+                advance_reference(
+                    app,
+                    &mut time,
+                    1000 + current as u64 * (200 + settled) + settled,
+                );
             }
         }
         scene if scene.starts_with("wifi-") => {
