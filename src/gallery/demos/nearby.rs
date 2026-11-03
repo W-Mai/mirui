@@ -4,6 +4,7 @@ mod catalog;
 mod choices;
 mod chrome;
 mod composition;
+pub mod configuration;
 mod consoles;
 mod copy;
 pub mod data;
