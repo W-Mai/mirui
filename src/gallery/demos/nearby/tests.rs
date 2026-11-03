@@ -6,6 +6,68 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn unavailable_configuration_owns_one_retry_and_recovers_through_the_same_input_route() {
+    use crate::input::event::input::PhysicalKey;
+    use crate::ui::{Parent, widgets::Text};
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.choose_game(0, 0);
+    library.set_configuration_scenario(configuration::service::Scenario::ReadFailure);
+    library.open_configuration();
+    for _ in 0..16 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    assert!(!library.configuration().ready());
+    assert!(!library.configuration().loading());
+    let labels = |app: &TestApp| {
+        let panel = app.world.find_by_id("nearby_actions_panel").unwrap();
+        app.world
+            .query::<Text>()
+            .iter()
+            .filter(|(node, _)| {
+                !crate::ui::branch::is_hidden_in_tree(&app.world, *node)
+                    && input::contains(panel, *node, |entity| {
+                        app.world.get::<Parent>(entity).map(|parent| parent.0)
+                    })
+            })
+            .map(|(_, text)| text.resolve(app.world.resource()).into_owned())
+            .collect::<alloc::vec::Vec<_>>()
+    };
+    let failed = labels(&app);
+    assert_eq!(failed.iter().filter(|text| text.as_str() == "X").count(), 1);
+    assert_eq!(
+        failed.iter().filter(|text| text.as_str() == "重试").count(),
+        1
+    );
+    assert!(
+        !failed
+            .iter()
+            .any(|text| text == "Y" || text == "此核心未提供可编辑选项")
+    );
+    library.set_configuration_scenario(configuration::service::Scenario::Success);
+    crate::input::event::dispatch_input(
+        &mut app.world,
+        app.root,
+        &crate::test_support::physical_key(PhysicalKey::KeyX).into(),
+        1,
+        640,
+        480,
+    );
+    assert!(!library.holding());
+    for _ in 0..16 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    assert!(library.configuration().ready());
+    assert_eq!(library.configuration().count(), 4);
+    let ready = labels(&app);
+    assert!(ready.iter().any(|text| text == "Y"));
+    assert!(!ready.iter().any(|text| text == "重试"));
+}
+
+#[test]
 fn configuration_input_keeps_the_actual_row_actor_and_nested_routes_inside_the_panel() {
     use crate::input::event::input::PhysicalKey;
     use crate::ui::{ComputedRect, widgets::FollowBounds};

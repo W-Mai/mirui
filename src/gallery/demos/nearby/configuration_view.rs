@@ -30,11 +30,7 @@ fn scroll_config(nodes: query!(Entity, ConfigScroll, ScrollOffset), commands: co
 pub(super) fn config_scroll() {}
 
 #[compose]
-pub(super) fn panel(
-    library: model!(super::launcher::Launcher),
-    state: model!(Editor),
-    metrics: Metrics,
-) -> Entity {
+pub(super) fn panel(state: model!(Editor), metrics: Metrics) -> Entity {
     ui! {
         Column (grow: 1.0, min_height: 0, min_width: 0, row_gap: metrics.gap) {
             Row (height: 14, min_width: 0, column_gap: metrics.gap, shrink: 0.0) {
@@ -78,9 +74,9 @@ pub(super) fn panel(
                 },
             ] {
                 walk ${ state.window() } with index by index {
-                    row (library, state, index, metrics)
+                    row (state, index, metrics)
                 }
-                if ${ state.count() == 0 && state.ready() } {
+                if ${ state.section() == Section::Core && state.count() == 0 && state.ready() } {
                     text_block (
                         "此核心未提供可编辑选项",
                         SECONDARY,
@@ -96,12 +92,7 @@ pub(super) fn panel(
 }
 
 #[compose]
-fn row(
-    library: model!(super::launcher::Launcher),
-    state: model!(Editor),
-    index: usize,
-    metrics: Metrics,
-) -> Entity {
+fn row(state: model!(Editor), index: usize, metrics: Metrics) -> Entity {
     ui! {
         Column (
             height: ${
@@ -243,10 +234,7 @@ fn row(
                 }
             }
             shadow (metrics)
-        } on SizeChanged { state.measure(index, event.new.height); } on Tap {
-            library.select_action(index);
-            library.configuration_input(super::wifi::Action::Confirm);
-        }
+        } on SizeChanged { state.measure(index, event.new.height); }
     }
 }
 
@@ -261,15 +249,19 @@ pub(super) fn hints(state: model!(Editor), metrics: Metrics) -> Entity {
             control_key ("B", metrics, false)
             control_label ("返回", metrics)
             View (grow: 1.0, min_width: 0)
-            if ${ state.dirty() && !matches!(state.section(), Section::Confirm | Section::Conflict) } {
+            if ${
+                (state.dirty() || !state.ready() && !state.loading())
+                    && !matches!(state.section(), Section::Confirm | Section::Conflict)
+            } {
                 control_key ("X", metrics, false)
-                control_label ("保存", metrics)
+                control_label (${ if state.ready() { "保存" } else { "重试" } }, metrics)
             }
-            if ${ !state.loading() && !state.ready() } {
-                control_key ("X", metrics, false)
-                control_label ("重试", metrics)
-            }
-            if ${ state.ready() && !matches!(state.section(), Section::Sources | Section::Confirm | Section::Conflict) } {
+            if ${
+                state.ready()
+                    && !matches!(
+                        state.section(), Section::Sources | Section::Confirm | Section::Conflict
+                    )
+            } {
                 control_key ("Y", metrics, false)
                 control_label ("范围", metrics)
             }

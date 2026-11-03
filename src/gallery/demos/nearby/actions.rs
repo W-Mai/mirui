@@ -145,7 +145,7 @@ fn graphical_overlay(
                         View (height: metrics.rule_height(), bg_color: WARNING, shrink: 0.0)
                         Row (grow: 1.0, min_height: 0, column_gap: metrics.gap * 2) {
                             if ${ state.configuration_active() } {
-                                configuration_panel (state, state.configuration(), metrics)
+                                configuration_panel (state.configuration(), metrics)
                             } else {
                                 Column (grow: 1.0, min_width: 0, min_height: 0) {
                                     if ${ state.wifi_active() } {
