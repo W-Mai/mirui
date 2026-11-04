@@ -25,6 +25,7 @@ mod motion;
 mod pages;
 mod palette;
 mod pixel;
+pub mod saves;
 mod sessions;
 mod shelf;
 mod simulation;
