@@ -18,6 +18,10 @@ use alloc::vec::Vec;
 
 pub(super) fn confirm(state: &super::model::DisplayStateHandle) {
     let library = state.launcher();
+    if library.saves_active() {
+        library.saves_input(super::wifi::Action::Confirm);
+        return;
+    }
     if library.configuration_active() {
         library.configuration_input(super::wifi::Action::Confirm);
         return;
@@ -187,6 +191,7 @@ fn activate_action(state: &super::model::DisplayStateHandle, action: MenuAction)
         ToggleFavorite => library.toggle_favorite(),
         ShowGameDetails => library.show_game_details(),
         ShowGameSettings => library.open_configuration(),
+        ShowSaveManager => library.open_saves(),
         ShowCoreDetails | ShowFirmwareDetails | ShowSaveDetails | ExpandDetail => {
             library.confirm_detail()
         }

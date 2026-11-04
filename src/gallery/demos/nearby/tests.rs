@@ -6,6 +6,114 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn save_manager_keys_route_one_actor_to_the_active_list_or_modal_at_both_sizes() {
+    use crate::input::event::input::PhysicalKey;
+    use crate::ui::{ComputedRect, Hidden, widgets::FollowBounds};
+    for (width, height) in [(480, 320), (640, 480)] {
+        let (mut app, state) = fixture_at(width, height);
+        let library = state.launcher();
+        library.resume();
+        library.saves_fixture();
+        for stage in 0..7 {
+            let keys = match stage {
+                0 => alloc::vec![],
+                1 => alloc::vec![PhysicalKey::ArrowDown; 9],
+                2 => alloc::vec![PhysicalKey::KeyA],
+                3 => alloc::vec![PhysicalKey::KeyB],
+                4 => alloc::vec![PhysicalKey::KeyX],
+                5 => alloc::vec![PhysicalKey::KeyB, PhysicalKey::ArrowRight],
+                _ => alloc::vec![PhysicalKey::ArrowRight],
+            };
+            for key in keys {
+                crate::input::event::dispatch_input(
+                    &mut app.world,
+                    app.root,
+                    &crate::test_support::physical_key(key).into(),
+                    1,
+                    width,
+                    height,
+                );
+            }
+            for _ in 0..6 {
+                app.tick();
+                app.render_dirty().unwrap();
+            }
+            let manager = library.saves();
+            assert!(!library.holding());
+            assert_eq!(library.menu_selection(), manager.selected());
+            let expected = if manager.modal() {
+                actions::ActionLayout::SavesModal
+            } else {
+                actions::ActionLayout::SavesList
+            };
+            let active: alloc::vec::Vec<_> = app
+                .world
+                .query::<actor::ActorFrame>()
+                .iter()
+                .filter_map(|(entity, frame)| {
+                    (frame.launcher && !app.world.has::<Hidden>(entity))
+                        .then(|| app.world.get::<FollowBounds>(entity))
+                        .flatten()
+                })
+                .collect();
+            assert_eq!(active.len(), 1);
+            let target = active[0].target;
+            let anchor = app.world.get::<actions::ActionAnchor>(target).unwrap();
+            assert!(
+                matches!(anchor, actions::ActionAnchor::Item { index, layout } if *index == manager.selected() && *layout == expected)
+            );
+            let rect = app.world.get::<ComputedRect>(target).unwrap().0;
+            assert!(
+                rect.y >= Fixed::ZERO && rect.y + rect.h <= Fixed::from_int(i32::from(height)),
+                "{width} {stage} {rect:?}"
+            );
+            assert_eq!(
+                manager.page() == saves::Page::Browse,
+                stage != 2 && stage != 4
+            );
+        }
+    }
+}
+
+#[test]
+fn save_progress_uses_one_direct_frontier_and_busy_back_finishes_before_exit() {
+    use crate::ui::{Hidden, widgets::FollowBounds};
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.choose_game(0, 0);
+    library.open_saves();
+    app.tick();
+    app.render_dirty().unwrap();
+    let target = app
+        .world
+        .query::<actor::ActorFrame>()
+        .iter()
+        .find_map(|(entity, frame)| {
+            (frame.launcher && !app.world.has::<Hidden>(entity))
+                .then(|| app.world.get::<FollowBounds>(entity))
+                .flatten()
+        })
+        .unwrap();
+    assert!(target.transition.is_none());
+    assert!(matches!(
+        app.world.get::<actions::ActionAnchor>(target.target),
+        Some(actions::ActionAnchor::Item {
+            index: 0,
+            layout: actions::ActionLayout::SavesProgress
+        })
+    ));
+    library.saves_input(wifi::Action::Back);
+    assert!(library.saves().busy());
+    for _ in 0..16 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    assert!(!library.saves_active());
+    assert_eq!(library.menu_selection(), 5);
+}
+
+#[test]
 fn unavailable_configuration_owns_one_retry_and_recovers_through_the_same_input_route() {
     use crate::input::event::input::PhysicalKey;
     use crate::ui::{Parent, widgets::Text};
@@ -1231,7 +1339,7 @@ fn action_overlay_keeps_all_game_actions_inside_the_panel() {
                     .then_some((anchor.index()?, app.world.get::<ComputedRect>(entity)?.0))
             })
             .collect();
-        assert_eq!(tiles.len(), 6);
+        assert_eq!(tiles.len(), 7);
         for (index, rect) in &tiles {
             assert!(rect.x >= panel.x, "{index}: {rect:?}");
             assert!(rect.w > Fixed::ZERO && rect.h > Fixed::ZERO);

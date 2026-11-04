@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Nearby save management models preserve record identity, modal return focus, bounded reading and read-only session information.
 - Nearby simulates bounded save backup, restore, deletion and failure routes through typed Model effects; returning from save management preserves the hidden settings scope and selection.
+- Nearby save panels include responsive slot lists, image-resource previews, backup and location dialogs, read-only session details and separate list/modal/progress character focus. Game actions include save management and size their grid from the item count.
 - Nearby configuration editing includes typed drafts, game/core/frontend scopes, source inspection and independent save/discard/conflict return routes.
 - Nearby simulates configuration loading, scoped saves, write failures and external revision conflicts through one bounded request and typed Model effects, without system file access.
 - Nearby game settings render four groups, measured option lists, wrapped source paths and save confirmation, with typed input, character focus and local simulation controls.

@@ -380,7 +380,13 @@ pub(super) fn controls(state: model!(DisplayState)) -> Entity {
                         font: FONT,
                         font_size: 12,
                         normal_color: ${ if state.launcher().configuration_scenario() == scenario { ACCENT } else { PANEL } },
-                        text_color: ${ if state.launcher().configuration_scenario() == scenario { ON_ACCENT } else { FOREGROUND } }
+                        text_color: ${
+                            if state.launcher().configuration_scenario() == scenario {
+                                ON_ACCENT
+                            } else {
+                                FOREGROUND
+                            }
+                        }
                     ) on Tap {
                         let library = state.launcher();
                         library.resume();
@@ -390,6 +396,35 @@ pub(super) fn controls(state: model!(DisplayState)) -> Entity {
                             library.choose_game(key, key as usize);
                             library.open_configuration();
                         }
+                    }
+                }
+                Text (
+                    "Save manager cases",
+                    height: 20,
+                    shrink: 0.0,
+                    font: FONT,
+                    font_size: 12,
+                    text_color: SECONDARY
+                )
+                walk super::saves::service::Scenario::ALL.into_iter() with scenario {
+                    Button (
+                        scenario.label(),
+                        height: 28,
+                        shrink: 0.0,
+                        min_width: 0,
+                        font: FONT,
+                        font_size: 12,
+                        normal_color: ${ if state.launcher().saves_scenario() == scenario { ACCENT } else { PANEL } },
+                        text_color: ${ if state.launcher().saves_scenario() == scenario { ON_ACCENT } else { FOREGROUND } }
+                    ) on Tap {
+                        let library = state.launcher();
+                        library.resume();
+                        library.set_saves_scenario(scenario);
+                        if !library.saves_active() {
+                            let key = library.game_key().unwrap_or(0);
+                            library.choose_game(key, key as usize);
+                        }
+                        library.open_saves();
                     }
                 }
                 Text (

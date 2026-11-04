@@ -12,14 +12,16 @@ pub enum Scenario {
     WriteFailure,
     Conflict,
     Empty,
+    ActiveRoom,
 }
 impl Scenario {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Success,
         Self::ReadFailure,
         Self::WriteFailure,
         Self::Conflict,
         Self::Empty,
+        Self::ActiveRoom,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -28,6 +30,7 @@ impl Scenario {
             Self::WriteFailure => "Write fails",
             Self::Conflict => "Record changed",
             Self::Empty => "No save files",
+            Self::ActiveRoom => "Room in use",
         }
     }
 }
@@ -52,6 +55,13 @@ impl Service {
     }
     pub fn set_scenario(&mut self, value: Scenario) {
         self.scenario = value;
+        let active = value == Scenario::ActiveRoom;
+        if let Some((_, document)) = self.documents.iter_mut().find(|(key, _)| *key == self.key) {
+            document.room_active = active;
+        }
+        if let Some(document) = self.view.as_mut().and_then(|view| view.document.as_mut()) {
+            document.room_active = active;
+        }
     }
 
     pub fn open(&mut self, key: u32, title: String, room_active: bool) {
@@ -81,7 +91,7 @@ impl Service {
             .find(|(id, _)| *id == key)
             .unwrap()
             .1
-            .room_active = room_active;
+            .room_active = room_active || self.scenario == Scenario::ActiveRoom;
         self.view = Some(View {
             epoch: self.epoch,
             busy: true,
@@ -92,6 +102,10 @@ impl Service {
     pub fn reference(&mut self) {
         self.close();
         let view = super::fixture();
+        self.key = 0;
+        self.documents.clear();
+        self.documents
+            .push((0, view.document.as_ref().unwrap().clone()));
         self.epoch = view.epoch;
         self.view = Some(view);
     }
@@ -221,6 +235,7 @@ fn backup(document: &mut Document, index: usize, revision: &mut u64) -> Result<(
     let mut record = document.records[index].clone();
     record.kind = Kind::Backup;
     record.key = format!("backup-{revision}");
+    record.path = format!("/demo/backups/{}.bak", record.key);
     record.title = format!("{} 备份", record.title);
     record.revision = format!("{revision:064x}");
     document.records.push(record);

@@ -3,6 +3,7 @@ use super::detail_view::details_panel;
 use super::launcher::{Launcher, MenuAction, Overlay};
 use super::model::DisplayState;
 use super::pixel::{Scenery::Margins, backdrop};
+use super::saves_view::{hints as saves_hints, panel as saves_panel};
 use super::style::*;
 use super::widgets::{control_key, control_label, shadow, text_block};
 use super::wifi_view::{heading as wifi_heading, hints as wifi_hints, panel as wifi_panel};
@@ -19,12 +20,15 @@ pub(super) enum ActionAnchor {
     Reading,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ActionLayout {
     Grid,
     Levels,
     Details,
     Configuration,
+    SavesList,
+    SavesModal,
+    SavesProgress,
     WifiList,
     WifiOptions,
     WifiKeyboard,
@@ -50,10 +54,18 @@ impl ActionAnchor {
                     && !state.detail_active()
                     && !state.wifi_active()
                     && !state.configuration_active()
+                    && !state.saves_active()
             }
             ActionLayout::Levels => state.overlay() == Some(Overlay::Controls),
             ActionLayout::Details => state.detail_active(),
             ActionLayout::Configuration => state.configuration_active(),
+            ActionLayout::SavesList => {
+                state.saves_active() && !state.saves().busy() && !state.saves().modal()
+            }
+            ActionLayout::SavesModal => {
+                state.saves_active() && !state.saves().busy() && state.saves().modal()
+            }
+            ActionLayout::SavesProgress => state.saves_pending(),
             ActionLayout::WifiList => {
                 state.wifi_active() && state.wifi_page() == super::wifi::Page::List
             }
@@ -144,8 +156,8 @@ fn graphical_overlay(
                         }
                         View (height: metrics.rule_height(), bg_color: WARNING, shrink: 0.0)
                         Row (grow: 1.0, min_height: 0, column_gap: metrics.gap * 2) {
-                            if ${ state.configuration_active() } {
-                                configuration_panel (state.configuration(), metrics)
+                            if ${ state.configuration_active() || state.saves_active() } {
+                                configuration_or_saves_panel (state, metrics)
                             } else {
                                 Column (grow: 1.0, min_width: 0, min_height: 0) {
                                     if ${ state.wifi_active() } {
@@ -165,23 +177,21 @@ fn graphical_overlay(
                                                             min_height: 0,
                                                             row_gap: metrics.gap
                                                         ) {
-                                                            walk 0_usize..3 with line {
-                                                                if ${ line * 2 < state.item_count() } {
-                                                                    Row (
-                                                                        grow: 1.0,
-                                                                        min_height: 0,
-                                                                        column_gap: metrics.gap
-                                                                    ) {
-                                                                        walk 0_usize..2 with column {
-                                                                            if ${ line * 2 + column < state.item_count() } {
-                                                                                action_tile (
-                                                                                    state,
-                                                                                    display,
-                                                                                    line * 2 + column,
-                                                                                    metrics,
-                                                                                    Grid
-                                                                                )
-                                                                            }
+                                                            walk ${ 0_usize..state.item_count().div_ceil(2) } with line by line {
+                                                                Row (
+                                                                    grow: 1.0,
+                                                                    min_height: 0,
+                                                                    column_gap: metrics.gap
+                                                                ) {
+                                                                    walk 0_usize..2 with column {
+                                                                        if ${ line * 2 + column < state.item_count() } {
+                                                                            action_tile (
+                                                                                state,
+                                                                                display,
+                                                                                line * 2 + column,
+                                                                                metrics,
+                                                                                Grid
+                                                                            )
                                                                         }
                                                                     }
                                                                 }
@@ -201,8 +211,8 @@ fn graphical_overlay(
                             column_gap: metrics.gap * 2,
                             align: AlignItems::Center
                         ) {
-                            if ${ state.configuration_active() } {
-                                configuration_hints (state.configuration(), metrics)
+                            if ${ state.configuration_active() || state.saves_active() } {
+                                configuration_or_saves_hints (state, metrics)
                             } else {
                                 Row (
                                     grow: 1.0,
@@ -615,7 +625,7 @@ fn action_glyph(action: MenuAction) -> ActionGlyph {
         SystemInfo | ShowGameDetails | ExpandDetail => ActionGlyph::Info,
         ShowCoreDetails => ActionGlyph::Core,
         ShowFirmwareDetails => ActionGlyph::Firmware,
-        ShowSaveDetails => ActionGlyph::Storage,
+        ShowSaveDetails | ShowSaveManager => ActionGlyph::Storage,
         FileManager => ActionGlyph::Library,
         ShowPower | Poweroff => ActionGlyph::Power,
         ShowExit | Exit => ActionGlyph::Exit,
@@ -819,5 +829,30 @@ fn overlay_label(state: model!(Launcher), index: Option<usize>) -> Entity {
             LABEL_LEADING,
             2
         )
+    }
+}
+
+#[compose]
+fn configuration_or_saves_panel(state: model!(Launcher), metrics: Metrics) -> Entity {
+    ui! {
+        Column (grow: 1.0, min_width: 0, min_height: 0) {
+            if ${ state.saves_active() } {
+                saves_panel (state.saves(), metrics)
+            } else {
+                configuration_panel (state.configuration(), metrics)
+            }
+        }
+    }
+}
+#[compose]
+fn configuration_or_saves_hints(state: model!(Launcher), metrics: Metrics) -> Entity {
+    ui! {
+        Row (grow: 1.0, min_width: 0, min_height: 0) {
+            if ${ state.saves_active() } {
+                saves_hints (state.saves(), metrics)
+            } else {
+                configuration_hints (state.configuration(), metrics)
+            }
+        }
     }
 }

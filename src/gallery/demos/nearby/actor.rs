@@ -51,7 +51,9 @@ fn resolve<'a, 'b, 'c, 'd>(
                 matches!(anchor, super::actions::ActionAnchor::Reading).then_some((entity, false))
             });
         }
-        let selected = if library.wifi_active() && library.wifi_page().pending() {
+        let selected = if (library.wifi_active() && library.wifi_page().pending())
+            || library.saves_pending()
+        {
             0
         } else {
             library.menu_selection()
@@ -136,7 +138,9 @@ fn initialize(
         commands.remove::<Hidden>(node);
         commands.insert(
             node,
-            if state.launcher().wifi_active() && state.launcher().wifi_page().pending() {
+            if (state.launcher().wifi_active() && state.launcher().wifi_page().pending())
+                || state.launcher().saves_pending()
+            {
                 FollowBounds::new(target)
             } else {
                 FollowBounds::new(target).with_transition(crate::anim::SNAPPY)
@@ -188,7 +192,9 @@ pub(super) fn follow(
             if bounds.is_none_or(|old| old.target != target) {
                 commands.insert(
                     entity,
-                    if state.launcher().wifi_active() && state.launcher().wifi_page().pending() {
+                    if (state.launcher().wifi_active() && state.launcher().wifi_page().pending())
+                        || state.launcher().saves_pending()
+                    {
                         FollowBounds::new(target)
                     } else {
                         FollowBounds::new(target).with_transition(crate::anim::SNAPPY)
@@ -223,7 +229,9 @@ pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
                 position: Position::Absolute,
                 left: ${
                     Dimension::Percent(
-                        if state.launcher().wifi_active() && state.launcher().wifi_page().pending() {
+                        if (state.launcher().wifi_active() && state.launcher().wifi_page().pending())
+                            || state.launcher().saves_pending()
+                        {
                             Fixed::ZERO
                         } else if state.launcher().active()
                             && (state.launcher().menu()
@@ -244,7 +252,9 @@ pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
                 },
                 top: ${
                     Dimension::percent(
-                        if state.launcher().wifi_active() && state.launcher().wifi_page().pending() {
+                        if (state.launcher().wifi_active() && state.launcher().wifi_page().pending())
+                            || state.launcher().saves_pending()
+                        {
                             0
                         } else if state.actor_stage()
                             || (state.launcher().active()
@@ -267,8 +277,9 @@ pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
                             || state.launcher().keyboard());
                     Transform::translate(
                             Fixed::from_int(
-                                if state.launcher().wifi_active()
-                                    && state.launcher().wifi_page().pending()
+                                if (state.launcher().wifi_active()
+                                    && state.launcher().wifi_page().pending())
+                                    || state.launcher().saves_pending()
                                 {
                                     -16
                                 } else if compact {

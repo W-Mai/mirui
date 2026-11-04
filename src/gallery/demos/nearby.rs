@@ -26,6 +26,7 @@ mod pages;
 mod palette;
 mod pixel;
 pub mod saves;
+mod saves_view;
 mod sessions;
 mod shelf;
 mod simulation;
@@ -74,6 +75,10 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
         .expect("bundled Nearby title font"),
     );
     app.with_fonts(fonts);
+    app.add_plugin(
+        crate::app::plugins::ImageResourcesPlugin::empty()
+            .with_static("nearby_save_preview", saves_view::preview_texture()),
+    );
     app.with_offscreen_pool_budget(8 * 1024 * 1024);
     app.with_widget(crate::ui::widgets::page_view::view::<model::PageKey>());
     app.with_widget(crate::ui::widgets::page_view::view::<launcher::Screen>());
@@ -82,6 +87,7 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.with_widget(actor::actor_frame::view());
     app.with_widget(detail_view::details_scroll::view());
     app.with_widget(configuration_view::config_scroll::view());
+    app.with_widget(saves_view::save_reading::view());
     app.with_widget(pixel::scenery::view());
     app.with_widget(pixel::choice_sprite::view());
     app.with_widget(pixel::walker_sprite::view());

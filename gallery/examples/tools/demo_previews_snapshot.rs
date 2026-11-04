@@ -79,6 +79,56 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
             .expect("detail reference inventory");
     }
     match scene {
+        "saves-actions" => {
+            library
+                .games()
+                .load(core::iter::once(nearby::launcher::Game {
+                    directory: false,
+                    played: 0,
+                    key: 0,
+                    name: "超级炸弹人5",
+                    search: "bomberman",
+                    platform: Some(0),
+                    multiplayer: true,
+                    favorite: false,
+                }))
+                .expect("save action reference inventory");
+            REFERENCE_TIME_NS.store(0, Ordering::Relaxed);
+            app.add_resource(mirui::ecs::MonoClock::new(reference_clock));
+            library.choose_game(0, 0);
+            library.select_action(5);
+            app.prepare_text_layout().expect("prepare save actions");
+            app.render().expect("initial save actions");
+            let mut time = 0;
+            advance_reference(app, &mut time, 800);
+        }
+        scene if scene.starts_with("saves-") => {
+            use nearby::wifi::Action;
+            let step = scene[6..].parse::<usize>().expect("save reference step");
+            assert!(step < 7);
+            REFERENCE_TIME_NS.store(0, Ordering::Relaxed);
+            app.add_resource(mirui::ecs::MonoClock::new(reference_clock));
+            library.saves_fixture();
+            app.prepare_text_layout().expect("prepare save reference");
+            app.render().expect("initial save reference");
+            let mut time = 0;
+            advance_reference(app, &mut time, 800);
+            for current in 0..=step {
+                let actions = match current {
+                    0 => Vec::new(),
+                    1 => vec![Action::Down; 9],
+                    2 => vec![Action::Confirm],
+                    3 => vec![Action::Back],
+                    4 => vec![Action::Refresh],
+                    5 => vec![Action::Back, Action::Right],
+                    _ => vec![Action::Right],
+                };
+                for action in actions {
+                    library.saves_input(action);
+                }
+                advance_reference(app, &mut time, 1200 + current as u64 * 1000);
+            }
+        }
         scene if scene.starts_with("configuration-") => {
             use nearby::wifi::Action;
             let step = scene[14..].parse::<usize>().expect("configuration step");

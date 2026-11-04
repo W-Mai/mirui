@@ -194,7 +194,9 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
         Some(PhysicalKey::Enter) => KEY_RETURN,
         _ => event.code,
     };
-    if library.active() && (library.wifi_active() || library.configuration_active()) {
+    if library.active()
+        && (library.wifi_active() || library.configuration_active() || library.saves_active())
+    {
         if event.pressed {
             use super::wifi::Action;
             let action = match event.physical {
@@ -203,6 +205,8 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
                 Some(PhysicalKey::ArrowLeft) => Some(Action::Left),
                 Some(PhysicalKey::ArrowRight) => Some(Action::Right),
                 Some(PhysicalKey::KeyK) => Some(Action::Start),
+                Some(PhysicalKey::PageUp) if library.saves_active() => Some(Action::Left),
+                Some(PhysicalKey::PageDown) if library.saves_active() => Some(Action::Right),
                 _ => match code {
                     KEY_A | KEY_RETURN => Some(Action::Confirm),
                     KEY_ESCAPE | 0x62 => Some(Action::Back),
@@ -218,7 +222,9 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
                         Action::Up | Action::Down | Action::Left | Action::Right
                     )
                 {
-                    if library.configuration_active() {
+                    if library.saves_active() {
+                        library.saves_input(action);
+                    } else if library.configuration_active() {
                         library.configuration_input(action);
                     } else {
                         library.wifi_input(action);

@@ -93,6 +93,7 @@ pub enum MenuAction {
     ToggleFavorite,
     ShowGameDetails,
     ShowGameSettings,
+    ShowSaveManager,
     ShowCoreDetails,
     ShowFirmwareDetails,
     ShowSaveDetails,
@@ -141,6 +142,7 @@ impl Overlay {
                 (ToggleFavorite, "收藏游戏"),
                 (ShowGameDetails, "游戏详情"),
                 (ShowGameSettings, "游戏设置"),
+                (ShowSaveManager, "存档管理"),
                 (Back, "返回"),
             ],
             Self::System => &[
@@ -760,6 +762,12 @@ impl Launcher {
     }
 
     pub fn dismiss_menu(&mut self) {
+        if self.overlay == Some(Overlay::Saves) {
+            self.saves_service.borrow_mut().close();
+            self.saves.sync(None);
+            self.configuration_service.borrow_mut().close();
+            self.configuration.sync(None);
+        }
         if self.overlay == Some(Overlay::Configuration) {
             self.configuration_service.borrow_mut().close();
             self.configuration.sync(None);
@@ -853,6 +861,9 @@ impl Launcher {
     pub fn set_saves_scenario(&mut self, value: super::saves::service::Scenario) {
         if self.saves_service.borrow().scenario() != value {
             self.saves_service.borrow_mut().set_scenario(value);
+            if self.overlay == Some(Overlay::Saves) {
+                self.saves.sync(self.saves_service.borrow().view());
+            }
             self.saves_revision = self.saves_revision.wrapping_add(1);
         }
     }
@@ -2091,7 +2102,11 @@ mod tests {
             state.read_item(4).unwrap().action,
             MenuAction::ShowGameSettings
         );
-        assert_eq!(state.read_item(5).unwrap().action, MenuAction::Back);
+        assert_eq!(
+            state.read_item(5).unwrap().action,
+            MenuAction::ShowSaveManager
+        );
+        assert_eq!(state.read_item(6).unwrap().action, MenuAction::Back);
         state.show_game_details();
         assert_eq!(state.item_count(), 3);
         for (section, parent) in [
@@ -2279,10 +2294,10 @@ mod tests {
         assert!(!launcher.read_item(3).unwrap().reason.is_empty());
     }
     #[test]
-    fn game_overlay_keeps_existing_actions_and_adds_details_and_settings_before_back() {
+    fn game_overlay_keeps_details_settings_and_save_manager_before_back() {
         let mut launcher = Launcher::default();
         launcher.choose_game(2, 2);
-        assert_eq!(launcher.item_count(), 6);
+        assert_eq!(launcher.item_count(), 7);
         assert!(!launcher.read_item(1).unwrap().enabled);
         launcher.back();
         assert!(!launcher.menu());

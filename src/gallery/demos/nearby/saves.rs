@@ -110,6 +110,8 @@ impl Manager {
             self.revision += 1;
         }
         if fresh {
+            self.fact_sizes
+                .reserve(16_usize.saturating_sub(self.fact_sizes.len()));
             self.tab = view.return_tab;
             self.page = Page::Browse;
             self.selected = 0;
@@ -343,6 +345,7 @@ impl Manager {
                     {
                         self.request = Some(Request::Reload { epoch: view.epoch });
                         view.busy = true;
+                        view.error.clear();
                         self.revision += 1;
                     } else {
                         self.back();
@@ -927,5 +930,22 @@ mod identity_tests {
         assert_eq!(manager.rows, 8);
         manager.viewport(Fixed::ZERO, 0);
         assert_eq!(manager.rows, 1);
+    }
+
+    #[test]
+    fn repeated_read_failure_keeps_the_retry_route_open() {
+        let mut view = fixture();
+        view.document = None;
+        view.error = "Read failed".into();
+        let mut manager = Manager::default();
+        manager.sync(Some(&view));
+        assert_eq!(manager.page, Page::Failure);
+        manager.input(Action::Confirm);
+        assert!(matches!(
+            manager.take_request(),
+            Some(Request::Reload { .. })
+        ));
+        manager.sync(Some(&view));
+        assert_eq!(manager.page, Page::Failure);
     }
 }
