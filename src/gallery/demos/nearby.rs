@@ -101,6 +101,14 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
             configuration.borrow_mut().submit(request);
         })
         .expect("Nearby configuration consumer is registered once");
+    let saves = state.launcher().saves_control();
+    state
+        .launcher()
+        .saves()
+        .on_effect(move |request: &saves::schema::Request| {
+            saves.borrow_mut().submit(request);
+        })
+        .expect("Nearby save consumer is registered once");
     text_input::install(app, state.clone());
     #[cfg(feature = "audio")]
     {

@@ -11,6 +11,7 @@ use schema::{Change, Document, Field, Id, Load, Request, Scope, Section, Value, 
 enum Leave {
     Parent,
     Scope(Scope),
+    Saves,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -24,6 +25,7 @@ pub struct Row {
 #[model]
 pub struct Editor {
     view: Option<View>,
+    shown: bool,
     #[observe]
     revision: u64,
     #[observe]
@@ -56,6 +58,7 @@ impl Default for Editor {
     fn default() -> Self {
         Self {
             view: None,
+            shown: false,
             revision: 0,
             section: Section::Home,
             scope: Scope::Game,
@@ -82,6 +85,14 @@ impl Default for Editor {
 #[model]
 impl Editor {
     pub fn sync(&mut self, view: Option<&View>) {
+        let shown = view.is_some();
+        if self.shown != shown {
+            self.shown = shown;
+            self.revision += 1;
+        }
+        if view.is_none() {
+            return;
+        }
         let fresh = self.view.as_ref().map(|v| v.epoch) != view.map(|v| v.epoch);
         let new_error = self.view.as_ref().map(|v| &v.error) != view.map(|v| &v.error);
         let loaded =
@@ -166,7 +177,7 @@ impl Editor {
     #[observe]
     pub fn active(&self) -> bool {
         let _ = self.revision;
-        self.view.is_some()
+        self.shown
     }
     #[observe]
     pub fn loading(&self) -> bool {
@@ -296,7 +307,7 @@ impl Editor {
             Section::Confirm => 3,
             Section::Conflict => 2,
             Section::Sources => self.fact_count() + usize::from(self.inheritance()),
-            Section::Saves => self.fields().count() + 1,
+            Section::Saves => self.fields().count() + 2,
             _ => self.fields().count(),
         }
     }
@@ -360,6 +371,13 @@ impl Editor {
                     ..Default::default()
                 })
                 .unwrap_or_default();
+        }
+        if self.section == Section::Saves && index == self.fields().count() {
+            return Row {
+                label: "存档管理".into(),
+                editable: true,
+                ..Default::default()
+            };
         }
         self.fields()
             .nth(index)
@@ -503,6 +521,11 @@ impl Editor {
         match intent {
             Some(Leave::Scope(scope)) => self.scope = scope,
             Some(Leave::Parent) => self.back(),
+            Some(Leave::Saves) => {
+                if let Some(view) = &self.view {
+                    self.request = Some(Request::OpenSaves { epoch: view.epoch });
+                }
+            }
             None => {}
         }
     }
@@ -678,6 +701,11 @@ impl Editor {
                     self.edit(field, None);
                     self.back();
                 }
+            }
+            Action::Confirm
+                if self.section == Section::Saves && self.selected == self.fields().count() =>
+            {
+                self.leave(Leave::Saves)
             }
             Action::Confirm => {
                 let source = self.fields().nth(self.selected).map(|f| f.id.clone());

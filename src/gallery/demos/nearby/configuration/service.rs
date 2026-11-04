@@ -40,6 +40,7 @@ pub(crate) struct Service {
     view: Option<View>,
     pending: Option<(u16, Request)>,
     scenario: Scenario,
+    open_saves: bool,
 }
 
 impl Service {
@@ -81,7 +82,11 @@ impl Service {
         self.pending = None;
     }
 
+    pub fn take_open_saves(&mut self) -> bool {
+        core::mem::take(&mut self.open_saves)
+    }
     pub fn close(&mut self) {
+        self.open_saves = false;
         self.pending = None;
         self.view = None;
     }
@@ -95,6 +100,13 @@ impl Service {
         }
         if matches!(request, Request::Close { .. }) {
             self.close();
+            return true;
+        }
+        if matches!(request, Request::OpenSaves { .. }) {
+            if view.saving || self.pending.is_some() {
+                return false;
+            }
+            self.open_saves = true;
             return true;
         }
         if view.saving {
@@ -211,7 +223,7 @@ impl Service {
                     });
                 }
             }
-            Request::Close { .. } => unreachable!(),
+            Request::Close { .. } | Request::OpenSaves { .. } => unreachable!(),
         }
         true
     }

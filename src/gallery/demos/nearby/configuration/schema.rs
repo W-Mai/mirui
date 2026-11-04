@@ -184,6 +184,9 @@ pub enum Request {
     Close {
         epoch: u64,
     },
+    OpenSaves {
+        epoch: u64,
+    },
 }
 impl Request {
     pub fn epoch(&self) -> u64 {
@@ -191,7 +194,8 @@ impl Request {
             Self::Save { epoch, .. }
             | Self::Preview { epoch, .. }
             | Self::Reload { epoch }
-            | Self::Close { epoch } => *epoch,
+            | Self::Close { epoch }
+            | Self::OpenSaves { epoch } => *epoch,
         }
     }
 }

@@ -127,6 +127,7 @@ pub enum Overlay {
     Network,
     Wifi,
     Configuration,
+    Saves,
     Details(super::details::Section),
 }
 
@@ -177,7 +178,7 @@ impl Overlay {
             ],
             Self::Details(_) => &[],
             Self::Wifi => &[],
-            Self::Configuration => &[],
+            Self::Configuration | Self::Saves => &[],
         }
     }
 }
@@ -324,6 +325,11 @@ pub struct Launcher {
     pub configuration: model!(owned super::configuration::Editor),
     configuration_service: super::configuration::service::Control,
     configuration_now: u64,
+    pub saves: model!(owned super::saves::Manager),
+    saves_service: super::saves::service::Control,
+    saves_from_configuration: bool,
+    #[observe]
+    saves_revision: u64,
     #[observe]
     configuration_revision: u64,
     pub(super) wifi_document: model!(owned TextDocument),
@@ -442,6 +448,10 @@ impl Default for Launcher {
             configuration: super::configuration::Editor::default().into(),
             configuration_service: Default::default(),
             configuration_now: 0,
+            saves: super::saves::Manager::default().into(),
+            saves_service: Default::default(),
+            saves_from_configuration: false,
+            saves_revision: 0,
             configuration_revision: 0,
             wifi_document: wifi_document.into(),
             input_session: None,
@@ -539,6 +549,29 @@ impl Launcher {
                 }
             }
         }
+        if self.overlay == Some(Overlay::Configuration)
+            && self.configuration_service.borrow_mut().take_open_saves()
+        {
+            self.open_saves();
+        }
+        if self.overlay == Some(Overlay::Saves) {
+            self.configuration_now = self.configuration_now.saturating_add(u64::from(delta));
+            self.saves.tick(self.configuration_now);
+            let changed = self.saves_service.borrow_mut().tick(delta);
+            if changed || self.saves_service.borrow().view().is_none() {
+                self.saves.sync(self.saves_service.borrow().view());
+                if self.saves_service.borrow().view().is_none() {
+                    if self.saves_from_configuration {
+                        self.show_overlay(Overlay::Configuration);
+                        self.configuration
+                            .sync(self.configuration_service.borrow().view());
+                    } else {
+                        self.show_overlay(Overlay::Game);
+                        self.select_action(5);
+                    }
+                }
+            }
+        }
         if self.overlay == Some(Overlay::Wifi) && self.wifi.page.pending() {
             self.wifi_loading_phase =
                 ((u32::from(self.wifi_loading_phase) + u32::from(delta)) % 3000) as u16;
@@ -582,6 +615,9 @@ impl Launcher {
     }
     #[observe]
     pub(super) fn selection_age(&self) -> u16 {
+        if self.overlay == Some(Overlay::Saves) {
+            return self.saves.age();
+        }
         if self.overlay == Some(Overlay::Configuration) {
             self.configuration.age()
         } else if self.overlay.is_some() {
@@ -624,6 +660,12 @@ impl Launcher {
     }
 
     pub fn open(&mut self, screen: Screen) {
+        if self.overlay == Some(Overlay::Saves) {
+            self.saves_service.borrow_mut().close();
+            self.saves.sync(None);
+            self.configuration_service.borrow_mut().close();
+            self.configuration.sync(None);
+        }
         if self.overlay == Some(Overlay::Configuration) {
             self.configuration_service.borrow_mut().close();
             self.configuration.sync(None);
@@ -768,6 +810,55 @@ impl Launcher {
         self.wifi_revision = self.wifi_revision.wrapping_add(1);
     }
 
+    pub fn open_saves(&mut self) {
+        let Some((key, title)) = self
+            .games
+            .iter()
+            .find(|game| Some(game.key()) == self.selected_game)
+            .map(|game| (game.key(), game.name()))
+        else {
+            return;
+        };
+        self.saves_from_configuration = self.overlay == Some(Overlay::Configuration);
+        self.saves_service.borrow_mut().open(key, title, false);
+        self.saves.sync(self.saves_service.borrow().view());
+        self.show_overlay(Overlay::Saves);
+    }
+    pub fn saves_fixture(&mut self) {
+        self.saves_from_configuration = false;
+        self.saves_service.borrow_mut().reference();
+        self.saves.sync(self.saves_service.borrow().view());
+        self.show_overlay(Overlay::Saves);
+    }
+    pub fn saves_input(&mut self, action: super::wifi::Action) {
+        if self.overlay != Some(Overlay::Saves) {
+            return;
+        }
+        #[cfg(feature = "audio")]
+        let previous = self.saves.selected();
+        self.saves.input(action);
+        #[cfg(feature = "audio")]
+        self.audio_feedback
+            .emit(if action == super::wifi::Action::Back {
+                super::sound::Cue::Back
+            } else if previous != self.saves.selected() {
+                super::sound::Cue::Focus
+            } else {
+                super::sound::Cue::Confirm
+            });
+    }
+    pub(super) fn saves_control(&self) -> super::saves::service::Control {
+        self.saves_service.clone()
+    }
+    pub fn set_saves_scenario(&mut self, value: super::saves::service::Scenario) {
+        if self.saves_service.borrow().scenario() != value {
+            self.saves_service.borrow_mut().set_scenario(value);
+            self.saves_revision = self.saves_revision.wrapping_add(1);
+        }
+    }
+    pub fn read_saves_scenario(&self) -> super::saves::service::Scenario {
+        self.saves_service.borrow().scenario()
+    }
     pub fn open_configuration(&mut self) {
         let Some((key, title, platform)) = self
             .games
@@ -1462,6 +1553,9 @@ impl Launcher {
 
     #[observe]
     pub fn menu_selection(&self) -> usize {
+        if self.overlay == Some(Overlay::Saves) {
+            return self.saves.selected();
+        }
         if self.overlay == Some(Overlay::Configuration) {
             self.configuration.selected()
         } else {
@@ -1475,6 +1569,7 @@ impl Launcher {
     #[observe]
     pub fn item_count(&self) -> usize {
         match self.overlay {
+            Some(Overlay::Saves) => self.saves.count(),
             Some(Overlay::Configuration) => self.configuration.count(),
             Some(Overlay::Wifi) => 0,
             Some(Overlay::Details(section)) if section != super::details::Section::Overview => {
@@ -1498,6 +1593,7 @@ impl Launcher {
             Some(Overlay::Power) => "关闭掌机？".into(),
             Some(Overlay::Network) => "当前保留着直连网络".into(),
             Some(Overlay::Wifi) => self.wifi.title(),
+            Some(Overlay::Saves) => "存档".into(),
             Some(Overlay::Configuration) => self.configuration.heading_value(),
             Some(Overlay::Details(super::details::Section::Overview)) => "游戏详情".into(),
             Some(Overlay::Details(super::details::Section::Core)) => "运行核心".into(),
@@ -1594,8 +1690,18 @@ impl Launcher {
         })
     }
     pub fn show_overlay(&mut self, overlay: Overlay) {
+        if self.overlay == Some(Overlay::Saves) && overlay != Overlay::Saves {
+            self.saves_service.borrow_mut().close();
+            self.saves.sync(None);
+            if overlay != Overlay::Configuration {
+                self.configuration_service.borrow_mut().close();
+                self.configuration.sync(None);
+            }
+        }
         if self.overlay == Some(Overlay::Configuration) && overlay != Overlay::Configuration {
-            self.configuration_service.borrow_mut().close();
+            if overlay != Overlay::Saves {
+                self.configuration_service.borrow_mut().close();
+            }
             self.configuration.sync(None);
         }
         if self.overlay == Some(Overlay::Wifi) && overlay != Overlay::Wifi {
@@ -1616,6 +1722,10 @@ impl Launcher {
         self.cancel_hold();
         if let Some(overlay) = self.overlay {
             match overlay {
+                Overlay::Saves => {
+                    self.saves_input(super::wifi::Action::Back);
+                    return;
+                }
                 Overlay::Configuration => {
                     self.configuration_input(super::wifi::Action::Back);
                     return;
@@ -1695,6 +1805,8 @@ impl Launcher {
     }
 
     pub fn close(&mut self) {
+        self.saves_service.borrow_mut().close();
+        self.saves.sync(None);
         self.configuration_service.borrow_mut().close();
         self.configuration.sync(None);
         self.cancel_hold();
@@ -1709,6 +1821,16 @@ impl Launcher {
 }
 
 impl LauncherHandle {
+    pub fn saves_active(&self) -> bool {
+        self.overlay() == Some(Overlay::Saves)
+    }
+    pub fn saves_pending(&self) -> bool {
+        self.saves_active() && self.saves().busy()
+    }
+    pub fn saves_scenario(&self) -> super::saves::service::Scenario {
+        self.saves_revision();
+        self.read_saves_scenario()
+    }
     pub fn configuration_active(&self) -> bool {
         self.overlay() == Some(Overlay::Configuration)
     }
@@ -1905,6 +2027,9 @@ impl LauncherHandle {
         }
     }
     pub fn overlay_title(&self) -> String {
+        if self.saves_active() {
+            return self.saves().heading();
+        }
         if self.configuration_active() {
             return self.configuration().heading();
         }

@@ -1,4 +1,5 @@
 pub mod schema;
+pub mod service;
 use super::configuration::schema::Fact;
 use super::wifi::Action;
 use crate::prelude::*;
