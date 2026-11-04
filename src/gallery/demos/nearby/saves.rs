@@ -906,10 +906,11 @@ mod identity_tests {
         manager.input(Action::Down);
         manager.input(Action::Confirm);
         assert_eq!(manager.tab, Tab::Backups);
-        view.document.as_mut().unwrap().records.swap(0, 2);
+        view.document.as_mut().unwrap().records.swap(1, 2);
         manager.sync(Some(&view));
         manager.input(Action::Back);
         assert_eq!(manager.tab, Tab::States);
+        assert_eq!(manager.selected, 1);
         assert_eq!(manager.record().unwrap().key, "state2");
     }
 
