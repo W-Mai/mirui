@@ -80,3 +80,82 @@ fn observation_identity_does_not_transfer_to_reused_entities() {
     assert_eq!(runtime::size_observer_count(&app.world), 0);
     assert_eq!(app.world.resource::<Count>().unwrap().0, 0);
 }
+
+#[test]
+fn installation_during_a_size_batch_preserves_pending_listener_indices() {
+    let mut app = App::headless(100, 100);
+    app.add_resource(Count::default());
+    let root = app.spawn_root().id();
+    let mut node = || {
+        app.compose(
+            root,
+            |cx| ui! {
+                View () on SizeChanged(record::callback())
+            },
+        )
+    };
+    let retired = node();
+    let retained = node();
+    for entity in [retired, retained] {
+        app.world
+            .insert(entity, ComputedRect(Rect::new(0, 0, 30, 20)));
+    }
+    let batch = runtime::capture_sizes(&app.world, &[retired, retained], true)
+        .unwrap()
+        .unwrap();
+    app.world.despawn(retired);
+    let added = app.compose(
+        root,
+        |cx| ui! {
+            View () on SizeChanged(record::callback())
+        },
+    );
+    app.world
+        .insert(added, ComputedRect(Rect::new(0, 0, 40, 20)));
+    assert_eq!(runtime::size_observer_count(&app.world), 3);
+    batch.dispatch(&mut app.world, crate::ui::lifecycle::prepare);
+    assert_eq!(app.world.resource::<Count>().unwrap().0, 1);
+    runtime::capture_sizes(&app.world, &[retained, added], true)
+        .unwrap()
+        .unwrap()
+        .dispatch(&mut app.world, crate::ui::lifecycle::prepare);
+    assert_eq!(app.world.resource::<Count>().unwrap().0, 2);
+    assert_eq!(runtime::size_observer_count(&app.world), 2);
+    assert!(
+        runtime::capture_sizes(&app.world, &[retained, added], true)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn dropping_a_size_batch_keeps_new_observations_for_the_next_capture() {
+    let mut app = App::headless(100, 100);
+    app.add_resource(Count::default());
+    let root = app.spawn_root().id();
+    let first = app.compose(
+        root,
+        |cx| ui! {
+            View () on SizeChanged(record::callback())
+        },
+    );
+    app.world
+        .insert(first, ComputedRect(Rect::new(0, 0, 30, 20)));
+    let batch = runtime::capture_sizes(&app.world, &[first], true)
+        .unwrap()
+        .unwrap();
+    let added = app.compose(
+        root,
+        |cx| ui! {
+            View () on SizeChanged(record::callback())
+        },
+    );
+    app.world
+        .insert(added, ComputedRect(Rect::new(0, 0, 40, 20)));
+    drop(batch);
+    runtime::capture_sizes(&app.world, &[first, added], true)
+        .unwrap()
+        .unwrap()
+        .dispatch(&mut app.world, crate::ui::lifecycle::prepare);
+    assert_eq!(app.world.resource::<Count>().unwrap().0, 2);
+}

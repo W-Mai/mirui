@@ -55,6 +55,38 @@ fn callbacks(sizes: model!(Sizes)) -> Entity {
     }
 }
 
+#[compose]
+fn expanding_observations(sizes: model!(Sizes)) -> Entity {
+    ui! {
+        Column (width: 100, height: 100) {
+            View (width: 40, height: 20) on SizeChanged { sizes.record(0, event); }
+            walk ${ 0..usize::from(sizes.width() > Fixed::ZERO) } with _index {
+                View (width: 30, height: 20) on SizeChanged { sizes.record(1, event); }
+            }
+        }
+    }
+}
+
+#[test]
+fn size_delivery_can_mount_another_observed_node_in_the_same_layout_settle() {
+    let mut app = App::headless(100, 100);
+    let sizes = app
+        .add_model(Sizes {
+            width: Fixed::ZERO,
+            calls: [0; 5],
+            initial: [0; 5],
+        })
+        .finish();
+    let root = app.spawn_root().id();
+    app.compose(root, expanding_observations(sizes.clone()));
+    let viewport = Viewport::new(100, 100, Fixed::ONE);
+    mirui::ui::render_system::try_update_layout(&mut app.world, root, &viewport).unwrap();
+    assert_eq!(sizes.calls(), [1, 1, 0, 0, 0]);
+    assert_eq!(sizes.initial(), [1, 1, 0, 0, 0]);
+    mirui::ui::render_system::try_update_layout(&mut app.world, root, &viewport).unwrap();
+    assert_eq!(sizes.calls(), [1, 1, 0, 0, 0]);
+}
+
 #[test]
 fn all_callback_forms_settle_model_properties_without_business_capacity_or_hit_targets() {
     let mut app = App::headless(240, 300);

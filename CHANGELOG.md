@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Size callbacks installed during layout notification delivery remain registered and participate in subsequent layout settling without moving pending listener indices.
 - Nearby configuration previews distinguish configured save slots, explicit load slots and startup slots, preserving frontend auto-indexing and state-file suffixes.
 - Nearby simulated save restoration preserves the original record identity, path and title when the target was deleted, and repeated restoration does not duplicate that target.
 - Nearby unavailable game settings show one retry action and reserve the empty-core message for successfully loaded core options.

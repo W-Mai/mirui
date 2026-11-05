@@ -58,14 +58,16 @@ impl SizeObservers {
         listeners: &EventListeners,
         world: &World,
     ) -> Result<(), ListenerError> {
-        if self.active.get() {
-            return Err(ListenerError::Busy);
-        }
         let mut entries = self
             .entries
             .try_borrow_mut()
             .map_err(|_| ListenerError::Busy)?;
-        entries.retain(|entry| world.is_alive(entry.entity) && listeners.contains(entry.listener));
+        // A captured batch addresses existing entries by index. New observers
+        // append now and participate in the next capture; compaction waits.
+        if !self.active.get() {
+            entries
+                .retain(|entry| world.is_alive(entry.entity) && listeners.contains(entry.listener));
+        }
         entries
             .try_reserve_exact(1)
             .map_err(|_| ListenerError::AllocationFailed)
