@@ -6,6 +6,100 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn menu_membership_remains_stable_after_returning_from_save_management() {
+    use crate::ui::{Parent, Style};
+    use launcher::Overlay;
+
+    fn settle(app: &mut TestApp) {
+        for _ in 0..24 {
+            app.tick();
+        }
+        app.render_dirty().unwrap();
+    }
+
+    fn visible(app: &TestApp, mut entity: Entity) -> bool {
+        loop {
+            if crate::ui::branch::is_effectively_hidden(&app.world, entity) {
+                return false;
+            }
+            let Some(parent) = app.world.get::<Parent>(entity) else {
+                return true;
+            };
+            entity = parent.0;
+        }
+    }
+
+    for (width, height) in [(480, 320), (640, 480)] {
+        let (mut app, state) = fixture_at(width, height);
+        let library = state.launcher();
+        library.resume();
+        library.choose_game(0, 0);
+        library.open_saves();
+        settle(&mut app);
+        assert!(!library.saves().busy());
+        library.saves_input(wifi::Action::Confirm);
+        settle(&mut app);
+        assert!(library.saves().modal());
+        library.saves_input(wifi::Action::Back);
+        settle(&mut app);
+        assert!(!library.saves().modal());
+        library.saves_input(wifi::Action::Back);
+        settle(&mut app);
+        assert!(!library.saves_active());
+        library.dismiss_menu();
+        settle(&mut app);
+
+        for (overlay, count) in [
+            (Overlay::System, 6),
+            (Overlay::Game, 7),
+            (Overlay::System, 6),
+            (Overlay::Exit, 2),
+        ] {
+            library.show_overlay(overlay);
+            settle(&mut app);
+            assert_eq!(library.item_count(), count);
+            let node_count = app.world.query::<Style>().iter().count();
+            let mut members = None;
+            for step in 0..count * 3 {
+                library.select_action(step % count);
+                settle(&mut app);
+                let mut anchors: alloc::vec::Vec<_> = app
+                    .world
+                    .query::<actions::ActionAnchor>()
+                    .iter()
+                    .filter_map(|(entity, anchor)| match anchor {
+                        actions::ActionAnchor::Item {
+                            index,
+                            layout: actions::ActionLayout::Grid,
+                        } if visible(&app, entity) => Some((*index, entity)),
+                        _ => None,
+                    })
+                    .collect();
+                anchors.sort_unstable_by_key(|(index, _)| *index);
+                assert_eq!(
+                    anchors
+                        .iter()
+                        .map(|(index, _)| *index)
+                        .collect::<alloc::vec::Vec<_>>(),
+                    (0..count).collect::<alloc::vec::Vec<_>>(),
+                    "Every menu action has one visible owner: {width}x{height} {overlay:?} step={step}"
+                );
+                assert_eq!(
+                    members.get_or_insert_with(|| anchors.clone()),
+                    &anchors,
+                    "Focus preserves entity identities: {width}x{height} {overlay:?} step={step}"
+                );
+                assert_eq!(
+                    app.world.query::<Style>().iter().count(),
+                    node_count,
+                    "Focus preserves the mounted subtree: {width}x{height} {overlay:?} step={step}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn save_manager_keys_route_one_actor_to_the_active_list_or_modal_at_both_sizes() {
     use crate::input::event::input::PhysicalKey;
     use crate::ui::{ComputedRect, Hidden, widgets::FollowBounds};
