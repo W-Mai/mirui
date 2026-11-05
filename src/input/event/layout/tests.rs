@@ -13,6 +13,13 @@ fn record(change: event!(SizeChanged), count: res!(mut Count)) {
     count.0 += 1;
 }
 
+#[crate::compose]
+fn observed_node() -> Entity {
+    ui! {
+        View () on SizeChanged(record::callback())
+    }
+}
+
 #[test]
 fn prepared_size_capture_and_dispatch_allocate_nothing_and_restore_owner() {
     let mut app = App::headless(100, 100);
@@ -86,16 +93,8 @@ fn installation_during_a_size_batch_preserves_pending_listener_indices() {
     let mut app = App::headless(100, 100);
     app.add_resource(Count::default());
     let root = app.spawn_root().id();
-    let mut node = || {
-        app.compose(
-            root,
-            |cx| ui! {
-                View () on SizeChanged(record::callback())
-            },
-        )
-    };
-    let retired = node();
-    let retained = node();
+    let retired = app.compose(root, observed_node());
+    let retained = app.compose(root, observed_node());
     for entity in [retired, retained] {
         app.world
             .insert(entity, ComputedRect(Rect::new(0, 0, 30, 20)));
@@ -104,12 +103,7 @@ fn installation_during_a_size_batch_preserves_pending_listener_indices() {
         .unwrap()
         .unwrap();
     app.world.despawn(retired);
-    let added = app.compose(
-        root,
-        |cx| ui! {
-            View () on SizeChanged(record::callback())
-        },
-    );
+    let added = app.compose(root, observed_node());
     app.world
         .insert(added, ComputedRect(Rect::new(0, 0, 40, 20)));
     assert_eq!(runtime::size_observer_count(&app.world), 3);
@@ -133,23 +127,13 @@ fn dropping_a_size_batch_keeps_new_observations_for_the_next_capture() {
     let mut app = App::headless(100, 100);
     app.add_resource(Count::default());
     let root = app.spawn_root().id();
-    let first = app.compose(
-        root,
-        |cx| ui! {
-            View () on SizeChanged(record::callback())
-        },
-    );
+    let first = app.compose(root, observed_node());
     app.world
         .insert(first, ComputedRect(Rect::new(0, 0, 30, 20)));
     let batch = runtime::capture_sizes(&app.world, &[first], true)
         .unwrap()
         .unwrap();
-    let added = app.compose(
-        root,
-        |cx| ui! {
-            View () on SizeChanged(record::callback())
-        },
-    );
+    let added = app.compose(root, observed_node());
     app.world
         .insert(added, ComputedRect(Rect::new(0, 0, 40, 20)));
     drop(batch);
