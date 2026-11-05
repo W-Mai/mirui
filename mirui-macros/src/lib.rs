@@ -1730,11 +1730,52 @@ impl MiruiRune {
         self.stack.pop().unwrap()
     }
 
-    // A reactive walk body built on demand. The first top widget is its
-    // managed mount root; later top widgets attach through the usual path.
+    fn walk_uses_forest(body: &[Cmd]) -> bool {
+        !matches!(body, [Cmd::Widget(_) | Cmd::Compose(_)])
+    }
+
+    fn has_replacing_walk_roots(body: &[Cmd]) -> bool {
+        body.iter().any(|cmd| match cmd {
+            Cmd::Iter(iter) => iter.reactive || Self::has_replacing_walk_roots(&iter.body),
+            Cmd::Match(branch) => {
+                branch.reactive && branch.arms.iter().any(|arm| Self::pattern_binds(&arm.pat))
+                    || branch
+                        .arms
+                        .iter()
+                        .any(|arm| Self::has_replacing_walk_roots(&arm.body))
+            }
+            Cmd::If(branch) => branch
+                .branches
+                .iter()
+                .any(|arm| Self::has_replacing_walk_roots(&arm.body)),
+            Cmd::Niche(niche) => Self::has_replacing_walk_roots(&niche.body),
+            Cmd::Widget(_) | Cmd::Compose(_) | Cmd::CodeBlock(_) => false,
+        })
+    }
+
+    // Single rooted members retain their direct path; compound members own
+    // every top-level root and the effects created during their construction.
     fn branch_body(body: &[Cmd]) -> proc_macro2::TokenStream {
         let w = quote! { __w };
         let p = quote! { __parent };
+        if Self::walk_uses_forest(body) {
+            if Self::has_replacing_walk_roots(body) {
+                return syn::Error::new(proc_macro2::Span::call_site(),
+                    "reactive iteration and payload-binding matches directly inside a walk body need a widget parent")
+                    .to_compile_error();
+            }
+            let stmts: proc_macro2::TokenStream = Self::emit_siblings(body, &w, &p).collect();
+            return quote! {
+                Some(mirui::__macro_support::with_owned_effects(|| {
+                    let __start = (#w).get::<mirui::ui::Children>(#p)
+                        .map_or(0, |children| children.0.len());
+                    #stmts
+                    (#w).get_mut::<mirui::ui::Children>(#p)
+                        .map_or_else(mirui::__macro_support::__Vec::new,
+                            |children| children.0.split_off(__start))
+                }))
+            };
+        }
         let mut stmts = proc_macro2::TokenStream::new();
         let mut root: Option<proc_macro2::TokenStream> = None;
         for (child, statement) in body.iter().zip(Self::emit_siblings(body, &w, &p)) {
@@ -1907,11 +1948,37 @@ impl MiruiRune {
         let iterable = &cmd.iterable;
         let variable = &cmd.variable;
         let row_body = Self::branch_body(&cmd.body);
+        let forest = Self::walk_uses_forest(&cmd.body);
+        let row_type = if forest {
+            quote! { (mirui::__macro_support::__Vec<mirui::ecs::Entity>, mirui::__macro_support::OwnedEffects) }
+        } else {
+            quote! { mirui::ecs::Entity }
+        };
+        let attach = if forest {
+            quote! { children.0.extend_from_slice(&__r.0); }
+        } else {
+            quote! { children.0.push(__r); }
+        };
+        let remove_root = quote! {
+            let __pos = __w.get::<mirui::ui::Children>(__parent_e)
+                .and_then(|children| children.0.iter().position(|entity| *entity == __e));
+            if let Some(__pos) = __pos {
+                if let Some(children) = __w.get_mut::<mirui::ui::Children>(__parent_e) {
+                    children.0.remove(__pos);
+                }
+            }
+            mirui::__macro_support::despawn_subtree(__w, __e);
+        };
+        let retire = if forest {
+            quote! { for __e in __row.0 { #remove_root } }
+        } else {
+            quote! { let __e = __row; #remove_root }
+        };
 
         quote! {
             {
                 let __rows = mirui::__macro_support::__RefCell::new(
-                    mirui::__macro_support::__Vec::<mirui::ecs::Entity>::new(),
+                    mirui::__macro_support::__Vec::<#row_type>::new(),
                 );
                 let __parent_e = #parent_var;
                 mirui::__macro_support::with_world_scope(#world, || {
@@ -1925,31 +1992,21 @@ impl MiruiRune {
                                 if __n_new <= __n_old {
                                     continue;
                                 }
-                                let __r = (|__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity| -> Option<mirui::ecs::Entity> {
+                                let __r = (|__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity| -> Option<#row_type> {
                                     #row_body
                                 })(__w, __parent_e);
                                 if let Some(__r) = __r {
                                     if let Some(children) =
                                         __w.get_mut::<mirui::ui::Children>(__parent_e)
                                     {
-                                        children.0.push(__r);
+                                        #attach
                                     }
                                     __rows.borrow_mut().push(__r);
                                 }
                             }
                             if __n_new < __n_old {
-                                for __e in __rows.borrow_mut().drain(__n_new..) {
-                                    let __pos = __w
-                                        .get::<mirui::ui::Children>(__parent_e)
-                                        .and_then(|c| c.0.iter().position(|&x| x == __e));
-                                    if let Some(__p) = __pos {
-                                        if let Some(children) =
-                                            __w.get_mut::<mirui::ui::Children>(__parent_e)
-                                        {
-                                            children.0.remove(__p);
-                                        }
-                                    }
-                                    mirui::__macro_support::despawn_subtree(__w, __e);
+                                for __row in __rows.borrow_mut().drain(__n_new..) {
+                                    #retire
                                 }
                             }
                         });
@@ -1968,6 +2025,36 @@ impl MiruiRune {
         let variable = &cmd.variable;
         let key_expr = cmd.key.as_ref().unwrap();
         let row_body = Self::branch_body(&cmd.body);
+        let forest = Self::walk_uses_forest(&cmd.body);
+        let row_type = if forest {
+            quote! { (mirui::__macro_support::__Vec<mirui::ecs::Entity>, mirui::__macro_support::OwnedEffects) }
+        } else {
+            quote! { mirui::ecs::Entity }
+        };
+        let roots = if forest {
+            quote! { __new.iter().flat_map(|(_, row)| row.0.iter().copied()) }
+        } else {
+            quote! { __new.iter().map(|(_, entity)| *entity) }
+        };
+        let count = if forest {
+            quote! { __new.iter().map(|(_, row)| row.0.len()).sum::<usize>() }
+        } else {
+            quote! { __new.len() }
+        };
+        let contains = if forest {
+            quote! { __new.iter().any(|(_, row)| row.0.contains(entity)) }
+        } else {
+            quote! { __new.iter().any(|(_, row)| row == entity) }
+        };
+        let retire = if forest {
+            quote! {
+                for __e in __row.0 {
+                    mirui::__macro_support::despawn_subtree(__w, __e);
+                }
+            }
+        } else {
+            quote! { mirui::__macro_support::despawn_subtree(__w, __row); }
+        };
 
         quote! {
             {
@@ -1989,7 +2076,7 @@ impl MiruiRune {
                                     let (_, __e) = __old.remove(__i);
                                     __new.push((__k, __e));
                                 } else {
-                                    let __r = (|__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity| -> Option<mirui::ecs::Entity> {
+                                    let __r = (|__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity| -> Option<#row_type> {
                                         #row_body
                                     })(__w, __parent_e);
                                     if let Some(__r) = __r {
@@ -1997,27 +2084,25 @@ impl MiruiRune {
                                     }
                                 }
                             }
-                            for (_, __e) in __old.drain(..) {
-                                mirui::__macro_support::despawn_subtree(__w, __e);
+                            for (_, __row) in __old.drain(..) {
+                                #retire
                             }
                             // Retain unrelated siblings, then append the managed rows.
                             // An already ordered row suffix needs no mutable borrow.
                             let __children_changed = __w.get::<mirui::ui::Children>(__parent_e)
                                 .is_some_and(|children| {
-                                    let Some(prefix_len) = children.0.len().checked_sub(__new.len()) else {
+                                    let Some(prefix_len) = children.0.len().checked_sub(#count) else {
                                         return true;
                                     };
                                     let (siblings, rows) = children.0.split_at(prefix_len);
-                                    !rows.iter().copied().eq(__new.iter().map(|(_, entity)| *entity))
-                                        || siblings.iter().any(|entity| __new.iter().any(|(_, row)| row == entity))
+                                    !rows.iter().copied().eq(#roots)
+                                        || siblings.iter().any(|entity| #contains)
                                 });
                             if __children_changed
                                 && let Some(children) = __w.get_mut::<mirui::ui::Children>(__parent_e)
                             {
-                                children.0.retain(|e| !__new.iter().any(|(_, row)| row == e));
-                                for (_, __e) in __new.iter() {
-                                    children.0.push(*__e);
-                                }
+                                children.0.retain(|entity| !#contains);
+                                children.0.extend(#roots);
                             }
                             __old.reserve(__new.len());
                             ::core::mem::swap(__old, __new);
@@ -3246,6 +3331,40 @@ pub fn event(args: TokenStream, item: TokenStream) -> TokenStream {
 #[cfg(test)]
 mod typed_on_tests {
     use super::*;
+
+    #[test]
+    fn walk_root_ownership_preserves_the_direct_path_and_checks_replacing_roots() {
+        let direct = expand_tree(quote! { Column() { walk ${ items() } with item { View() } } });
+        assert!(!quote!(#direct).to_string().contains("with_owned_effects"));
+        let compound = expand_tree(quote! {
+            Column() { walk ${ items() } with item { if ${ visible() } { View() } else { View() View() } } }
+        });
+        assert!(quote!(#compound).to_string().contains("with_owned_effects"));
+        let replacing = expand_tree(quote! {
+            Column() { walk ${ items() } with item { walk ${ nested() } with child { View() } } }
+        });
+        assert!(
+            quote!(#replacing)
+                .to_string()
+                .contains("need a widget parent")
+        );
+        let payload = expand_tree(quote! {
+            Column() { walk ${ items() } with item { match ${ selected() } { Some(value) => { View() }, None => { View() } } } }
+        });
+        assert!(
+            quote!(#payload)
+                .to_string()
+                .contains("need a widget parent")
+        );
+        let contained = expand_tree(quote! {
+            Column() { walk ${ items() } with item { Row() { walk ${ nested() } with child { View() } } } }
+        });
+        assert!(
+            !quote!(#contained)
+                .to_string()
+                .contains("need a widget parent")
+        );
+    }
 
     #[test]
     fn repeated_component_properties_are_rejected_during_lowering() {

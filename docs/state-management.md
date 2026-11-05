@@ -905,6 +905,8 @@ walk ${ items.get() } with item by item.id {
 Use keyed when the list reorders or mutates in the middle; index-based is
 lighter for plain append/drop-tail.
 
+A loop member may have a conditional, multiple top-level roots, or no roots. All of its roots retain their identity and are removed together with its control-flow subscriptions when the member leaves the list. A single widget or composition keeps the direct single-root path; compound members do not add a layout container. Nested reactive loops and payload-binding reactive matches that replace their roots require an explicit widget parent inside the member.
+
 ## The flush model
 
 Setting a signal does not update widgets immediately. It marks subscribers

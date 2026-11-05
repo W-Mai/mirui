@@ -106,6 +106,7 @@ struct Reactive {
     model_visual_subscriptions: usize,
     dirty_effects: VecDeque<EffectId>,
     effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
+    captured_effects: Option<Vec<EffectId>>,
     computeds: BTreeMap<ComputedId, Weak<dyn ComputedNode>>,
     effect_slots: SlotAllocator,
     computed_slots: SlotAllocator,
@@ -129,6 +130,7 @@ impl Reactive {
             model_visual_subscriptions: 0,
             dirty_effects: VecDeque::new(),
             effects: BTreeMap::new(),
+            captured_effects: None,
             computeds: BTreeMap::new(),
             effect_slots: SlotAllocator::new(),
             computed_slots: SlotAllocator::new(),
@@ -1793,6 +1795,9 @@ impl Effect {
                 depth: 0,
             }));
             r.effects.insert(id, inner);
+            if let Some(captured) = &mut r.captured_effects {
+                captured.push(id);
+            }
             let effect_count = r.effects.len();
             reserve_queue_total(&mut r.dirty_effects, effect_count);
             id
@@ -1815,6 +1820,62 @@ impl Drop for Effect {
     fn drop(&mut self) {
         unregister_effect(self.id);
     }
+}
+
+/// Owned effects created while mounting a compound UI member.
+#[doc(hidden)]
+pub struct OwnedEffects {
+    ids: Vec<EffectId>,
+    local: core::marker::PhantomData<Rc<()>>,
+}
+
+impl Drop for OwnedEffects {
+    fn drop(&mut self) {
+        for id in self.ids.drain(..) {
+            unregister_effect(id);
+        }
+    }
+}
+
+struct EffectCapture {
+    previous: Option<Vec<EffectId>>,
+}
+
+impl Drop for EffectCapture {
+    fn drop(&mut self) {
+        let unfinished = with_reactive(|runtime| {
+            core::mem::replace(&mut runtime.captured_effects, self.previous.take())
+        });
+        if let Some(ids) = unfinished {
+            drop(OwnedEffects {
+                ids,
+                local: core::marker::PhantomData,
+            });
+        }
+    }
+}
+
+/// Retain newly created effects until their compound member is retired.
+#[doc(hidden)]
+pub fn with_owned_effects<T>(build: impl FnOnce() -> T) -> (T, OwnedEffects) {
+    let capture = EffectCapture {
+        previous: with_reactive(|runtime| runtime.captured_effects.replace(Vec::new())),
+    };
+    let value = build();
+    let ids = with_reactive(|runtime| {
+        runtime
+            .captured_effects
+            .take()
+            .expect("active effect capture")
+    });
+    drop(capture);
+    (
+        value,
+        OwnedEffects {
+            ids,
+            local: core::marker::PhantomData,
+        },
+    )
 }
 
 /// An effect owned by the runtime and tied to a widget entity: it re-runs on
@@ -3048,6 +3109,53 @@ mod tests {
         drop(signal);
         effect.dispose();
         assert_eq!(effect_count(), 0);
+    }
+
+    #[test]
+    fn owned_effects_release_nested_members_while_the_parent_remains_live() {
+        reset();
+        let mut world = World::new();
+        let parent = world.spawn_empty();
+        let (_, owned) = with_world_scope(&mut world, || {
+            with_owned_effects(|| {
+                effect_with_role(parent, BindingRole::Maintenance, || {});
+                let (_, nested) = with_owned_effects(|| {
+                    effect_with_role(parent, BindingRole::Maintenance, || {});
+                });
+                effect_with_role(parent, BindingRole::Maintenance, move || {
+                    let _ = &nested;
+                });
+            })
+        });
+        assert_eq!(effect_count(), 3);
+        assert_eq!(crate::test_support::tracked_allocations(|| drop(owned)), 0);
+        assert!(world.is_alive(parent));
+        assert_eq!(effect_count(), 0);
+        assert!(with_reactive(|runtime| runtime.captured_effects.is_none()));
+    }
+
+    #[test]
+    fn owned_effect_capture_unwinds_without_retiring_its_outer_capture() {
+        reset();
+        let mut world = World::new();
+        let parent = world.spawn_empty();
+        let (_, owned) = with_world_scope(&mut world, || {
+            with_owned_effects(|| {
+                effect_with_role(parent, BindingRole::Maintenance, || {});
+                let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    with_owned_effects(|| {
+                        effect_with_role(parent, BindingRole::Maintenance, || {});
+                        panic!("failed member construction");
+                    });
+                }));
+                assert!(failed.is_err());
+                effect_with_role(parent, BindingRole::Maintenance, || {});
+            })
+        });
+        assert_eq!(effect_count(), 2);
+        drop(owned);
+        assert_eq!(effect_count(), 0);
+        assert!(with_reactive(|runtime| runtime.captured_effects.is_none()));
     }
 
     #[test]
