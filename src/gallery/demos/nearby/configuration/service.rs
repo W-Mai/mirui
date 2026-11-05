@@ -41,6 +41,8 @@ pub(crate) struct Service {
     pending: Option<(u16, Request)>,
     scenario: Scenario,
     open_saves: bool,
+    entry_slot: Option<u16>,
+    auto_index: bool,
 }
 
 impl Service {
@@ -57,6 +59,8 @@ impl Service {
     }
 
     pub fn open(&mut self, key: u32, title: String, platform: &str) {
+        self.entry_slot = None;
+        self.auto_index = false;
         if !self.documents.iter().any(|(id, _)| *id == key) {
             if self.documents.is_empty() {
                 self.documents.reserve_exact(8);
@@ -77,9 +81,33 @@ impl Service {
     }
 
     pub fn reference(&mut self) {
+        self.entry_slot = None;
+        self.auto_index = false;
         self.view = Some(super::fixture());
         self.epoch = self.view.as_ref().unwrap().epoch;
         self.pending = None;
+    }
+
+    pub fn slot_reference(&mut self, entry: Option<u16>, auto_index: bool) {
+        assert!(entry.is_none_or(|slot| slot <= 999));
+        self.scenario = Scenario::Success;
+        self.open(0, "超级炸弹人5".into(), "snes");
+        self.entry_slot = entry;
+        self.auto_index = auto_index;
+        let document = &mut self
+            .documents
+            .iter_mut()
+            .find(|(key, _)| *key == 0)
+            .unwrap()
+            .1;
+        let slot = document
+            .fields
+            .iter_mut()
+            .find(|field| field.id == Id::Slot)
+            .unwrap();
+        slot.values = core::array::from_fn(|_| Value::Number(3));
+        document.saves = paths(document, Scope::Game, &[], entry, auto_index);
+        self.tick(180);
     }
 
     pub fn take_open_saves(&mut self) -> bool {
@@ -148,6 +176,8 @@ impl Service {
                         message: "模拟读取失败，按 X 重试".into(),
                     }
                 } else {
+                    document.saves =
+                        paths(document, Scope::Game, &[], self.entry_slot, self.auto_index);
                     Load::Ready {
                         document: document.clone(),
                     }
@@ -210,7 +240,8 @@ impl Service {
                     self.revision = self.revision.wrapping_add(1);
                     document.revision = format!("{:064x}", self.revision);
                     view.saved = view.saved.wrapping_add(1);
-                    document.saves = paths(document, Scope::Game, &[]);
+                    document.saves =
+                        paths(document, Scope::Game, &[], self.entry_slot, self.auto_index);
                     view.load = Load::Ready {
                         document: document.clone(),
                     };
@@ -218,7 +249,7 @@ impl Service {
                 } else {
                     view.projection = Some(Projection {
                         scope,
-                        facts: paths(document, scope, &changes),
+                        facts: paths(document, scope, &changes, self.entry_slot, self.auto_index),
                         changes,
                     });
                 }
@@ -312,8 +343,8 @@ fn example(key: u32, title: String, platform: &str) -> Document {
     add(
         Id::Slot,
         Section::Saves,
-        "即时存档槽位",
-        (0..4)
+        "配置槽位",
+        (0..10)
             .map(|value| Choice {
                 value: Value::Number(value),
                 label: format!("槽位 {value}"),
@@ -342,7 +373,7 @@ fn example(key: u32, title: String, platform: &str) -> Document {
         origins: core::array::from_fn(|_| "单机运行模式".into()),
         targets: core::array::from_fn(|_| String::new()),
     });
-    document.saves = paths(&document, Scope::Game, &[]);
+    document.saves = paths(&document, Scope::Game, &[], None, false);
     document.sources = vec![Fact::new(
         "说明",
         "本 Demo 仅模拟设置和写入，不读取或修改系统文件",
@@ -350,14 +381,20 @@ fn example(key: u32, title: String, platform: &str) -> Document {
     document
 }
 
-fn paths(document: &Document, scope: Scope, changes: &[Change]) -> Vec<Fact> {
-    let enabled = |id: Id| {
+fn paths(
+    document: &Document,
+    scope: Scope,
+    changes: &[Change],
+    entry: Option<u16>,
+    auto_index: bool,
+) -> Vec<Fact> {
+    let value = |id: Id| {
         document
             .fields
             .iter()
             .find(|field| field.id == id)
-            .is_some_and(|field| {
-                let value = changes.iter().find(|change| change.id == id).map_or(
+            .map(|field| {
+                changes.iter().find(|change| change.id == id).map_or(
                     &field.values[scope.index()],
                     |change| {
                         change
@@ -365,29 +402,56 @@ fn paths(document: &Document, scope: Scope, changes: &[Change]) -> Vec<Fact> {
                             .as_ref()
                             .unwrap_or(&field.inherited[scope.index()])
                     },
-                );
-                *value == Value::Bool(true)
+                )
             })
     };
-    [
-        ("SRAM 文件", "srm", Id::SaveByCore, Id::SaveInContent),
-        ("即时存档", "state", Id::StateByCore, Id::StateInContent),
-    ]
-    .into_iter()
-    .map(|(label, extension, by_core, in_content)| {
-        let base = if enabled(in_content) {
+    let path = |extension, by_core, in_content| {
+        let base = if value(in_content) == Some(&Value::Bool(true)) {
             format!("/roms/{}", document.platform)
         } else {
             "/saves".into()
         };
-        let directory = if enabled(by_core) {
+        let directory = if value(by_core) == Some(&Value::Bool(true)) {
             format!("{base}/{}", document.core)
         } else {
             base
         };
-        Fact::new(label, format!("{directory}/{}.{extension}", document.title))
-    })
-    .collect()
+        let file = format!("{directory}/{}.{extension}", document.title);
+        (directory, file)
+    };
+    let (_, sram) = path("srm", Id::SaveByCore, Id::SaveInContent);
+    let (directory, state) = path("state", Id::StateByCore, Id::StateInContent);
+    let configured = match value(Id::Slot) {
+        Some(Value::Number(slot)) => *slot,
+        _ => 0,
+    };
+    let automatic = entry.is_none() && auto_index;
+    let startup = entry.unwrap_or(0);
+    let state = if automatic {
+        "前端自动编号".into()
+    } else if startup == 0 {
+        state
+    } else {
+        format!("{state}{startup}")
+    };
+    vec![
+        Fact::new("SRAM 文件", sram),
+        Fact::new("配置槽位", format!("槽位 {configured}")),
+        Fact::new(
+            "显式载入槽位",
+            entry.map_or_else(|| "—".into(), |slot| format!("槽位 {slot}")),
+        ),
+        Fact::new(
+            "启动后槽位",
+            if automatic {
+                "前端自动编号".into()
+            } else {
+                format!("槽位 {startup}")
+            },
+        ),
+        Fact::new("即时存档", state),
+        Fact::new("即时存档目录", directory),
+    ]
 }
 
 fn targets(core: &str, title: &str, extension: &str) -> [String; 3] {
@@ -406,6 +470,110 @@ mod tests {
         service.open(0, "魂斗罗".into(), "nes");
         assert!(service.tick(180));
         service
+    }
+
+    fn facts(service: &Service) -> &[Fact] {
+        let Load::Ready { document } = &service.view().unwrap().load else {
+            panic!("Configuration fixture must be ready");
+        };
+        &document.saves
+    }
+
+    fn fact<'a>(facts: &'a [Fact], label: &str) -> &'a str {
+        &facts.iter().find(|fact| fact.label == label).unwrap().value
+    }
+
+    #[test]
+    fn startup_slot_keeps_configured_explicit_and_auto_index_sources_distinct() {
+        for (entry, auto_index, startup, suffix) in [
+            (None, false, "槽位 0", Some(".state")),
+            (Some(7), false, "槽位 7", Some(".state7")),
+            (None, true, "前端自动编号", None),
+            (Some(0), true, "槽位 0", Some(".state")),
+            (Some(7), true, "槽位 7", Some(".state7")),
+        ] {
+            let mut service = Service::default();
+            service.slot_reference(entry, auto_index);
+            let facts = facts(&service);
+            assert_eq!(fact(facts, "配置槽位"), "槽位 3");
+            assert_eq!(
+                fact(facts, "显式载入槽位"),
+                entry.map_or_else(|| "—".into(), |slot| format!("槽位 {slot}"))
+            );
+            assert_eq!(fact(facts, "启动后槽位"), startup);
+            if let Some(suffix) = suffix {
+                assert_eq!(
+                    fact(facts, "即时存档"),
+                    format!("/saves/超级炸弹人5{suffix}")
+                );
+            } else {
+                assert_eq!(fact(facts, "即时存档"), "前端自动编号");
+            }
+            assert_eq!(fact(facts, "即时存档目录"), "/saves");
+            service.close();
+            service.open(0, "超级炸弹人5".into(), "snes");
+            service.tick(180);
+            assert_eq!(fact(self::facts(&service), "配置槽位"), "槽位 3");
+            assert_eq!(fact(self::facts(&service), "显式载入槽位"), "—");
+            assert_eq!(fact(self::facts(&service), "启动后槽位"), "槽位 0");
+            assert_eq!(
+                fact(self::facts(&service), "即时存档"),
+                "/saves/超级炸弹人5.state"
+            );
+            service.close();
+            service.open(1, "魂斗罗".into(), "nes");
+            service.tick(180);
+            assert_eq!(fact(self::facts(&service), "显式载入槽位"), "—");
+            assert_eq!(fact(self::facts(&service), "启动后槽位"), "槽位 0");
+        }
+    }
+
+    #[test]
+    fn slot_projection_and_save_agree_without_reassigning_the_startup_slot() {
+        for (entry, auto_index) in [(None, false), (Some(7), false), (None, true)] {
+            let mut service = Service::default();
+            service.slot_reference(entry, auto_index);
+            let original = facts(&service).to_vec();
+            let Load::Ready { document } = &service.view().unwrap().load else {
+                panic!()
+            };
+            let revision = document.revision.clone();
+            let changes = vec![Change {
+                id: Id::Slot,
+                value: Some(Value::Number(5)),
+            }];
+            let request = Request::Preview {
+                epoch: service.epoch,
+                revision: revision.clone(),
+                scope: Scope::Game,
+                changes: changes.clone(),
+            };
+            assert!(service.submit(&request));
+            service.tick(180);
+            assert_eq!(facts(&service), original);
+            let projection = service
+                .view()
+                .unwrap()
+                .projection
+                .as_ref()
+                .unwrap()
+                .facts
+                .clone();
+            assert_eq!(fact(&projection, "配置槽位"), "槽位 5");
+            for label in ["显式载入槽位", "启动后槽位", "即时存档", "即时存档目录"]
+            {
+                assert_eq!(fact(&projection, label), fact(&original, label));
+            }
+            assert!(service.submit(&Request::Save {
+                epoch: service.epoch,
+                revision,
+                scope: Scope::Game,
+                changes
+            }));
+            service.tick(180);
+            assert_eq!(service.view().unwrap().saved, 1);
+            assert_eq!(facts(&service), projection);
+        }
     }
     fn save(service: &Service, scope: Scope) -> Request {
         let view = service.view().unwrap();

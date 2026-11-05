@@ -899,6 +899,57 @@ pub fn fixture() -> View {
 pub(crate) mod tests {
     use super::*;
     #[test]
+    fn slot_projection_preserves_launch_facts_and_selection_across_editor_returns() {
+        let mut view = fixture();
+        let change = Change {
+            id: Id::Slot,
+            value: Some(Value::Number(5)),
+        };
+        let Load::Ready { document } = &mut view.load else {
+            panic!()
+        };
+        document.saves = vec![
+            Fact::new("配置槽位", "槽位 3"),
+            Fact::new("显式载入槽位", "槽位 7"),
+            Fact::new("启动后槽位", "槽位 7"),
+        ];
+        let mut facts = document.saves.clone();
+        facts[0].value = "槽位 5".into();
+        view.projection = Some(schema::Projection {
+            scope: Scope::Game,
+            changes: vec![change.clone()],
+            facts,
+        });
+        let mut editor = Editor::default();
+        editor.sync(Some(&view));
+        editor.draft.insert(change.id, change.value);
+        editor.section = Section::Saves;
+        editor.selected = 2;
+        let expected: Vec<_> = (0..editor.fact_count())
+            .filter_map(|index| editor.fact(index))
+            .collect();
+        assert!(expected.contains(&Fact::new("保存后 配置槽位", "槽位 5")));
+        assert!(
+            !expected.iter().any(
+                |fact| fact.label == "保存后 启动后槽位" || fact.label == "保存后 显式载入槽位"
+            )
+        );
+        editor.scope = Scope::Core;
+        assert_eq!(editor.extra_facts().count(), 0);
+        editor.scope = Scope::Game;
+        editor.sync(None);
+        editor.sync(Some(&view));
+        assert_eq!(
+            (0..editor.fact_count())
+                .filter_map(|index| editor.fact(index))
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(editor.section, Section::Saves);
+        assert_eq!(editor.selected, 2);
+    }
+
+    #[test]
     fn path_projection_requires_the_current_scope_and_complete_ordered_draft() {
         let mut view = fixture();
         let change = Change {

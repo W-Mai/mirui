@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Nearby configuration previews distinguish configured save slots, explicit load slots and startup slots, preserving frontend auto-indexing and state-file suffixes.
 - Nearby simulated save restoration preserves the original record identity, path and title when the target was deleted, and repeated restoration does not duplicate that target.
 - Nearby unavailable game settings show one retry action and reserve the empty-core message for successfully loaded core options.
 - Nearby detail reading reverses immediately after repeated scrolling at the content boundary without replaying clamped input during geometry updates.

@@ -6,6 +6,78 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn configuration_slot_facts_keep_the_exact_draft_and_return_focus() {
+    use crate::ui::widgets::Text;
+    use configuration::schema::Section;
+    for (width, height) in [(480, 320), (640, 480)] {
+        for (entry, auto_index, startup) in [
+            (None, false, "槽位 0"),
+            (Some(7), false, "槽位 7"),
+            (None, true, "前端自动编号"),
+        ] {
+            let (mut app, state) = fixture_at(width, height);
+            let library = state.launcher();
+            library.resume();
+            library.configuration_slot_fixture(entry, auto_index);
+            for _ in 0..3 {
+                library.configuration_input(wifi::Action::Down);
+            }
+            library.configuration_input(wifi::Action::Confirm);
+            let editor = library.configuration();
+            assert_eq!(editor.section(), Section::Saves);
+            library.configuration_input(wifi::Action::Down);
+            library.configuration_input(wifi::Action::Right);
+            library.configuration_input(wifi::Action::Right);
+            for _ in 0..20 {
+                app.tick();
+            }
+            assert!(editor.dirty());
+            assert_eq!(editor.row(1).label, "配置槽位");
+            assert_eq!(editor.row(1).value, "槽位 5");
+            let selected = editor.count() - 1;
+            editor.select(selected);
+            library.configuration_input(wifi::Action::Confirm);
+            for _ in 0..20 {
+                app.tick();
+            }
+            app.render_dirty().unwrap();
+            assert_eq!(editor.section(), Section::Sources);
+            let facts: alloc::vec::Vec<_> =
+                (0..editor.count()).map(|index| editor.row(index)).collect();
+            for (label, value) in [
+                ("配置槽位", "槽位 3"),
+                ("保存后 配置槽位", "槽位 5"),
+                ("启动后槽位", startup),
+            ] {
+                assert!(
+                    facts
+                        .iter()
+                        .any(|row| row.label == label && row.value == value),
+                    "{width}x{height}: {label}={value}"
+                );
+            }
+            assert!(
+                !facts
+                    .iter()
+                    .any(|row| row.label == "保存后 启动后槽位"
+                        || row.label == "保存后 显式载入槽位")
+            );
+            let text: alloc::vec::Vec<_> = app
+                .world
+                .query::<Text>()
+                .iter()
+                .map(|(_, text)| text.resolve(app.world.resource()).into_owned())
+                .collect();
+            assert!(text.iter().any(|text| text == "保存后 配置槽位"));
+            library.configuration_input(wifi::Action::Back);
+            assert_eq!(editor.section(), Section::Saves);
+            assert_eq!(editor.selected(), selected);
+            assert_eq!(editor.row(1).value, "槽位 5");
+        }
+    }
+}
+
+#[test]
 fn menu_membership_remains_stable_after_returning_from_save_management() {
     use crate::ui::{Parent, Style};
     use launcher::Overlay;

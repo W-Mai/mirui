@@ -900,6 +900,15 @@ impl Launcher {
         self.show_overlay(Overlay::Configuration);
     }
 
+    pub fn configuration_slot_fixture(&mut self, entry: Option<u16>, auto_index: bool) {
+        self.configuration_service
+            .borrow_mut()
+            .slot_reference(entry, auto_index);
+        self.configuration
+            .sync(self.configuration_service.borrow().view());
+        self.show_overlay(Overlay::Configuration);
+    }
+
     pub fn configuration_input(&mut self, action: super::wifi::Action) {
         if self.overlay != Some(Overlay::Configuration) {
             return;

@@ -15,13 +15,13 @@
   "size": 12,
   "format": "gray",
   "bit_depth": 1,
-  "charset_count": 466,
+  "charset_count": 467,
   "charset_file": "nearby-charset.txt",
   "output": "nearby-menu.mirx",
-  "output_sha256": "e4dff75a6714caf75a57bd8c025896878c6e15da5595cab835e57e1836d18ec8",
-  "output_size": 80540,
+  "output_sha256": "8ba6d3669d2ab3cbcab8b39aa5984ce075c9ebf489fc1f4ec08c092f098edbf2",
+  "output_size": 80600,
   "title_output": "nearby-title.mirx",
   "title_size": 24,
-  "title_output_sha256": "5284cfc6a993663145ba8525e215332220bcf294d37b9c88bb13b5d0f276b3b2",
-  "title_output_size": 103324
+  "title_output_sha256": "0119864949b1f5452a0a6c53084dff1efb116c4bf8c6406c764adee425f287da",
+  "title_output_size": 103384
 }

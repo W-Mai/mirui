@@ -129,6 +129,41 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
                 advance_reference(app, &mut time, 1200 + current as u64 * 1000);
             }
         }
+        "configuration-slot-default"
+        | "configuration-slot-entry"
+        | "configuration-slot-auto"
+        | "configuration-slot-default-draft"
+        | "configuration-slot-entry-draft"
+        | "configuration-slot-auto-draft" => {
+            use nearby::wifi::Action;
+            let entry = scene.contains("-entry").then_some(7);
+            let auto_index = scene.contains("-auto");
+            REFERENCE_TIME_NS.store(0, Ordering::Relaxed);
+            app.add_resource(mirui::ecs::MonoClock::new(reference_clock));
+            library.configuration_slot_fixture(entry, auto_index);
+            for _ in 0..3 {
+                library.configuration_input(Action::Down);
+            }
+            library.configuration_input(Action::Confirm);
+            let mut time = 0;
+            advance_reference(app, &mut time, 800);
+            if scene.ends_with("-draft") {
+                library.configuration_input(Action::Down);
+                library.configuration_input(Action::Right);
+                library.configuration_input(Action::Right);
+                advance_reference(app, &mut time, 1600);
+            }
+            let editor = library.configuration();
+            editor.select(editor.count() - 1);
+            library.configuration_input(Action::Confirm);
+            advance_reference(app, &mut time, 2400);
+            editor.select(if scene.ends_with("-draft") {
+                editor.count() - 1
+            } else {
+                3
+            });
+            advance_reference(app, &mut time, 3200);
+        }
         scene if scene.starts_with("configuration-") => {
             use nearby::wifi::Action;
             let step = scene[14..].parse::<usize>().expect("configuration step");
