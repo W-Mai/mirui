@@ -42,7 +42,7 @@ split_demo_sources! {
     NEARBY => {
         demo: "nearby",
         marker: "fn create_page",
-        parts: ["data.rs", "model.rs", "launcher.rs", "consoles.rs", "launcher_view.rs", "library.rs", "catalog.rs", "shelf.rs", "snapshot.rs", "simulation.rs", "simulation/host.rs", "simulation/tests.rs", "deck.rs", "actions.rs", "palette.rs", "pixel.rs", "motion.rs", "feedback.rs", "sound.rs", "sound/bank.rs", "sound/tests.rs", "actor.rs", "widgets.rs", "copy.rs", "style.rs", "chrome.rs", "choices.rs", "lists.rs", "sessions.rs", "pages.rs", "input.rs", "composition.rs", "tests.rs"]
+        parts: ["data.rs", "model.rs", "launcher.rs", "consoles.rs", "launcher_view.rs", "library.rs", "catalog.rs", "list_layout.rs", "shelf.rs", "snapshot.rs", "simulation.rs", "simulation/host.rs", "simulation/tests.rs", "deck.rs", "actions.rs", "palette.rs", "pixel.rs", "motion.rs", "feedback.rs", "sound.rs", "sound/bank.rs", "sound/tests.rs", "actor.rs", "widgets.rs", "keyboard.rs", "text_input.rs", "details.rs", "detail_view.rs", "wifi.rs", "wifi_view.rs", "configuration.rs", "configuration/schema.rs", "configuration/service.rs", "configuration_view.rs", "saves.rs", "saves/schema.rs", "saves/service.rs", "saves_view.rs", "copy.rs", "style.rs", "chrome.rs", "choices.rs", "lists.rs", "sessions.rs", "pages.rs", "input.rs", "composition.rs", "tests.rs"]
     },
     PAGE_STUDIO => {
         demo: "page_studio",
@@ -618,25 +618,43 @@ mod tests {
         use std::collections::BTreeSet;
 
         let demos = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/gallery/demos");
-        let mut registered = BTreeSet::new();
-        for &(demo, parts, _, source) in super::CASES {
-            assert!(
-                registered.insert(demo.to_owned()),
-                "duplicate source: {demo}"
-            );
-            for file in std::fs::read_dir(demos.join(demo)).expect("split demo directory") {
+        fn check_directory(
+            demo: &str,
+            root: &std::path::Path,
+            directory: &std::path::Path,
+            parts: &[&str],
+            source: &str,
+        ) {
+            for file in std::fs::read_dir(directory).expect("split demo directory") {
                 let path = file.expect("split demo file").path();
+                if path.is_dir() {
+                    check_directory(demo, root, &path, parts, source);
+                    continue;
+                }
                 if path.extension().is_none_or(|extension| extension != "rs") {
                     continue;
                 }
-                let name = path.file_name().unwrap().to_str().unwrap();
-                assert!(parts.contains(&name), "{demo} source omits {name}");
+                let relative = path.strip_prefix(root).unwrap();
+                let name = relative
+                    .iter()
+                    .map(|part| part.to_str().unwrap())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                assert!(parts.contains(&name.as_str()), "{demo} source omits {name}");
                 let content = std::fs::read_to_string(&path).expect("split module source");
                 assert!(
                     source.contains(&content),
                     "{demo} source omits {name} content"
                 );
             }
+        }
+        let mut registered = BTreeSet::new();
+        for &(demo, parts, _, source) in super::CASES {
+            assert!(
+                registered.insert(demo.to_owned()),
+                "duplicate source: {demo}"
+            );
+            check_directory(demo, &demos.join(demo), &demos.join(demo), parts, source);
         }
         let split_directories: BTreeSet<_> = std::fs::read_dir(&demos)
             .expect("demo directory")

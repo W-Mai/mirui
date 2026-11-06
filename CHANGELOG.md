@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Nearby's source viewer includes its split settings, save, Wi-Fi, input and layout modules; source coverage checks include nested module directories.
 - Size callbacks installed during layout notification delivery remain registered and participate in subsequent layout settling without moving pending listener indices.
 - Reactive walks retain all roots of conditional and compound members, keep empty members indexed, and retire member subscriptions with their nodes. Root-replacing nested control flow requires a widget parent.
 - Nearby configuration previews distinguish configured save slots, explicit load slots and startup slots, preserving frontend auto-indexing and state-file suffixes.
