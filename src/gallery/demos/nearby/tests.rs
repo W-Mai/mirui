@@ -242,6 +242,58 @@ fn save_manager_keys_route_one_actor_to_the_active_list_or_modal_at_both_sizes()
 }
 
 #[test]
+fn save_row_windows_fit_their_viewport_including_shadows() {
+    use crate::ui::{ComputedRect, Parent};
+    for (width, height) in [
+        (480, 320),
+        (640, 360),
+        (640, 380),
+        (640, 440),
+        (640, 460),
+        (640, 520),
+    ] {
+        let (mut app, state) = fixture_at(width, height);
+        let library = state.launcher();
+        library.resume();
+        library.saves_fixture();
+        for _ in 0..4 {
+            app.tick();
+            app.render_dirty().unwrap();
+        }
+        for _ in 0..20 {
+            library.saves_input(wifi::Action::Down);
+        }
+        for _ in 0..4 {
+            app.tick();
+            app.render_dirty().unwrap();
+        }
+        let mut count = 0;
+        for (entity, anchor) in app.world.query::<actions::ActionAnchor>().iter() {
+            if !matches!(
+                anchor,
+                actions::ActionAnchor::Item {
+                    layout: actions::ActionLayout::SavesList,
+                    ..
+                }
+            ) || crate::ui::branch::is_effectively_hidden(&app.world, entity)
+            {
+                continue;
+            }
+            let row = app.world.get::<Parent>(entity).unwrap().0;
+            let viewport = app.world.get::<Parent>(row).unwrap().0;
+            let row = app.world.get::<ComputedRect>(row).unwrap().0;
+            let viewport = app.world.get::<ComputedRect>(viewport).unwrap().0;
+            assert!(
+                row.y >= viewport.y && row.y + row.h <= viewport.y + viewport.h,
+                "{width}x{height}: complete row {row:?} is clipped by {viewport:?}"
+            );
+            count += 1;
+        }
+        assert!((1..=8).contains(&count));
+    }
+}
+
+#[test]
 fn save_progress_uses_one_direct_frontier_and_busy_back_finishes_before_exit() {
     use crate::ui::{Hidden, widgets::FollowBounds};
     let (mut app, state) = fixture();

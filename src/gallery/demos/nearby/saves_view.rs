@@ -118,9 +118,15 @@ pub(super) fn panel(state: model!(Manager), metrics: Metrics) -> Entity {
                                     clip_children: true
                                 ) {
                                     walk ${ state.list_window() } with index by index {
-                                        row (state, index, metrics, list_layout)
+                                        row (state, index, metrics, list_layout, false)
                                     }
-                                } on SizeChanged { state.viewport(event.new.height, metrics.wifi_row_extent() + 14); }
+                                } on SizeChanged {
+                                    state
+                                        .viewport(
+                                            event.new.height + Fixed::from_int(metrics.gap),
+                                            metrics.save_row_extent(),
+                                        );
+                                }
                                 Column (
                                     grow: 1.0,
                                     min_width: 0,
@@ -163,8 +169,14 @@ pub(super) fn panel(state: model!(Manager), metrics: Metrics) -> Entity {
                                         row_gap: metrics.gap
                                     ) {
                                         walk ${ state.window() } with index by index {
-                                            row (state, index, metrics, modal_layout)
+                                            row (state, index, metrics, modal_layout, false)
                                         }
+                                    } on SizeChanged {
+                                        state
+                                            .modal_viewport(
+                                                event.new.height + Fixed::from_int(metrics.gap),
+                                                metrics.save_row_extent(),
+                                            );
                                     }
                                 } else {
                                     Column (
@@ -202,13 +214,13 @@ pub(super) fn panel(state: model!(Manager), metrics: Metrics) -> Entity {
                                         }
                                         View (grow: 1.0, min_height: 0)
                                         Row (
-                                            height: metrics.wifi_row_extent() + 12,
+                                            height: metrics.save_row_height(),
                                             min_width: 0,
                                             shrink: 0.0,
                                             column_gap: metrics.gap
                                         ) {
                                             walk ${ 0_usize..state.count() } with index by index {
-                                                row (state, index, metrics, modal_layout)
+                                                row (state, index, metrics, modal_layout, true)
                                             }
                                         }
                                     }
@@ -256,10 +268,21 @@ fn tab(state: model!(Manager), index: usize, _metrics: Metrics) -> Entity {
     }
 }
 #[compose]
-fn row(state: model!(Manager), index: usize, metrics: Metrics, layout: ActionLayout) -> Entity {
+fn row(
+    state: model!(Manager),
+    index: usize,
+    metrics: Metrics,
+    layout: ActionLayout,
+    horizontal: bool,
+) -> Entity {
     let modal = layout == ActionLayout::SavesModal;
     ui! {
-        Column (grow: 1.0, min_width: 0, height: metrics.wifi_row_extent() + 12, shrink: 0.0) {
+        Column (
+            grow: if horizontal { 1.0 } else { 0.0 },
+            min_width: 0,
+            height: metrics.save_row_height(),
+            shrink: 0.0
+        ) {
             Row (
                 grow: 1.0,
                 min_height: 0,

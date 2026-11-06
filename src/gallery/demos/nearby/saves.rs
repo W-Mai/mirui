@@ -35,6 +35,8 @@ pub struct Manager {
     #[observe]
     pub rows: usize,
     #[observe]
+    pub modal_rows: usize,
+    #[observe]
     pub span_start: Fixed,
     #[observe]
     pub span_end: Fixed,
@@ -66,6 +68,7 @@ impl Default for Manager {
             selected: 0,
             age: 0,
             rows: 3,
+            modal_rows: 3,
             span_start: Fixed::ZERO,
             span_end: Fixed::ONE,
             preview_size: LayoutSize {
@@ -370,6 +373,9 @@ impl Manager {
     pub fn viewport(&mut self, height: Fixed, extent: i32) {
         self.rows = ((height.to_int() / extent.max(1)).max(1) as usize).min(8);
     }
+    pub fn modal_viewport(&mut self, height: Fixed, extent: i32) {
+        self.modal_rows = ((height.to_int() / extent.max(1)).max(1) as usize).min(8);
+    }
     pub fn resize_preview(&mut self, size: LayoutSize) {
         self.preview_size = size;
     }
@@ -663,7 +669,7 @@ impl ManagerHandle {
         self.tab();
         let n = self.count();
         let selected = self.selected();
-        let rows = self.rows();
+        let rows = self.modal_rows();
         let first = selected
             .saturating_sub(rows / 2)
             .min(n.saturating_sub(rows));
@@ -746,6 +752,29 @@ impl Manager {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    #[test]
+    fn list_and_modal_windows_keep_independent_viewport_capacities() {
+        let mut app = App::headless(10, 10);
+        let manager = app.add_model(Manager::default()).finish();
+        manager.sync(Some(&fixture()));
+        manager.viewport(Fixed::from_int(400), 100);
+        for _ in 0..9 {
+            manager.input(Action::Down);
+        }
+        assert_eq!(manager.list_window().len(), 4);
+        manager.input(Action::Refresh);
+        manager.modal_viewport(Fixed::from_int(100), 100);
+        assert_eq!(manager.window().len(), 1);
+        assert_eq!(manager.list_window().len(), 4);
+        assert!(manager.list_window().contains(&9));
+        manager.viewport(Fixed::from_int(300), 100);
+        assert_eq!(manager.window().len(), 1);
+        assert_eq!(manager.list_window().len(), 3);
+        manager.modal_viewport(Fixed::from_int(800), 100);
+        assert_eq!(manager.window().len(), manager.count().min(8));
+        assert_eq!(manager.list_window().len(), 3);
+    }
+
     #[test]
     fn record_identity_and_scoped_effect_survive_modal_return_and_async_completion() {
         let mut m = Manager::default();
