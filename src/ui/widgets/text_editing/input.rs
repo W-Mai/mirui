@@ -59,6 +59,8 @@ impl Navigation {
         let cursor = match self {
             Self::Left if collapse => selection.range().start,
             Self::Right if collapse => selection.range().end,
+            Self::Left if text[..selection.cursor].ends_with("\r\n") => selection.cursor - 2,
+            Self::Right if text[selection.cursor..].starts_with("\r\n") => selection.cursor + 2,
             Self::Left => text[..selection.cursor]
                 .char_indices()
                 .next_back()

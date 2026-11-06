@@ -54,6 +54,7 @@ impl TextSelection {
 /// Text document binding and selection belonging to one editor instance.
 ///
 /// The default owns an inline document. `new(document)` binds a registered `TextDocument`; selection remains local to this component. Use the registered document's methods to change shared content.
+/// Keyboard movement and deletion cross CRLF pairs together; explicit selections retain UTF-8 byte offsets.
 #[crate::component]
 #[derive(Clone)]
 pub struct TextEditing {

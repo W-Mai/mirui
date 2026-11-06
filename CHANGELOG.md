@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Text editing crosses CRLF pairs together during keyboard navigation, selection extension and deletion.
 - Typed scroll-offset updates invalidate painting without changing layout. Nearby detail, configuration and save readers use these updates for programmatic scrolling.
 - Nearby save lists account for complete row heights and spacing, with independent background and modal viewport capacities.
 

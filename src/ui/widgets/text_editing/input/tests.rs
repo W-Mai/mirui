@@ -16,6 +16,81 @@ fn fixture() -> (TestApp, Entity) {
 }
 
 #[test]
+fn crlf_navigation_selection_and_deletion_keep_the_pair_intact() {
+    const TEXT: &str = "A\r\nB";
+    for shared in [false, true] {
+        for (edit, cursor) in [(Edit::Backspace, 3), (Edit::Delete, 1)] {
+            let (mut app, node) = fixture();
+            let mut editor = if shared {
+                let document = app.add_model(TextDocument::new()).finish();
+                document.set_text(TEXT).unwrap();
+                TextEditing::new(document)
+            } else {
+                TextEditing::default().with_text(TEXT).unwrap()
+            };
+            editor
+                .set_selection(TextSelection {
+                    anchor: cursor,
+                    cursor,
+                })
+                .unwrap();
+            app.world.insert(node, editor);
+            apply(&mut app.world, node, edit).unwrap();
+            let editor = app.world.get::<TextEditing>(node).unwrap();
+            assert_eq!(editor.cursor(), 1);
+            editor.read(|text| assert_eq!(text, "AB"));
+        }
+
+        let (mut app, node) = fixture();
+        let mut editor = if shared {
+            let document = app.add_model(TextDocument::new()).finish();
+            document.set_text(TEXT).unwrap();
+            TextEditing::new(document)
+        } else {
+            TextEditing::default().with_text(TEXT).unwrap()
+        };
+        editor
+            .set_selection(TextSelection {
+                anchor: 1,
+                cursor: 1,
+            })
+            .unwrap();
+        app.world.insert(node, editor);
+        apply(
+            &mut app.world,
+            node,
+            Edit::Navigate(Navigation::Right, true),
+        )
+        .unwrap();
+        let editor = app.world.get::<TextEditing>(node).unwrap();
+        assert_eq!(
+            editor.selection(),
+            TextSelection {
+                anchor: 1,
+                cursor: 3
+            }
+        );
+        editor.read(|text| assert_eq!(&text[editor.selection().range()], "\r\n"));
+        apply(&mut app.world, node, Edit::Navigate(Navigation::Left, true)).unwrap();
+        assert_eq!(app.world.get::<TextEditing>(node).unwrap().cursor(), 1);
+        apply(
+            &mut app.world,
+            node,
+            Edit::Navigate(Navigation::Right, false),
+        )
+        .unwrap();
+        assert_eq!(app.world.get::<TextEditing>(node).unwrap().cursor(), 3);
+        apply(
+            &mut app.world,
+            node,
+            Edit::Navigate(Navigation::Left, false),
+        )
+        .unwrap();
+        assert_eq!(app.world.get::<TextEditing>(node).unwrap().cursor(), 1);
+    }
+}
+
+#[test]
 fn editing_systems_follow_component_presence_without_reinstallation() {
     use crate::ecs::{MonoClock, SystemScheduler};
     use crate::ui::widgets::text_editing::CursorBlinkPhase;
