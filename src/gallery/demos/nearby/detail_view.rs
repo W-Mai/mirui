@@ -26,10 +26,33 @@ fn scroll_details(
         }
         let y = component.state.detail_offset();
         if offset.y != y {
-            commands.insert(
+            commands.set::<crate::ui::property::prop::ScrollOffset>(
                 entity,
                 crate::input::event::scroll::ScrollOffset { x: Fixed::ZERO, y },
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detail_scroll_repaints_without_geometry_demand_and_ignores_inactive_readers() {
+        for active in [true, false] {
+            super::super::tests::assert_scroll_projection(details_scroll::view(), active, |app| {
+                let mut state = Launcher::default();
+                state.detail_offset = Fixed::from_int(16);
+                if active {
+                    state.overlay = Some(super::super::launcher::Overlay::Details(
+                        super::super::details::Section::Core,
+                    ));
+                }
+                DetailsScroll {
+                    state: app.add_model(state).finish(),
+                }
+            });
         }
     }
 }

@@ -22,7 +22,31 @@ fn scroll_config(nodes: query!(Entity, ConfigScroll, ScrollOffset), commands: co
     for (entity, node, offset) in nodes {
         let y = node.state.offset();
         if node.state.active() && offset.y != y {
-            commands.insert(entity, ScrollOffset { x: Fixed::ZERO, y });
+            commands.set::<crate::ui::property::prop::ScrollOffset>(
+                entity,
+                ScrollOffset { x: Fixed::ZERO, y },
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_scroll_repaints_without_geometry_demand_and_ignores_inactive_readers() {
+        for active in [true, false] {
+            super::super::tests::assert_scroll_projection(config_scroll::view(), active, |app| {
+                let mut state = Editor::default();
+                if active {
+                    state.sync(Some(&super::super::configuration::fixture()));
+                }
+                state.offset = Fixed::from_int(16);
+                ConfigScroll {
+                    state: app.add_model(state).finish(),
+                }
+            });
         }
     }
 }

@@ -485,10 +485,31 @@ fn scroll_reading(
     for (entity, node, offset) in nodes {
         let y = node.state.reading_offset();
         if node.state.active() && offset.y != y {
-            commands.insert(
+            commands.set::<crate::ui::property::prop::ScrollOffset>(
                 entity,
                 crate::input::event::scroll::ScrollOffset { x: Fixed::ZERO, y },
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_scroll_repaints_without_geometry_demand_and_ignores_inactive_readers() {
+        for active in [true, false] {
+            super::super::tests::assert_scroll_projection(save_reading::view(), active, |app| {
+                let mut state = Manager::default();
+                if active {
+                    state.sync(Some(&super::super::saves::fixture()));
+                }
+                state.reading_offset = Fixed::from_int(16);
+                SaveReading {
+                    state: app.add_model(state).finish(),
+                }
+            });
         }
     }
 }

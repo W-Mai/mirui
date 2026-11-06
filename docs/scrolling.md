@@ -41,6 +41,8 @@ For SDL runtime requirements and macOS trackpad setup, see the [desktop setup](q
 
 ## Observing content movement
 
+For programmatic movement, use the existing typed property command: `commands.set::<mirui::ui::property::prop::ScrollOffset>(node, ScrollOffset { x, y })`. It updates an existing scroll component and invalidates painting without requesting layout. Equal offsets leave the component unchanged. Values retain both axes, fractional precision and elastic positions; this assignment does not clamp to bounds or cancel an active motion.
+
 Use `on ScrollChanged` to observe actual offsets and `on ScrollStarted` / `on ScrollEnded` to observe motion segments. These notifications include programmatic writes and retain fractional and elastic positions. `ScrollEnded` follows inertia and rebound, not the pointer release. All three support inline bodies, closures, and `#[event]` callbacks on nodes with `ScrollOffset`; see [scroll notifications](widget-events.md#scroll-notifications).
 
 Read `query!(ScrollBounds)` for the viewport, content extent, and maximum offsets from the last successful layout. Configuration changes appear after layout succeeds; reading this component does not perform layout.

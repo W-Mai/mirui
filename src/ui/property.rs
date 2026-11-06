@@ -168,6 +168,8 @@ pub mod prop {
     pub struct ButtonNormalColor;
     pub struct RenderKey;
     pub struct Transform;
+    /// Assigns an existing scroll offset without changing layout or clamping elastic positions.
+    pub struct ScrollOffset;
     pub struct FontSize;
     pub struct Paragraph;
     pub struct Direction;
@@ -438,6 +440,24 @@ pub mod prop {
         }
     }
 
+    impl Property for ScrollOffset {
+        type Value = crate::input::event::scroll::ScrollOffset;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            if !world
+                .get::<Self::Value>(entity)
+                .is_some_and(|offset| *offset != value)
+            {
+                return PropertyChange::Unchanged;
+            }
+            let Some(offset) = world.get_mut::<Self::Value>(entity) else {
+                return PropertyChange::Unchanged;
+            };
+            *offset = value;
+            PropertyChange::Visual
+        }
+    }
+
     impl Property for FontSize {
         type Value = u16;
 
@@ -632,6 +652,49 @@ mod tests {
     use crate::ui::dirty::{Dirty, VisualDirty};
     use crate::ui::widgets::{Button, Checkbox, ParagraphStyle, ProgressBar, Slider, Switch, Text};
     use crate::ui::{Children, Parent, Widget};
+
+    #[test]
+    fn scroll_offset_property_preserves_fractional_axes_and_visual_only_invalidation() {
+        use crate::input::event::scroll::ScrollOffset;
+
+        let mut world = World::new();
+        let node = world.spawn_empty();
+        world.insert(node, Widget);
+        let position = ScrollOffset {
+            x: -Fixed::ONE / 4,
+            y: Fixed::from_int(80) + Fixed::ONE / 2,
+        };
+        assert_eq!(
+            apply_to_world::<prop::ScrollOffset>(&mut world, node, position),
+            PropertyChange::Unchanged
+        );
+        assert!(!world.has::<ScrollOffset>(node));
+        assert!(!world.has::<VisualDirty>(node));
+
+        world.insert(node, ScrollOffset::default());
+        world.watch_component_revision::<ScrollOffset>();
+        let mut queue = crate::ecs::commands::CommandQueue::default();
+        let mut batch = queue.begin();
+        batch.commands().set::<prop::ScrollOffset>(node, position);
+        batch.finish(&mut world).unwrap();
+        assert_eq!(world.get::<ScrollOffset>(node), Some(&position));
+        assert!(world.has::<VisualDirty>(node));
+        assert!(!world.has::<Dirty>(node));
+
+        world.remove::<VisualDirty>(node);
+        let revision = world.component_revision::<ScrollOffset>();
+        assert_eq!(
+            apply_to_world::<prop::ScrollOffset>(&mut world, node, position),
+            PropertyChange::Unchanged
+        );
+        assert_eq!(world.component_revision::<ScrollOffset>(), revision);
+        assert!(!world.has::<VisualDirty>(node));
+        assert_eq!(
+            apply_to_world::<prop::ScrollOffset>(&mut world, node, ScrollOffset::default()),
+            PropertyChange::Visual
+        );
+        assert!(!world.has::<Dirty>(node));
+    }
 
     #[test]
     fn transform_property_records_subtree_motion_without_invalidating_local_content() {

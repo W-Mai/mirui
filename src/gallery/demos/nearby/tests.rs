@@ -5,6 +5,97 @@ use crate::ui::widgets::navigation::transition;
 
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
+pub(super) fn assert_scroll_projection<T: crate::ecs::Component>(
+    view: crate::ui::View,
+    active: bool,
+    component: impl FnOnce(&mut TestApp) -> T,
+) {
+    use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
+    use crate::ui::{ComputedRect, LayoutGeometry, Outputs, dirty::Dirty};
+
+    #[compose]
+    fn content() -> Entity {
+        ui! {
+            Column (width: 64, height: 32, clip_children: true) [
+                ScrollOffset::default(),
+                ScrollConfig {
+                    elastic: false,
+                    ..Default::default()
+                },
+            ] {
+                View (height: 32, shrink: 0.0, bg_color: Color::rgb(255, 0, 0))
+                View (height: 32, shrink: 0.0, bg_color: Color::rgb(0, 0, 255))
+            }
+        }
+    }
+
+    let mut app = App::headless(64, 32);
+    app.with_default_widgets()
+        .with_default_systems()
+        .with_widget(view);
+    let component = component(&mut app);
+    let root = app.spawn_root().id();
+    let scroll = app.compose(root, content());
+    app.world.insert(scroll, component);
+    app.render().unwrap();
+    let before = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
+    let rect = app.world.get::<ComputedRect>(scroll).unwrap().0;
+    let layout_revision = app.world.component_revision::<ComputedRect>();
+    assert!(
+        !app.world
+            .resource::<Outputs<LayoutGeometry>>()
+            .is_some_and(Outputs::has_requests)
+    );
+    app.tick();
+    assert!(app.world.query::<Dirty>().collect().is_empty());
+    assert_eq!(
+        app.world.get::<ScrollOffset>(scroll).unwrap().y,
+        if active {
+            Fixed::from_int(16)
+        } else {
+            Fixed::ZERO
+        },
+    );
+    app.render_dirty().unwrap();
+    let partial = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
+    assert_eq!(
+        partial != before,
+        active,
+        "scroll projection did not repaint its pixels"
+    );
+    assert_eq!(app.world.get::<ComputedRect>(scroll).unwrap().0, rect);
+    assert_eq!(
+        app.world.component_revision::<ComputedRect>(),
+        layout_revision
+    );
+    app.render().unwrap();
+    assert_eq!(
+        app.backend.framebuffer().read_pixels().unwrap().bytes(),
+        partial
+    );
+    let revision = app.world.component_revision::<ScrollOffset>();
+    app.tick();
+    assert_eq!(app.world.component_revision::<ScrollOffset>(), revision);
+    assert!(app.world.query::<Dirty>().collect().is_empty());
+    assert!(
+        !app.world
+            .resource::<Outputs<LayoutGeometry>>()
+            .is_some_and(Outputs::has_requests)
+    );
+}
+
 #[test]
 fn configuration_slot_facts_keep_the_exact_draft_and_return_focus() {
     use crate::ui::widgets::Text;
