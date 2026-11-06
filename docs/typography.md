@@ -10,6 +10,8 @@ Every font uses `FontProvider`, including the embedded face. A custom provider i
 
 ## Text box overflow
 
+LF, CR and CRLF separate paragraph lines without requesting font coverage or glyphs. Leading, consecutive and trailing separators retain empty lines and their caret positions. Text, selection and clipboard offsets refer to the original UTF-8 bytes; CRLF has no caret between its two bytes. `TextEditing` keeps its single-line appearance and crosses a CRLF pair together during horizontal navigation and deletion.
+
 Assign a finite width when text should wrap or show an ellipsis. `Ellipsis` also requires a font in the stack that maps U+2026. Explicitly sized axes clip ordinary `Text` to the transformed text box for both overflow policies; `Auto` and `Content` preserve glyph ink overhang within the ancestor clip. Path text uses its placed glyph geometry and ancestor clip because its ink can extend beyond the layout box.
 
 ```rust
