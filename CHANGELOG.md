@@ -7,91 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Nearby's source viewer includes its split settings, save, Wi-Fi, input and layout modules; source coverage checks include nested module directories.
-- Size callbacks installed during layout notification delivery remain registered and participate in subsequent layout settling without moving pending listener indices.
-- Reactive walks retain all roots of conditional and compound members, keep empty members indexed, and retire member subscriptions with their nodes. Root-replacing nested control flow requires a widget parent.
-- Nearby configuration previews distinguish configured save slots, explicit load slots and startup slots, preserving frontend auto-indexing and state-file suffixes.
-- Nearby simulated save restoration preserves the original record identity, path and title when the target was deleted, and repeated restoration does not duplicate that target.
-- Nearby unavailable game settings show one retry action and reserve the empty-core message for successfully loaded core options.
-- Nearby detail reading reverses immediately after repeated scrolling at the content boundary without replaying clamped input during geometry updates.
-- Nearby search text and empty-state bindings subscribe through the query getter, including updates that retain the same result branch.
+## [0.54.0] - 2026-11-06
 
 ### Added
 
-- Nearby save management models preserve record identity, modal return focus, bounded reading and read-only session information.
-- Nearby simulates bounded save backup, restore, deletion and failure routes through typed Model effects; returning from save management preserves the hidden settings scope and selection.
-- Nearby save panels include responsive slot lists, image-resource previews, backup and location dialogs, read-only session details and separate list/modal/progress character focus. Game actions include save management and size their grid from the item count.
-- Nearby configuration editing includes typed drafts, game/core/frontend scopes, source inspection and independent save/discard/conflict return routes.
-- Nearby simulates configuration loading, scoped saves, write failures and external revision conflicts through one bounded request and typed Model effects, without system file access.
-- Nearby game settings render four groups, measured option lists, wrapped source paths and save confirmation, with typed input, character focus and local simulation controls.
-- Nearby Wi-Fi settings share typed simulated state across tool entries, with password and hidden-network keyboards, cancellation, restoration, saved networks and failure cases.
-- Nearby Wi-Fi panels include responsive network rows, independent information fields, four keyboard layers, signal animation and separate keyboard/progress character anchors. The simulation dock exposes ordinary Wi-Fi outcomes without host network access.
-- Nearby game details display independent label/value fields, measured wrapping, a clipped reading viewport and fixed navigation hints.
-- Nearby game actions include typed detail categories, field values and simulated loading states with identity-preserving parent navigation.
-- Image sources accept reactive `${expression}` bindings and typed `prop::ImageSource` updates without replacing the component or its paint configuration.
-- `Prop<T>` and `#[compose]` parameters declared with `prop!(T)` carry static values or shared read-only getters between compositions without intermediate reactive sources. Both composition call forms accept `${expression}` inputs.
-- Niche `prop!(T)` fields retain reactive inputs across attachment and nested compositions, preserving child and slot identities.
-- Surfaces can expose optional logical content-size control with reactive actual-size feedback, coalesced requests and owner-lifetime checks.
-- SDL and desktop WGPU apply size requests through their existing window and viewport paths; Web canvas hosts can opt into document sizing, and surface wrappers retain size control.
-- Nearby simulation controls provide direct flow and case selection, state-gated remote replies, failure injection, retry and repeat controls in a docked left panel. The host grows while the Demo retains its dimensions and state.
-- Nearby exposes a Web simulation button and an F2 window hint; inactive replies leave the inspector scrollable.
-- Nearby includes ten static sound cues and installs audio output in its SDL and Web entry points.
-- Nearby navigation and connection state changes play sound cues; settings control output volume and share mute state with the Web audio control.
-- Nearby demo launcher state uses nested Models and an observable game collection, retaining browser context across nested menus.
-- Nearby demo includes cartridge favorites, platform artwork, game browsing, search and game actions; connection and in-game entry flows remain available.
-- Nearby connection scenes include animated characters, selection pulses, walking, session transitions and loading feedback; F2 toggles the simulation controls.
-- Nearby provides game, settings, system-control, tool, exit and power-confirmation overlays with live values and availability reasons; keyboard and pointer actions preserve game identity.
+- `Prop<T>` and `prop!(T)` composition parameters carry static values or shared reactive getters across ordinary and Niche compositions without intermediate signals. Both call forms accept `${expression}` inputs.
+- Image sources support reactive bindings and typed property updates without replacing the component or its paint configuration.
+- Surfaces expose optional logical content-size control with actual-size feedback, coalesced requests and owner-lifetime checks. SDL, desktop WGPU, Web canvas hosts and surface wrappers use their existing viewport paths.
+- Nearby includes responsive favorites, platform artwork, game browsing, search, metadata, animated connection flows and current-game entry.
+- Nearby provides system controls, Wi-Fi editing, game configuration and save-management panels with pixel fonts, three palettes, sound cues and scoped keyboard/pointer focus.
+- Nearby configuration editing supports game/core/frontend drafts, source inspection, exact-draft path previews, save/discard/conflict handling and parent-focus restoration.
+- Nearby save management supports stable record identities, bounded reading, previews, backup/restore/delete flows and read-only session information.
+- Nearby simulation controls provide connection, Wi-Fi, configuration and save-operation outcomes in a left dock while preserving the application viewport. Simulated operations do not access host networks or system files.
 
 ### Changed
 
-- Nearby search and Wi-Fi share key surfaces; characters follow actual keys and the moving edge of a continuous loading span with explicit connection, cancellation and restoration text.
-- Nearby Wi-Fi input uses a Launcher-owned text document and the software input method, preserving ordered character, delete and submit actions with bounded dispatch and session retirement.
-- Nearby catalog windows use their available height for one to eight rows while retaining native-size titles and selected entry identities.
-- Nearby system controls use pixel sliders with typed levels, 5% key adjustments, native-size labels, availability feedback and distinct system icons.
-- Nearby page indicators retain absolute page identities and animate their widths with redirectable 260 ms tweens.
-- Nearby favorites derive a bounded multi-row grid from their full viewport, support directional page navigation and return to the first page without escaping an open modal.
-- Nearby compositions use declared Model captures directly and retain static page conditions without reactive wrappers or an owned snapshot copy.
-- Nearby uses forest, sunset and night palettes, pixel-art backgrounds and viewport-dependent typography.
-- Nearby retains the favorites layer while the catalog expands, with responsive cartridge grids, paging and independent selection.
-- Nearby catalog includes platform previews, a pixel keyboard, search results, empty-state artwork and identity-preserving favorite sorting.
-- Nearby opens connection flows above the retained launcher with animated panels and frozen output history; focus and characters stay within the active page container.
-- Nearby discovery retains both animated panes, room signals and scoped selection; room resolution continues through the matching-game picker.
-- Nearby hold-to-connect fires without waiting for release and cancels across navigation or stale frames; hidden focus layers release their bounds bindings.
-- Nearby restores the launcher after simulated requests, preserves retained connections and current-game shortcuts, and keeps its palette during Web appearance changes.
-- Nearby uses J for the connection entry and K for settings or search controls, with matching on-screen key hints.
-- The optional `sync` feature replaces `sync-cache` and enables transferable textures, pixel guards, byte sources and cache value handles. Native target payloads require `Send + Sync`; device operations retain their backend thread constraints, and default builds retain local ownership.
-- Resource resolution returns shared cache value handles, removing a second reference-counted allocation while retaining values across replacement and eviction.
-- Shared resource storage serializes budget reservations and transfers; cache eviction callbacks require transferable captures when shared storage is enabled.
-- Native readback and decoded-image preparation share state leases with bounded waiters, restoring reusable storage after errors and unwinding without holding metadata gates during external operations.
-- Byte-source open and read operations reuse pinned future storage with exclusive polling and consistent unwind cleanup.
-- Shared source-block preparation retains opened readers and completed buffers while waiting for cache access, including cancellation and provider failures.
-- Shared byte sources support cross-thread ownership and immutable mappings while keeping provider operations exclusively polled and pending I/O attached to its original retirement storage.
-- Decoded images share synchronized cache ownership and budgeted preparation state; pixel guards retain immutable storage across source shutdown, and polling registers bounded waiters before yielding on shared cache or mirror contention.
-- Shared native targets retain storage and readback charges in their actual backend owners; queued WGPU source draws retain those owners through submission.
-- Thread-bound backend resources can use transferable typed tokens with owner-thread access, deferred destruction and storage charges retained through closure and worker release.
-
-- Shared SDL native targets transfer typed tokens and device metadata while retaining raw textures on the creating thread; owner closure invalidates native access while preserving prepared CPU guards.
-
-- Shared WGPU native storage retains its portable device context across worker reads, synchronizes target validity and readback workspace, and accounts for shared control storage in target plans.
+- The optional `sync` feature replaces `sync-cache` and enables transferable textures, pixel guards, byte sources and cache value handles. Native target payloads require `Send + Sync`; backend device operations keep their thread constraints, and default builds retain local ownership.
+- Resource resolution returns shared cache value handles, preserving values across replacement and eviction without a second reference-counted allocation.
+- Shared resource preparation serializes budget reservations, retains pending readers and completed buffers, and uses bounded waiters for cache and mirror contention. Cancellation and failures retain their original storage ownership.
+- Byte-source open/read futures reuse pinned storage with exclusive polling and unwind cleanup. Immutable mappings and prepared pixel guards retain their source storage across shutdown.
+- Thread-bound backend resources use typed transferable tokens with owner-thread access, deferred destruction and storage charges retained through worker release and closure.
+- SDL native targets keep raw textures on their creating thread. WGPU native storage retains its device context, validity state and readback workspace through queued draws and worker reads.
+- Nearby shares search/Wi-Fi key surfaces and software text input, follows loading edges, adapts lists to available height and preserves retained catalog layers during navigation.
+- Nearby uses J for the connection entry and K for settings or search controls, with matching on-screen hints.
 
 ### Fixed
 
-- Reactive Niche text inputs initialize their declared component field before attachment instead of targeting a Text component on the outer entity.
-- Nearby restores catalog locations and parent-menu selection, keeps modal shortcuts isolated, cancels interrupted game holds, and shares retained-network confirmation across launch paths.
-- Nearby network management opens the active connection, and cancelling network setup restores the discovery selection.
-
-- Nearby retained catalog previews handle directory and keyboard selections without treating them as game-platform indices.
-
-- Nearby's connection panel returns to the retained game catalog when choosing a game, closes before the catalog expands, and preserves the catalog's current location.
-
-- Nearby discovery uses page-local layout containers so retained connection pages can be reopened without duplicate widget IDs.
-- Nearby game actions occupy a complete modal panel with a preview, two-column action grid and keyboard hints.
-- Thread-bound resource tokens preserve exact payload identity by rejecting subtype retagging without additional runtime state.
-- Draw preparation validates texture geometry separately from pixel readiness, allowing retained CPU regions and pinned uploads to survive native device closure while rejecting unavailable regions.
+- Nearby's source viewer includes its split settings, save, Wi-Fi, input and layout modules; source coverage checks include nested module directories.
+- Size callbacks installed during layout notification delivery remain registered and participate in subsequent settling without moving pending listener indices.
+- Reactive walks own conditional, empty and multiple-root members and retire their subscriptions with their nodes. Root-replacing nested control flow requires a widget parent.
+- Reactive Niche text inputs initialize their declared component fields before attachment.
+- Nearby text helpers preserve reactive inputs across composition boundaries; search bindings subscribe through the query getter even when the result branch stays unchanged.
+- Nearby retains catalog locations, menu selection and connected roles, isolates modal shortcuts, cancels interrupted holds and reopens connection pages without duplicate widget IDs.
+- Nearby game actions remain inside their modal panel, including all seven actions and source-preserving nested returns.
+- Nearby detail reading reverses immediately from a clamped boundary. Failed settings loads expose one retry action rather than an empty-core notice.
+- Nearby save restoration preserves the deleted target's original identity, kind, slot, path and title; repeated restoration does not duplicate it.
+- Nearby configuration facts distinguish configured, explicit load and startup save slots, preserving frontend auto-indexing and state-file suffixes across previews and returns.
+- Texture preparation separates geometry validity from pixel readiness, allowing retained CPU regions and pinned uploads after native device closure while rejecting unavailable regions.
+- Thread-bound resource tokens reject subtype retagging, and failed native-target admission releases unpublished owner-thread storage and its reservation.
 - SDL retained-frame composition restores viewport, clipping and scaling after copying to the window without an additional target switch.
-- Failed native target admission destroys unpublished owner-thread storage before returning the creation reservation.
 
 ## [0.53.0] - 2026-10-29
 
