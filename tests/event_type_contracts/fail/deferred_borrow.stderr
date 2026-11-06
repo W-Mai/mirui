@@ -9,6 +9,6 @@ error[E0521]: borrowed data escapes outside of closure
    |                                      |
    |                                      `commands` is a reference that is only valid in the closure body
    |
-   = note: requirement occurs because of the type `Cell<Option<mirui::__macro_support::DeferredCommands<'_>>>`, which makes the generic argument `Option<mirui::__macro_support::DeferredCommands<'_>>` invariant
+   = note: requirement occurs because of the type `Cell<std::option::Option<mirui::__macro_support::DeferredCommands<'_>>>`, which makes the generic argument `std::option::Option<mirui::__macro_support::DeferredCommands<'_>>` invariant
    = note: the struct `Cell<T>` is invariant over the parameter `T`
    = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
