@@ -324,7 +324,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         model_generics
             .make_where_clause()
             .predicates
-            .push(parse_quote!(#ty: Copy + Eq + 'static));
+            .push(parse_quote!(#ty: Clone + Eq + 'static));
     }
     let (_, _, model_where) = model_generics.split_for_impl();
 
@@ -337,9 +337,9 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         snapshot_generics
             .make_where_clause()
             .predicates
-            .push(parse_quote!(#ty: Copy + Eq + 'static));
+            .push(parse_quote!(#ty: Clone + Eq + 'static));
     }
-    let (snapshot_impl_generics, _, snapshot_where) = snapshot_generics.split_for_impl();
+    let (_, _, snapshot_where) = snapshot_generics.split_for_impl();
     let snapshot_definition = if observed.is_empty() {
         quote!()
     } else {
@@ -354,12 +354,6 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
                 #(#fields)*
                 __mirui_marker: ::core::marker::PhantomData<#name #type_generics>,
             }
-
-            impl #snapshot_impl_generics ::core::marker::Copy for #snapshot #type_generics #snapshot_where {}
-
-            impl #snapshot_impl_generics ::core::clone::Clone for #snapshot #type_generics #snapshot_where {
-                fn clone(&self) -> Self { *self }
-            }
         }
     };
     let snapshot_type = if observed.is_empty() {
@@ -373,26 +367,37 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         let fields = observed.iter().map(|value| {
             let name = &value.name;
             let attrs = &value.cfg_attrs;
-            quote!(#(#attrs)* #name: self.#name,)
+            quote!(#(#attrs)* #name: ::core::clone::Clone::clone(&self.#name),)
         });
         quote!(#snapshot {
             #(#fields)*
             __mirui_marker: ::core::marker::PhantomData,
         })
     };
-    let publish = observed.iter().enumerate().map(|(index, value)| {
+    let comparisons = observed.iter().enumerate().map(|(index, value)| {
         let index = syn::Index::from(index);
         let name = &value.name;
         let attrs = &value.cfg_attrs;
         quote! {
             #(#attrs)*
-            if before.#name != after.#name {
+            if snapshot.#name != self.#name {
+                changes[#index] = true;
+                ::core::clone::Clone::clone_from(&mut snapshot.#name, &self.#name);
+            }
+        }
+    });
+    let publish = observed.iter().enumerate().map(|(index, value)| {
+        let index = syn::Index::from(index);
+        let attrs = &value.cfg_attrs;
+        quote! {
+            #(#attrs)*
+            if changes[#index] {
                 sources[#index].notify();
             }
         }
     });
     let publish_body = if observed.is_empty() {
-        quote!(let _ = (sources, before, after);)
+        quote!(let _ = (sources, changes);)
     } else {
         quote!(#(#publish)*)
     };
@@ -404,7 +409,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         quote! {
             #(#attrs)*
             #vis fn #field(&self) -> #ty {
-                ::mirui::core::model::ModelHandle::read_observed(self, #index, |data| data.#field)
+                ::mirui::core::model::ModelHandle::read_observed(self, #index, |data| ::core::clone::Clone::clone(&data.#field))
             }
         }
     });
@@ -416,7 +421,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         quote! {
             #(#attrs)*
             #vis fn #field(&self) -> #ty {
-                ::mirui::core::model::OwnedModel::read(self, |data| data.#field)
+                ::mirui::core::model::OwnedModel::read(self, |data| ::core::clone::Clone::clone(&data.#field))
             }
         }
     });
@@ -538,6 +543,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
             type Owned = #owned_name #type_generics;
             type Children = #children_type;
             type Snapshot = #snapshot_type;
+            type ObservationChanges = [bool; #source_count];
             type Sources = [::mirui::core::reactive::ModelSource; #source_count];
             type Change = #change_type;
             type Watches = [::mirui::core::model::ModelWatch; #watch_count];
@@ -553,11 +559,22 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
                 #snapshot_value
             }
 
+            fn compare_observed(&self, snapshot: &mut Self::Snapshot) -> Self::ObservationChanges {
+                let mut changes = Self::unchanged_observed();
+                let _ = (&snapshot, &mut changes);
+                #(#comparisons)*
+                changes
+            }
+
+            fn unchanged_observed() -> Self::ObservationChanges {
+                [false; #source_count]
+            }
+
             fn sources() -> Self::Sources {
                 ::core::array::from_fn(|_| ::mirui::core::reactive::ModelSource::new())
             }
 
-            fn publish(sources: &Self::Sources, before: Self::Snapshot, after: Self::Snapshot) {
+            fn publish(sources: &Self::Sources, changes: Self::ObservationChanges) {
                 #publish_body
             }
 
@@ -797,7 +814,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             let syn::ReturnType::Type(_, ty) = &method.sig.output else {
                 return Err(syn::Error::new_spanned(
                     &method.sig,
-                    "observed methods require a Copy + Eq return value",
+                    "observed methods require a Clone + Eq return value",
                 ));
             };
             observed.push(ObservedValue {
@@ -870,7 +887,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
         derived_generics
             .make_where_clause()
             .predicates
-            .push(parse_quote!(#ty: Copy + Eq + 'static));
+            .push(parse_quote!(#ty: Clone + Eq + 'static));
     }
     let (derived_impl_generics, _, derived_where) = derived_generics.split_for_impl();
     let snapshot_definition = if observed.is_empty() {
@@ -886,12 +903,6 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             pub struct #snapshot #derived_generics #derived_where {
                 #(#fields)*
                 __mirui_marker: ::core::marker::PhantomData<#self_type>,
-            }
-
-            impl #derived_impl_generics ::core::marker::Copy for #snapshot #type_args #derived_where {}
-
-            impl #derived_impl_generics ::core::clone::Clone for #snapshot #type_args #derived_where {
-                fn clone(&self) -> Self { *self }
             }
         }
     };
@@ -913,19 +924,27 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             __mirui_marker: ::core::marker::PhantomData,
         })
     };
-    let publish = observed.iter().enumerate().map(|(index, value)| {
+    let comparisons = observed.iter().enumerate().map(|(index, value)| {
         let index = syn::Index::from(index);
         let name = &value.name;
         let attrs = &value.cfg_attrs;
         quote! {
             #(#attrs)*
-            if before.#name != after.#name {
+            { changes[#index] = before.#name != self.#name(); }
+        }
+    });
+    let publish = observed.iter().enumerate().map(|(index, value)| {
+        let index = syn::Index::from(index);
+        let attrs = &value.cfg_attrs;
+        quote! {
+            #(#attrs)*
+            if changes[#index] {
                 sources[#index].notify();
             }
         }
     });
     let publish_body = if observed.is_empty() {
-        quote!(let _ = (sources, before, after);)
+        quote!(let _ = (sources, changes);)
     } else {
         quote!(#(#publish)*)
     };
@@ -1119,6 +1138,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
 
         impl #derived_impl_generics ::mirui::core::model::ModelMethods for #self_type #derived_where {
             type DerivedSnapshot = #snapshot_type;
+            type DerivedChanges = [bool; #source_count];
             type DerivedSources = [::mirui::core::reactive::ModelSource; #source_count];
             type Events = #events_type;
             type Routes = #routes_type;
@@ -1128,14 +1148,24 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                 #snapshot_value
             }
 
+            fn compare_derived(&self, before: &Self::DerivedSnapshot) -> Self::DerivedChanges {
+                let mut changes = Self::unchanged_derived();
+                let _ = (&before, &mut changes);
+                #(#comparisons)*
+                changes
+            }
+
+            fn unchanged_derived() -> Self::DerivedChanges {
+                [false; #source_count]
+            }
+
             fn derived_sources() -> Self::DerivedSources {
                 ::core::array::from_fn::<_, #source_count, _>(|_| ::mirui::core::reactive::ModelSource::new())
             }
 
             fn publish_derived(
                 sources: &Self::DerivedSources,
-                before: Self::DerivedSnapshot,
-                after: Self::DerivedSnapshot,
+                changes: Self::DerivedChanges,
             ) {
                 #publish_body
             }

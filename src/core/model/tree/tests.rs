@@ -315,13 +315,15 @@ fn interrupted_effect_delivery_discards_all_retained_transaction_state() {
     assert_eq!(delivered.get(), 0);
     model.access().upgrade().unwrap().metadata(&mut |metadata| {
         let transaction = metadata.transaction.borrow();
-        assert!(transaction.before.is_none());
-        assert!(transaction.after.is_none());
+        assert!(transaction.observed.is_some());
+        assert!(transaction.observed_changes.iter().all(|changed| !changed));
+        assert!(transaction.derived_changes.iter().all(|changed| !changed));
         assert!(transaction.events.is_none());
         for child in [&metadata.children().left, &metadata.children().right] {
             let transaction = child.metadata().transaction.borrow();
-            assert!(transaction.before.is_none());
-            assert!(transaction.after.is_none());
+            assert!(transaction.observed.is_some());
+            assert!(transaction.observed_changes.iter().all(|changed| !changed));
+            assert!(transaction.derived_changes.iter().all(|changed| !changed));
             assert!(transaction.events.is_none());
             assert!(transaction.pending.iter().all(|pending| !pending));
         }
@@ -395,8 +397,8 @@ fn metadata_preparation_does_not_require_default_or_live_business_data() {
             OwnerState::Invalid(_)
         ));
         let transaction = child.metadata().transaction.borrow();
-        assert!(transaction.before.is_none());
-        assert!(transaction.after.is_none());
+        assert!(transaction.observed.is_none());
+        assert!(transaction.derived.is_none());
         assert!(transaction.events.is_none());
     }
 }
@@ -474,7 +476,8 @@ fn stale_incarnations_reject_every_facade_entry_before_accessing_a_reused_path()
     node.retire();
     {
         let transaction = node.metadata.transaction.borrow();
-        assert!(transaction.before.is_none());
+        assert!(transaction.observed.is_none());
+        assert!(transaction.derived.is_none());
         assert!(transaction.events.is_none());
     }
     assert!(old.access().upgrade().is_none());

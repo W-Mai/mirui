@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Model observations support `Clone + Eq` fields and derived values, including owned text. Field comparisons retain reusable storage and skip cloning unchanged values.
+
 ### Fixed
 
 - Paragraph separators do not produce fallback glyphs. LF, CR and CRLF preserve empty lines and original caret offsets through the shared text layout cache.

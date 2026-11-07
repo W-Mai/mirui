@@ -61,15 +61,22 @@ impl<M: Model> DerefMut for ModelListOwned<M> {
 
 impl<M: Model> ModelMethods for ModelList<M> {
     type DerivedSnapshot = ();
+    type DerivedChanges = [bool; 0];
     type DerivedSources = [ModelSource; 0];
     type Events = ();
     type Routes = ();
     type ItemRoutes = ();
     fn derived_snapshot(&self) {}
+    fn compare_derived(&self, _: &()) -> Self::DerivedChanges {
+        []
+    }
+    fn unchanged_derived() -> Self::DerivedChanges {
+        []
+    }
     fn derived_sources() -> Self::DerivedSources {
         []
     }
-    fn publish_derived(_: &Self::DerivedSources, _: (), _: ()) {}
+    fn publish_derived(_: &Self::DerivedSources, _: Self::DerivedChanges) {}
     fn take_events(&mut self) {}
     fn routes() {}
     fn retire_routes(_: &()) {}
@@ -89,6 +96,7 @@ impl<M: Model> Model for ModelList<M> {
     type Handle = ModelListHandle<M>;
     type Owned = ModelListOwned<M>;
     type Snapshot = (u64, u64);
+    type ObservationChanges = [bool; 1];
     type Sources = [ModelSource; 1];
     type Change = ();
     type Watches = [ModelWatch; 0];
@@ -100,11 +108,20 @@ impl<M: Model> Model for ModelList<M> {
     fn snapshot(&self) -> Self::Snapshot {
         (self.identity, self.revision)
     }
+    fn compare_observed(&self, snapshot: &mut Self::Snapshot) -> Self::ObservationChanges {
+        let current = self.snapshot();
+        let changed = *snapshot != current;
+        *snapshot = current;
+        [changed]
+    }
+    fn unchanged_observed() -> Self::ObservationChanges {
+        [false]
+    }
     fn sources() -> Self::Sources {
         [ModelSource::new()]
     }
-    fn publish(sources: &Self::Sources, before: Self::Snapshot, after: Self::Snapshot) {
-        if before != after {
+    fn publish(sources: &Self::Sources, changes: Self::ObservationChanges) {
+        if changes[0] {
             sources[0].notify();
         }
     }

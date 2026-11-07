@@ -46,7 +46,8 @@ pub use tree::{ChildNode, ModelChildren};
 /// Derived observations declared by a model's inherent implementation.
 #[doc(hidden)]
 pub trait ModelMethods: Sized {
-    type DerivedSnapshot: Copy;
+    type DerivedSnapshot;
+    type DerivedChanges: Copy + AsRef<[bool]>;
     type DerivedSources: AsRef<[crate::core::reactive::ModelSource]>;
     type Events;
     type Routes;
@@ -56,14 +57,16 @@ pub trait ModelMethods: Sized {
     fn derived_snapshot(&self) -> Self::DerivedSnapshot;
 
     #[doc(hidden)]
+    fn compare_derived(&self, before: &Self::DerivedSnapshot) -> Self::DerivedChanges;
+
+    #[doc(hidden)]
+    fn unchanged_derived() -> Self::DerivedChanges;
+
+    #[doc(hidden)]
     fn derived_sources() -> Self::DerivedSources;
 
     #[doc(hidden)]
-    fn publish_derived(
-        sources: &Self::DerivedSources,
-        before: Self::DerivedSnapshot,
-        after: Self::DerivedSnapshot,
-    );
+    fn publish_derived(sources: &Self::DerivedSources, changes: Self::DerivedChanges);
 
     #[doc(hidden)]
     fn take_events(&mut self) -> Self::Events;
@@ -176,7 +179,8 @@ impl<E> EffectRoute<E> {
 pub trait Model: ModelMethods + Sized + 'static {
     type Handle: ModelHandle<Data = Self>;
     type Owned: OwnedModel<Data = Self> + From<Self>;
-    type Snapshot: Copy;
+    type Snapshot;
+    type ObservationChanges: Copy + AsRef<[bool]>;
     type Sources: AsRef<[crate::core::reactive::ModelSource]>;
     type Change: Copy;
     type Watches: AsRef<[ModelWatch]>;
@@ -192,10 +196,16 @@ pub trait Model: ModelMethods + Sized + 'static {
     fn snapshot(&self) -> Self::Snapshot;
 
     #[doc(hidden)]
+    fn compare_observed(&self, snapshot: &mut Self::Snapshot) -> Self::ObservationChanges;
+
+    #[doc(hidden)]
+    fn unchanged_observed() -> Self::ObservationChanges;
+
+    #[doc(hidden)]
     fn sources() -> Self::Sources;
 
     #[doc(hidden)]
-    fn publish(sources: &Self::Sources, before: Self::Snapshot, after: Self::Snapshot);
+    fn publish(sources: &Self::Sources, changes: Self::ObservationChanges);
 
     #[doc(hidden)]
     fn watches() -> Self::Watches;
@@ -627,12 +637,12 @@ impl<M: Model> ModelRoot<M> {
         self.persistence.changed();
         self.metadata.extract(&mut value);
         self.metadata.finish(&mut value, watches, false);
+        self.metadata.capture_after(&value);
         if !accepted {
             drop(value);
             guard.committed = true;
             return;
         }
-        self.metadata.capture_after(&value);
         drop(value);
         self.metadata.publish();
         guard.committed = true;
@@ -1005,6 +1015,7 @@ mod tests {
 
     impl ModelMethods for Counter {
         type DerivedSnapshot = ();
+        type DerivedChanges = [bool; 0];
         type DerivedSources = [crate::core::reactive::ModelSource; 0];
         type Events = ();
         type Routes = ();
@@ -1012,16 +1023,19 @@ mod tests {
 
         fn derived_snapshot(&self) -> Self::DerivedSnapshot {}
 
+        fn compare_derived(&self, _: &()) -> Self::DerivedChanges {
+            []
+        }
+
+        fn unchanged_derived() -> Self::DerivedChanges {
+            []
+        }
+
         fn derived_sources() -> Self::DerivedSources {
             []
         }
 
-        fn publish_derived(
-            _: &Self::DerivedSources,
-            _: Self::DerivedSnapshot,
-            _: Self::DerivedSnapshot,
-        ) {
-        }
+        fn publish_derived(_: &Self::DerivedSources, _: Self::DerivedChanges) {}
 
         fn take_events(&mut self) -> Self::Events {}
 
@@ -1046,6 +1060,7 @@ mod tests {
         type Handle = CounterHandle;
         type Owned = CounterOwned;
         type Snapshot = u32;
+        type ObservationChanges = [bool; 1];
         type Sources = [crate::core::reactive::ModelSource; 1];
         type Change = ();
         type Watches = [super::ModelWatch; 0];
@@ -1060,12 +1075,22 @@ mod tests {
             self.0
         }
 
+        fn compare_observed(&self, snapshot: &mut Self::Snapshot) -> Self::ObservationChanges {
+            let changed = *snapshot != self.0;
+            *snapshot = self.0;
+            [changed]
+        }
+
+        fn unchanged_observed() -> Self::ObservationChanges {
+            [false]
+        }
+
         fn sources() -> Self::Sources {
             [crate::core::reactive::ModelSource::new()]
         }
 
-        fn publish(sources: &Self::Sources, before: Self::Snapshot, after: Self::Snapshot) {
-            if before != after {
+        fn publish(sources: &Self::Sources, changes: Self::ObservationChanges) {
+            if changes[0] {
                 sources[0].notify();
             }
         }

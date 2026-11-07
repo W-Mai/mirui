@@ -201,14 +201,11 @@ handle. An impl in another module uses the model's qualified path, such as
 Observed fields, observed getters, and effect extractors can use `#[cfg]`;
 their generated accessors and source storage follow the same condition.
 
-`#[observe]` creates a handle getter for a small `Copy + Eq` field. Reading
-`counter.count()` inside a reactive UI binding subscribes that binding to the
-field. Model methods compare observed values before and after each update;
-unchanged values do not notify subscribers. Large buffers and other
-non-`Copy` fields remain ordinary model data.
-An `#[observe]` method with `&self`, no arguments, and a `Copy + Eq` return
-value works the same way: `counter.is_even()` notifies only when its computed
-result changes.
+`#[observe]` creates a handle getter for a `Clone + Eq` field, including `String` and `Vec<T>`. Reading the getter inside a reactive UI binding subscribes to that field. An update compares final values with retained observations; unchanged values and changes restored within the same transaction do not notify subscribers. Field getters return owned clones rather than references into the Model.
+
+Observed fields retain one comparison value per registered instance. Unchanged fields are not cloned during updates; changed fields use `clone_from` to reuse storage where the type supports it. Initial snapshots and growth of owned buffers may allocate, and equality checks still cover the active transaction tree. Keep large datasets windowed when memory is limited. Cloning shared mutable objects does not observe their hidden writes; use formal owned Models for nested reactive state.
+
+An `#[observe]` method with `&self`, no arguments, and a `Clone + Eq` return value publishes only when its computed result changes. Derived methods are evaluated at the beginning and end of each transaction; allocation performed by those methods remains part of their cost.
 
 For changes that cannot be observed as a small value, a model can declare a
 change type and named masks with
@@ -292,7 +289,7 @@ Effects are extracted in parent-first, declaration-order depth-first traversal a
 
 An outer `Err` keeps data changes but discards the whole tree's pending notifications and effects from that call. An inner child call has no separate transaction or rollback: if the parent handles its error and succeeds, final observed values and effects still present in the data are committed. The failed child return does not match that child's change masks; successful deeper calls retain their pending masks.
 
-Declared owned fields form a finite tree; owned Model collections add dynamic members with explicit capacity preparation. Static-tree construction with `.into()` and warm reads, writes, resets, and swaps add no framework heap allocation. Registration prepares root storage, child projections, observations, and retained transaction snapshots; effect consumers retain their registration-time allocation. Each write compares the active tree, so transaction work scales with its observations and effects. Business constructors and method bodies keep their own allocation costs.
+Declared owned fields form a finite tree; owned Model collections add dynamic members with explicit capacity preparation. Static-tree construction with `.into()` keeps values inline. Registration prepares root storage, child projections, observations, and retained transaction snapshots; effect consumers retain their registration-time allocation. Copy-valued observations add no heap allocation during updates. Owned observations can reuse buffer capacity, while growth, getter clones and derived computations retain their type-specific costs. Each write compares the active tree, so transaction work scales with its observations and effects.
 
 The [State Todo model](../src/gallery/demos/state_todo/model.rs) owns a `ModelList` of tasks. Keyed rows retain their item bindings during reordering, completed tasks can be removed, and the parent derives the remaining count from current members. See [Model collections](model-collections.md) for data sources, identity, and capacity rules.
 
@@ -920,7 +917,7 @@ A reactive binding's first run applies its initial value at construction
 (inside the `ui!` build), so the first frame already shows the correct
 state.
 
-Registered model methods, observed notifications, fixed-array effect delivery,
+Copy-valued model observations, observed notifications, fixed-array effect delivery,
 typed `#[view]` subscriptions, and registered
 model/signal-to-computed-to-effect propagation reuse their storage during
 updates. Each View binding owns an independent dependency-graph consumer;
@@ -935,9 +932,7 @@ separately when targeting a bounded-memory device.
 
 ## Limits
 
-- **Observed values**: `#[observe]` fields and derived getters require small
-  `Copy + Eq` results. Keep large mutable data in the model and publish an
-  explicit named revision when a View must repaint for it.
+- **Observed values**: `#[observe]` fields and derived getters require `Clone + Eq`. Owned field observations retain a comparison value; large buffers increase memory and equality costs. Explicit named watches remain available for semantic invalidation without cloning large data.
 - **View dependencies**: `model!(component.field)` alone does not subscribe a
   View. Add observed fields, getters, or named revisions with `watch(...)`;
   replacing the component replaces its subscriptions.

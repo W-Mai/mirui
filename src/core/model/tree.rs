@@ -60,32 +60,22 @@ impl<M: Model> ModelChildren<M> for () {
     fn retire(&self) {}
 }
 
-struct ModelSnapshot<M: Model> {
-    observed: M::Snapshot,
-    derived: M::DerivedSnapshot,
-}
-
-impl<M: Model> ModelSnapshot<M> {
-    fn capture(value: &M) -> Self {
-        Self {
-            observed: value.snapshot(),
-            derived: value.derived_snapshot(),
-        }
-    }
-}
-
 pub(super) struct ModelTransaction<M: Model> {
-    before: Option<ModelSnapshot<M>>,
-    after: Option<ModelSnapshot<M>>,
+    observed: Option<M::Snapshot>,
+    derived: Option<M::DerivedSnapshot>,
+    observed_changes: M::ObservationChanges,
+    derived_changes: M::DerivedChanges,
     pending: M::PendingWatches,
     events: Option<M::Events>,
 }
 
 impl<M: Model> ModelTransaction<M> {
-    fn new() -> Self {
+    fn new(value: Option<&M>) -> Self {
         Self {
-            before: None,
-            after: None,
+            observed: value.map(M::snapshot),
+            derived: None,
+            observed_changes: M::unchanged_observed(),
+            derived_changes: M::unchanged_derived(),
             pending: M::pending_watches(),
             events: None,
         }
@@ -226,7 +216,7 @@ impl<M: Model> ModelMetadata<M> {
         root: &Weak<ModelRoot<R>>,
         owner: BindingOwner,
         path: P,
-        value: Option<&mut M>,
+        mut value: Option<&mut M>,
     ) -> Self {
         let OwnerState::Bound(world) = owner.0 else {
             panic!("model metadata requires a registered owner");
@@ -244,6 +234,7 @@ impl<M: Model> ModelMetadata<M> {
         for watch in watches.as_ref() {
             watch.register_owner(world);
         }
+        let transaction = ModelTransaction::new(value.as_deref());
         Self {
             owner: world,
             lifetime,
@@ -251,8 +242,8 @@ impl<M: Model> ModelMetadata<M> {
             derived_sources,
             watches,
             routes: M::routes(),
-            children: M::Children::register::<R, P>(root, owner, path, &mut { value }),
-            transaction: RefCell::new(ModelTransaction::new()),
+            children: M::Children::register::<R, P>(root, owner, path, &mut value),
+            transaction: RefCell::new(transaction),
         }
     }
 
@@ -331,8 +322,11 @@ impl<M: Model> ModelMetadata<M> {
     }
 
     pub(super) fn begin(&self, value: &M) {
-        let before = ModelSnapshot::capture(value);
-        self.transaction.borrow_mut().before = Some(before);
+        {
+            let mut transaction = self.transaction.borrow_mut();
+            transaction.observed.get_or_insert_with(|| value.snapshot());
+            transaction.derived = Some(value.derived_snapshot());
+        }
         self.children.begin(value);
     }
 
@@ -351,28 +345,35 @@ impl<M: Model> ModelMetadata<M> {
     }
 
     pub(super) fn capture_after(&self, value: &M) {
-        let after = ModelSnapshot::capture(value);
-        self.transaction.borrow_mut().after = Some(after);
+        {
+            let mut transaction = self.transaction.borrow_mut();
+            transaction.observed_changes = value.compare_observed(
+                transaction
+                    .observed
+                    .as_mut()
+                    .expect("model observation is not active"),
+            );
+            transaction.derived_changes = value.compare_derived(
+                transaction
+                    .derived
+                    .as_ref()
+                    .expect("model transaction has no derived snapshot"),
+            );
+        }
         self.children.capture_after(value);
     }
 
     pub(super) fn publish(&self) {
-        let (before, after, pending) = {
+        let (observed, derived, pending) = {
             let mut transaction = self.transaction.borrow_mut();
             (
-                transaction
-                    .before
-                    .take()
-                    .expect("model transaction has no before snapshot"),
-                transaction
-                    .after
-                    .take()
-                    .expect("model transaction has no after snapshot"),
+                transaction.observed_changes,
+                transaction.derived_changes,
                 core::mem::replace(&mut transaction.pending, M::pending_watches()),
             )
         };
-        M::publish(&self.sources, before.observed, after.observed);
-        M::publish_derived(&self.derived_sources, before.derived, after.derived);
+        M::publish(&self.sources, observed);
+        M::publish_derived(&self.derived_sources, derived);
         for (watch, changed) in self.watches.as_ref().iter().zip(pending.as_ref()) {
             if *changed {
                 watch.publish();
@@ -390,11 +391,14 @@ impl<M: Model> ModelMetadata<M> {
     }
 
     fn discard_current(&self) {
-        let discarded = {
+        let events = {
             let mut transaction = self.transaction.borrow_mut();
-            core::mem::replace(&mut *transaction, ModelTransaction::new())
+            transaction.observed_changes = M::unchanged_observed();
+            transaction.derived_changes = M::unchanged_derived();
+            transaction.pending = M::pending_watches();
+            transaction.events.take()
         };
-        drop(discarded);
+        drop(events);
     }
 
     pub(super) fn discard(&self) {
@@ -417,7 +421,11 @@ impl<M: Model> ModelMetadata<M> {
         }
         self.children.retire();
         M::retire_routes(&self.routes);
-        self.discard_current();
+        let retired = core::mem::replace(
+            &mut *self.transaction.borrow_mut(),
+            ModelTransaction::new(None),
+        );
+        drop(retired);
     }
 }
 
