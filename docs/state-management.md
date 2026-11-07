@@ -56,6 +56,8 @@ Resource borrows carry their application's identity and dereference to the store
 
 Only `res!(optional T)` permits an absent resource. Use required roles for dependencies installed by application or composition setup; use optional roles when absence is part of the callback's behavior, such as checking whether a clock is installed or reading a cache before its first update. Dereferencing a resource never creates a default value.
 
+`scroll_offset` accepts static values or `${expression}` bindings on nodes with an attached `ScrollOffset`. It applies after component insertion and View attachment through the typed ScrollOffset property, without replacing scroll configuration or requesting layout. Bindings accept `prop!(ScrollOffset)` inputs across compositions. An identical value preserves input motion; a different value takes over only that scroller. Attach `ScrollConfig` to configure input behavior; assigning a position does not install scroll capabilities. Use `on ScrollChanged` for explicit Model feedback when actual user positions must be retained.
+
 ```rust,ignore
 struct PanelConfig {
     gap: i32,

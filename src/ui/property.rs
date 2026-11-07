@@ -444,17 +444,11 @@ pub mod prop {
         type Value = crate::input::event::scroll::ScrollOffset;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-            if !world
-                .get::<Self::Value>(entity)
-                .is_some_and(|offset| *offset != value)
-            {
-                return PropertyChange::Unchanged;
+            if crate::input::event::scroll::system::set_position(world, entity, value) {
+                PropertyChange::Visual
+            } else {
+                PropertyChange::Unchanged
             }
-            let Some(offset) = world.get_mut::<Self::Value>(entity) else {
-                return PropertyChange::Unchanged;
-            };
-            *offset = value;
-            PropertyChange::Visual
         }
     }
 

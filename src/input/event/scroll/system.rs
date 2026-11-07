@@ -92,6 +92,99 @@ pub(crate) fn cancel_scroll_drag(world: &mut World) {
     }
 }
 
+pub(crate) fn set_position(world: &mut World, entity: Entity, position: ScrollOffset) -> bool {
+    if !world
+        .get::<ScrollOffset>(entity)
+        .is_some_and(|old| *old != position)
+    {
+        return false;
+    }
+    let dragging = world
+        .resource::<ScrollDragState>()
+        .is_some_and(|state| state.active && state.resolved && state.target == entity);
+    let moving = world
+        .resource::<ScrollMotion>()
+        .is_some_and(|motion| motion.target_entity == Some(entity));
+    if dragging || moving {
+        crate::input::event::runtime::cancel_scroll(world, entity);
+    }
+    if dragging && let Some(state) = world.resource_mut::<ScrollDragState>() {
+        state.active = false;
+        state.resolved = false;
+    }
+    if moving && let Some(motion) = world.resource_mut::<ScrollMotion>() {
+        *motion = ScrollMotion::default();
+    }
+    if let Some(offset) = world.get_mut::<ScrollOffset>(entity) {
+        *offset = position;
+    }
+    true
+}
+
+#[cfg(test)]
+mod position_tests {
+    use super::*;
+
+    #[test]
+    fn equal_positions_keep_input_ownership_and_other_targets_are_not_cancelled() {
+        let mut app = crate::app::App::headless(64, 64);
+        let first = app.world.spawn_empty();
+        let second = app.world.spawn_empty();
+        app.world.insert(first, ScrollOffset::default());
+        app.world.insert(second, ScrollOffset::default());
+        app.world
+            .resource_mut::<ScrollMotion>()
+            .unwrap()
+            .begin_pointer(first, 0);
+        let drag = app.world.resource_mut::<ScrollDragState>().unwrap();
+        drag.active = true;
+        drag.resolved = true;
+        drag.target = first;
+
+        assert!(!set_position(
+            &mut app.world,
+            first,
+            ScrollOffset::default()
+        ));
+        assert_eq!(
+            app.world.resource::<ScrollMotion>().unwrap().target_entity,
+            Some(first)
+        );
+        assert!(app.world.resource::<ScrollDragState>().unwrap().active);
+
+        assert!(set_position(
+            &mut app.world,
+            second,
+            ScrollOffset {
+                x: 1.into(),
+                y: 2.into()
+            }
+        ));
+        assert_eq!(
+            app.world.resource::<ScrollMotion>().unwrap().target_entity,
+            Some(first)
+        );
+        assert!(app.world.resource::<ScrollDragState>().unwrap().active);
+
+        assert!(set_position(
+            &mut app.world,
+            first,
+            ScrollOffset {
+                x: 3.into(),
+                y: 4.into()
+            }
+        ));
+        assert!(
+            app.world
+                .resource::<ScrollMotion>()
+                .unwrap()
+                .target_entity
+                .is_none()
+        );
+        assert!(!app.world.resource::<ScrollDragState>().unwrap().active);
+    }
+}
+
 fn settle_offset(world: &mut World, target: Entity) {
     let bounds = scroll_bounds(world, target).unwrap_or_default();
     let Some(offset) = world.get_mut::<ScrollOffset>(target) else {

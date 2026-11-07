@@ -278,6 +278,7 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
         "normal_color" if widget == "Button" => Some("ButtonNormalColor"),
         "render_key" => Some("RenderKey"),
         "transform" => Some("Transform"),
+        "scroll_offset" => Some("ScrollOffset"),
         "font_size" => Some("FontSize"),
         "direction" => Some("Direction"),
         "width" => Some("Width"),
@@ -306,7 +307,9 @@ fn binding_role(property: &syn::Ident) -> proc_macro2::TokenStream {
         "TextContent" | "ImageSource" | "BackgroundColor" | "TextColor" | "BorderColor"
         | "BorderWidth" | "ButtonNormalColor" | "RenderKey" | "Transform" | "FontSize"
         | "Direction" | "Width" | "Height" | "Left" | "Top" | "Paragraph" | "TextPath"
-        | "ProgressValue" | "SliderValue" | "SwitchOn" | "CheckboxChecked" => "Display",
+        | "ProgressValue" | "SliderValue" | "SwitchOn" | "CheckboxChecked" | "ScrollOffset" => {
+            "Display"
+        }
         _ => "Ordinary",
     };
     let role = syn::Ident::new(role, property.span());
@@ -332,12 +335,23 @@ mod binding_role_tests {
             ("TextContent", "Display"),
             ("ImageSource", "Display"),
             ("Width", "Display"),
+            ("ScrollOffset", "Display"),
             ("CustomProperty", "Ordinary"),
         ] {
             let role =
                 super::binding_role(&syn::Ident::new(property, proc_macro2::Span::call_site()));
             assert!(role.to_string().ends_with(expected));
         }
+    }
+
+    #[test]
+    fn static_attached_properties_do_not_install_reactive_bindings() {
+        let attrs = [syn::parse_quote!(scroll_offset: ScrollOffset::default())];
+        let parsed = super::MiruiRune::new().parse_attrs(&attrs, "Row", super::WidgetKind::Layout);
+        assert!(parsed.errors.is_empty());
+        assert_eq!(parsed.property_values.len(), 1);
+        assert!(parsed.reactive_binds.is_empty());
+        assert!(parsed.builder_calls.is_empty());
     }
 }
 
@@ -386,6 +400,7 @@ struct WidgetCmd {
     id: Option<syn::LitStr>,
     id_lookups: Vec<(syn::Ident, String)>,
     reactive_binds: Vec<ReactiveBind>,
+    property_values: Vec<(syn::Ident, proc_macro2::TokenStream)>,
     layout_binds: Vec<LayoutBind>,
     children: Vec<Cmd>,
 }
@@ -403,6 +418,7 @@ struct ParsedAttrs {
     id: Option<syn::LitStr>,
     id_lookups: Vec<(syn::Ident, String)>,
     reactive_binds: Vec<ReactiveBind>,
+    property_values: Vec<(syn::Ident, proc_macro2::TokenStream)>,
     layout_binds: Vec<LayoutBind>,
     user_set_direction: bool,
 }
@@ -485,6 +501,7 @@ impl MiruiRune {
         let mut id = None;
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
         let mut reactive_binds: Vec<ReactiveBind> = Vec::new();
+        let mut property_values = Vec::new();
         let mut layout_binds = Vec::new();
         let mut user_set_direction = false;
 
@@ -627,6 +644,15 @@ impl MiruiRune {
                             .to_compile_error(),
                     ),
                 }
+                continue;
+            }
+
+            if name == "scroll_offset" && !attr.reactive {
+                let property = syn::Ident::new(
+                    reactive_property(widget_name, &name).expect("scroll offset property"),
+                    attr_span,
+                );
+                property_values.push((property, quote! { #value }));
                 continue;
             }
 
@@ -810,6 +836,7 @@ impl MiruiRune {
             id,
             id_lookups,
             reactive_binds,
+            property_values,
             layout_binds,
             user_set_direction,
         }
@@ -1297,6 +1324,16 @@ impl MiruiRune {
             let __widget_parent = #parent_var;
             ::mirui::__macro_support::finish_widget_static(#world, __widget_parent, #var);
         });
+
+        for (property, value) in &cmd.property_values {
+            tokens.extend(quote! {
+                ::mirui::ui::property::apply_to_world::<::mirui::ui::property::prop::#property>(
+                    #world,
+                    #var,
+                    ::core::convert::Into::into(#value),
+                );
+            });
+        }
 
         for (prepared, once) in prepared_bindings {
             if let Some(once) = once {
@@ -2264,6 +2301,7 @@ impl DsRune for MiruiRune {
             id: parsed.id,
             id_lookups,
             reactive_binds: parsed.reactive_binds,
+            property_values: parsed.property_values,
             layout_binds: parsed.layout_binds,
             children: my_children,
         });
