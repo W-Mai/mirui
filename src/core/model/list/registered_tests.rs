@@ -317,16 +317,19 @@ fn reconcile_rejects_leases_and_prepares_nested_changes_without_replacing_matche
 }
 
 #[derive(Clone, Copy)]
-struct MergeChange;
+struct MergeChange(u8);
 impl MergeChange {
-    const VALUE: Self = Self;
-    fn contains(self, _: Self) -> bool {
-        true
+    const NONE: Self = Self(0);
+    const VALUE: Self = Self(1);
+    const OTHER: Self = Self(2);
+    fn contains(self, mask: Self) -> bool {
+        self.0 & mask.0 != 0
     }
 }
 
-#[crate::model(change = MergeChange, watch(content = MergeChange::VALUE))]
+#[crate::model(change = MergeChange, watch(content = MergeChange::VALUE, other = MergeChange::OTHER))]
 struct WatchedItem {
+    key: u8,
     value: u16,
 }
 #[crate::model]
@@ -337,21 +340,69 @@ impl WatchedItem {
 }
 
 #[test]
-fn raw_data_merge_invalidates_explicit_watches_without_a_business_change_token() {
+fn raw_data_merge_records_only_the_returned_watch_changes() {
     let mut app = App::headless(32, 32);
     let list = app
-        .add_model(ModelList::from([WatchedItem { value: 1 }]))
+        .add_model(ModelList::from([
+            WatchedItem { key: 1, value: 1 },
+            WatchedItem { key: 2, value: 2 },
+        ]))
         .finish();
     let item = list.get(0).unwrap();
-    let before = item.content_revision();
+    let first_id = list.entries().next().unwrap().0;
+    let merge = |old: &mut WatchedItem, new: WatchedItem| {
+        if old.value == new.value {
+            return MergeChange::NONE;
+        }
+        old.value = new.value;
+        MergeChange::VALUE
+    };
     list.reconcile(
-        [WatchedItem { value: 8 }],
-        |_| 0,
-        |old, new| old.value = new.value,
+        [
+            WatchedItem { key: 2, value: 2 },
+            WatchedItem { key: 1, value: 1 },
+        ],
+        |item| item.key,
+        merge,
+    )
+    .unwrap();
+    assert_eq!(list.entries().nth(1).unwrap().0, first_id);
+    assert_eq!((item.content_revision(), item.other_revision()), (0, 0));
+    list.reconcile(
+        [
+            WatchedItem { key: 1, value: 8 },
+            WatchedItem { key: 2, value: 2 },
+        ],
+        |item| item.key,
+        merge,
     )
     .unwrap();
     assert_eq!(item.value(), 8);
-    assert_eq!(item.content_revision(), before + 1);
+    assert_eq!((item.content_revision(), item.other_revision()), (1, 0));
+}
+
+#[test]
+fn map_merges_use_the_same_precise_watch_recording() {
+    let mut app = App::headless(32, 32);
+    let mut data = crate::core::model::ModelMap::default();
+    data.load([(1_u8, WatchedItem { key: 1, value: 1 })])
+        .unwrap();
+    let map = app.add_model(data).finish();
+    let item = map.get(&1).unwrap();
+    let merge = |old: &mut WatchedItem, new: WatchedItem| {
+        if old.value == new.value {
+            return MergeChange::NONE;
+        }
+        old.value = new.value;
+        MergeChange::VALUE
+    };
+    map.reconcile([(1, WatchedItem { key: 1, value: 1 })], merge)
+        .unwrap();
+    assert_eq!((item.content_revision(), item.other_revision()), (0, 0));
+    map.reconcile([(1, WatchedItem { key: 1, value: 8 })], merge)
+        .unwrap();
+    assert_eq!((item.content_revision(), item.other_revision()), (1, 0));
+    assert_eq!(item.value(), 8);
 }
 
 #[test]

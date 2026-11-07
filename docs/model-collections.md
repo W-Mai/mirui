@@ -215,7 +215,7 @@ todo.items().reconcile(
 )?;
 ```
 
-`merge` receives `&mut Item` and an owned incoming `Item`. The closure decides which business fields to overwrite; omitted fields keep their existing values. Keys are extracted before any merge, so changing a key field does not change the current matching plan. Observed fields and parent derived values publish through the root transaction before effects. Explicit change watches on merged Models are invalidated conservatively because the closure edits raw data without returning a business change token.
+`merge` receives `&mut Item` and an owned incoming `Item`, and returns that Model's declared change value. Ordinary Models return `()`, so assignment closures need no extra code. Models with named watches return the matching change mask; unchanged merges do not publish unrelated watches. Fields omitted from the merge retain their values. Keys are extracted before merging, so edits do not change the matching plan. Observed fields, including owned text, compare final values independently of the mask and publish with parent derived values before effects.
 
 Reconciliation stages input and matching indices and may prepare nested storage. It is not a zero-allocation edit. Matching items with unchanged order do not publish a structural change merely because their fields were merged. A merge panic poisons the enclosing registered Model transaction; completed business changes are not rolled back.
 
@@ -229,7 +229,7 @@ workspace.users().reconcile(records, |current, incoming| {
 })?;
 ```
 
-The closure receives `&mut Item` and an incoming `Item`, never a mutable index key. Fields omitted from the merge keep their local values. Duplicate input keys and capacity or iteration conflicts reject the batch before any merge; errors return consumed and remaining input in original order. Explicit watches use the same conservative invalidation as List merges. Key indexing stays aligned with completed member changes if a merge panics; this is not rollback or permission to reuse a poisoned registered Model.
+The closure receives `&mut Item` and an incoming `Item`, never a mutable index key, and returns the Model's declared change value as in List merges. Fields omitted from the merge keep their local values. Duplicate input keys and capacity or iteration conflicts reject the batch before any merge; errors return consumed and remaining input in original order. Key indexing stays aligned with completed member changes if a merge panics; this is not rollback or permission to reuse a poisoned registered Model.
 
 ## Membership sets
 

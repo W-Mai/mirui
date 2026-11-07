@@ -13,12 +13,12 @@ pub(in crate::core::model) struct MatchPlan {
 impl<M: Model> ModelList<M> {
     /// Merge owned input by a frozen business key, retaining matching item identities.
     ///
-    /// Incoming order becomes list order. Duplicate keys in either dataset reject the batch before `merge` runs. The closure receives raw Model data and decides which fields to replace; it does not return a rollback result. Preparation may allocate, including storage for new nested shapes.
+    /// Incoming order becomes list order. Duplicate keys in either dataset reject the batch before `merge` runs. The closure receives raw Model data and returns its declared change value; observed fields compare their final values independently. Preparation may allocate, including storage for new nested shapes.
     pub fn reconcile<I, K>(
         &mut self,
         items: I,
         mut key_of: impl FnMut(&M) -> K,
-        mut merge: impl FnMut(&mut M, M),
+        mut merge: impl FnMut(&mut M, M) -> M::Change,
     ) -> Result<(), CollectionLoadError<I::IntoIter>>
     where
         I: IntoIterator<Item = M>,
@@ -50,12 +50,11 @@ impl<M: Model> ModelList<M> {
         &mut self,
         slot: usize,
         value: M,
-        merge: &mut impl FnMut(&mut M, M),
+        merge: &mut impl FnMut(&mut M, M) -> M::Change,
     ) -> super::ModelItemId {
         if let Some(position) = self.slots[slot].position {
             let storage = self.entries[position].value.storage_mut();
-            merge(&mut storage.value, value);
-            storage.pending.as_mut().fill(true);
+            storage.update(|current| merge(current, value));
         } else {
             let binding = self.live_binding();
             let mut value: M::Owned = value.into();

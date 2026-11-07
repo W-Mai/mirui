@@ -9,7 +9,7 @@ impl<K: Ord + 'static, M: Model> ModelMap<K, M> {
     pub fn reconcile<I: IntoIterator<Item = (K, M)>>(
         &mut self,
         items: I,
-        mut merge: impl FnMut(&mut M, M),
+        mut merge: impl FnMut(&mut M, M) -> M::Change,
     ) -> Result<(), CollectionLoadError<I::IntoIter>> {
         let (mut input, remaining) = collect_input(items.into_iter(), self.limit())?;
         let mut order = Vec::new();

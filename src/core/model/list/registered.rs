@@ -349,7 +349,7 @@ impl<M: Model> ModelListHandle<M> {
         &self,
         items: I,
         key_of: impl FnMut(&M) -> K,
-        merge: impl FnMut(&mut M, M),
+        merge: impl FnMut(&mut M, M) -> M::Change,
     ) -> Result<(), CollectionLoadError<I::IntoIter>>
     where
         I: IntoIterator<Item = M>,

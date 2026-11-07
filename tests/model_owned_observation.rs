@@ -315,3 +315,75 @@ fn generic_observed_values_keep_owned_and_registered_accessors() {
     model.replace("next".into());
     assert_eq!(model.value(), "next");
 }
+
+#[model]
+struct MergeItem {
+    key: u8,
+    #[observe]
+    text: String,
+}
+
+#[model]
+impl MergeItem {}
+
+#[test]
+fn reconciled_owned_values_keep_identity_and_skip_unchanged_reordered_text() {
+    use mirui::core::model::ModelList;
+    let mut app = App::headless(64, 64);
+    let list = app
+        .add_model(ModelList::from([
+            MergeItem {
+                key: 1,
+                text: "one".into(),
+            },
+            MergeItem {
+                key: 2,
+                text: "two".into(),
+            },
+        ]))
+        .finish();
+    let (id, item) = list.entries().next().unwrap();
+    let runs = Rc::new(Cell::new(0));
+    let counted = runs.clone();
+    let observed = item.clone();
+    let _effect = Effect::new(move || {
+        let _ = observed.text();
+        counted.set(counted.get() + 1);
+    });
+    list.reconcile(
+        [
+            MergeItem {
+                key: 2,
+                text: "two".into(),
+            },
+            MergeItem {
+                key: 1,
+                text: "one".into(),
+            },
+        ],
+        |item| item.key,
+        |current, incoming| current.text = incoming.text,
+    )
+    .unwrap();
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(list.entries().nth(1).unwrap().0, id);
+    assert_eq!(runs.get(), 1);
+    list.reconcile(
+        [
+            MergeItem {
+                key: 1,
+                text: "changed".into(),
+            },
+            MergeItem {
+                key: 2,
+                text: "two".into(),
+            },
+        ],
+        |item| item.key,
+        |current, incoming| current.text = incoming.text,
+    )
+    .unwrap();
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(item.text(), "changed");
+    assert_eq!(runs.get(), 2);
+}
