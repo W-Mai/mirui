@@ -469,63 +469,25 @@ pub(super) fn hints(state: model!(Manager), metrics: Metrics) -> Entity {
     }
 }
 
-#[component]
-pub(super) struct SaveReading {
-    state: model!(Manager),
-}
-#[system(order=Animation)]
-fn scroll_reading(
-    nodes: query!(
-        Entity,
-        SaveReading,
-        crate::input::event::scroll::ScrollOffset
-    ),
-    commands: commands!(),
-) {
-    for (entity, node, offset) in nodes {
-        let y = node.state.reading_offset();
-        if node.state.active() && offset.y != y {
-            commands.set::<crate::ui::property::prop::ScrollOffset>(
-                entity,
-                crate::input::event::scroll::ScrollOffset { x: Fixed::ZERO, y },
-            );
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn save_scroll_repaints_without_geometry_demand_and_ignores_inactive_readers() {
-        for active in [true, false] {
-            super::super::tests::assert_scroll_projection(save_reading::view(), active, |app| {
-                let mut state = Manager::default();
-                if active {
-                    state.sync(Some(&super::super::saves::fixture()));
-                }
-                state.reading_offset = Fixed::from_int(16);
-                SaveReading {
-                    state: app.add_model(state).finish(),
-                }
-            });
-        }
-    }
-}
-#[view(component=SaveReading,systems=[scroll_reading::system()])]
-pub(super) fn save_reading() {}
 #[compose]
 fn reading(state: model!(Manager), metrics: Metrics) -> Entity {
     ui! {
-        Column (grow: 1.0, min_width: 0, min_height: 0, clip_children: true) [
+        Column (
+            grow: 1.0,
+            min_width: 0,
+            min_height: 0,
+            clip_children: true,
+            scroll_offset: ${
+                crate::input::event::scroll::ScrollOffset {
+                    x: Fixed::ZERO,
+                    y: state.reading_offset(),
+                }
+            }
+        ) [
             crate::input::event::scroll::ScrollOffset::default(),
             crate::input::event::scroll::ScrollConfig {
                 elastic: false,
                 ..Default::default()
-            },
-            SaveReading {
-                state: state.clone(),
             },
         ] {
             facts (state, metrics)
