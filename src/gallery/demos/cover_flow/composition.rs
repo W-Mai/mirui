@@ -44,6 +44,7 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                 elastic: true,
                 content_width: Fixed::from_int(content_width),
                 content_height: Fixed::ZERO,
+                transition: None,
             },
         ] {
             walk card_colors_ref.iter().enumerate() with item {

@@ -9,6 +9,8 @@ use crate::ui::{Parent, Widget};
 
 use super::{ScrollAxis, ScrollConfig, ScrollOffset};
 
+mod animation;
+
 /// A widget to reveal through its scrollable ancestors.
 #[derive(Clone, Copy, Debug)]
 pub enum ScrollTarget {
@@ -117,13 +119,42 @@ impl CommandCapacity {
 }
 
 struct Request {
-    position: ScrollPosition,
+    target: RequestTarget,
     reveal: bool,
-    parent: Option<Entity>,
     container_parent: Option<Entity>,
-    lease: Option<InputLease>,
-    container_lease: Option<InputLease>,
-    item: Option<(Entity, crate::ui::widgets::lazy_list::ScrollItem)>,
+}
+
+enum RequestTarget {
+    Offset {
+        offset: ScrollOffset,
+        lease: Option<InputLease>,
+    },
+    Node(TargetLease),
+    Item(TargetLease, crate::ui::widgets::lazy_list::ScrollItem),
+}
+
+struct TargetLease {
+    entity: Entity,
+    parent: Option<Entity>,
+    retained: Option<InputLease>,
+}
+
+impl TargetLease {
+    fn capture(world: &World, container: Entity, entity: Entity) -> Option<Self> {
+        (available(world, entity) && crate::ui::branch::is_in_subtree(world, container, entity))
+            .then(|| Self {
+                entity,
+                parent: world.get::<Parent>(entity).map(|parent| parent.0),
+                retained: InputLease::capture(world, entity),
+            })
+    }
+
+    fn valid(&self, world: &World, container: Entity) -> bool {
+        available(world, self.entity)
+            && self.parent == world.get::<Parent>(self.entity).map(|parent| parent.0)
+            && self.retained.is_none_or(|lease| lease.valid(world))
+            && crate::ui::branch::is_in_subtree(world, container, self.entity)
+    }
 }
 
 #[derive(Default)]
@@ -151,48 +182,46 @@ fn accept_scoped(
     if !world.has::<ScrollOffset>(container) || !available(world, container) {
         return;
     }
-    let item = match position {
-        ScrollPosition::Index(index) => Some(
-            crate::ui::widgets::lazy_list::ScrollItem::from_index(world, scope, index),
-        ),
-        ScrollPosition::Item(id) => Some(crate::ui::widgets::lazy_list::ScrollItem::from_id(
-            world, scope, id,
-        )),
-        _ => None,
-    };
-    let item = match item {
-        Some(Some(item)) => Some((scope, item)),
-        Some(None) => return,
-        None => None,
-    };
-    let node = match position {
+    let target = match position {
         ScrollPosition::Node(node) => {
-            if node == container
-                || !available(world, node)
-                || !crate::ui::branch::is_in_subtree(world, container, node)
-            {
+            if node == container {
                 return;
             }
-            Some(node)
+            let Some(lease) = TargetLease::capture(world, container, node) else {
+                return;
+            };
+            RequestTarget::Node(lease)
         }
-        ScrollPosition::Offset(_) => None,
-        ScrollPosition::Index(_) | ScrollPosition::Item(_) => {
-            if !available(world, scope)
-                || !crate::ui::branch::is_in_subtree(world, container, scope)
-            {
+        ScrollPosition::Offset(offset) => RequestTarget::Offset {
+            offset,
+            lease: InputLease::capture(world, container),
+        },
+        ScrollPosition::Index(index) => {
+            let Some(lease) = TargetLease::capture(world, container, scope) else {
                 return;
-            }
-            Some(scope)
+            };
+            let Some(item) =
+                crate::ui::widgets::lazy_list::ScrollItem::from_index(world, scope, index)
+            else {
+                return;
+            };
+            RequestTarget::Item(lease, item)
+        }
+        ScrollPosition::Item(id) => {
+            let Some(lease) = TargetLease::capture(world, container, scope) else {
+                return;
+            };
+            let Some(item) = crate::ui::widgets::lazy_list::ScrollItem::from_id(world, scope, id)
+            else {
+                return;
+            };
+            RequestTarget::Item(lease, item)
         }
     };
     let request = Request {
-        position,
+        target,
         reveal,
-        parent: node.and_then(|node| world.get::<Parent>(node).map(|parent| parent.0)),
         container_parent: world.get::<Parent>(container).map(|parent| parent.0),
-        lease: node.and_then(|node| InputLease::capture(world, node)),
-        container_lease: InputLease::capture(world, container),
-        item,
     };
     if let Some(pending) = world.get_mut::<Pending>(container) {
         pending.0 = Some(request);
@@ -203,6 +232,7 @@ fn accept_scoped(
 }
 
 pub(super) fn cancel(world: &mut World, container: Entity) {
+    animation::cancel(world, container);
     if world
         .get::<Pending>(container)
         .is_some_and(|pending| pending.0.is_some())
@@ -220,8 +250,16 @@ pub(super) fn cancel_chain(world: &mut World, mut cursor: Option<Entity>) {
     }
 }
 
-fn local_transform(world: &World, entity: Entity) -> Option<Transform3D> {
-    let (rect, affine, projective) = crate::ui::geometry::widget_render_geometry(world, entity)?;
+fn local_transform(world: &World, entity: Entity, container: Entity) -> Option<Transform3D> {
+    let (rect, affine, projective) =
+        crate::ui::geometry::widget_geometry_with_scroll(world, entity, &|node| {
+            if node != container
+                && let Some(offset) = animation::destination(world, node)
+            {
+                return offset;
+            }
+            world.get::<ScrollOffset>(node).copied().unwrap_or_default()
+        })?;
     Some(
         if projective.is_identity() {
             Transform3D::from(affine)
@@ -238,75 +276,101 @@ fn node_rect(world: &World, container: Entity, node: Entity) -> Option<Rect> {
 }
 
 fn relative_rect(world: &World, container: Entity, node: Entity, rect: Rect) -> Option<Rect> {
-    let transform = local_transform(world, container)?
+    let transform = local_transform(world, container, container)?
         .inverse()?
-        .compose(&local_transform(world, node)?);
+        .compose(&local_transform(world, node, container)?);
     Some(Rect::bounding_quad(&transform.apply_rect(rect)?))
 }
 
-fn displacement(start: Fixed, length: Fixed, viewport: Fixed, reveal: bool) -> Fixed {
+#[derive(Clone, Copy)]
+enum Edge {
+    Keep,
+    Leading,
+    Trailing,
+}
+
+struct Goal {
+    offset: ScrollOffset,
+    edges: [Edge; 2],
+    bounds: super::ScrollBounds,
+    direction: ScrollAxis,
+}
+
+fn edge(start: Fixed, length: Fixed, viewport: Fixed, reveal: bool) -> Edge {
     if !reveal || length > viewport || start < Fixed::ZERO {
-        start
+        Edge::Leading
+    } else if start + length > viewport {
+        Edge::Trailing
     } else {
-        (start + length - viewport).max(Fixed::ZERO)
+        Edge::Keep
     }
 }
 
-fn execute(world: &mut World, container: Entity, request: Request) -> PropertyChange {
+fn displacement(edge: Edge, start: Fixed, length: Fixed, viewport: Fixed) -> Fixed {
+    match edge {
+        Edge::Keep => Fixed::ZERO,
+        Edge::Leading => start,
+        Edge::Trailing => start + length - viewport,
+    }
+}
+
+fn goal(
+    world: &World,
+    container: Entity,
+    request: &Request,
+    edges: Option<[Edge; 2]>,
+) -> Option<Goal> {
     if !available(world, container)
         || request.container_parent != world.get::<Parent>(container).map(|parent| parent.0)
-        || request
-            .container_lease
-            .is_some_and(|lease| !lease.valid(world))
     {
-        return PropertyChange::Unchanged;
+        return None;
     }
-    let Some(bounds) = super::bounds::scroll_bounds(world, container) else {
-        return PropertyChange::Unchanged;
-    };
-    let Some(current) = world.get::<ScrollOffset>(container).copied() else {
-        return PropertyChange::Unchanged;
-    };
-    let desired = match request.position {
-        ScrollPosition::Offset(offset) => offset,
-        ScrollPosition::Node(node) => {
-            if !available(world, node)
-                || request.parent != world.get::<Parent>(node).map(|parent| parent.0)
-                || request.lease.is_some_and(|lease| !lease.valid(world))
-                || !crate::ui::branch::is_in_subtree(world, container, node)
-            {
-                return PropertyChange::Unchanged;
+    let bounds = super::bounds::scroll_bounds(world, container)?;
+    let current = world.get::<ScrollOffset>(container).copied()?;
+    let rect = match &request.target {
+        RequestTarget::Offset { lease, .. } => {
+            if lease.is_some_and(|lease| !lease.valid(world)) {
+                return None;
             }
-            let Some(rect) = node_rect(world, container, node) else {
-                return PropertyChange::Unchanged;
-            };
-            ScrollOffset {
-                x: current.x + displacement(rect.x, rect.w, bounds.viewport_width, request.reveal),
-                y: current.y + displacement(rect.y, rect.h, bounds.viewport_height, request.reveal),
-            }
+            None
         }
-        ScrollPosition::Index(_) | ScrollPosition::Item(_) => {
-            let Some((scope, item)) = request.item else {
-                return PropertyChange::Unchanged;
-            };
-            if !available(world, scope)
-                || request.parent != world.get::<Parent>(scope).map(|parent| parent.0)
-                || request.lease.is_some_and(|lease| !lease.valid(world))
-                || !crate::ui::branch::is_in_subtree(world, container, scope)
-            {
-                return PropertyChange::Unchanged;
+        RequestTarget::Node(lease) => {
+            if !lease.valid(world, container) {
+                return None;
             }
-            let Some(rect) = item
-                .rect(world, scope)
-                .and_then(|rect| relative_rect(world, container, scope, rect))
-            else {
-                return PropertyChange::Unchanged;
-            };
-            ScrollOffset {
-                x: current.x + displacement(rect.x, rect.w, bounds.viewport_width, request.reveal),
-                y: current.y + displacement(rect.y, rect.h, bounds.viewport_height, request.reveal),
-            }
+            Some(node_rect(world, container, lease.entity)?)
         }
+        RequestTarget::Item(lease, item) => {
+            if !lease.valid(world, container) {
+                return None;
+            }
+            let scope = lease.entity;
+            let mut rect = item.rect(world, scope)?;
+            if scope != container
+                && let Some(destination) = animation::destination(world, scope)
+            {
+                let actual = world.get::<ScrollOffset>(scope)?;
+                rect.x += actual.x - destination.x;
+                rect.y += actual.y - destination.y;
+            }
+            Some(relative_rect(world, container, scope, rect)?)
+        }
+    };
+    let edges = edges.unwrap_or_else(|| {
+        rect.map_or([Edge::Keep; 2], |rect| {
+            [
+                edge(rect.x, rect.w, bounds.viewport_width, request.reveal),
+                edge(rect.y, rect.h, bounds.viewport_height, request.reveal),
+            ]
+        })
+    });
+    let desired = match (&request.target, rect) {
+        (RequestTarget::Offset { offset, .. }, _) => *offset,
+        (_, Some(rect)) => ScrollOffset {
+            x: current.x + displacement(edges[0], rect.x, rect.w, bounds.viewport_width),
+            y: current.y + displacement(edges[1], rect.y, rect.h, bounds.viewport_height),
+        },
+        _ => return None,
     };
     let direction = world
         .get::<ScrollConfig>(container)
@@ -323,6 +387,25 @@ fn execute(world: &mut World, container: Entity, request: Request) -> PropertyCh
             desired.y.clamp(Fixed::ZERO, bounds.max_y)
         },
     };
+    Some(Goal {
+        offset: next,
+        edges,
+        bounds,
+        direction,
+    })
+}
+
+fn execute(world: &mut World, container: Entity, request: Request) -> PropertyChange {
+    let Some(goal) = goal(world, container, &request, None) else {
+        return PropertyChange::Unchanged;
+    };
+    let next = goal.offset;
+    if world.get::<ScrollOffset>(container) == Some(&next) {
+        return PropertyChange::Unchanged;
+    }
+    if animation::redirect(world, container, request, next, goal.edges) {
+        return PropertyChange::Transform;
+    }
     if super::system::set_position(world, container, next) {
         invalidate_for_change(world, container, PropertyChange::Transform);
         PropertyChange::Transform
@@ -337,6 +420,12 @@ struct ScrollPreparation;
 impl LayoutParticipant for ScrollPreparation {
     fn active(world: &World) -> bool {
         world.has_any_by_id(core::any::TypeId::of::<Pending>())
+    }
+    fn needed(world: &World) -> bool {
+        world
+            .storage::<Pending>()
+            .is_some_and(|storage| storage.iter().any(|(_, pending)| pending.0.is_some()))
+            || animation::any_active(world)
     }
     fn prepare(&mut self, _: &World, _: &[Entity]) -> bool {
         false
@@ -382,7 +471,7 @@ impl LayoutParticipant for ScrollPreparation {
                 .unwrap();
             change = change.merge(execute(world, container, request));
         }
-        change
+        change.merge(animation::reconcile(world))
     }
     #[cfg(test)]
     fn as_any(&self) -> &dyn core::any::Any {
@@ -390,17 +479,23 @@ impl LayoutParticipant for ScrollPreparation {
     }
 }
 
-#[crate::view(component = ScrollOffset, name = "Scroll")]
+#[crate::view(component = ScrollOffset, name = "Scroll", systems = [animation::programmatic_scroll_system::system()])]
 fn scroll_view() {}
 
 /// Register programmatic scrolling when installing widget capabilities individually.
 pub fn view() -> crate::ui::View {
     scroll_view::view()
         .with_prepared_layout::<ScrollPreparation>()
+        .with_reconcile(animation::prepare)
         .with_retire(|world, entity| {
             world.remove::<Pending>(entity);
+            world.remove::<animation::ProgrammaticMotion>(entity);
         })
 }
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn active(world: &World, entity: Entity) -> bool {
+    animation::active(world, entity)
+}

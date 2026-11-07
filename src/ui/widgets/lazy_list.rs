@@ -68,9 +68,14 @@ struct ListBinding {
 }
 
 pub(crate) struct ScrollItem {
-    binding: ListBinding,
-    index: u32,
-    id: Option<crate::core::model::ModelItemId>,
+    items: ListItems,
+    provider: Option<ConstructionProvider<CreateCell>>,
+    key: ScrollKey,
+}
+
+enum ScrollKey {
+    Index(u32),
+    Item(crate::core::model::ModelItemId),
 }
 
 impl ScrollItem {
@@ -80,13 +85,11 @@ impl ScrollItem {
             return None;
         }
         Some(Self {
-            binding: ListBinding {
-                items: items.clone(),
-                provider: world.get::<ConstructionProvider<CreateCell>>(list).cloned(),
-                _subscription: None,
-            },
-            index,
-            id: items.id(index),
+            items: items.clone(),
+            provider: world.get::<ConstructionProvider<CreateCell>>(list).cloned(),
+            key: items
+                .id(index)
+                .map_or(ScrollKey::Index(index), ScrollKey::Item),
         })
     }
 
@@ -103,14 +106,20 @@ impl ScrollItem {
 
     pub(crate) fn rect(&self, world: &World, entity: Entity) -> Option<crate::types::Rect> {
         let list = world.get::<LazyList>(entity)?;
-        if !self.binding.matches(world, entity, &list.items) {
+        if !binding_matches(
+            world,
+            entity,
+            &self.items,
+            &list.items,
+            self.provider.as_ref(),
+        ) {
             return None;
         }
         let count = list.items.count(world).ok()?;
-        let index = match self.id {
-            Some(id) => list.items.index(id)?,
-            None if self.index < count => self.index,
-            None => return None,
+        let index = match self.key {
+            ScrollKey::Item(id) => list.items.index(id)?,
+            ScrollKey::Index(index) if index < count => index,
+            ScrollKey::Index(_) => return None,
         };
         let geometry = ItemGeometry::new(count, list.item_extent)?;
         let viewport = world.get::<ComputedRect>(entity)?.0;
@@ -216,12 +225,22 @@ fn same_provider(
 
 impl ListBinding {
     fn matches(&self, world: &World, entity: Entity, items: &ListItems) -> bool {
-        self.items.same_source(items)
-            && same_provider(
-                self.provider.as_ref(),
-                world.get::<ConstructionProvider<CreateCell>>(entity),
-            )
+        binding_matches(world, entity, &self.items, items, self.provider.as_ref())
     }
+}
+
+fn binding_matches(
+    world: &World,
+    entity: Entity,
+    previous: &ListItems,
+    current: &ListItems,
+    provider: Option<&ConstructionProvider<CreateCell>>,
+) -> bool {
+    previous.same_source(current)
+        && same_provider(
+            provider,
+            world.get::<ConstructionProvider<CreateCell>>(entity),
+        )
 }
 
 struct ListConfig {

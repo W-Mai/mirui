@@ -63,6 +63,24 @@ commands.scroll_to(list, 50_000_u32);
 
 An index into a collection resolves to its current member when the deferred command commits. Reordering preserves that target; removal, source replacement or creation-callback replacement invalidates the request. Generated lists retain the index while the source remains generated and the index remains valid. The existing row pool realizes only the required cells. Ordinary containers do not interpret an integer as a child index; pixel positions use `ScrollOffset` explicitly.
 
+### Programmatic motion
+
+Configure animation on the existing container capability:
+
+```rust
+use mirui::anim::{SNAPPY, TweenConfig, ease};
+use mirui::input::event::scroll::ScrollConfig;
+
+let spring = ScrollConfig::default().with_transition(SNAPPY);
+let tween = ScrollConfig::default().with_transition(TweenConfig::new(160, &ease::OUT_QUAD));
+```
+
+The default `transition: None` applies commands immediately. The setting affects `scroll_into` and `scroll_to`; direct position properties remain explicit assignments, and pointer/wheel inertia and elasticity retain their input physics. Both variants use the shared `Motion`, animation slot and frame delta. Repeated destinations preserve progress; spring redirection retains velocity, while tween redirection follows its configured duration from the displayed position.
+
+Nested reveal requests plan against inner containers' destination offsets without changing their displayed offsets. Painting and hit testing use the current offsets. Moving into view does not end an animation early; its chosen leading or trailing alignment remains stable until completion. Layout changes update the destination, and changed bounds constrain displayed positions before painting. Hidden, retired or rebound targets cancel active motion. User input and different explicit position assignments take over the affected motion.
+
+Animated containers prepare reusable per-container motion storage. Containers with no transition do not create that motion storage. Pending requests and active motion retain source identities only until completion or cancellation; completed requests do not continuously track selection. Position-only updates reuse layout and text preparation, and idle retained state does not force preparation. Dirty-region queries do not advance animation. `ScrollStarted`, `ScrollChanged` and `ScrollEnded` cover the complete motion through the existing operation boundary.
+
 For programmatic movement, use the existing typed property command: `commands.set::<mirui::ui::property::prop::ScrollOffset>(node, ScrollOffset { x, y })`. It updates an existing scroll component and invalidates painting without requesting layout. Equal offsets leave the component unchanged and preserve active motion. Changed positions take over that node's active motion. Values retain both axes, fractional precision and elastic positions; this assignment does not clamp to bounds. In compositions, `scroll_offset: ${position}` uses the same property and accepts inputs forwarded through `prop!(ScrollOffset)`.
 
 Use `on ScrollChanged` to observe actual offsets and `on ScrollStarted` / `on ScrollEnded` to observe motion segments. These notifications include programmatic writes and retain fractional and elastic positions. `ScrollEnded` follows inertia and rebound, not the pointer release. All three support inline bodies, closures, and `#[event]` callbacks on nodes with `ScrollOffset`; see [scroll notifications](widget-events.md#scroll-notifications).

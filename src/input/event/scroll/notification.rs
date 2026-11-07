@@ -75,9 +75,10 @@ struct Observation {
 }
 
 fn active(world: &World, entity: Entity) -> bool {
-    world
-        .resource::<ScrollMotion>()
-        .is_some_and(|motion| motion.target_entity == Some(entity))
+    super::commands::active(world, entity)
+        || world
+            .resource::<ScrollMotion>()
+            .is_some_and(|motion| motion.target_entity == Some(entity))
 }
 
 fn listened(

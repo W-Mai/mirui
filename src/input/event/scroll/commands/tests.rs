@@ -5,9 +5,9 @@ use crate::surface::FramebufferAccess;
 use crate::types::Transform;
 use crate::ui::Hidden;
 
-type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
+pub(super) type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
-fn setup() -> (TestApp, Entity, Entity, Entity) {
+pub(super) fn setup() -> (TestApp, Entity, Entity, Entity) {
     let mut app = App::headless(120, 90);
     app.with_default_widgets();
     let root = app.spawn_root().id();
@@ -34,7 +34,7 @@ fn setup() -> (TestApp, Entity, Entity, Entity) {
     (app, root, container, row)
 }
 
-fn queue() -> CommandQueue {
+pub(super) fn queue() -> CommandQueue {
     CommandQueue::bounded(CommandCapacity::new().scroll_into(2).scroll_to(2)).unwrap()
 }
 

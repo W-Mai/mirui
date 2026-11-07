@@ -19,6 +19,12 @@ pub(crate) trait LayoutParticipant: 'static {
     fn active(world: &World) -> bool
     where
         Self: Sized;
+    fn needed(world: &World) -> bool
+    where
+        Self: Sized,
+    {
+        Self::active(world)
+    }
     fn prepare(&mut self, world: &World, entities: &[Entity]) -> bool;
     fn has_geometry(&self) -> bool;
     fn needs_geometry(&self, entity: Entity) -> bool;
@@ -30,6 +36,7 @@ pub(crate) trait LayoutParticipant: 'static {
 
 pub(crate) struct LayoutHook {
     pub(crate) active: fn(&World) -> bool,
+    pub(crate) needed: fn(&World) -> bool,
     create: fn() -> Box<dyn LayoutParticipant>,
 }
 
@@ -37,6 +44,7 @@ impl LayoutHook {
     pub(crate) const fn new<P: LayoutParticipant + Default>() -> Self {
         Self {
             active: P::active,
+            needed: P::needed,
             create: || Box::<P>::default(),
         }
     }

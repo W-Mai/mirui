@@ -56,6 +56,8 @@ pub struct ScrollConfig {
     pub elastic: bool,
     pub content_height: Fixed,
     pub content_width: Fixed,
+    /// Motion for programmatic positioning. Pointer and wheel physics are unaffected.
+    pub transition: Option<crate::anim::Transition>,
 }
 
 impl crate::ecs::Component for ScrollConfig {}
@@ -67,6 +69,15 @@ impl Default for ScrollConfig {
             elastic: true,
             content_height: Fixed::ZERO,
             content_width: Fixed::ZERO,
+            transition: None,
         }
+    }
+}
+
+impl ScrollConfig {
+    /// Animate programmatic scroll requests using an existing tween or spring configuration.
+    pub fn with_transition(mut self, transition: impl Into<crate::anim::Transition>) -> Self {
+        self.transition = Some(transition.into());
+        self
     }
 }

@@ -1367,7 +1367,7 @@ impl ViewRegistry {
             .and_then(|registry| registry.prepared_layout_plan.as_deref())
             .map_or(0, |plan| {
                 plan.iter()
-                    .filter(|entry| (entry.hook.active)(world))
+                    .filter(|entry| (entry.hook.needed)(world))
                     .count()
             })
     }

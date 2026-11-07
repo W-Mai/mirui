@@ -100,6 +100,11 @@ pub(crate) fn set_position(world: &mut World, entity: Entity, position: ScrollOf
         return false;
     }
     super::commands::cancel(world, entity);
+    take_input_motion(world, entity);
+    write_position(world, entity, position)
+}
+
+pub(super) fn take_input_motion(world: &mut World, entity: Entity) {
     let dragging = world
         .resource::<ScrollDragState>()
         .is_some_and(|state| state.active && state.resolved && state.target == entity);
@@ -116,9 +121,16 @@ pub(crate) fn set_position(world: &mut World, entity: Entity, position: ScrollOf
     if moving && let Some(motion) = world.resource_mut::<ScrollMotion>() {
         *motion = ScrollMotion::default();
     }
-    if let Some(offset) = world.get_mut::<ScrollOffset>(entity) {
-        *offset = position;
+}
+
+pub(super) fn write_position(world: &mut World, entity: Entity, position: ScrollOffset) -> bool {
+    if world
+        .get::<ScrollOffset>(entity)
+        .is_none_or(|old| *old == position)
+    {
+        return false;
     }
+    *world.get_mut::<ScrollOffset>(entity).unwrap() = position;
     true
 }
 
@@ -1525,6 +1537,7 @@ mod tests {
                 elastic,
                 content_height: Fixed::from_int(600),
                 content_width: Fixed::ZERO,
+                transition: None,
             },
         );
         // Simulate PointerDown at (64, 50) hitting target.
@@ -1597,6 +1610,7 @@ mod tests {
                 elastic: false,
                 content_height: Fixed::from_int(600),
                 content_width: Fixed::ZERO,
+                transition: None,
             },
         );
         if let Some(state) = world.resource_mut::<ScrollDragState>() {
@@ -1660,6 +1674,7 @@ mod tests {
                 elastic: true,
                 content_height: Fixed::from_int(500),
                 content_width: Fixed::ZERO,
+                transition: None,
             },
         );
         if let Some(state) = world.resource_mut::<ScrollDragState>() {
@@ -1725,6 +1740,7 @@ mod tests {
                 elastic: false,
                 content_height: Fixed::from_int(500),
                 content_width: Fixed::ZERO,
+                transition: None,
             },
         );
         if let Some(state) = world.resource_mut::<ScrollDragState>() {
@@ -1790,6 +1806,7 @@ mod tests {
                 elastic: false,
                 content_height: Fixed::from_int(600),
                 content_width: Fixed::ZERO,
+                transition: None,
             },
         );
 
@@ -1893,6 +1910,7 @@ mod tests {
                 elastic: false,
                 content_height: Fixed::from_int(500),
                 content_width: Fixed::ZERO,
+                transition: None,
             },
         );
         scroll_system(

@@ -58,6 +58,7 @@ pub fn build_widgets() {
                     elastic: true,
                     content_height: Fixed::from_int(536),
                     content_width: Fixed::ZERO,
+                    transition: None,
                 },
             ] {
                 walk colors.iter() with item {

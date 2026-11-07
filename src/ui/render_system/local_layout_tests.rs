@@ -163,6 +163,52 @@ fn prepared_participants_settle_visual_changes_without_layout_or_text_work() {
 }
 
 #[test]
+fn programmatic_scroll_motion_and_its_idle_state_skip_layout_and_text_preparation() {
+    use crate::input::event::scroll::ScrollConfig;
+    let mut app = App::headless(80, 60);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        ui! {
+            Column (id: "scroller", height: 30, width: 60, clip_children: true) [
+                ScrollOffset::default(),
+                ScrollConfig::default().with_transition(crate::anim::SNAPPY),
+            ] {
+                View (height: 60, shrink: 0.0)
+                Text ("target", id: "destination", height: 20, shrink: 0.0)
+                View (height: 50, shrink: 0.0)
+            }
+        };
+    });
+    app.render().unwrap();
+    let container = app.world.find_by_id("scroller").unwrap();
+    let target = app.world.find_by_id("destination").unwrap();
+    let mut queue =
+        crate::ecs::commands::CommandQueue::bounded(CommandCapacity::new().scroll_to(1)).unwrap();
+    let mut batch = queue.begin();
+    batch.commands().scroll_to(container, target);
+    batch.finish(&mut app.world).unwrap();
+    app.render_dirty().unwrap();
+    counts();
+    TEXT_PREPARATIONS.with(|count| count.set((0, 0)));
+    app.world.insert_resource(crate::ecs::DeltaTimeMs(16));
+    for _ in 0..100 {
+        app.systems.run_all(&mut app.world).unwrap();
+        app.render_dirty().unwrap();
+    }
+    assert_eq!(counts(), (0, 0));
+    assert_eq!(TEXT_PREPARATIONS.with(Cell::get), (0, 0));
+    assert_eq!(
+        crate::ui::view::ViewRegistry::prepared_layout_count(&app.world),
+        0
+    );
+    PREPARATIONS.with(|count| count.set(0));
+    app.world.invalidate_visual(target);
+    app.render_dirty().unwrap();
+    assert_eq!(PREPARATIONS.with(Cell::get), 0);
+}
+
+#[test]
 fn local_scope_preserves_geometry_hits_scroll_events_and_dirty_pixels() {
     let mut app = App::headless(120, 90);
     app.with_default_widgets().with_default_systems();

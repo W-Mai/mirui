@@ -113,6 +113,7 @@ fn cover_flow_panel(scroll_x_raw: i32) {
                     WINDOW_W + (CARD_W + CARD_GAP) * (CARD_COUNT - 1),
                 ),
                 content_height: Fixed::ZERO,
+                transition: None,
             },
         ] {
             walk card_colors.iter().enumerate() with item {

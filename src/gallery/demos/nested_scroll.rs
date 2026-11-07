@@ -40,6 +40,7 @@ pub fn build_widgets() {
                 elastic: true,
                 content_height: Fixed::from_int(1200),
                 content_width: Fixed::ZERO,
+                transition: None,
             },
         ] {
             Text (
@@ -72,6 +73,7 @@ pub fn build_widgets() {
                             elastic: true,
                             content_height: Fixed::ZERO,
                             content_width: Fixed::from_int(600),
+                            transition: None,
                         },
                     ] {
                         walk colors_inner.iter() with color {
@@ -111,6 +113,7 @@ pub fn build_widgets() {
                         elastic: true,
                         content_height: Fixed::from_int(500),
                         content_width: Fixed::ZERO,
+                        transition: None,
                     },
                 ] {
                     walk colors_inner.iter().enumerate() with item {

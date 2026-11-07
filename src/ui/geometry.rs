@@ -98,27 +98,41 @@ pub(crate) fn widget_render_geometry(
     world: &World,
     entity: Entity,
 ) -> Option<(Rect, Transform, Transform3D)> {
+    widget_geometry_with_scroll(world, entity, &|entity| {
+        world
+            .get::<crate::input::event::scroll::ScrollOffset>(entity)
+            .copied()
+            .unwrap_or_default()
+    })
+}
+
+pub(crate) fn widget_geometry_with_scroll(
+    world: &World,
+    entity: Entity,
+    scroll: &impl Fn(Entity) -> crate::input::event::scroll::ScrollOffset,
+) -> Option<(Rect, Transform, Transform3D)> {
     fn resolve(
         world: &World,
         entity: Entity,
         depth: u16,
+        scroll: &impl Fn(Entity) -> crate::input::event::scroll::ScrollOffset,
     ) -> Option<(Rect, Transform, Transform3D, Fixed, Fixed)> {
         if depth == 0 {
             return None;
         }
-        let (parent_affine, parent_projective, offset_x, offset_y) = if let Some(parent) =
-            world.get::<Parent>(entity).map(|parent| parent.0)
-        {
-            let (_, affine, projective, offset_x, offset_y) = resolve(world, parent, depth - 1)?;
-            (affine, projective, offset_x, offset_y)
-        } else {
-            (
-                Transform::IDENTITY,
-                Transform3D::IDENTITY,
-                Fixed::ZERO,
-                Fixed::ZERO,
-            )
-        };
+        let (parent_affine, parent_projective, offset_x, offset_y) =
+            if let Some(parent) = world.get::<Parent>(entity).map(|parent| parent.0) {
+                let (_, affine, projective, offset_x, offset_y) =
+                    resolve(world, parent, depth - 1, scroll)?;
+                (affine, projective, offset_x, offset_y)
+            } else {
+                (
+                    Transform::IDENTITY,
+                    Transform3D::IDENTITY,
+                    Fixed::ZERO,
+                    Fixed::ZERO,
+                )
+            };
         let computed = world.get::<super::ComputedRect>(entity)?.0;
         let rect = Rect {
             x: computed.x - offset_x,
@@ -128,15 +142,13 @@ pub(crate) fn widget_render_geometry(
         };
         let (affine, projective) =
             render_transforms(parent_affine, parent_projective, world, entity, rect);
-        let (child_offset_x, child_offset_y) = world
-            .get::<crate::input::event::scroll::ScrollOffset>(entity)
-            .map_or((offset_x, offset_y), |scroll| {
-                (offset_x + scroll.x, offset_y + scroll.y)
-            });
+        let scroll = scroll(entity);
+        let (child_offset_x, child_offset_y) = (offset_x + scroll.x, offset_y + scroll.y);
         Some((rect, affine, projective, child_offset_x, child_offset_y))
     }
 
-    resolve(world, entity, 1_024).map(|(rect, affine, projective, _, _)| (rect, affine, projective))
+    resolve(world, entity, 1_024, scroll)
+        .map(|(rect, affine, projective, _, _)| (rect, affine, projective))
 }
 
 pub(crate) fn transformed_clip_bounds(
