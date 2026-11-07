@@ -1,4 +1,5 @@
 pub(crate) mod bounds;
+mod commands;
 pub mod components;
 mod controller;
 mod motion;
@@ -7,6 +8,8 @@ pub mod system;
 mod velocity;
 
 pub use bounds::ScrollBounds;
+pub use commands::view;
+pub use commands::{ScrollPosition, ScrollTarget};
 pub use components::{ScrollAxis, ScrollConfig, ScrollOffset, TouchAction};
 pub use controller::ScrollMotion;
 pub use notification::{
