@@ -237,14 +237,7 @@ pub(crate) fn scroll_system_with_target(
     }
     match event {
         InputEvent::PointerDown { kind, id, x, y } => {
-            let mut cursor = pointer_down_target;
-            for _ in 0..world.live_entity_count() {
-                let Some(entity) = cursor else { break };
-                super::commands::cancel(world, entity);
-                cursor = world
-                    .get::<crate::ui::Parent>(entity)
-                    .map(|parent| parent.0);
-            }
+            super::commands::cancel_chain(world, pointer_down_target);
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
                 state.pointer = (*kind, *id);
                 state.active = true;
@@ -421,7 +414,7 @@ pub(crate) fn scroll_system_with_target(
                     return false;
                 }
                 let step = Fixed::from_int(20);
-                super::commands::cancel(world, target);
+                super::commands::cancel_chain(world, Some(target));
                 let offset = Fixed::from(*delta as i32) * step;
                 let axis = world
                     .get::<ScrollConfig>(target)
@@ -492,7 +485,7 @@ pub(crate) fn scroll_system_with_target(
                 elastic,
             );
             if accepted {
-                super::commands::cancel(world, target);
+                super::commands::cancel_chain(world, Some(hit));
                 settle_previous_motion(world, Some(target));
                 if let Some(motion) = world.resource_mut::<ScrollMotion>() {
                     motion.record(

@@ -22,10 +22,14 @@ enum Source {
 trait Collection: ModelHandle + 'static {
     fn count(&self) -> usize;
     fn item_id(&self, index: usize) -> Option<ModelItemId>;
+    fn item_index(&self, id: ModelItemId) -> Option<usize>;
     fn subscribe(&self, world: &World, entity: Entity) -> ModelSubscription;
 }
 
 impl<M: Model> Collection for ModelListHandle<M> {
+    fn item_index(&self, id: ModelItemId) -> Option<usize> {
+        self.item_index(id)
+    }
     fn count(&self) -> usize {
         self.len()
     }
@@ -38,6 +42,9 @@ impl<M: Model> Collection for ModelListHandle<M> {
 }
 
 impl<K: Ord + 'static, M: Model> Collection for ModelMapHandle<K, M> {
+    fn item_index(&self, id: ModelItemId) -> Option<usize> {
+        self.members_handle().item_index(id)
+    }
     fn count(&self) -> usize {
         self.len()
     }
@@ -55,10 +62,14 @@ trait CollectionSource {
     fn owner(&self) -> BindingOwner;
     fn len(&self) -> usize;
     fn item_id(&self, index: usize) -> Option<ModelItemId>;
+    fn item_index(&self, id: ModelItemId) -> Option<usize>;
     fn subscribe(&self, world: &World, entity: Entity) -> Option<ModelSubscription>;
 }
 
 impl<T: Collection> CollectionSource for T {
+    fn item_index(&self, id: ModelItemId) -> Option<usize> {
+        Collection::item_index(self, id)
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -138,6 +149,12 @@ impl PartialEq for ListItems {
 impl Eq for ListItems {}
 
 impl ListItems {
+    pub(super) fn index(&self, id: ModelItemId) -> Option<u32> {
+        match &self.0 {
+            Source::Count(_) => None,
+            Source::Collection(source) => u32::try_from(source.item_index(id)?).ok(),
+        }
+    }
     /// Current row count; a retired collection has no readable rows.
     pub fn len(&self) -> usize {
         match &self.0 {

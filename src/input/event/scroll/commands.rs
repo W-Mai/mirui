@@ -1,3 +1,4 @@
+use crate::core::model::ModelItemId;
 use crate::core::reactive::retained::{self, InputLease};
 use crate::ecs::commands::DeferredCommands;
 use crate::ecs::{CommandCapacity, Entity, World};
@@ -12,6 +13,19 @@ use super::{ScrollAxis, ScrollConfig, ScrollOffset};
 #[derive(Clone, Copy, Debug)]
 pub enum ScrollTarget {
     Node(Entity),
+    Index { list: Entity, index: u32 },
+    Item { list: Entity, id: ModelItemId },
+}
+
+impl From<(Entity, u32)> for ScrollTarget {
+    fn from((list, index): (Entity, u32)) -> Self {
+        Self::Index { list, index }
+    }
+}
+impl From<(Entity, ModelItemId)> for ScrollTarget {
+    fn from((list, id): (Entity, ModelItemId)) -> Self {
+        Self::Item { list, id }
+    }
 }
 
 impl From<Entity> for ScrollTarget {
@@ -25,6 +39,19 @@ impl From<Entity> for ScrollTarget {
 pub enum ScrollPosition {
     Offset(ScrollOffset),
     Node(Entity),
+    Index(u32),
+    Item(ModelItemId),
+}
+
+impl From<u32> for ScrollPosition {
+    fn from(index: u32) -> Self {
+        Self::Index(index)
+    }
+}
+impl From<ModelItemId> for ScrollPosition {
+    fn from(id: ModelItemId) -> Self {
+        Self::Item(id)
+    }
 }
 
 impl From<Entity> for ScrollPosition {
@@ -42,14 +69,26 @@ impl DeferredCommands<'_> {
     /// Reveal a widget with the smallest movement of its scrollable ancestors.
     pub fn scroll_into(&mut self, target: impl Into<ScrollTarget>) {
         let target = target.into();
-        let ScrollTarget::Node(entity) = target;
+        let entity = match target {
+            ScrollTarget::Node(entity) => entity,
+            ScrollTarget::Index { list, .. } | ScrollTarget::Item { list, .. } => list,
+        };
         self.apply(entity, target, |world, _, target| {
-            let ScrollTarget::Node(entity) = target;
-            let mut parent = world.get::<Parent>(entity).map(|parent| parent.0);
+            let (scope, position, mut parent) = match target {
+                ScrollTarget::Node(entity) => (
+                    entity,
+                    ScrollPosition::Node(entity),
+                    world.get::<Parent>(entity).map(|parent| parent.0),
+                ),
+                ScrollTarget::Index { list, index } => {
+                    (list, ScrollPosition::Index(index), Some(list))
+                }
+                ScrollTarget::Item { list, id } => (list, ScrollPosition::Item(id), Some(list)),
+            };
             for _ in 0..world.live_entity_count() {
                 let Some(container) = parent else { break };
                 if world.has::<ScrollOffset>(container) {
-                    accept(world, container, ScrollPosition::Node(entity), true);
+                    accept_scoped(world, container, scope, position, true);
                 }
                 parent = world.get::<Parent>(container).map(|parent| parent.0);
             }
@@ -77,7 +116,6 @@ impl CommandCapacity {
     }
 }
 
-#[derive(Clone, Copy)]
 struct Request {
     position: ScrollPosition,
     reveal: bool,
@@ -85,6 +123,7 @@ struct Request {
     container_parent: Option<Entity>,
     lease: Option<InputLease>,
     container_lease: Option<InputLease>,
+    item: Option<(Entity, crate::ui::widgets::lazy_list::ScrollItem)>,
 }
 
 #[derive(Default)]
@@ -99,9 +138,33 @@ fn available(world: &World, entity: Entity) -> bool {
 }
 
 fn accept(world: &mut World, container: Entity, position: ScrollPosition, reveal: bool) {
+    accept_scoped(world, container, container, position, reveal);
+}
+
+fn accept_scoped(
+    world: &mut World,
+    container: Entity,
+    scope: Entity,
+    position: ScrollPosition,
+    reveal: bool,
+) {
     if !world.has::<ScrollOffset>(container) || !available(world, container) {
         return;
     }
+    let item = match position {
+        ScrollPosition::Index(index) => Some(
+            crate::ui::widgets::lazy_list::ScrollItem::from_index(world, scope, index),
+        ),
+        ScrollPosition::Item(id) => Some(crate::ui::widgets::lazy_list::ScrollItem::from_id(
+            world, scope, id,
+        )),
+        _ => None,
+    };
+    let item = match item {
+        Some(Some(item)) => Some((scope, item)),
+        Some(None) => return,
+        None => None,
+    };
     let node = match position {
         ScrollPosition::Node(node) => {
             if node == container
@@ -113,6 +176,14 @@ fn accept(world: &mut World, container: Entity, position: ScrollPosition, reveal
             Some(node)
         }
         ScrollPosition::Offset(_) => None,
+        ScrollPosition::Index(_) | ScrollPosition::Item(_) => {
+            if !available(world, scope)
+                || !crate::ui::branch::is_in_subtree(world, container, scope)
+            {
+                return;
+            }
+            Some(scope)
+        }
     };
     let request = Request {
         position,
@@ -121,6 +192,7 @@ fn accept(world: &mut World, container: Entity, position: ScrollPosition, reveal
         container_parent: world.get::<Parent>(container).map(|parent| parent.0),
         lease: node.and_then(|node| InputLease::capture(world, node)),
         container_lease: InputLease::capture(world, container),
+        item,
     };
     if let Some(pending) = world.get_mut::<Pending>(container) {
         pending.0 = Some(request);
@@ -140,6 +212,14 @@ pub(super) fn cancel(world: &mut World, container: Entity) {
     }
 }
 
+pub(super) fn cancel_chain(world: &mut World, mut cursor: Option<Entity>) {
+    for _ in 0..world.live_entity_count() {
+        let Some(entity) = cursor else { break };
+        cancel(world, entity);
+        cursor = world.get::<Parent>(entity).map(|parent| parent.0);
+    }
+}
+
 fn local_transform(world: &World, entity: Entity) -> Option<Transform3D> {
     let (rect, affine, projective) = crate::ui::geometry::widget_render_geometry(world, entity)?;
     Some(
@@ -154,12 +234,14 @@ fn local_transform(world: &World, entity: Entity) -> Option<Transform3D> {
 
 fn node_rect(world: &World, container: Entity, node: Entity) -> Option<Rect> {
     let rect = world.get::<crate::ui::ComputedRect>(node)?.0;
+    relative_rect(world, container, node, Rect::new(0, 0, rect.w, rect.h))
+}
+
+fn relative_rect(world: &World, container: Entity, node: Entity, rect: Rect) -> Option<Rect> {
     let transform = local_transform(world, container)?
         .inverse()?
         .compose(&local_transform(world, node)?);
-    Some(Rect::bounding_quad(
-        &transform.apply_rect(Rect::new(0, 0, rect.w, rect.h))?,
-    ))
+    Some(Rect::bounding_quad(&transform.apply_rect(rect)?))
 }
 
 fn displacement(start: Fixed, length: Fixed, viewport: Fixed, reveal: bool) -> Fixed {
@@ -196,6 +278,28 @@ fn execute(world: &mut World, container: Entity, request: Request) -> PropertyCh
                 return PropertyChange::Unchanged;
             }
             let Some(rect) = node_rect(world, container, node) else {
+                return PropertyChange::Unchanged;
+            };
+            ScrollOffset {
+                x: current.x + displacement(rect.x, rect.w, bounds.viewport_width, request.reveal),
+                y: current.y + displacement(rect.y, rect.h, bounds.viewport_height, request.reveal),
+            }
+        }
+        ScrollPosition::Index(_) | ScrollPosition::Item(_) => {
+            let Some((scope, item)) = request.item else {
+                return PropertyChange::Unchanged;
+            };
+            if !available(world, scope)
+                || request.parent != world.get::<Parent>(scope).map(|parent| parent.0)
+                || request.lease.is_some_and(|lease| !lease.valid(world))
+                || !crate::ui::branch::is_in_subtree(world, container, scope)
+            {
+                return PropertyChange::Unchanged;
+            }
+            let Some(rect) = item
+                .rect(world, scope)
+                .and_then(|rect| relative_rect(world, container, scope, rect))
+            else {
                 return PropertyChange::Unchanged;
             };
             ScrollOffset {

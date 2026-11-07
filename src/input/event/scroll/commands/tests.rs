@@ -260,3 +260,118 @@ fn transformed_targets_use_container_coordinates_and_oversize_aligns_once() {
         60.into()
     );
 }
+
+use crate::ui::widgets::lazy_list::{CreateCell, LazyList, ListItems};
+
+#[crate::event]
+fn create_cell(event: event!(CreateCell)) -> Entity {
+    let item = event.item.clone();
+    ui! {
+        View (
+            bg_color: ${ if item.index() % 2 == 0 { Color::rgb(0, 120, 200) } else { Color::rgb(0, 180, 120) } }
+        )
+    }
+}
+
+#[crate::compose]
+fn virtual_list(items: ListItems) -> Entity {
+    ui! {
+        LazyList (width: 80, height: 40, items: items, item_extent: 40) on CreateCell(create_cell::callback())
+    }
+}
+
+#[test]
+fn virtual_indices_realize_only_the_destination_and_reuse_the_cell_pool() {
+    let mut app = App::headless(120, 90);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let list = app.compose(root, virtual_list(65_536_u32.into()));
+    let mut queue = queue();
+    let mut batch = queue.begin();
+    batch.commands().scroll_into((list, 100_u32));
+    batch.finish(&mut app.world).unwrap();
+    app.render().unwrap();
+    assert_eq!(app.world.get::<ScrollOffset>(list).unwrap().y, 4000.into());
+    let cells = app
+        .world
+        .get::<crate::ui::Children>(list)
+        .unwrap()
+        .0
+        .clone();
+    assert!(cells.len() <= 6);
+    assert_eq!(app.world.get::<LazyList>(list).unwrap().visible_start, 100);
+    let mut batch = queue.begin();
+    batch.commands().scroll_to(list, 200_u32);
+    batch.finish(&mut app.world).unwrap();
+    app.render_dirty().unwrap();
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            for index in [200_u32, 100, 500, 250] {
+                let mut batch = queue.begin();
+                batch.commands().scroll_to(list, index);
+                batch.finish(&mut app.world).unwrap();
+                app.render_dirty().unwrap();
+                assert_eq!(
+                    app.world.get::<LazyList>(list).unwrap().visible_start,
+                    index
+                );
+            }
+        }),
+        0
+    );
+    assert_eq!(app.world.get::<crate::ui::Children>(list).unwrap().0, cells);
+}
+
+#[crate::model]
+#[derive(Debug)]
+struct ItemData {
+    #[observe]
+    value: u8,
+}
+
+#[crate::model]
+impl ItemData {}
+
+#[test]
+fn virtual_member_requests_follow_identity_and_reject_replaced_sources_or_providers() {
+    use crate::core::model::ModelList;
+    let mut app = App::headless(120, 90);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let mut data = ModelList::with_capacity(8);
+    for value in 0..8 {
+        data.try_push(ItemData { value }).unwrap();
+    }
+    let data = app.add_model(data).finish();
+    let list = app.compose(root, virtual_list(data.clone().into()));
+    app.render().unwrap();
+    let id = data.entries().nth(3).unwrap().0;
+    let mut queue = queue();
+    let mut batch = queue.begin();
+    batch.commands().scroll_to(list, 3_u32);
+    batch.finish(&mut app.world).unwrap();
+    data.move_to(id, 5).unwrap();
+    app.render_dirty().unwrap();
+    assert_eq!(app.world.get::<ScrollOffset>(list).unwrap().y, 200.into());
+    let mut batch = queue.begin();
+    batch.commands().scroll_to(list, id);
+    batch.finish(&mut app.world).unwrap();
+    data.remove(id).unwrap();
+    data.try_push(ItemData { value: 9 }).unwrap();
+    app.render_dirty().unwrap();
+    assert_eq!(app.world.get::<ScrollOffset>(list).unwrap().y, 200.into());
+    let mut batch = queue.begin();
+    batch.commands().scroll_to(list, 0_u32);
+    batch.finish(&mut app.world).unwrap();
+    app.world.get_mut::<LazyList>(list).unwrap().items = 20_u32.into();
+    app.render_dirty().unwrap();
+    assert_eq!(app.world.get::<ScrollOffset>(list).unwrap().y, 200.into());
+    let mut batch = queue.begin();
+    batch.commands().scroll_to(list, 0_u32);
+    batch.finish(&mut app.world).unwrap();
+    app.compose(root, |cx| {
+        cx.on_event(list, LazyList::CreateCell, create_cell::callback());
+    });
+    app.render_dirty().unwrap();
+    assert_eq!(app.world.get::<ScrollOffset>(list).unwrap().y, 200.into());
+}

@@ -52,6 +52,17 @@ fn show_selected(row: Entity, commands: commands!()) {
 
 The latest request for each container replaces its pending request. Hidden, retired or reparented targets are skipped. User scrolling takes over pending requests; a retained page does not scroll again merely because it becomes visible. `App::with_default_widgets()` registers this capability. Applications that install individual widget kinds can register `mirui::input::event::scroll::view()` after their geometry-producing widgets. Explicit callback budgets use `CommandCapacity::scroll_into(count)` and `scroll_to(count)`.
 
+Fixed-extent `LazyList` targets also accept a data index or stable `ModelItemId`, without requiring a realized cell:
+
+```rust,ignore
+commands.scroll_into((list, 50_000_u32));
+commands.scroll_into((list, selected_id));
+commands.scroll_to(list, selected_id);
+commands.scroll_to(list, 50_000_u32);
+```
+
+An index into a collection resolves to its current member when the deferred command commits. Reordering preserves that target; removal, source replacement or creation-callback replacement invalidates the request. Generated lists retain the index while the source remains generated and the index remains valid. The existing row pool realizes only the required cells. Ordinary containers do not interpret an integer as a child index; pixel positions use `ScrollOffset` explicitly.
+
 For programmatic movement, use the existing typed property command: `commands.set::<mirui::ui::property::prop::ScrollOffset>(node, ScrollOffset { x, y })`. It updates an existing scroll component and invalidates painting without requesting layout. Equal offsets leave the component unchanged and preserve active motion. Changed positions take over that node's active motion. Values retain both axes, fractional precision and elastic positions; this assignment does not clamp to bounds. In compositions, `scroll_offset: ${position}` uses the same property and accepts inputs forwarded through `prop!(ScrollOffset)`.
 
 Use `on ScrollChanged` to observe actual offsets and `on ScrollStarted` / `on ScrollEnded` to observe motion segments. These notifications include programmatic writes and retain fractional and elastic positions. `ScrollEnded` follows inertia and rebound, not the pointer release. All three support inline bodies, closures, and `#[event]` callbacks on nodes with `ScrollOffset`; see [scroll notifications](widget-events.md#scroll-notifications).

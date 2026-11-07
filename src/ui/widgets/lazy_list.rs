@@ -66,6 +66,72 @@ struct ListBinding {
     provider: Option<ConstructionProvider<CreateCell>>,
     _subscription: Option<crate::core::model::ModelSubscription>,
 }
+
+pub(crate) struct ScrollItem {
+    binding: ListBinding,
+    index: u32,
+    id: Option<crate::core::model::ModelItemId>,
+}
+
+impl ScrollItem {
+    pub(crate) fn from_index(world: &World, list: Entity, index: u32) -> Option<Self> {
+        let items = &world.get::<LazyList>(list)?.items;
+        if index >= items.count(world).ok()? {
+            return None;
+        }
+        Some(Self {
+            binding: ListBinding {
+                items: items.clone(),
+                provider: world.get::<ConstructionProvider<CreateCell>>(list).cloned(),
+                _subscription: None,
+            },
+            index,
+            id: items.id(index),
+        })
+    }
+
+    pub(crate) fn from_id(
+        world: &World,
+        list: Entity,
+        id: crate::core::model::ModelItemId,
+    ) -> Option<Self> {
+        let items = &world.get::<LazyList>(list)?.items;
+        items.count(world).ok()?;
+        let index = items.index(id)?;
+        Self::from_index(world, list, index)
+    }
+
+    pub(crate) fn rect(&self, world: &World, entity: Entity) -> Option<crate::types::Rect> {
+        let list = world.get::<LazyList>(entity)?;
+        if !self.binding.matches(world, entity, &list.items) {
+            return None;
+        }
+        let count = list.items.count(world).ok()?;
+        let index = match self.id {
+            Some(id) => list.items.index(id)?,
+            None if self.index < count => self.index,
+            None => return None,
+        };
+        let geometry = ItemGeometry::new(count, list.item_extent)?;
+        let viewport = world.get::<ComputedRect>(entity)?.0;
+        let offset = *world.get::<ScrollOffset>(entity)?;
+        Some(if horizontal(world, entity) {
+            crate::types::Rect::new(
+                geometry.position(index) - offset.x,
+                -offset.y,
+                list.item_extent,
+                viewport.h,
+            )
+        } else {
+            crate::types::Rect::new(
+                -offset.x,
+                geometry.position(index) - offset.y,
+                viewport.w,
+                list.item_extent,
+            )
+        })
+    }
+}
 #[derive(Default)]
 struct CellPool {
     slots: Vec<Slot>,
