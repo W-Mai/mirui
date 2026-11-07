@@ -29,6 +29,15 @@ pub enum PropertyChange {
 }
 
 impl PropertyChange {
+    pub(crate) const fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Layout, _) | (_, Self::Layout) => Self::Layout,
+            (Self::Transform, _) | (_, Self::Transform) => Self::Transform,
+            (Self::Visual, _) | (_, Self::Visual) => Self::Visual,
+            _ => Self::Unchanged,
+        }
+    }
+
     pub const fn changed(self) -> bool {
         !matches!(self, Self::Unchanged)
     }

@@ -26,6 +26,7 @@ pub(crate) mod lifecycle;
 pub mod niche;
 pub mod offscreen;
 pub mod outputs;
+pub(crate) mod prepared_layout;
 mod prop;
 pub mod property;
 pub(crate) mod recipe;

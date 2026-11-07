@@ -8,6 +8,8 @@ use crate::input::event::scroll::ScrollOffset;
 use crate::types::{Dimension, Fixed, Point, Rect, Transform3D};
 use crate::ui::layout::{LayoutNode, LayoutStyle, Position};
 use crate::ui::outputs::graph::OutputGraph;
+use crate::ui::prepared_layout::{LayoutParticipant, PreparedLayout};
+use crate::ui::property::PropertyChange;
 use crate::ui::{ComputedRect, LayoutGeometry, Outputs, Parent, View};
 
 pub(crate) mod clip;
@@ -99,6 +101,7 @@ fn follow_bounds() {}
 /// Register layout following. Included by `App::with_default_widgets()`.
 pub fn view() -> View {
     follow_bounds::view()
+        .with_prepared_layout::<FollowPlan>()
         .with_reconcile(prepare)
         .with_retire(retire)
         .with_systems(
@@ -218,6 +221,41 @@ impl FollowPlan {
     }
 }
 
+impl LayoutParticipant for FollowPlan {
+    fn active(world: &World) -> bool {
+        active(world)
+    }
+    fn prepare(&mut self, world: &World, entities: &[Entity]) -> bool {
+        let valid = self.valid;
+        let before = self.revision();
+        FollowPlan::prepare(self, world, entities);
+        !valid || before != self.revision()
+    }
+    fn has_geometry(&self) -> bool {
+        !self.entities.is_empty()
+    }
+    fn needs_geometry(&self, entity: Entity) -> bool {
+        self.targets().contains(&entity)
+    }
+    fn invalidate(&mut self) {
+        FollowPlan::invalidate(self);
+    }
+    fn reconcile(&mut self, world: &mut World, layout: &mut PreparedLayout<'_>) -> PropertyChange {
+        reconcile(
+            world,
+            layout.tree,
+            layout.entities,
+            layout.paths,
+            self,
+            layout.viewport,
+        )
+    }
+    #[cfg(test)]
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+}
+
 fn resolve(world: &World, entity: Entity) -> Option<Resolved> {
     let follow = world.get::<FollowBounds>(entity)?;
     let parent = world.get::<Parent>(entity)?.0;
@@ -256,7 +294,7 @@ fn resolve(world: &World, entity: Entity) -> Option<Resolved> {
     })
 }
 
-fn assign(world: &mut World, entity: Entity, geometry: Option<Resolved>) -> bool {
+fn assign(world: &mut World, entity: Entity, geometry: Option<Resolved>) -> PropertyChange {
     let geometry = geometry.map(|mut geometry| {
         geometry.rect = motion::redirect(world, entity, geometry.rect);
         geometry
@@ -264,7 +302,7 @@ fn assign(world: &mut World, entity: Entity, geometry: Option<Resolved>) -> bool
     let previous = world.get::<FollowState>(entity).unwrap();
     let geometry_changed = previous.geometry != geometry;
     if !geometry_changed && previous.warned == geometry.is_none() {
-        return false;
+        return PropertyChange::Unchanged;
     }
     let state = world.get_mut::<FollowState>(entity).unwrap();
     if geometry.is_none() && !state.warned {
@@ -272,17 +310,18 @@ fn assign(world: &mut World, entity: Entity, geometry: Option<Resolved>) -> bool
     }
     state.warned = geometry.is_none();
     if !geometry_changed {
-        return false;
+        return PropertyChange::Unchanged;
     }
     let layout_changed = state.geometry.map(|value| (value.rect.w, value.rect.h))
         != geometry.map(|value| (value.rect.w, value.rect.h));
     state.geometry = geometry;
     if layout_changed {
         world.mark_subtree_dirty(entity);
+        PropertyChange::Layout
     } else {
         world.invalidate_subtree_visual(entity);
+        PropertyChange::Transform
     }
-    layout_changed
 }
 
 pub(crate) fn reconcile(
@@ -292,11 +331,11 @@ pub(crate) fn reconcile(
     paths: &crate::ui::layout::paths::LayoutPaths,
     plan: &FollowPlan,
     viewport: Rect,
-) -> bool {
-    let mut changed = false;
+) -> PropertyChange {
+    let mut changed = PropertyChange::Unchanged;
     for (index, &entity) in plan.entities.iter().enumerate() {
         if plan.graph.is_blocked(index) {
-            changed |= assign(world, entity, None);
+            changed = changed.merge(assign(world, entity, None));
         }
     }
     crate::ui::layout_geometry::publish(world, tree, entities, paths, viewport);
@@ -304,7 +343,7 @@ pub(crate) fn reconcile(
         let entity = plan.entities[index];
         let geometry = resolve(world, entity);
         let previous = world.get::<FollowState>(entity).unwrap().geometry;
-        changed |= assign(world, entity, geometry);
+        changed = changed.merge(assign(world, entity, geometry));
         let mut publish = previous != world.get::<FollowState>(entity).unwrap().geometry;
         if let Some(geometry) = world.get::<FollowState>(entity).unwrap().geometry {
             let parent = world.get::<Parent>(entity).unwrap().0;
@@ -318,6 +357,11 @@ pub(crate) fn reconcile(
             );
             layout_style(world, entity, &mut node.style);
             if node.rect != rect {
+                changed = changed.merge(if node.rect.w != rect.w || node.rect.h != rect.h {
+                    PropertyChange::Layout
+                } else {
+                    PropertyChange::Transform
+                });
                 crate::ui::layout::compute_layout(node, rect.x, rect.y, rect.w, rect.h);
                 let mut position = entities
                     .iter()

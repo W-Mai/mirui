@@ -1847,7 +1847,7 @@ fn compute_layout_snapshot(
                     painted_damage: Vec::with_capacity(node_count),
                     prepared_paint: PreparedPaint::with_capacity(node_count),
                     paths: super::layout::paths::LayoutPaths::default(),
-                    follow_plan: None,
+                    layout_participants: Default::default(),
                 })
             }
         }
@@ -3313,7 +3313,7 @@ fn reconcile_layout_snapshot(
         .storage::<super::layout_binding::LayoutBinding>()
         .map_or(0, |storage| storage.len())
         + crate::input::event::runtime::size_observer_count(world)
-        + usize::from(super::widgets::follow_bounds::active(world));
+        + super::view::ViewRegistry::prepared_layout_count(world);
     let update_budget = if world
         .query::<super::widgets::LazyList>()
         .iter()
@@ -3327,12 +3327,18 @@ fn reconcile_layout_snapshot(
             .min(MAX_LAYOUT_BINDING_UPDATES)
     };
     let pass_count = update_budget.saturating_add(1);
+    let mut prepared_revision = None;
 
     for pass in 0..pass_count {
-        let reuse = reuse_visual_layout
-            && pass == 0
+        let layout_unchanged = if pass == 0 {
+            reuse_visual_layout && !crate::input::event::hit_test::geometry_changes(world).0
+        } else {
+            prepared_revision.is_some()
+                && prepared_revision
+                    == world.tracked_component_revision::<crate::ui::dirty::Dirty>()
+        };
+        let reuse = layout_unchanged
             && !super::branch::is_authored_hidden(world, root)
-            && !crate::input::event::hit_test::geometry_changes(world).0
             && world.resource::<LayoutSnapshot>().is_some_and(|snapshot| {
                 snapshot.matches(root, logical_w, logical_h)
                     && !snapshot.bindings_pending
@@ -3356,18 +3362,19 @@ fn reconcile_layout_snapshot(
         let mut idx = 0;
         write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
         snapshot.prepare_geometry_plan(world);
-        let followed = if let Some(plan) = &snapshot.follow_plan {
-            super::widgets::follow_bounds::reconcile(
-                world,
-                &mut snapshot.layout_tree,
-                &snapshot.entities,
-                &snapshot.paths,
-                plan,
-                Rect::new(0, 0, logical_w, logical_h),
-            )
-        } else {
-            false
-        };
+        prepared_revision = world.tracked_component_revision::<crate::ui::dirty::Dirty>();
+        let participated = snapshot.layout_participants.reconcile(
+            world,
+            &mut super::prepared_layout::PreparedLayout {
+                tree: &mut snapshot.layout_tree,
+                entities: &snapshot.entities,
+                paths: &snapshot.paths,
+                viewport: Rect::new(0, 0, logical_w, logical_h),
+            },
+        );
+        if participated == super::property::PropertyChange::Layout {
+            prepared_revision = None;
+        }
         let invoke = pass < update_budget;
         let sizes =
             match crate::input::event::runtime::capture_sizes(world, &snapshot.entities, invoke) {
@@ -3378,7 +3385,8 @@ fn reconcile_layout_snapshot(
                 }
             };
         world.put_resource_box(snapshot);
-        let mut changed = followed | super::layout_binding::apply_layout_bindings(world, invoke);
+        let mut changed =
+            participated.changed() | super::layout_binding::apply_layout_bindings(world, invoke);
         if invoke {
             changed |= super::widgets::lazy_list::reconcile(world);
         }
@@ -3520,7 +3528,7 @@ pub(crate) fn prepare_input_geometry(
     });
     if layout_changed
         || !layout_current
-        || (visual_changed && super::widgets::follow_bounds::active(world))
+        || (visual_changed && super::view::ViewRegistry::prepared_layout_count(world) != 0)
     {
         return update_layout(world, root, viewport, true);
     }
@@ -3822,7 +3830,7 @@ pub(crate) struct LayoutSnapshot {
     reachable: Vec<Entity>,
     pub(crate) entities: Vec<Entity>,
     pub(crate) paths: super::layout::paths::LayoutPaths,
-    pub(crate) follow_plan: Option<Box<super::widgets::follow_bounds::FollowPlan>>,
+    pub(crate) layout_participants: super::prepared_layout::LayoutParticipants,
     painted_damage: Vec<Entity>,
     prepared_paint: PreparedPaint,
 }
@@ -3831,30 +3839,18 @@ impl LayoutSnapshot {
     pub(crate) fn trim_memory(&mut self) {
         self.reachable = Vec::new();
         self.paths.release();
-        self.follow_plan = None;
+        self.layout_participants.release();
     }
 
     fn invalidate_geometry_plan(&mut self) {
         self.paths.invalidate();
-        if let Some(plan) = &mut self.follow_plan {
-            plan.invalidate();
-        }
+        self.layout_participants.invalidate();
     }
 
     pub(crate) fn prepare_geometry_plan(&mut self, world: &mut World) {
-        if super::widgets::follow_bounds::active(world) {
-            let plan = self.follow_plan.get_or_insert_with(Default::default);
-            plan.prepare(world, &self.entities);
-        } else {
-            self.follow_plan = None;
-        }
+        self.layout_participants.prepare(world, &self.entities);
         let outputs = world.resource::<Outputs<super::LayoutGeometry>>();
-        if !outputs.is_some_and(Outputs::has_requests)
-            && self
-                .follow_plan
-                .as_ref()
-                .is_none_or(|plan| plan.targets().is_empty())
-        {
+        if !outputs.is_some_and(Outputs::has_requests) && !self.layout_participants.has_geometry() {
             self.paths.release();
             return;
         }
@@ -3864,20 +3860,13 @@ impl LayoutSnapshot {
                 0,
                 super::outputs::relations::OutputRelations::structure_revision,
             );
-        let revision = self
-            .follow_plan
-            .as_ref()
-            .map_or([0; 2], |plan| plan.revision());
         self.paths.prepare(
             &self.layout_tree,
             self.entities.len(),
-            [relation_revision, revision[0], revision[1]],
+            [relation_revision, self.layout_participants.revision(), 0],
             |entity| {
                 outputs.is_some_and(|outputs| outputs.is_requested(entity))
-                    || self
-                        .follow_plan
-                        .as_ref()
-                        .is_some_and(|plan| plan.targets().contains(&entity))
+                    || self.layout_participants.needs_geometry(entity)
             },
         );
     }
@@ -4308,7 +4297,7 @@ fn needs_geometry_preparation(world: &World) -> bool {
     let layout_output = world
         .resource::<Outputs<super::LayoutGeometry>>()
         .is_some_and(Outputs::has_requests);
-    let follow_bounds = super::widgets::follow_bounds::active(world);
+    let layout_participants = super::view::ViewRegistry::prepared_layout_count(world) != 0;
     let output_relations = world
         .resource::<super::outputs::relations::OutputRelations>()
         .is_some_and(|relations| relations.has_current_bindings());
@@ -4321,7 +4310,7 @@ fn needs_geometry_preparation(world: &World) -> bool {
         || text_editing
         || text_path
         || layout_output
-        || follow_bounds
+        || layout_participants
         || output_relations
         || offscreen
 }
@@ -4430,7 +4419,7 @@ pub(crate) fn try_collect_dirty_regions_into(
     let (_, visual_changed) = crate::input::event::hit_test::geometry_changes(world);
     let visual_only = !has_layout_dirty
         && !snapshot_stale
-        && !(visual_changed && super::widgets::follow_bounds::active(world));
+        && !(visual_changed && super::view::ViewRegistry::prepared_layout_count(world) != 0);
     let existing = match world.take_resource_box::<LayoutSnapshot>() {
         Some(snapshot) if snapshot.matches(root, logical_w, logical_h) => Some(snapshot),
         Some(snapshot) => {
@@ -4514,7 +4503,7 @@ pub(crate) fn try_collect_dirty_regions_into(
         output_plan::measure_for_dirty(world, &snapshot.layout_tree, &snapshot.entities)
     } else {
         snapshot.paths.release();
-        snapshot.follow_plan = None;
+        snapshot.layout_participants.release();
         None
     };
 

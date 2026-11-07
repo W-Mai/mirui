@@ -12,8 +12,8 @@ const BLUE: Color = Color::rgb(20, 80, 240);
 fn cached_plan(app: &TestApp) -> Option<&FollowPlan> {
     app.world
         .resource::<crate::ui::render_system::LayoutSnapshot>()?
-        .follow_plan
-        .as_deref()
+        .layout_participants
+        .state::<FollowPlan>()
 }
 
 #[test]
@@ -28,9 +28,21 @@ fn hidden_followers_keep_an_empty_prepared_plan_without_repeated_allocation() {
         .take_resource_box::<crate::ui::render_system::LayoutSnapshot>()
         .unwrap();
     snapshot.prepare_geometry_plan(&mut app.world);
-    assert!(snapshot.follow_plan.as_ref().unwrap().entities.is_empty());
+    assert!(
+        snapshot
+            .layout_participants
+            .state::<FollowPlan>()
+            .unwrap()
+            .entities
+            .is_empty()
+    );
     assert_eq!(
-        snapshot.follow_plan.as_ref().unwrap().entities.capacity(),
+        snapshot
+            .layout_participants
+            .state::<FollowPlan>()
+            .unwrap()
+            .entities
+            .capacity(),
         0
     );
     assert_eq!(
@@ -44,7 +56,7 @@ fn hidden_followers_keep_an_empty_prepared_plan_without_repeated_allocation() {
     app.world.remove::<FollowBounds>(follower);
     crate::ui::lifecycle::prepare(&mut app.world);
     snapshot.prepare_geometry_plan(&mut app.world);
-    assert!(snapshot.follow_plan.is_none());
+    assert!(snapshot.layout_participants.state::<FollowPlan>().is_none());
     app.world.put_resource_box(snapshot);
 }
 
@@ -101,18 +113,30 @@ fn equal_geometry_and_repeated_missing_targets_do_not_publish_state_changes() {
     assert_eq!(
         crate::test_support::tracked_allocations(|| {
             for _ in 0..16 {
-                assert!(!assign(&mut app.world, follower, geometry));
+                assert_eq!(
+                    assign(&mut app.world, follower, geometry),
+                    PropertyChange::Unchanged
+                );
             }
         }),
         0
     );
     assert_eq!(app.world.component_revision::<FollowState>(), revision);
-    assert!(assign(&mut app.world, follower, None));
+    assert_eq!(
+        assign(&mut app.world, follower, None),
+        PropertyChange::Layout
+    );
     assert!(app.world.get::<FollowState>(follower).unwrap().warned);
     let revision = app.world.component_revision::<FollowState>();
-    assert!(!assign(&mut app.world, follower, None));
+    assert_eq!(
+        assign(&mut app.world, follower, None),
+        PropertyChange::Unchanged
+    );
     assert_eq!(app.world.component_revision::<FollowState>(), revision);
-    assert!(assign(&mut app.world, follower, geometry));
+    assert_eq!(
+        assign(&mut app.world, follower, geometry),
+        PropertyChange::Layout
+    );
     assert!(!app.world.get::<FollowState>(follower).unwrap().warned);
     assert_ne!(app.world.component_revision::<FollowState>(), revision);
 }
@@ -131,7 +155,10 @@ fn clipping_changes_do_not_request_layout_but_repaint_the_followed_subtree() {
         clip: Rect::new(20, 14, 12, 8),
         ..previous
     };
-    assert!(!assign(&mut app.world, follower, Some(next)));
+    assert_eq!(
+        assign(&mut app.world, follower, Some(next)),
+        PropertyChange::Transform
+    );
     let child = app.world.find_by_id("fill").unwrap();
     assert!(!app.world.has::<crate::ui::dirty::Dirty>(follower));
     assert!(!app.world.has::<crate::ui::dirty::Dirty>(child));

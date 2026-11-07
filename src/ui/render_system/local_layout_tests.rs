@@ -46,6 +46,122 @@ fn counts() -> (usize, usize) {
     SOLVES.with(|counts| counts.replace((0, 0)))
 }
 
+#[derive(Default)]
+struct PreparedProbe;
+
+struct PreparedRequest {
+    target: Entity,
+    change: Option<crate::ui::property::PropertyChange>,
+}
+
+impl crate::ui::prepared_layout::LayoutParticipant for PreparedProbe {
+    fn active(world: &World) -> bool {
+        world.resource::<PreparedRequest>().is_some()
+    }
+    fn prepare(&mut self, _: &World, _: &[Entity]) -> bool {
+        false
+    }
+    fn has_geometry(&self) -> bool {
+        false
+    }
+    fn needs_geometry(&self, _: Entity) -> bool {
+        false
+    }
+    fn invalidate(&mut self) {}
+    fn reconcile(
+        &mut self,
+        world: &mut World,
+        _: &mut crate::ui::prepared_layout::PreparedLayout<'_>,
+    ) -> crate::ui::property::PropertyChange {
+        use crate::ui::property::{PropertyChange, apply_to_world, prop};
+        let request = world.resource_mut::<PreparedRequest>().unwrap();
+        let target = request.target;
+        match request.change.take() {
+            Some(PropertyChange::Visual) => apply_to_world::<prop::BackgroundColor>(
+                world,
+                target,
+                Color::rgb(0, 120, 200).into(),
+            ),
+            Some(PropertyChange::Transform) => apply_to_world::<prop::Transform>(
+                world,
+                target,
+                Transform::translate(3.into(), 2.into()),
+            ),
+            Some(PropertyChange::Layout) => {
+                apply_to_world::<prop::Width>(world, target, Dimension::px(24))
+            }
+            _ => PropertyChange::Unchanged,
+        }
+    }
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+}
+
+#[test]
+fn prepared_participants_settle_visual_changes_without_layout_or_text_work() {
+    use crate::ui::property::PropertyChange;
+    let mut app = App::headless(80, 60);
+    app.with_default_widgets();
+    app.with_widget(
+        crate::ui::View::systems_only("PreparedProbe", &[]).with_prepared_layout::<PreparedProbe>(),
+    );
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        ui! {
+            View (id: "probe", width: 20, height: 20) {
+                Text ("prepared")
+            }
+        };
+    });
+    let target = app.world.find_by_id("probe").unwrap();
+    app.world.insert_resource(PreparedRequest {
+        target,
+        change: None,
+    });
+    app.render().unwrap();
+    for change in [
+        PropertyChange::Visual,
+        PropertyChange::Transform,
+        PropertyChange::Layout,
+    ] {
+        counts();
+        TEXT_PREPARATIONS.with(|value| value.set((0, 0)));
+        app.world.resource_mut::<PreparedRequest>().unwrap().change = Some(change);
+        app.world.invalidate_visual(target);
+        prepare_input_geometry(&mut app.world, root, &Viewport::new(80, 60, Fixed::ONE)).unwrap();
+        let solves = counts();
+        if change == PropertyChange::Layout {
+            assert!(solves.0 + solves.1 > 0);
+            assert_eq!(
+                app.world.get::<ComputedRect>(target).unwrap().0.w,
+                24.into()
+            );
+        } else {
+            assert_eq!(solves, (0, 0));
+            assert_eq!(TEXT_PREPARATIONS.with(Cell::get), (0, 0));
+        }
+    }
+    app.world.remove_resource::<PreparedRequest>();
+    let mut snapshot = app.world.take_resource_box::<LayoutSnapshot>().unwrap();
+    snapshot.prepare_geometry_plan(&mut app.world);
+    assert!(
+        snapshot
+            .layout_participants
+            .state::<PreparedProbe>()
+            .is_none()
+    );
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            for _ in 0..16 {
+                snapshot.prepare_geometry_plan(&mut app.world);
+            }
+        }),
+        0
+    );
+    app.world.put_resource_box(snapshot);
+}
+
 #[test]
 fn local_scope_preserves_geometry_hits_scroll_events_and_dirty_pixels() {
     let mut app = App::headless(120, 90);
@@ -539,7 +655,12 @@ fn incremental_text_inputs_reuse_arenas_and_reflow_at_changed_width() {
     app.compose(root, |cx| {
         ui! {
             View (id: "panel", width: 140, height: 100, direction: FlexDirection::Column) {
-                Text ("one two three four five six seven eight", id: "label", width: 100, font_size: 8)
+                Text (
+                    "one two three four five six seven eight",
+                    id: "label",
+                    width: 100,
+                    font_size: 8
+                )
                 View (id: "moving", width: 10, height: 5, bg_color: Color::rgb(100, 20, 30))
             }
         };

@@ -705,6 +705,7 @@ struct ViewDefinition {
     paint: Option<ViewPaint>,
     auto_attach: Option<crate::input::event::view_attach::Attachment>,
     reconcile: Option<fn(&mut World, Entity) -> bool>,
+    prepared_layout: Option<&'static super::prepared_layout::LayoutHook>,
     retire: Option<fn(&mut World, Entity)>,
     /// When set, the walker only invokes `render` on entities that
     /// own a component of this type. `None` runs on every entity
@@ -749,6 +750,7 @@ impl View {
                 paint,
                 auto_attach: descriptor.attach.map(Into::into),
                 reconcile: None,
+                prepared_layout: None,
                 retire: None,
                 component_filter,
                 query_dependencies: descriptor.query_dependencies,
@@ -800,6 +802,14 @@ impl View {
 }
 
 impl<Systems> View<Systems> {
+    pub(crate) fn with_prepared_layout<P: super::prepared_layout::LayoutParticipant + Default>(
+        mut self,
+    ) -> Self {
+        self.definition.prepared_layout =
+            Some(&const { super::prepared_layout::LayoutHook::new::<P>() });
+        self
+    }
+
     pub(crate) fn with_reconcile(mut self, reconcile: fn(&mut World, Entity) -> bool) -> Self {
         self.definition.reconcile = Some(reconcile);
         self
@@ -972,6 +982,7 @@ impl<Systems> View<Systems> {
 pub struct ViewRegistry {
     views: Vec<View>,
     input_attach_plan: Option<Rc<Vec<crate::ui::lifecycle::InputAttach>>>,
+    prepared_layout_plan: Option<Rc<Vec<super::prepared_layout::RegisteredLayout>>>,
     paint_order: Vec<usize>,
     next_registration: u64,
     bindings: Vec<ViewBinding>,
@@ -1312,6 +1323,17 @@ impl ViewRegistry {
                 .get_or_insert_with(|| Rc::new(Vec::new()));
             Rc::make_mut(plan).push(hook);
         }
+        if let Some(hook) = view.definition.prepared_layout {
+            let plan = self
+                .prepared_layout_plan
+                .get_or_insert_with(|| Rc::new(Vec::new()));
+            let plan = Rc::make_mut(plan);
+            plan.reserve_exact(1);
+            plan.push(super::prepared_layout::RegisteredLayout {
+                registration: view.registration_id(),
+                hook,
+            });
+        }
         self.views.push(view);
         if let Some(priority) = paint_priority {
             let pos = self
@@ -1330,6 +1352,23 @@ impl ViewRegistry {
 
     pub(crate) fn input_attach_plan(&self) -> Option<Rc<Vec<crate::ui::lifecycle::InputAttach>>> {
         self.input_attach_plan.as_ref().map(Rc::clone)
+    }
+
+    pub(crate) fn prepared_layout_plan(
+        &self,
+    ) -> Option<Rc<Vec<super::prepared_layout::RegisteredLayout>>> {
+        self.prepared_layout_plan.as_ref().map(Rc::clone)
+    }
+
+    pub(crate) fn prepared_layout_count(world: &World) -> usize {
+        world
+            .resource::<Self>()
+            .and_then(|registry| registry.prepared_layout_plan.as_deref())
+            .map_or(0, |plan| {
+                plan.iter()
+                    .filter(|entry| (entry.hook.active)(world))
+                    .count()
+            })
     }
 
     pub(crate) fn input_bindings(
