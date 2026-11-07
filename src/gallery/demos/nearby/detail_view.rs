@@ -6,60 +6,6 @@ use crate::prelude::*;
 use crate::ui::widgets::{Text, TextAlign::Start};
 use alloc::string::String;
 
-#[component]
-pub(super) struct DetailsScroll {
-    state: model!(Launcher),
-}
-
-#[system(order = Animation)]
-fn scroll_details(
-    nodes: query!(
-        Entity,
-        DetailsScroll,
-        crate::input::event::scroll::ScrollOffset
-    ),
-    commands: commands!(),
-) {
-    for (entity, component, offset) in nodes {
-        if !component.state.detail_active() {
-            continue;
-        }
-        let y = component.state.detail_offset();
-        if offset.y != y {
-            commands.set::<crate::ui::property::prop::ScrollOffset>(
-                entity,
-                crate::input::event::scroll::ScrollOffset { x: Fixed::ZERO, y },
-            );
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn detail_scroll_repaints_without_geometry_demand_and_ignores_inactive_readers() {
-        for active in [true, false] {
-            super::super::tests::assert_scroll_projection(details_scroll::view(), active, |app| {
-                let mut state = Launcher::default();
-                state.detail_offset = Fixed::from_int(16);
-                if active {
-                    state.overlay = Some(super::super::launcher::Overlay::Details(
-                        super::super::details::Section::Core,
-                    ));
-                }
-                DetailsScroll {
-                    state: app.add_model(state).finish(),
-                }
-            });
-        }
-    }
-}
-
-#[view(component = DetailsScroll, systems = [scroll_details::system()])]
-pub(super) fn details_scroll() {}
-
 #[compose]
 pub(super) fn details_panel(state: model!(Launcher), metrics: Metrics) -> Entity {
     use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
@@ -97,15 +43,18 @@ pub(super) fn details_panel(state: model!(Launcher), metrics: Metrics) -> Entity
                 grow: 1.0,
                 min_height: 0,
                 min_width: 0,
-                clip_children: true
+                clip_children: true,
+                scroll_offset: ${
+                    ScrollOffset {
+                        x: Fixed::ZERO,
+                        y: state.detail_offset(),
+                    }
+                }
             ) [
                 ScrollOffset::default(),
                 ScrollConfig {
                     elastic: false,
                     ..Default::default()
-                },
-                DetailsScroll {
-                    state: state.clone(),
                 },
                 ActionAnchor::Reading,
             ] {
