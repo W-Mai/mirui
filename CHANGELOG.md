@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Nearby detail reading binds its existing position reactively instead of polling an animation system.
+- Nearby detail and configuration readers bind their existing positions reactively instead of polling animation systems.
 - Followed bounds use registered layout preparation and reuse completed layout for position-only settling.
 - Model List and Map reconciliation records each merge's declared change value instead of notifying all named watches; observed values retain independent equality checks.
 - Paragraph separators do not produce fallback glyphs. LF, CR and CRLF preserve empty lines and original caret offsets through the shared text layout cache.

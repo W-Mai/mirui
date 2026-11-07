@@ -13,46 +13,6 @@ use alloc::borrow::ToOwned;
 const TITLE_SIZE: u16 = 24;
 const BODY_SIZE: u16 = 12;
 
-#[component]
-pub(super) struct ConfigScroll {
-    state: model!(Editor),
-}
-#[system(order=Animation)]
-fn scroll_config(nodes: query!(Entity, ConfigScroll, ScrollOffset), commands: commands!()) {
-    for (entity, node, offset) in nodes {
-        let y = node.state.offset();
-        if node.state.active() && offset.y != y {
-            commands.set::<crate::ui::property::prop::ScrollOffset>(
-                entity,
-                ScrollOffset { x: Fixed::ZERO, y },
-            );
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn config_scroll_repaints_without_geometry_demand_and_ignores_inactive_readers() {
-        for active in [true, false] {
-            super::super::tests::assert_scroll_projection(config_scroll::view(), active, |app| {
-                let mut state = Editor::default();
-                if active {
-                    state.sync(Some(&super::super::configuration::fixture()));
-                }
-                state.offset = Fixed::from_int(16);
-                ConfigScroll {
-                    state: app.add_model(state).finish(),
-                }
-            });
-        }
-    }
-}
-#[view(component=ConfigScroll,systems=[scroll_config::system()])]
-pub(super) fn config_scroll() {}
-
 #[compose]
 pub(super) fn panel(state: model!(Editor), metrics: Metrics) -> Entity {
     ui! {
@@ -86,15 +46,18 @@ pub(super) fn panel(state: model!(Editor), metrics: Metrics) -> Entity {
                 grow: 1.0,
                 min_height: 0,
                 min_width: 0,
-                clip_children: true
+                clip_children: true,
+                scroll_offset: ${
+                    ScrollOffset {
+                        x: Fixed::ZERO,
+                        y: state.offset(),
+                    }
+                }
             ) [
                 ScrollOffset::default(),
                 ScrollConfig {
                     elastic: false,
                     ..Default::default()
-                },
-                ConfigScroll {
-                    state: state.clone(),
                 },
             ] {
                 walk ${ state.window() } with index by index {
