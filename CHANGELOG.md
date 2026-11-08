@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- One-to-one software RGBA conversions reuse checked row ranges without per-pixel whole-image indexing.
 - Software primitive submission reuses route validation within one prepared draw call while retaining independent submission and texture checks.
 - Damage collection retires inactive layout participants without preparing idle state or creating unused plans.
 - Nearby detail, configuration and save readers bind their existing positions reactively instead of polling animation systems.

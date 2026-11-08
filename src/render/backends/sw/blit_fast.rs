@@ -137,23 +137,23 @@ fn blit_1to1_argb_to_argb(
     for row in 0..run_h {
         let src_row_off = (sy0 as usize + row) * src_stride + sx0 as usize * 4;
         let dst_row_off = (dy0 as usize + row) * dst_stride + dx0 as usize * 4;
-        for col in 0..run_w {
-            let si = src_row_off + col * 4;
-            let di = dst_row_off + col * 4;
-            let a = src_buf[si + 3];
+        let source = &src_buf[src_row_off..src_row_off + run_w * 4];
+        let destination = &mut dst_buf[dst_row_off..dst_row_off + run_w * 4];
+        for (source, destination) in source.chunks_exact(4).zip(destination.chunks_exact_mut(4)) {
+            let a = source[3];
             if a == 0 {
                 continue;
             }
             if a == 255 {
-                dst_buf[di] = src_buf[si];
-                dst_buf[di + 1] = src_buf[si + 1];
-                dst_buf[di + 2] = src_buf[si + 2];
+                destination[0] = source[0];
+                destination[1] = source[1];
+                destination[2] = source[2];
                 // a == 255: source covers dst regardless of mode; both
                 // write 255 (Blend's source-over identity gives 255).
-                dst_buf[di + 3] = 255;
+                destination[3] = 255;
             } else {
-                let color = Color::rgba(src_buf[si], src_buf[si + 1], src_buf[si + 2], a);
-                ColorFormat::RGBA8888.blend_pixel(dst_buf, di, &color, a, alpha_mode);
+                let color = Color::rgba(source[0], source[1], source[2], a);
+                ColorFormat::RGBA8888.blend_pixel(destination, 0, &color, a, alpha_mode);
             }
         }
     }
@@ -178,22 +178,22 @@ fn blit_1to1_argb_to_565sw(
     for row in 0..run_h {
         let src_row_off = (sy0 as usize + row) * src_stride + sx0 as usize * 4;
         let dst_row_off = (dy0 as usize + row) * dst_stride + dx0 as usize * 2;
-        for col in 0..run_w {
-            let si = src_row_off + col * 4;
-            let di = dst_row_off + col * 2;
-            let a = src_buf[si + 3];
+        let source = &src_buf[src_row_off..src_row_off + run_w * 4];
+        let destination = &mut dst_buf[dst_row_off..dst_row_off + run_w * 2];
+        for (source, destination) in source.chunks_exact(4).zip(destination.chunks_exact_mut(2)) {
+            let a = source[3];
             if a == 0 {
                 continue;
             }
             if a != 255 {
-                let color = Color::rgba(src_buf[si], src_buf[si + 1], src_buf[si + 2], a);
-                ColorFormat::RGB565Swapped.blend_pixel(dst_buf, di, &color, a, alpha_mode);
+                let color = Color::rgba(source[0], source[1], source[2], a);
+                ColorFormat::RGB565Swapped.blend_pixel(destination, 0, &color, a, alpha_mode);
                 continue;
             }
-            let (r, g, b) = (src_buf[si], src_buf[si + 1], src_buf[si + 2]);
+            let (r, g, b) = (source[0], source[1], source[2]);
             let px = ((r as u16 >> 3) << 11) | ((g as u16 >> 2) << 5) | (b as u16 >> 3);
-            dst_buf[di] = (px >> 8) as u8;
-            dst_buf[di + 1] = px as u8;
+            destination[0] = (px >> 8) as u8;
+            destination[1] = px as u8;
         }
     }
 }
@@ -246,22 +246,22 @@ fn blit_1to1_argb_to_565(
     for row in 0..run_h {
         let src_row_off = (sy0 as usize + row) * src_stride + sx0 as usize * 4;
         let dst_row_off = (dy0 as usize + row) * dst_stride + dx0 as usize * 2;
-        for col in 0..run_w {
-            let si = src_row_off + col * 4;
-            let di = dst_row_off + col * 2;
-            let a = src_buf[si + 3];
+        let source = &src_buf[src_row_off..src_row_off + run_w * 4];
+        let destination = &mut dst_buf[dst_row_off..dst_row_off + run_w * 2];
+        for (source, destination) in source.chunks_exact(4).zip(destination.chunks_exact_mut(2)) {
+            let a = source[3];
             if a == 0 {
                 continue;
             }
             if a != 255 {
-                let color = Color::rgba(src_buf[si], src_buf[si + 1], src_buf[si + 2], a);
-                ColorFormat::RGB565.blend_pixel(dst_buf, di, &color, a, alpha_mode);
+                let color = Color::rgba(source[0], source[1], source[2], a);
+                ColorFormat::RGB565.blend_pixel(destination, 0, &color, a, alpha_mode);
                 continue;
             }
-            let (r, g, b) = (src_buf[si], src_buf[si + 1], src_buf[si + 2]);
+            let (r, g, b) = (source[0], source[1], source[2]);
             let px = ((r as u16 >> 3) << 11) | ((g as u16 >> 2) << 5) | (b as u16 >> 3);
-            dst_buf[di] = px as u8;
-            dst_buf[di + 1] = (px >> 8) as u8;
+            destination[0] = px as u8;
+            destination[1] = (px >> 8) as u8;
         }
     }
 }
@@ -749,7 +749,15 @@ mod tests {
             .map(|format| (scale, format))
         }) {
             for destination_alpha in [0, 96, 255] {
-                for source_alpha in [0, 1, 64, 128, 254, 255] {
+                for source_alpha in [
+                    Some(0),
+                    Some(1),
+                    Some(64),
+                    Some(128),
+                    Some(254),
+                    Some(255),
+                    None,
+                ] {
                     for cropped in [false, true] {
                         let mut source_bytes = [0u8; 3 * 16];
                         let mut source =
@@ -765,7 +773,7 @@ mod tests {
                                         (17 + x * 73) as u8,
                                         (31 + y * 61) as u8,
                                         (47 + (x + y) * 29) as u8,
-                                        source_alpha,
+                                        source_alpha.unwrap_or([0, 128, 255][(x + y) as usize % 3]),
                                     ),
                                 );
                             }
@@ -845,7 +853,7 @@ mod tests {
                         assert_eq!(
                             actual.read_pixels().unwrap().bytes(),
                             reference.read_pixels().unwrap().bytes(),
-                            "format={format:?}, scale={scale}, source_alpha={source_alpha}, destination_alpha={destination_alpha}, cropped={cropped}"
+                            "format={format:?}, scale={scale}, source_alpha={source_alpha:?}, destination_alpha={destination_alpha}, cropped={cropped}"
                         );
                     }
                 }
