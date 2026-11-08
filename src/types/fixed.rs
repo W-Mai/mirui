@@ -159,13 +159,7 @@ impl Fixed {
             return Self::ZERO;
         }
         let n = (self.0 as u64) << FRAC_BITS;
-        let mut x = n;
-        let mut y = x.div_ceil(2);
-        while y < x {
-            x = y;
-            y = (x + n / x) / 2;
-        }
-        Self(x as i32)
+        Self(n.isqrt() as i32)
     }
 
     /// Fast inverse square root: `1 / sqrt(self)`.
@@ -521,13 +515,7 @@ impl Fixed64 {
             return Self::ZERO;
         }
         let n = (self.0 as u128) << FRAC_BITS_64;
-        let mut x = n;
-        let mut y = x.div_ceil(2);
-        while y < x {
-            x = y;
-            y = (x + n / x) / 2;
-        }
-        Self(x as i64)
+        Self(n.isqrt() as i64)
     }
 
     /// Inverse square root: `1 / sqrt(self)`.
@@ -875,6 +863,38 @@ mod tests {
         // Non-square: sqrt(2) ≈ 1.414, expect within 1/256.
         let s = Fixed::from_int(2).sqrt().to_f32();
         assert!((s - core::f32::consts::SQRT_2).abs() < 0.01);
+    }
+
+    #[test]
+    fn square_roots_preserve_integer_floor_at_fractional_and_range_boundaries() {
+        fn check(raw: i64) {
+            let root = Fixed64(raw).sqrt().0 as u128;
+            let n = (raw as u128) << FRAC_BITS_64;
+            assert!(root * root <= n, "wide raw={raw}");
+            assert!((root + 1) * (root + 1) > n, "wide raw={raw}");
+            if raw <= i32::MAX as i64 {
+                let root = Fixed(raw as i32).sqrt().0 as u64;
+                let n = (raw as u64) << FRAC_BITS;
+                assert!(root * root <= n, "narrow raw={raw}");
+                assert!((root + 1) * (root + 1) > n, "narrow raw={raw}");
+            }
+        }
+        for raw in 0..4096 {
+            check(raw);
+        }
+        for shift in 1..63 {
+            let raw = 1_i64 << shift;
+            for delta in -1..=1 {
+                check(raw + delta);
+            }
+        }
+        check(i32::MAX as i64);
+        check(i64::MAX);
+        for raw in [-1, i32::MIN as i64, i64::MIN] {
+            assert_eq!(Fixed64(raw).sqrt(), Fixed64::ZERO);
+        }
+        assert_eq!(Fixed(-1).sqrt(), Fixed::ZERO);
+        assert_eq!(Fixed(i32::MIN).sqrt(), Fixed::ZERO);
     }
 
     #[test]
