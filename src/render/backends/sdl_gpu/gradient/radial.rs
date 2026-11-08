@@ -56,6 +56,10 @@ pub(crate) fn plan<'a>(request: &DrawRequest<'_, 'a>, viewport: Viewport) -> Opt
     if gradient.spread != SpreadMode::Pad || !valid_stops(&gradient.stops) {
         return None;
     }
+    // Canonical corners require a discriminant up to 2*r^4 in Q48.16.
+    if gradient.radius > mirx::types::Fixed::from_int(2048) {
+        return None;
+    }
     let sampler = RadialPaint::new(
         gradient,
         viewport.as_transform().compose(transform),
@@ -331,6 +335,9 @@ pub(crate) mod tests {
         assert!(!accepts(&Paint::RadialGradient(gradient)));
         let mut gradient = original.clone();
         gradient.radius = mirx::types::Fixed::from_ratio(1, 256);
+        assert!(!accepts(&Paint::RadialGradient(gradient)));
+        let mut gradient = original.clone();
+        gradient.radius = mirx::types::Fixed::from_int(4096);
         assert!(!accepts(&Paint::RadialGradient(gradient)));
         let mut gradient = original;
         gradient.stops.to_mut()[1].offset = mirx::types::Fixed::from_ratio(1, 256);
