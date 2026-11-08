@@ -122,6 +122,12 @@ pub(super) fn map_painted_damage(
     }
     current
 }
+pub(super) fn needs_tracking(world: &World) -> bool {
+    // Removing an offset still requires retiring its last painted baseline.
+    world.has_any_by_id(core::any::TypeId::of::<ScrollOffset>())
+        || world.has_any_by_id(core::any::TypeId::of::<PaintedScroll>())
+}
+
 pub(crate) fn has_pending_scroll(world: &World) -> bool {
     world.storage::<ScrollOffset>().is_some_and(|offsets| {
         offsets.iter().any(|(entity, offset)| {
@@ -135,6 +141,72 @@ pub(crate) fn has_pending_scroll(world: &World) -> bool {
 #[cfg(test)]
 mod damage_tests {
     use super::*;
+
+    #[test]
+    fn scroll_tracking_reopens_for_new_offsets_and_retires_painted_baselines() {
+        use crate::prelude::*;
+        use crate::surface::FramebufferAccess;
+
+        let mut app = App::headless(40, 30);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let scroller = app.compose(root, |cx| {
+            ui! {
+                Column (width: 40, height: 30, clip_children: true) {
+                    View (height: 20, shrink: 0.0, bg_color: Color::rgb(180, 20, 40))
+                    View (height: 40, shrink: 0.0, bg_color: Color::rgb(20, 160, 50))
+                }
+            }
+        });
+        app.render().unwrap();
+        assert!(!needs_tracking(&app.world));
+
+        for offset in [Fixed::from_int(17), Fixed::from_ratio(7, 2)] {
+            app.world.insert(
+                scroller,
+                ScrollOffset {
+                    x: Fixed::ZERO,
+                    y: offset,
+                },
+            );
+            app.world.invalidate_visual(scroller);
+            assert!(needs_tracking(&app.world));
+            assert!(app.world.get::<PaintedScroll>(scroller).is_none());
+            app.render_dirty().unwrap();
+            let scrolled = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
+            app.render().unwrap();
+            assert_eq!(
+                scrolled,
+                app.backend.framebuffer().read_pixels().unwrap().bytes()
+            );
+
+            app.world.remove::<ScrollOffset>(scroller);
+            app.world.invalidate_visual(scroller);
+            assert!(needs_tracking(&app.world));
+            assert!(app.world.get::<PaintedScroll>(scroller).is_some());
+            app.render_dirty().unwrap();
+            assert!(!needs_tracking(&app.world));
+            let unscrolled = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
+            app.render().unwrap();
+            assert_eq!(
+                unscrolled,
+                app.backend.framebuffer().read_pixels().unwrap().bytes()
+            );
+            assert!(scrolled != unscrolled);
+        }
+    }
 
     #[crate::compose]
     fn scroll_scene(radius: u16) {

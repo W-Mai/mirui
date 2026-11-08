@@ -524,6 +524,7 @@ fn seed_prev_rect_walk(
     parent_transform: &Transform,
     parent_3d: &Transform3D,
     output_scale: Fixed,
+    track_scroll: bool,
     scroll_offset: (Fixed, Fixed),
     scroll_clip: Option<Rect>,
     parent_scroll: Option<Entity>,
@@ -557,19 +558,23 @@ fn seed_prev_rect_walk(
         *idx,
         preparation,
     );
-    let current_scroll = scroll::PaintedScroll::capture(
-        world,
-        entity,
-        shifted_rect,
-        scroll_clip,
-        tf,
-        tf_3d,
-        parent_scroll,
-    );
+    let current_scroll = if track_scroll {
+        scroll::PaintedScroll::capture(
+            world,
+            entity,
+            shifted_rect,
+            scroll_clip,
+            tf,
+            tf_3d,
+            parent_scroll,
+        )
+    } else {
+        None
+    };
     if let Some(mut painted) = current_scroll {
         painted.reusable &= scroll_pixels;
         world.insert(entity, painted);
-    } else {
+    } else if track_scroll {
         world.remove::<scroll::PaintedScroll>(entity);
     }
     let mut coverage = if visible {
@@ -623,7 +628,8 @@ fn seed_prev_rect_walk(
     } else {
         scroll_clip
     };
-    let child_scroll_pixels = scroll_pixels && scroll::children_are_transferable(world, entity);
+    let child_scroll_pixels =
+        scroll_pixels && (!track_scroll || scroll::children_are_transferable(world, entity));
     for child in &node.children {
         seed_prev_rect_walk(
             child,
@@ -633,6 +639,7 @@ fn seed_prev_rect_walk(
             &tf,
             &tf_3d,
             output_scale,
+            track_scroll,
             child_scroll,
             child_clip,
             if is_scroll {
@@ -686,6 +693,7 @@ fn acknowledge_paint(world: &mut World, root: Entity, transform: &Viewport, prep
             let mut idx = 0;
             {
                 crate::trace_span!("paint.ack.walk");
+                let track_scroll = scroll::needs_tracking(world);
                 seed_prev_rect_walk(
                     &snapshot.layout_tree,
                     world,
@@ -694,6 +702,7 @@ fn acknowledge_paint(world: &mut World, root: Entity, transform: &Viewport, prep
                     &Transform::IDENTITY,
                     &Transform3D::IDENTITY,
                     transform.scale(),
+                    track_scroll,
                     (Fixed::ZERO, Fixed::ZERO),
                     Some(Rect::new(0, 0, logical_w, logical_h)),
                     None,
@@ -733,6 +742,7 @@ fn acknowledge_paint(world: &mut World, root: Entity, transform: &Viewport, prep
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
     let mut idx = 0;
+    let track_scroll = scroll::needs_tracking(world);
     seed_prev_rect_walk(
         &layout_tree,
         world,
@@ -741,6 +751,7 @@ fn acknowledge_paint(world: &mut World, root: Entity, transform: &Viewport, prep
         &Transform::IDENTITY,
         &Transform3D::IDENTITY,
         transform.scale(),
+        track_scroll,
         (Fixed::ZERO, Fixed::ZERO),
         Some(Rect::new(0, 0, logical_w, logical_h)),
         None,
@@ -3928,6 +3939,7 @@ fn collect_dirty_walk(
     parent_transform: &Transform,
     parent_3d: &Transform3D,
     output_scale: Fixed,
+    track_scroll: bool,
     scroll_offset: (Fixed, Fixed),
     scroll_clip: Option<Rect>,
     parent_scroll: Option<Entity>,
@@ -4002,16 +4014,24 @@ fn collect_dirty_walk(
         return;
     }
 
-    let current_scroll = scroll::PaintedScroll::capture(
-        world,
-        entity,
-        shifted_rect,
-        scroll_clip,
-        tf,
-        tf_3d,
-        parent_scroll,
-    );
-    let painted_scroll = world.get::<scroll::PaintedScroll>(entity).copied();
+    let current_scroll = if track_scroll {
+        scroll::PaintedScroll::capture(
+            world,
+            entity,
+            shifted_rect,
+            scroll_clip,
+            tf,
+            tf_3d,
+            parent_scroll,
+        )
+    } else {
+        None
+    };
+    let painted_scroll = if track_scroll {
+        world.get::<scroll::PaintedScroll>(entity).copied()
+    } else {
+        None
+    };
     let my_scroll_op = current_scroll
         .zip(painted_scroll)
         .and_then(|(current, painted)| current.shift_from(painted, carrier, output_scale));
@@ -4070,8 +4090,8 @@ fn collect_dirty_walk(
             scroll_clip
         };
 
-        let child_carrier =
-            child_carrier.filter(|_| scroll::children_are_transferable(world, entity));
+        let child_carrier = child_carrier
+            .filter(|_| !track_scroll || scroll::children_are_transferable(world, entity));
         for child in &node.children {
             collect_dirty_walk(
                 child,
@@ -4081,6 +4101,7 @@ fn collect_dirty_walk(
                 &tf,
                 &tf_3d,
                 output_scale,
+                track_scroll,
                 child_scroll,
                 child_scroll_clip,
                 if current_scroll.is_some() {
@@ -4515,6 +4536,7 @@ pub(crate) fn try_collect_dirty_regions_into(
     {
         crate::trace_span!("dirty.walk");
         let mut idx = 0;
+        let track_scroll = scroll::needs_tracking(world);
         collect_dirty_walk(
             &snapshot.layout_tree,
             world,
@@ -4523,6 +4545,7 @@ pub(crate) fn try_collect_dirty_regions_into(
             &Transform::IDENTITY,
             &Transform3D::IDENTITY,
             transform.scale(),
+            track_scroll,
             (Fixed::ZERO, Fixed::ZERO),
             Some(Rect::new(0, 0, logical_w, logical_h)),
             None,
