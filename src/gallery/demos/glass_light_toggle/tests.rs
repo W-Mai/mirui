@@ -1,5 +1,83 @@
-use super::state::{Geometry, GlassModel};
+use super::geometry::Geometry;
+use super::state::GlassModel;
 use crate::prelude::*;
+
+#[test]
+fn generated_masks_and_paths_keep_static_storage_and_pixel_identity() {
+    use crate::render::path::Path;
+    static RING: Path = Path::from_static(&super::geometry::ring(99_000, 99_000, 58_000, 1_500));
+    assert!(RING.is_borrowed());
+    assert_eq!(RING.commands().len(), 20);
+    assert_eq!(super::icons::COUNT, 113);
+    let visible: alloc::collections::BTreeSet<_> = super::icons::PAIRS
+        .iter()
+        .filter(|pair| pair.sun.alpha != 0)
+        .map(|pair| (pair.sun.x, pair.sun.y))
+        .collect();
+    assert_eq!(visible.len(), 65);
+    assert_eq!(
+        super::icons::PAIRS
+            .iter()
+            .filter(|pair| pair.sun.alpha != 0)
+            .count(),
+        visible.len()
+    );
+}
+
+#[test]
+fn view_callbacks_resolve_their_own_model_without_global_widget_ids() {
+    use crate::input::event::input::{InputEvent, PointerKind};
+    let mut app = App::headless(760, 520);
+    app.with_default_widgets().with_default_systems();
+    app.add_resource(crate::ecs::MonoClock::new(|| {
+        static TIME: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+        TIME.fetch_add(16_000_000, core::sync::atomic::Ordering::Relaxed)
+    }));
+    let root = app.spawn_root().id();
+    let a = app.add_model(GlassModel::default()).finish();
+    let b = app.add_model(GlassModel::default()).finish();
+    app.with_widget(super::glass_render::view());
+    app.compose(root, super::build_widgets(a.clone()));
+    app.compose(root, super::build_widgets(b.clone()));
+    app.prepare_text_layout().unwrap();
+    app.render().unwrap();
+    let node = app
+        .world
+        .query::<super::render::GlassToggle>()
+        .iter()
+        .next()
+        .unwrap()
+        .0;
+    let rect = app.world.get::<crate::ui::ComputedRect>(node).unwrap().0;
+    let g = Geometry::new(rect);
+    for (time, event) in [
+        (
+            1,
+            InputEvent::PointerDown {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: g.center.x,
+                y: g.center.y,
+            },
+        ),
+        (
+            2,
+            InputEvent::PointerUp {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: g.center.x,
+                y: g.center.y,
+            },
+        ),
+    ] {
+        crate::input::event::deliver_input(&mut app.world, Some(root), &event, time, 760, 520);
+    }
+    for _ in 0..24 {
+        app.tick();
+    }
+    assert!(a.scene().progress > Fixed::ZERO);
+    assert_eq!(b.scene().progress, Fixed::ZERO);
+}
 
 fn settle(model: &mut GlassModel) {
     for _ in 0..360 {
@@ -98,6 +176,10 @@ fn typed_pointer_delivery_animates_both_sides_and_dirty_paint_matches_full_paint
 
     let mut app = App::headless(640, 480);
     app.with_default_widgets().with_default_systems();
+    app.add_resource(crate::ecs::MonoClock::new(|| {
+        static TIME: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+        TIME.fetch_add(16_000_000, core::sync::atomic::Ordering::Relaxed)
+    }));
     let root = app.spawn_root().id();
     let model = app.add_model(GlassModel::default()).finish();
     app.with_widget(super::glass_render::view());
@@ -134,7 +216,7 @@ fn typed_pointer_delivery_animates_both_sides_and_dirty_paint_matches_full_paint
         crate::input::event::deliver_input(&mut app.world, Some(root), &event, time, 640, 480);
     }
     for _ in 0..360 {
-        model.advance(16);
+        app.tick();
     }
     assert_eq!(model.scene().progress, Fixed::ONE);
     assert!(!model.active());
@@ -154,7 +236,7 @@ fn typed_pointer_delivery_animates_both_sides_and_dirty_paint_matches_full_paint
     );
     model.choose(false);
     for _ in 0..360 {
-        model.advance(16);
+        app.tick();
     }
     app.render_dirty().unwrap();
     assert_eq!(model.scene().progress, Fixed::ZERO);

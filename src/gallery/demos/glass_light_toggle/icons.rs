@@ -1,145 +1,157 @@
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Cell {
     pub x: i8,
     pub y: i8,
     pub alpha: u8,
 }
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Pair {
     pub moon: Cell,
     pub sun: Cell,
 }
+const EMPTY: Cell = Cell {
+    x: 0,
+    y: 0,
+    alpha: 0,
+};
 
-const fn pair(moon: (i8, i8, u8), sun: (i8, i8, u8)) -> Pair {
-    Pair {
-        moon: Cell {
-            x: moon.0,
-            y: moon.1,
-            alpha: moon.2,
-        },
-        sun: Cell {
-            x: sun.0,
-            y: sun.1,
-            alpha: sun.2,
-        },
+const fn alpha(x: i32, y: i32, moon: bool) -> u8 {
+    let dx = x - 8;
+    let dy = y - 8;
+    if !moon {
+        // A disc with cardinal and diagonal rays on the same pixel grid.
+        let ax = dx.abs();
+        let ay = dy.abs();
+        return if dx * dx + dy * dy <= 13
+            || (dx == 0 && ay >= 6)
+            || (dy == 0 && ax >= 6)
+            || (ax == ay && (ax == 4 || ax == 5))
+        {
+            255
+        } else {
+            0
+        };
+    }
+    if dx * dx + dy * dy <= 43 {
+        let cut_x = 10 * x - 113;
+        let cut_y = 10 * y - 56;
+        if cut_x * cut_x + cut_y * cut_y > 54 * 54 {
+            return if (x == 3 && y == 9) || (x == 6 && y == 12) || (x == 4 && y == 12) {
+                128
+            } else {
+                255
+            };
+        }
+        return if (x + y) % 2 == 0 { 51 } else { 0 };
+    }
+    match (x, y) {
+        (15, 1) => 255,
+        (14, 1) | (16, 1) | (15, 0) | (15, 2) => 115,
+        (11, 0) => 191,
+        (16, 5) => 153,
+        _ => 0,
     }
 }
+const fn count(moon: bool) -> usize {
+    let mut count = 0;
+    let mut y = 0;
+    while y < 17 {
+        let mut x = 0;
+        while x < 17 {
+            if alpha(x, y, moon) != 0 {
+                count += 1;
+            }
+            x += 1;
+        }
+        y += 1;
+    }
+    count
+}
+pub(super) const COUNT: usize = count(true);
+const SUN_COUNT: usize = count(false);
 
-pub(super) const COUNT: usize = 113;
-
-pub(super) static PAIRS: [Pair; COUNT] = [
-    pair((-1, -1, 51), (-1, -1, 255)),
-    pair((-2, -2, 51), (-1, -1, 0)),
-    pair((-3, -3, 255), (-2, -2, 255)),
-    pair((-4, -4, 255), (-2, -2, 0)),
-    pair((-4, -5, 255), (-4, -4, 255)),
-    pair((-3, -4, 255), (-4, -4, 0)),
-    pair((-3, -5, 255), (-5, -5, 255)),
-    pair((-2, -4, 255), (-2, -3, 255)),
-    pair((-2, -5, 255), (-2, -3, 0)),
-    pair((-1, -3, 51), (-1, -2, 255)),
-    pair((-2, -6, 255), (-1, -2, 0)),
-    pair((-1, -5, 51), (-1, -3, 255)),
-    pair((-1, -6, 255), (-1, -3, 0)),
-    pair((0, -2, 51), (0, -1, 255)),
-    pair((0, -4, 51), (0, -2, 255)),
-    pair((0, -6, 51), (0, -2, 0)),
-    pair((1, -5, 51), (0, -3, 255)),
-    pair((1, -3, 51), (0, -3, 0)),
-    pair((2, -6, 51), (0, -6, 255)),
-    pair((3, -8, 191), (0, -6, 0)),
-    pair((2, -4, 51), (0, -7, 255)),
-    pair((3, -5, 51), (0, -8, 255)),
-    pair((6, -7, 115), (0, -8, 0)),
-    pair((7, -8, 115), (1, -3, 255)),
-    pair((1, -1, 51), (1, -3, 0)),
-    pair((2, -2, 51), (1, -2, 255)),
-    pair((3, -3, 51), (1, -2, 0)),
-    pair((4, -4, 51), (2, -3, 255)),
-    pair((7, -7, 255), (1, -1, 255)),
-    pair((8, -7, 115), (1, -1, 0)),
-    pair((7, -6, 115), (2, -2, 255)),
-    pair((5, -3, 51), (2, -2, 0)),
-    pair((4, -2, 51), (4, -4, 255)),
-    pair((8, -3, 153), (4, -4, 0)),
-    pair((3, -1, 51), (5, -5, 255)),
-    pair((6, -2, 51), (3, -2, 255)),
-    pair((5, -1, 51), (3, -2, 0)),
-    pair((0, 0, 51), (2, -1, 255)),
-    pair((2, 0, 51), (2, -1, 0)),
-    pair((4, 0, 51), (3, -1, 255)),
-    pair((6, 0, 51), (0, 0, 255)),
-    pair((5, 1, 51), (0, 0, 0)),
-    pair((3, 1, 51), (1, 0, 255)),
-    pair((6, 2, 51), (1, 0, 0)),
-    pair((4, 2, 51), (2, 0, 255)),
-    pair((5, 3, 255), (2, 0, 0)),
-    pair((4, 3, 255), (3, 0, 255)),
-    pair((5, 4, 255), (6, 0, 255)),
-    pair((1, 1, 51), (6, 0, 0)),
-    pair((2, 2, 51), (7, 0, 255)),
-    pair((3, 3, 255), (7, 0, 0)),
-    pair((4, 4, 255), (8, 0, 255)),
-    pair((4, 5, 255), (8, 0, 0)),
-    pair((3, 4, 255), (3, 1, 255)),
-    pair((2, 3, 255), (2, 1, 255)),
-    pair((3, 5, 255), (2, 1, 0)),
-    pair((2, 4, 255), (3, 2, 255)),
-    pair((2, 5, 255), (3, 2, 0)),
-    pair((1, 3, 255), (1, 1, 255)),
-    pair((2, 6, 255), (1, 1, 0)),
-    pair((1, 4, 255), (2, 2, 255)),
-    pair((1, 5, 255), (4, 4, 255)),
-    pair((1, 6, 255), (4, 4, 0)),
-    pair((0, 2, 255), (5, 5, 255)),
-    pair((0, 3, 255), (5, 5, 0)),
-    pair((0, 4, 255), (2, 3, 255)),
-    pair((0, 5, 255), (2, 3, 0)),
-    pair((0, 6, 255), (1, 2, 255)),
-    pair((-1, 6, 255), (1, 3, 255)),
-    pair((-1, 5, 255), (1, 3, 0)),
-    pair((-1, 4, 255), (0, 1, 255)),
-    pair((-1, 3, 255), (0, 1, 0)),
-    pair((-2, 6, 255), (0, 2, 255)),
-    pair((-2, 5, 255), (0, 2, 0)),
-    pair((-1, 2, 255), (0, 3, 255)),
-    pair((-2, 4, 128), (0, 6, 255)),
-    pair((-3, 5, 255), (0, 6, 0)),
-    pair((-2, 3, 255), (0, 7, 255)),
-    pair((-3, 4, 255), (0, 7, 0)),
-    pair((-4, 5, 255), (0, 8, 255)),
-    pair((-1, 1, 255), (-1, 3, 255)),
-    pair((-2, 2, 255), (-1, 3, 0)),
-    pair((-3, 3, 255), (-1, 2, 255)),
-    pair((-4, 4, 128), (-1, 2, 0)),
-    pair((-5, 4, 255), (-2, 3, 255)),
-    pair((-4, 3, 255), (-2, 3, 0)),
-    pair((-3, 2, 255), (-1, 1, 255)),
-    pair((-5, 3, 255), (-2, 2, 255)),
-    pair((-2, 1, 255), (-2, 2, 0)),
-    pair((-4, 2, 255), (-4, 4, 255)),
-    pair((-5, 2, 255), (-4, 4, 0)),
-    pair((-3, 1, 255), (-5, 5, 255)),
-    pair((-6, 2, 255), (-5, 5, 0)),
-    pair((-4, 1, 255), (-3, 2, 255)),
-    pair((-5, 1, 128), (-2, 1, 255)),
-    pair((-6, 1, 255), (-2, 1, 0)),
-    pair((-2, 0, 255), (-3, 1, 255)),
-    pair((-3, 0, 255), (-3, 1, 0)),
-    pair((-4, 0, 255), (-1, 0, 255)),
-    pair((-5, 0, 255), (-1, 0, 0)),
-    pair((-6, 0, 255), (-2, 0, 255)),
-    pair((-6, -1, 255), (-3, 0, 255)),
-    pair((-5, -1, 255), (-3, 0, 0)),
-    pair((-4, -1, 255), (-6, 0, 255)),
-    pair((-3, -1, 255), (-6, 0, 0)),
-    pair((-6, -2, 255), (-7, 0, 255)),
-    pair((-5, -2, 255), (-7, 0, 0)),
-    pair((-2, -1, 255), (-8, 0, 255)),
-    pair((-4, -2, 255), (-3, -1, 255)),
-    pair((-5, -3, 255), (-3, -1, 0)),
-    pair((-3, -2, 255), (-2, -1, 255)),
-    pair((-4, -3, 255), (-2, -1, 0)),
-    pair((-5, -4, 255), (-3, -2, 255)),
-];
+const fn before(a: Cell, b: Cell) -> bool {
+    // Sort from the upper-left ray, then by radius, using integer cross products.
+    let (ax, ay) = if a.x == 0 && a.y == 0 {
+        (1, 0)
+    } else {
+        (a.x as i32, a.y as i32)
+    };
+    let (bx, by) = if b.x == 0 && b.y == 0 {
+        (1, 0)
+    } else {
+        (b.x as i32, b.y as i32)
+    };
+    let (au, av) = (-ax - ay, ax - ay);
+    let (bu, bv) = (-bx - by, bx - by);
+    let ah = av < 0 || (av == 0 && au < 0);
+    let bh = bv < 0 || (bv == 0 && bu < 0);
+    if ah != bh {
+        return !ah;
+    }
+    let cross = au * bv - av * bu;
+    if cross != 0 {
+        return cross > 0;
+    }
+    (a.x as i32 * a.x as i32 + a.y as i32 * a.y as i32)
+        < (b.x as i32 * b.x as i32 + b.y as i32 * b.y as i32)
+}
+const fn cells<const N: usize>(moon: bool) -> [Cell; N] {
+    let mut cells = [EMPTY; N];
+    let mut i = 0;
+    let mut y = 0;
+    while y < 17 {
+        let mut x = 0;
+        while x < 17 {
+            let a = alpha(x, y, moon);
+            if a != 0 {
+                cells[i] = Cell {
+                    x: (x - 8) as i8,
+                    y: (y - 8) as i8,
+                    alpha: a,
+                };
+                i += 1;
+            }
+            x += 1;
+        }
+        y += 1;
+    }
+    assert!(i == N);
+    let mut i = 1;
+    while i < N {
+        let cell = cells[i];
+        let mut j = i;
+        while j > 0 && before(cell, cells[j - 1]) {
+            cells[j] = cells[j - 1];
+            j -= 1;
+        }
+        cells[j] = cell;
+        i += 1;
+    }
+    cells
+}
+const fn pairs() -> [Pair; COUNT] {
+    let moon = cells::<COUNT>(true);
+    let sun = cells::<SUN_COUNT>(false);
+    let mut result = [Pair {
+        moon: EMPTY,
+        sun: EMPTY,
+    }; COUNT];
+    let mut i = 0;
+    let mut previous = usize::MAX;
+    while i < COUNT {
+        let j = i * SUN_COUNT / COUNT;
+        let mut target = sun[j];
+        if j == previous {
+            target.alpha = 0;
+        }
+        result[i] = Pair {
+            moon: moon[i],
+            sun: target,
+        };
+        previous = j;
+        i += 1;
+    }
+    result
+}
+pub(super) static PAIRS: [Pair; COUNT] = pairs();

@@ -1,3 +1,4 @@
+mod geometry;
 mod icons;
 mod input;
 mod render;
@@ -6,7 +7,7 @@ mod state;
 mod tests;
 mod textures;
 
-use self::render::{GlassSurface, glass_render};
+use self::render::{GlassToggle, glass_render};
 use self::state::GlassModel;
 use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
@@ -16,9 +17,11 @@ pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_lea
 pub const VIEWPORT: (u16, u16) = (760, 520);
 
 #[crate::system(order=Animation)]
-fn animate(model: model!(GlassModel), delta: res!(DeltaTimeMs)) {
-    if model.active() {
-        model.advance(delta.0);
+fn animate(glasses: query!(GlassToggle), delta: res!(DeltaTimeMs)) {
+    for glass in glasses {
+        if glass.model.active() {
+            glass.model.advance(delta.0);
+        }
     }
 }
 
@@ -26,7 +29,6 @@ fn animate(model: model!(GlassModel), delta: res!(DeltaTimeMs)) {
 fn build_widgets(model: model!(GlassModel)) {
     ui! {
         View (
-            id: "glass_light_toggle",
             grow: 1.0,
             clip_children: true,
             direction: FlexDirection::Column,
@@ -36,7 +38,7 @@ fn build_widgets(model: model!(GlassModel)) {
                 ..Padding::all(0)
             }
         ) [
-            GlassSurface {
+            GlassToggle {
                 model: model.clone(),
             },
             crate::input::event::scroll::TouchAction::None,
@@ -52,7 +54,7 @@ fn build_widgets(model: model!(GlassModel)) {
             ) [
                 crate::ui::IgnoreHitTest,
             ]
-        } on Tap(input::tap::callback(model.clone())) on Pressed(input::press::callback(model.clone())) on Released(input::release::callback(model.clone())) on PressCancelled(input::cancel_press::callback(model.clone())) on DragStart(input::drag_start::callback(model.clone())) on DragMove(input::drag_move::callback(model.clone())) on DragEnd(input::drag_end::callback(model.clone())) on DragCancel(input::drag_cancel::callback(model.clone())) on Key(input::key::callback(model))
+        } on Pressed(input::press::callback()) on Released(input::release::callback()) on PressCancelled(input::cancel_press::callback())
     };
 }
 
@@ -65,6 +67,5 @@ where
     app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
     let model = app.add_model(GlassModel::default()).finish();
     app.with_widget(glass_render::view());
-    app.add_system(animate::system(model.clone()));
     app.compose(parent, build_widgets(model));
 }

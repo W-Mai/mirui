@@ -1,6 +1,6 @@
 use super::icons::{COUNT, PAIRS};
 use crate::anim::{Spring, SpringConfig};
-use crate::types::{Color, Fixed, Point, Rect};
+use crate::types::{Color, Fixed, Point};
 
 pub(super) const TRAVEL: i32 = 208;
 const SETTLE: SpringConfig = SpringConfig {
@@ -15,46 +15,6 @@ const LIGHT: SpringConfig = SpringConfig {
 pub(super) fn smooth(value: Fixed) -> Fixed {
     let t = value.clamp(Fixed::ZERO, Fixed::ONE);
     t * t * (Fixed::from_int(3) - Fixed::from_int(2) * t)
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct Geometry {
-    pub center: Point,
-    pub scale: Fixed,
-}
-impl Geometry {
-    pub fn new(rect: Rect) -> Self {
-        let scale = Fixed::ONE
-            .min(
-                ((rect.w - Fixed::from_int(36)) / Fixed::from_int(456))
-                    .max(Fixed::from_ratio(1, 10)),
-            )
-            .min(
-                ((rect.h - Fixed::from_int(120)) / Fixed::from_int(384))
-                    .max(Fixed::from_ratio(1, 10)),
-            );
-        Self {
-            center: Point::new(
-                rect.x + rect.w / 2,
-                rect.y + rect.h / 2 - Fixed::from_int(10),
-            ),
-            scale,
-        }
-    }
-    pub fn local(self, x: Fixed, y: Fixed) -> Point {
-        Point::new(
-            (x - self.center.x) / self.scale,
-            (y - self.center.y) / self.scale,
-        )
-    }
-    pub fn contains(self, x: Fixed, y: Fixed) -> bool {
-        let p = self.local(x, y);
-        let dx = (p.x.abs() - Fixed::from_int(144)).max(Fixed::ZERO);
-        let dy = (p.y.abs() - Fixed::from_int(40)).max(Fixed::ZERO);
-        p.x.abs() <= Fixed::from_int(216)
-            && p.y.abs() <= Fixed::from_int(112)
-            && dx * dx + dy * dy <= Fixed::from_int(72 * 72)
-    }
 }
 
 #[derive(Clone, Copy)]

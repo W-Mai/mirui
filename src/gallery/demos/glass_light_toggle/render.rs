@@ -1,4 +1,5 @@
-use super::state::{Geometry, GlassModel, Scene, TRAVEL, smooth};
+use super::geometry::{Geometry, light_point};
+use super::state::{GlassModel, Scene, TRAVEL, smooth};
 use super::textures;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
@@ -12,41 +13,20 @@ use crate::ui::view::PaintCtx;
 use alloc::borrow::Cow;
 
 #[crate::component]
-pub(super) struct GlassSurface {
+pub(super) struct GlassToggle {
     pub model: model!(GlassModel),
 }
 
-static CIRCLE: Path = path!(
-    "M 1 0 C 1 0.5523 0.5523 1 0 1 C -0.5523 1 -1 0.5523 -1 0 C -1 -0.5523 -0.5523 -1 0 -1 C 0.5523 -1 1 -0.5523 1 0 Z"
-);
-static TRACK: Path = path!(
-    "M -144 -112 H 144 C 183.765 -112 216 -79.765 216 -40 V 40 C 216 79.765 183.765 112 144 112 H -144 C -183.765 112 -216 79.765 -216 40 V -40 C -216 -79.765 -183.765 -112 -144 -112 Z"
-);
-static KNOB: Path = path!(
-    "M -41 -99 H 41 C 73.032 -99 99 -73.032 99 -41 V 41 C 99 73.032 73.032 99 41 99 H -41 C -73.032 99 -99 73.032 -99 41 V -41 C -99 -73.032 -73.032 -99 -41 -99 Z"
-);
-
-static TRACK_RIM: Path = path!(
-    "M -144 -112.5 H 144 C 184.0406 -112.5 216.5 -80.0406 216.5 -40 V 40 C 216.5 80.0406 184.0406 112.5 144 112.5 H -144 C -184.0406 112.5 -216.5 80.0406 -216.5 40 V -40 C -216.5 -80.0406 -184.0406 -112.5 -144 -112.5 Z M -144 -111.5 H 144 C 183.4884 -111.5 215.5 -79.4884 215.5 -40 V 40 C 215.5 79.4884 183.4884 111.5 144 111.5 H -144 C -183.4884 111.5 -215.5 79.4884 -215.5 40 V -40 C -215.5 -79.4884 -183.4884 -111.5 -144 -111.5 Z"
-);
-static KNOB_RIM: Path = path!(
-    "M -41 -99.5 H 41 C 73.3087 -99.5 99.5 -73.3087 99.5 -41 V 41 C 99.5 73.3087 73.3087 99.5 41 99.5 H -41 C -73.3087 99.5 -99.5 73.3087 -99.5 41 V -41 C -99.5 -73.3087 -73.3087 -99.5 -41 -99.5 Z M -41 -98.5 H 41 C 72.7564 -98.5 98.5 -72.7564 98.5 -41 V 41 C 98.5 72.7564 72.7564 98.5 41 98.5 H -41 C -72.7564 98.5 -98.5 72.7564 -98.5 41 V -41 C -98.5 -72.7564 -72.7564 -98.5 -41 -98.5 Z"
-);
-static LED_22: Path = path!(
-    "M -41 -110 H 41 C 79.1076 -110 110 -79.1076 110 -41 V 41 C 110 79.1076 79.1076 110 41 110 H -41 C -79.1076 110 -110 79.1076 -110 41 V -41 C -110 -79.1076 -79.1076 -110 -41 -110 Z M -41 -88 H 41 C 66.9574 -88 88 -66.9574 88 -41 V 41 C 88 66.9574 66.9574 88 41 88 H -41 C -66.9574 88 -88 66.9574 -88 41 V -41 C -88 -66.9574 -66.9574 -88 -41 -88 Z"
-);
-static LED_12: Path = path!(
-    "M -41 -105 H 41 C 76.3462 -105 105 -76.3462 105 -41 V 41 C 105 76.3462 76.3462 105 41 105 H -41 C -76.3462 105 -105 76.3462 -105 41 V -41 C -105 -76.3462 -76.3462 -105 -41 -105 Z M -41 -93 H 41 C 69.7188 -93 93 -69.7188 93 -41 V 41 C 93 69.7188 69.7188 93 41 93 H -41 C -69.7188 93 -93 69.7188 -93 41 V -41 C -93 -69.7188 -69.7188 -93 -41 -93 Z"
-);
-static LED_6: Path = path!(
-    "M -41 -102 H 41 C 74.6894 -102 102 -74.6894 102 -41 V 41 C 102 74.6894 74.6894 102 41 102 H -41 C -74.6894 102 -102 74.6894 -102 41 V -41 C -102 -74.6894 -74.6894 -102 -41 -102 Z M -41 -96 H 41 C 71.3757 -96 96 -71.3757 96 -41 V 41 C 96 71.3757 71.3757 96 41 96 H -41 C -71.3757 96 -96 71.3757 -96 41 V -41 C -96 -71.3757 -71.3757 -96 -41 -96 Z"
-);
-static LED_3: Path = path!(
-    "M -41 -100.5 H 41 C 73.8609 -100.5 100.5 -73.8609 100.5 -41 V 41 C 100.5 73.8609 73.8609 100.5 41 100.5 H -41 C -73.8609 100.5 -100.5 73.8609 -100.5 41 V -41 C -100.5 -73.8609 -73.8609 -100.5 -41 -100.5 Z M -41 -97.5 H 41 C 72.2041 -97.5 97.5 -72.2041 97.5 -41 V 41 C 97.5 72.2041 72.2041 97.5 41 97.5 H -41 C -72.2041 97.5 -97.5 72.2041 -97.5 41 V -41 C -97.5 -72.2041 -72.2041 -97.5 -41 -97.5 Z"
-);
-static LED_1_5: Path = path!(
-    "M -41 -99.75 H 41 C 73.4467 -99.75 99.75 -73.4467 99.75 -41 V 41 C 99.75 73.4467 73.4467 99.75 41 99.75 H -41 C -73.4467 99.75 -99.75 73.4467 -99.75 41 V -41 C -99.75 -73.4467 -73.4467 -99.75 -41 -99.75 Z M -41 -98.25 H 41 C 72.6183 -98.25 98.25 -72.6183 98.25 -41 V 41 C 98.25 72.6183 72.6183 98.25 41 98.25 H -41 C -72.6183 98.25 -98.25 72.6183 -98.25 41 V -41 C -98.25 -72.6183 -72.6183 -98.25 -41 -98.25 Z"
-);
+static CIRCLE: Path = Path::from_static(&super::geometry::rounded_rect(1_000, 1_000, 1_000));
+static TRACK: Path = Path::from_static(&super::geometry::rounded_rect(216_000, 112_000, 72_000));
+static KNOB: Path = Path::from_static(&super::geometry::rounded_rect(99_000, 99_000, 58_000));
+static TRACK_RIM: Path = Path::from_static(&super::geometry::ring(216_000, 112_000, 72_000, 1_000));
+static KNOB_RIM: Path = Path::from_static(&super::geometry::ring(99_000, 99_000, 58_000, 1_000));
+static LED_22: Path = Path::from_static(&super::geometry::ring(99_000, 99_000, 58_000, 22_000));
+static LED_12: Path = Path::from_static(&super::geometry::ring(99_000, 99_000, 58_000, 12_000));
+static LED_6: Path = Path::from_static(&super::geometry::ring(99_000, 99_000, 58_000, 6_000));
+static LED_3: Path = Path::from_static(&super::geometry::ring(99_000, 99_000, 58_000, 3_000));
+static LED_1_5: Path = Path::from_static(&super::geometry::ring(99_000, 99_000, 58_000, 1_500));
 
 const fn stop(offset: i32, r: u8, g: u8, b: u8, a: u8) -> GradientStop {
     GradientStop {
@@ -227,35 +207,6 @@ impl Painter<'_, '_> {
     }
 }
 
-fn light_point(progress: Fixed) -> Point {
-    let u = progress.clamp(Fixed::ZERO, Fixed::ONE) * Fixed::from_ratio(346212, 1000);
-    let corner = Fixed::from_ratio(91106, 1000);
-    if u < Fixed::from_int(41) {
-        return Point::new(u, 99);
-    }
-    if u < Fixed::from_int(41) + corner {
-        let angle = Fixed::from_int(90) * (Fixed::ONE - (u - Fixed::from_int(41)) / corner);
-        return Point::new(
-            Fixed::from_int(41) + Fixed::cos_deg(angle) * Fixed::from_int(58),
-            Fixed::from_int(41) + Fixed::sin_deg(angle) * Fixed::from_int(58),
-        );
-    }
-    if u < Fixed::from_int(123) + corner {
-        return Point::new(99, Fixed::from_int(41) - (u - Fixed::from_int(41) - corner));
-    }
-    if u < Fixed::from_int(123) + corner * 2 {
-        let angle = -(u - Fixed::from_int(123) - corner) / corner * Fixed::from_int(90);
-        return Point::new(
-            Fixed::from_int(41) + Fixed::cos_deg(angle) * Fixed::from_int(58),
-            Fixed::from_int(-41) + Fixed::sin_deg(angle) * Fixed::from_int(58),
-        );
-    }
-    Point::new(
-        Fixed::from_int(41) - (u - Fixed::from_int(123) - corner * 2),
-        -99,
-    )
-}
-
 fn paint_scene(paint: &mut PaintCtx<'_>, scene: &Scene) {
     let rect = paint.rect();
     let g = Geometry::new(rect);
@@ -395,7 +346,9 @@ fn paint_scene(paint: &mut PaintCtx<'_>, scene: &Scene) {
     );
 }
 
-#[crate::view(component=GlassSurface,name="Glass Light Toggle",priority=60)]
+#[crate::view(component=GlassToggle,name="Glass Light Toggle",priority=60,
+input=(super::input::tap::callback(),super::input::drag_start::callback(),super::input::drag_move::callback(),super::input::drag_end::callback(),super::input::drag_cancel::callback(),super::input::key::callback()),
+systems=[super::animate::system()])]
 pub(super) fn glass_render(
     model: model!(component.model, watch(visual_revision)),
     paint: paint!(),

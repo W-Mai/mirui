@@ -6,6 +6,8 @@ use mirui::core::perf;
 use mirui::input::event::input::{InputEvent, PointerKind};
 use mirui::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
 use mirui::prelude::*;
+#[path = "../backend_snapshot_support.rs"]
+mod backend_snapshot_support;
 
 static TIME: AtomicU64 = AtomicU64::new(0);
 const W: u16 = 760;
@@ -85,6 +87,11 @@ fn collect<B: Surface, F: RendererFactory<B>>(mut app: App<B, F>, frames: usize)
     }
     app.add_resource(SimulatedInput::new(commands));
     app.render().unwrap();
+    let snapshots = std::env::var_os("GLASS_SNAPSHOTS").map(std::path::PathBuf::from);
+    if let Some(folder) = &snapshots {
+        let frame = app.snapshot().unwrap().unwrap();
+        backend_snapshot_support::write_png(&folder.join("initial.png"), &frame);
+    }
     println!(
         "logical={W}x{H} physical={:?} debug={} frames={frames} vsync=false wall_includes_present=true gpu_completion_forced=false",
         app.backend.physical_size(),
@@ -98,8 +105,15 @@ fn collect<B: Surface, F: RendererFactory<B>>(mut app: App<B, F>, frames: usize)
         let start = Instant::now();
         app.tick();
         app.render_dirty().unwrap();
+        let elapsed = start.elapsed().as_nanos();
+        if let Some(folder) = &snapshots
+            && [20, 40, 70].contains(&frame)
+        {
+            let image = app.snapshot().unwrap().unwrap();
+            backend_snapshot_support::write_png(&folder.join(format!("frame-{frame}.png")), &image);
+        }
         if frame >= 16 {
-            samples.push(start.elapsed().as_nanos());
+            samples.push(elapsed);
         }
         capture.drain_events(|_, batch| {
             if frame >= 16 {

@@ -1,4 +1,5 @@
-use super::state::{Geometry, GlassModel};
+use super::geometry::Geometry;
+use super::render::GlassToggle;
 use crate::input::event::gesture::{DragCancel, DragEnd, DragMove, DragStart, Tap};
 use crate::input::event::input::{Key, PhysicalKey};
 use crate::input::event::press::{PressCancelled, Pressed, Released};
@@ -7,99 +8,117 @@ use crate::ui::ComputedRect;
 
 #[crate::event]
 pub(super) fn tap(
-    model: model!(GlassModel),
     event: event!(Tap),
     entity: entity!(),
-    rects: query!(ComputedRect),
+    values: query!(GlassToggle, ComputedRect),
 ) -> bool {
-    let Some(rect) = rects.get(entity) else {
+    let Some((glass, rect)) = values.get(entity) else {
         return false;
     };
     if !Geometry::new(rect.0).contains(event.x, event.y) {
         return false;
     }
-    model.toggle();
+    glass.model.toggle();
     true
 }
 #[crate::event]
 pub(super) fn press(
-    model: model!(GlassModel),
     event: event!(Pressed),
     entity: entity!(),
-    rects: query!(ComputedRect),
+    values: query!(GlassToggle, ComputedRect),
 ) {
-    if let Some(rect) = rects.get(entity) {
+    if let Some((glass, rect)) = values.get(entity) {
         let geometry = Geometry::new(rect.0);
-        model.pressed(
+        glass.model.pressed(
             geometry.contains(event.x, event.y),
-            model.knob_contains(geometry.local(event.x, event.y)),
+            glass.model.knob_contains(geometry.local(event.x, event.y)),
         );
     }
 }
 #[crate::event]
-pub(super) fn release(model: model!(GlassModel), _event: event!(Released)) {
-    model.release_press();
+pub(super) fn release(entity: entity!(), values: query!(GlassToggle), _event: event!(Released)) {
+    if let Some(glass) = values.get(entity) {
+        glass.model.release_press();
+    }
 }
 #[crate::event]
-pub(super) fn cancel_press(model: model!(GlassModel), event: event!(PressCancelled)) {
+pub(super) fn cancel_press(
+    entity: entity!(),
+    values: query!(GlassToggle),
+    event: event!(PressCancelled),
+) {
+    let Some(glass) = values.get(entity) else {
+        return;
+    };
     if event.reason != crate::input::event::press::PressCancelReason::Gesture {
-        model.release_press();
+        glass.model.release_press();
     }
 }
 #[crate::event]
 pub(super) fn drag_start(
-    model: model!(GlassModel),
     event: event!(DragStart),
     entity: entity!(),
-    rects: query!(ComputedRect),
+    values: query!(GlassToggle, ComputedRect),
 ) -> bool {
-    let Some(rect) = rects.get(entity) else {
+    let Some((glass, rect)) = values.get(entity) else {
         return false;
     };
     let g = Geometry::new(rect.0);
-    model.begin_drag(g.local(event.x, event.y).x);
-    model.is_dragging()
+    glass.model.begin_drag(g.local(event.x, event.y).x);
+    glass.model.is_dragging()
 }
 #[crate::event]
 pub(super) fn drag_move(
-    model: model!(GlassModel),
     event: event!(DragMove),
     entity: entity!(),
-    rects: query!(ComputedRect),
+    values: query!(GlassToggle, ComputedRect),
 ) -> bool {
-    let Some(rect) = rects.get(entity) else {
+    let Some((glass, rect)) = values.get(entity) else {
         return false;
     };
-    model.drag(Geometry::new(rect.0).local(event.x, event.y).x);
+    glass
+        .model
+        .drag(Geometry::new(rect.0).local(event.x, event.y).x);
     true
 }
 #[crate::event]
 pub(super) fn drag_end(
-    model: model!(GlassModel),
     event: event!(DragEnd),
     entity: entity!(),
-    rects: query!(ComputedRect),
+    values: query!(GlassToggle, ComputedRect),
 ) -> bool {
-    let Some(rect) = rects.get(entity) else {
+    let Some((glass, rect)) = values.get(entity) else {
         return false;
     };
-    model.end_drag(event.vx / Geometry::new(rect.0).scale, false);
+    glass
+        .model
+        .end_drag(event.vx / Geometry::new(rect.0).scale, false);
     true
 }
 #[crate::event]
-pub(super) fn drag_cancel(model: model!(GlassModel), _event: event!(DragCancel)) -> bool {
-    model.end_drag(Fixed::ZERO, true);
+pub(super) fn drag_cancel(
+    entity: entity!(),
+    values: query!(GlassToggle),
+    _event: event!(DragCancel),
+) -> bool {
+    let Some(glass) = values.get(entity) else {
+        return false;
+    };
+    glass.model.end_drag(Fixed::ZERO, true);
     true
 }
 #[crate::event]
-pub(super) fn key(model: model!(GlassModel), event: event!(Key)) -> bool {
+pub(super) fn key(entity: entity!(), values: query!(GlassToggle), event: event!(Key)) -> bool {
+    let Some(glass) = values.get(entity) else {
+        return false;
+    };
     if !event.pressed || event.repeat == Some(true) {
         return false;
     }
     match event.physical {
-        Some(PhysicalKey::Space | PhysicalKey::Enter) => model.toggle(),
-        Some(PhysicalKey::ArrowLeft) => model.choose(false),
-        Some(PhysicalKey::ArrowRight) => model.choose(true),
+        Some(PhysicalKey::Space | PhysicalKey::Enter) => glass.model.toggle(),
+        Some(PhysicalKey::ArrowLeft) => glass.model.choose(false),
+        Some(PhysicalKey::ArrowRight) => glass.model.choose(true),
         _ => return false,
     }
     true
