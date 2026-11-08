@@ -279,10 +279,7 @@ impl<'a> RadialPaint<'a> {
     #[cfg(feature = "sdl-gpu")]
     pub(super) fn sample_centered(&self, x: f32, y: f32) -> Color {
         let radius = self.radius_delta.to_f32();
-        let t = self.parameter(Fixed64::from_f32(x * radius), Fixed64::from_f32(y * radius));
-        t.map_or(Color::rgba(0, 0, 0, 0), |t| {
-            sample_stops(self.stops, spread(t, self.spread))
-        })
+        self.sample_relative(Fixed64::from_f32(x * radius), Fixed64::from_f32(y * radius))
     }
 
     #[cfg(test)]
@@ -297,13 +294,30 @@ impl<'a> RadialPaint<'a> {
             self.inverse.m00.mul_wide(x) + self.inverse.m01.mul_wide(y) + self.inverse.tx - self.fx;
         let qy =
             self.inverse.m10.mul_wide(x) + self.inverse.m11.mul_wide(y) + self.inverse.ty - self.fy;
-        let Some(t) = self.parameter(qx, qy) else {
+        self.sample_relative(qx, qy)
+    }
+
+    fn sample_relative(&self, qx: Fixed64, qy: Fixed64) -> Color {
+        let t = if let Some(discriminant) = self.centered_discriminant(qx, qy) {
+            // A Q48.16 value of magnitude <= 2^23 has a square that fits its storage.
+            if self.spread == SpreadMode::Pad
+                && self.quadratic >= -Fixed64::from_int(1 << 23)
+                && discriminant > self.quadratic.mul_wide(self.quadratic)
+            {
+                // A discriminant above A² guarantees t >= 1 after integer truncation.
+                return self.stops[self.stops.len() - 1].color.into();
+            }
+            self.centered_parameter(discriminant)
+        } else {
+            self.conical_parameter(qx, qy)
+        };
+        let Some(t) = t else {
             return Color::rgba(0, 0, 0, 0);
         };
         sample_stops(self.stops, spread(t, self.spread))
     }
 
-    fn parameter(&self, qx: Fixed64, qy: Fixed64) -> Option<Fixed64> {
+    fn centered_discriminant(&self, qx: Fixed64, qy: Fixed64) -> Option<Fixed64> {
         if self.dx == Fixed64::ZERO
             && self.dy == Fixed64::ZERO
             && self.inner_radius == Fixed64::ZERO
@@ -311,11 +325,13 @@ impl<'a> RadialPaint<'a> {
         {
             // Keep the conical solver's rounding; the second root has negative radius.
             let distance = qx.mul_wide(qx) + qy.mul_wide(qy);
-            let discriminant = -self.quadratic.mul_wide(distance);
-            return (discriminant >= Fixed64::ZERO)
-                .then(|| (-discriminant.sqrt()).div_wide(self.quadratic));
+            return Some(-self.quadratic.mul_wide(distance));
         }
-        self.conical_parameter(qx, qy)
+        None
+    }
+
+    fn centered_parameter(&self, discriminant: Fixed64) -> Option<Fixed64> {
+        (discriminant >= Fixed64::ZERO).then(|| (-discriminant.sqrt()).div_wide(self.quadratic))
     }
 
     fn conical_parameter(&self, qx: Fixed64, qy: Fixed64) -> Option<Fixed64> {
@@ -547,10 +563,53 @@ mod tests {
                     let qx = Fixed64::from_ratio(x, 31);
                     let qy = Fixed64::from_ratio(y, 23);
                     assert_eq!(
-                        sampler.parameter(qx, qy),
+                        sampler
+                            .centered_discriminant(qx, qy)
+                            .and_then(|d| sampler.centered_parameter(d)),
                         sampler.conical_parameter(qx, qy),
                         "radius={radius} x={x} y={y}",
                     );
+                    let reference = sampler
+                        .conical_parameter(qx, qy)
+                        .map_or(Color::rgba(0, 0, 0, 0), |t| {
+                            sample_stops(sampler.stops, spread(t, sampler.spread))
+                        });
+                    assert_eq!(
+                        sampler.sample_relative(qx, qy),
+                        reference,
+                        "padded radius={radius} x={x} y={y}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn radial_endpoint_shortcut_preserves_repetition_and_large_square_boundaries() {
+        let center = mirx::types::Point::new(mirx::types::Fixed::ZERO, mirx::types::Fixed::ZERO);
+        for radius in [1, 4096, 65536] {
+            for mode in [SpreadMode::Pad, SpreadMode::Reflect, SpreadMode::Repeat] {
+                let mut gradient = radial(
+                    center,
+                    mirx::types::Fixed::ZERO,
+                    mirx::types::Transform::IDENTITY,
+                );
+                gradient.center = center;
+                gradient.units = GradientUnits::UserSpaceOnUse;
+                gradient.radius = mirx::types::Fixed::from_int(radius);
+                gradient.spread = mode;
+                let sampler =
+                    RadialPaint::new(&gradient, Transform::IDENTITY, Rect::new(0, 0, 100, 100))
+                        .unwrap();
+                for (x, y) in [(0, 0), (1, 1), (4, 0), (-20, 3)] {
+                    let qx = Fixed64::from_int(x);
+                    let qy = Fixed64::from_int(y);
+                    let reference = sampler
+                        .conical_parameter(qx, qy)
+                        .map_or(Color::rgba(0, 0, 0, 0), |t| {
+                            sample_stops(sampler.stops, spread(t, mode))
+                        });
+                    assert_eq!(sampler.sample_relative(qx, qy), reference);
                 }
             }
         }
