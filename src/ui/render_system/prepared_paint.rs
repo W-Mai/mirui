@@ -39,6 +39,8 @@ pub(super) enum PaintVisibility {
     #[default]
     Unknown,
     Hidden,
+    // Visibility is known; clipping remains lazy.
+    Visible,
     Unclipped,
     Clipped,
 }
@@ -47,7 +49,13 @@ impl PaintVisibility {
     fn resolve(world: &World, entity: Entity) -> Self {
         if crate::ui::branch::is_effectively_hidden(world, entity) {
             Self::Hidden
-        } else if crate::ui::widgets::follow_bounds::clip(world, entity).is_some() {
+        } else {
+            Self::resolve_clip(world, entity)
+        }
+    }
+
+    fn resolve_clip(world: &World, entity: Entity) -> Self {
+        if crate::ui::widgets::follow_bounds::clip(world, entity).is_some() {
             Self::Clipped
         } else {
             Self::Unclipped
@@ -278,6 +286,34 @@ mod subtree_tests {
     }
 }
 
+pub(super) fn hidden(
+    world: &World,
+    entity: Entity,
+    position: usize,
+    preparation: Option<&PreparedPaint>,
+) -> bool {
+    let entry = preparation
+        .and_then(|prepared| prepared.nodes.get(position))
+        .map(|node| &node.visibility);
+    match entry.map(Cell::get) {
+        Some(PaintVisibility::Hidden) => true,
+        Some(PaintVisibility::Visible | PaintVisibility::Unclipped | PaintVisibility::Clipped) => {
+            false
+        }
+        Some(PaintVisibility::Unknown) | None => {
+            let hidden = crate::ui::branch::is_effectively_hidden(world, entity);
+            if let Some(entry) = entry {
+                entry.set(if hidden {
+                    PaintVisibility::Hidden
+                } else {
+                    PaintVisibility::Visible
+                });
+            }
+            hidden
+        }
+    }
+}
+
 pub(super) fn visibility(
     world: &World,
     entity: Entity,
@@ -287,12 +323,11 @@ pub(super) fn visibility(
     let entry = preparation
         .and_then(|prepared| prepared.nodes.get(position))
         .map(|node| &node.visibility);
-    if let Some(visibility) = entry.map(Cell::get)
-        && visibility != PaintVisibility::Unknown
-    {
-        return visibility;
-    }
-    let visibility = PaintVisibility::resolve(world, entity);
+    let visibility = match entry.map(Cell::get) {
+        Some(PaintVisibility::Unknown) | None => PaintVisibility::resolve(world, entity),
+        Some(PaintVisibility::Visible) => PaintVisibility::resolve_clip(world, entity),
+        Some(visibility) => return visibility,
+    };
     if let Some(entry) = entry {
         entry.set(visibility);
     }
@@ -809,7 +844,19 @@ mod tests {
         assert_eq!(core::mem::size_of::<Cell<PaintVisibility>>(), 1);
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
+                assert!(!hidden(&app.world, target, 0, Some(&prepared)));
+                assert!(!hidden(&app.world, follower, 1, Some(&prepared)));
+                assert_eq!(
+                    prepared.cached_visibility(0),
+                    Some(PaintVisibility::Visible)
+                );
+                assert_eq!(
+                    prepared.cached_visibility(1),
+                    Some(PaintVisibility::Visible)
+                );
                 for _ in 0..8 {
+                    assert!(!hidden(&app.world, target, 0, Some(&prepared)));
+                    assert!(!hidden(&app.world, follower, 1, Some(&prepared)));
                     assert_eq!(
                         visibility(&app.world, target, 0, Some(&prepared)),
                         PaintVisibility::Unclipped
@@ -858,6 +905,51 @@ mod tests {
             visibility(&app.world, follower, 1, Some(&prepared)),
             PaintVisibility::Hidden
         );
+    }
+
+    #[test]
+    fn queries_before_visibility_changes_do_not_reuse_the_previous_batch() {
+        use crate::surface::FramebufferAccess;
+
+        let mut app = App::headless(32, 24);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let entity = app.compose(root, |cx| {
+            ui! { View (width: 20, height: 12, bg_color: Color::rgb(180, 20, 40)) }
+        });
+        app.render().unwrap();
+        let mut previous = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
+        for hidden in [true, false, true, false] {
+            app.world.invalidate_visual(entity);
+            app.dirty_regions().unwrap();
+            if hidden {
+                app.world.insert(entity, crate::ui::Hidden);
+            } else {
+                app.world.remove::<crate::ui::Hidden>(entity);
+            }
+            app.world.invalidate(root);
+            app.render_dirty().unwrap();
+            let partial = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
+            app.render().unwrap();
+            assert_eq!(
+                partial,
+                app.backend.framebuffer().read_pixels().unwrap().bytes()
+            );
+            assert!(partial != previous);
+            previous = partial;
+        }
     }
 
     #[test]

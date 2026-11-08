@@ -3957,7 +3957,8 @@ fn collect_dirty_walk(
         return;
     }
     let entity = entities[*idx];
-    let visible = ancestors_visible && !super::branch::is_effectively_hidden(world, entity);
+    let visible =
+        ancestors_visible && !prepared_paint::hidden(world, entity, *idx, Some(preparation));
     let shifted_rect = Rect {
         x: node.rect.x - scroll_offset.0,
         y: node.rect.y - scroll_offset.1,
