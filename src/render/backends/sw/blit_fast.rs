@@ -592,6 +592,18 @@ pub fn blit_dda(
     opa: u8,
     clip_mask: Option<&[u8]>,
 ) {
+    if clip_mask.is_none()
+        && super::blit_rgba::try_dda(
+            dst,
+            src,
+            (sx0, sy0, sw, sh),
+            (dx0, dy0, dw, dh),
+            (clip_x0, clip_y0, clip_x1, clip_y1),
+            opa,
+        )
+    {
+        return;
+    }
     let sx_step = crate::render::sampling::dda_step(sw, dw);
     let sy_step = crate::render::sampling::dda_step(sh, dh);
     let target_w = dst.width() as usize;

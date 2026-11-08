@@ -16,6 +16,16 @@ pub(super) fn blit_fractional(
     composite: CompositeMode,
     mask: Option<&[u8]>,
 ) {
+    if radius == Fixed::ZERO
+        && composite == CompositeMode::SourceOver
+        && mask.is_none()
+        && !(opacity == 255
+            && area.w == Fixed::from_int(source_rect.2)
+            && area.h == Fixed::from_int(source_rect.3))
+        && super::blit_rgba::try_fractional(target, source, source_rect, area, clip, opacity)
+    {
+        return;
+    }
     let Some(draw) = area
         .intersect(&clip)
         .and_then(|draw| draw.intersect(&Rect::new(0, 0, target.width(), target.height())))
