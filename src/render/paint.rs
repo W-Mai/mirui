@@ -258,6 +258,28 @@ impl<'a> RadialPaint<'a> {
             self.inverse.m00.mul_wide(x) + self.inverse.m01.mul_wide(y) + self.inverse.tx - self.fx;
         let qy =
             self.inverse.m10.mul_wide(x) + self.inverse.m11.mul_wide(y) + self.inverse.ty - self.fy;
+        let Some(t) = self.parameter(qx, qy) else {
+            return Color::rgba(0, 0, 0, 0);
+        };
+        sample_stops(self.stops, spread(t, self.spread))
+    }
+
+    fn parameter(&self, qx: Fixed64, qy: Fixed64) -> Option<Fixed64> {
+        if self.dx == Fixed64::ZERO
+            && self.dy == Fixed64::ZERO
+            && self.inner_radius == Fixed64::ZERO
+            && self.quadratic < Fixed64::ZERO
+        {
+            // Keep the conical solver's rounding; the second root has negative radius.
+            let distance = qx.mul_wide(qx) + qy.mul_wide(qy);
+            let discriminant = -self.quadratic.mul_wide(distance);
+            return (discriminant >= Fixed64::ZERO)
+                .then(|| (-discriminant.sqrt()).div_wide(self.quadratic));
+        }
+        self.conical_parameter(qx, qy)
+    }
+
+    fn conical_parameter(&self, qx: Fixed64, qy: Fixed64) -> Option<Fixed64> {
         let linear = qx.mul_wide(self.dx)
             + qy.mul_wide(self.dy)
             + self.inner_radius.mul_wide(self.radius_delta);
@@ -289,12 +311,9 @@ impl<'a> RadialPaint<'a> {
                     .max()
             }
         };
-        let Some(t) = t.filter(|candidate| {
+        t.filter(|candidate| {
             self.inner_radius + self.radius_delta.mul_wide(*candidate) >= Fixed64::ZERO
-        }) else {
-            return Color::rgba(0, 0, 0, 0);
-        };
-        sample_stops(self.stops, spread(t, self.spread))
+        })
     }
 }
 
@@ -467,6 +486,35 @@ mod tests {
         assert!(!GradientStop::sequence_is_valid(&[
             stops[2], stops[1], stops[0]
         ]));
+    }
+
+    #[test]
+    fn centered_radial_parameters_match_the_general_solver_exactly() {
+        let center = mirx::types::Point::new(
+            mirx::types::Fixed::from_ratio(1, 2),
+            mirx::types::Fixed::from_ratio(1, 2),
+        );
+        let mut gradient = radial(
+            center,
+            mirx::types::Fixed::ZERO,
+            mirx::types::Transform::IDENTITY,
+        );
+        for radius in [1, 2, 7, 31, 127, 128, 129, 256, 1024] {
+            gradient.radius = mirx::types::Fixed::from_ratio(radius, 256);
+            let sampler =
+                RadialPaint::new(&gradient, Transform::IDENTITY, Rect::new(0, 0, 100, 50)).unwrap();
+            for y in -35..=35 {
+                for x in -35..=35 {
+                    let qx = Fixed64::from_ratio(x, 31);
+                    let qy = Fixed64::from_ratio(y, 23);
+                    assert_eq!(
+                        sampler.parameter(qx, qy),
+                        sampler.conical_parameter(qx, qy),
+                        "radius={radius} x={x} y={y}",
+                    );
+                }
+            }
+        }
     }
 
     #[test]

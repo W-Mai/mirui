@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed-point square roots use exact integer square-root operations without repeated wide division during gradient sampling.
+- Centered radial gradients skip unused focal-circle calculations while preserving the general sampler's fixed-point results.
 - Glass Light Toggle uses aligned image and primitive routes when its transforms preserve those shapes.
 - Paint batches reuse visibility checks during damage collection and drawing while preparing clipping only when needed.
 - Damage collection and paint acknowledgment skip scroll bookkeeping when neither current nor previously painted scroll state exists.
