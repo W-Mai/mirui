@@ -39,6 +39,11 @@ macro_rules! split_demo_sources {
 }
 
 split_demo_sources! {
+    GLASS_LIGHT_TOGGLE => {
+        demo: "glass_light_toggle",
+        marker: "fn glass_render",
+        parts: ["icons.rs", "state.rs", "input.rs", "render.rs", "textures.rs", "tests.rs"]
+    },
     NEARBY => {
         demo: "nearby",
         marker: "fn create_page",

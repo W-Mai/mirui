@@ -10,6 +10,8 @@ A `no_std`, ECS-driven UI framework for embedded, mobile, desktop, Linux, and We
 
 [Open mirui.rs](https://mirui.rs/) to run the browser demos, inspect their Rust source, and browse the Play applications. Run a native example with `cargo run -p gallery --example orbit_console_demo --release --features wgpu`.
 
+The Glass Light Toggle demo supports clicking, dragging, Space/Enter and arrow keys. Run `cargo run -p gallery --example glass_light_toggle_demo --release --no-default-features --features sdl-gpu` or select Glass Light Toggle in the browser gallery.
+
 ## Features
 
 - **ECS architecture** — entities, components, systems, resources, queries; system scheduler with named priority slots

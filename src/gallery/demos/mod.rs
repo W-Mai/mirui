@@ -20,6 +20,7 @@ pub mod effect_panels;
 pub mod fill_rules;
 pub mod flip_card;
 pub mod folding_ark;
+pub mod glass_light_toggle;
 pub mod gradient;
 pub mod i18n;
 pub mod icon;

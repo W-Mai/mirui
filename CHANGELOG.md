@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Glass Light Toggle demonstrates a draggable illuminated glass switch, pixel moon/sun morphing and spring motion across light and dark scenes.
 - `commands.scroll_into` reveals descendant widgets with minimal movement; `commands.scroll_to` aligns a descendant or positions one container after layout. Requests respect input ownership, retained identity and configured scroll axes.
 - Scroll commands address unrealized fixed-extent list rows by index or stable Model member identity, preserving identity across reordering and rejecting replaced sources and callbacks.
 - `ScrollConfig::with_transition` animates programmatic positioning with shared spring or tween motion, including nested destination planning, input takeover and scroll completion notifications.

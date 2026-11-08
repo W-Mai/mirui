@@ -175,6 +175,7 @@ register_demos! {
     ("curve_text_compact",   "Curve Text Compact",   "Showcase",    curve_text_compact, source = demo_sources::CURVE_TEXT_COMPACT),
     ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab, source = demo_sources::INTERACTION_LAB),
     ("editor_lab",           "Editor Lab",           "Components",  editor_lab, source = demo_sources::EDITOR_LAB),
+    ("glass_light_toggle",    "Glass Light Toggle",    "Showcase",    glass_light_toggle, source = demo_sources::GLASS_LIGHT_TOGGLE),
     ("page_studio",          "Page Studio",          "Showcase",    page_studio, source = demo_sources::PAGE_STUDIO),
     ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console, source = demo_sources::KINETIC_CONSOLE),
 
