@@ -17,11 +17,11 @@ use mirui::render::texture::{ColorFormat, Texture};
 use mirui::render::wgpu::WgpuRendererFactory;
 use mirui::render::{DrawRequest, ProjectiveFallback, RenderError, Renderer, SwRendererFactory};
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::surface::sdl_gpu::SdlGpuSurface;
+use mirui::surface::sdl_gpu::{SdlGpuConfig, SdlGpuDriver, SdlGpuSurface};
 #[cfg(feature = "wgpu")]
 use mirui::surface::wgpu_surface::WgpuSurface;
 use mirui::types::Transform;
-use mirx::scene::{GradientStop, GradientUnits, LinearGradient, Paint, SpreadMode};
+use mirx::scene::{GradientStop, GradientUnits, LinearGradient, Paint, RadialGradient, SpreadMode};
 
 use backend_snapshot_support::write_png;
 
@@ -29,13 +29,20 @@ const WIDTH: u16 = 320;
 const HEIGHT: u16 = 240;
 const SCALE: u16 = 2;
 
+#[derive(Clone, Copy)]
+enum GradientCase {
+    None,
+    Linear,
+    Radial,
+}
+
 fn capture<B: Surface>(
     surface: &mut B,
     factory: &mut impl RendererFactory<B>,
     projected: bool,
     blurred: bool,
     composite: CompositeMode,
-    gradient: bool,
+    gradient: GradientCase,
 ) -> Result<Texture<'static>, RenderError> {
     let viewport = surface.display_info().viewport();
     let result = (|| {
@@ -62,7 +69,7 @@ fn draw_fixture(
     projected: bool,
     blurred: bool,
     composite: CompositeMode,
-    gradient: bool,
+    gradient: GradientCase,
 ) -> Result<Texture<'static>, RenderError> {
     let clip = Rect::new(0, 0, WIDTH, HEIGHT);
     let background = DrawCommand::Fill {
@@ -75,7 +82,7 @@ fn draw_fixture(
     };
     renderer.draw_request(&DrawRequest::new(&background, clip))?;
 
-    if gradient {
+    if !matches!(gradient, GradientCase::None) {
         let path = Path::rounded_rect(
             Fixed::from_int(76),
             Fixed::from_int(42),
@@ -83,7 +90,7 @@ fn draw_fixture(
             Fixed::from_int(145),
             Fixed::from_int(18),
         );
-        let paint = Paint::LinearGradient(LinearGradient {
+        let mut paint = Paint::LinearGradient(LinearGradient {
             start: mirx::types::Point::new(
                 mirx::types::Fixed::from_int(76),
                 mirx::types::Fixed::from_int(42),
@@ -106,6 +113,25 @@ fn draw_fixture(
             units: GradientUnits::UserSpaceOnUse,
             transform: mirx::types::Transform::IDENTITY,
         });
+        if matches!(gradient, GradientCase::Radial) {
+            let Paint::LinearGradient(linear) = paint else {
+                unreachable!()
+            };
+            let center = mirx::types::Point::new(
+                mirx::types::Fixed::from_ratio(1, 2),
+                mirx::types::Fixed::from_ratio(1, 2),
+            );
+            paint = Paint::RadialGradient(RadialGradient {
+                center,
+                focal: center,
+                radius: mirx::types::Fixed::from_ratio(1, 2),
+                focal_radius: mirx::types::Fixed::ZERO,
+                stops: linear.stops,
+                spread: SpreadMode::Pad,
+                units: GradientUnits::ObjectBoundingBox,
+                transform: mirx::types::Transform::IDENTITY,
+            });
+        }
         renderer.draw_request(&DrawRequest::new(
             &DrawCommand::FillPath {
                 path: &path,
@@ -164,7 +190,12 @@ fn main() {
         Some("difference") => CompositeMode::Difference,
         Some(mode) => panic!("unknown composite mode: {mode}"),
     };
-    let gradient = args.next().as_deref() == Some("gradient");
+    let gradient = match args.next().as_deref() {
+        Some("gradient") => GradientCase::Linear,
+        Some("radial") => GradientCase::Radial,
+        None => GradientCase::None,
+        Some(other) => panic!("unknown gradient case: {other}"),
+    };
 
     let image = match backend.as_str() {
         "sw" => {
@@ -186,9 +217,18 @@ fn main() {
             )
             .expect("software composite draw")
         }
-        "sdl" => {
-            let mut surface = SdlGpuSurface::new("mirui image composite parity", WIDTH, HEIGHT)
-                .expect("SDL GPU surface");
+        "sdl" | "gles" => {
+            let config = if backend == "gles" {
+                SdlGpuConfig {
+                    driver: SdlGpuDriver::OpenGles2 { samples: 0 },
+                    ..Default::default()
+                }
+            } else {
+                SdlGpuConfig::default()
+            };
+            let mut surface =
+                SdlGpuSurface::with_config("mirui image composite parity", WIDTH, HEIGHT, config)
+                    .expect("SDL GPU surface");
             let mut factory = SdlGpuFactory::new()
                 .with_projective_fallback(ProjectiveFallback::new(vec![0; 512 * 1024]));
             capture(

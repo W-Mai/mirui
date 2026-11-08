@@ -1,4 +1,5 @@
 //! Native paint sampling over the existing path geometry.
+pub(super) mod radial;
 use mirx::scene::{GradientStop, Paint, SpreadMode};
 use sdl2_sys::{SDL_Color, SDL_FPoint, SDL_Vertex};
 
@@ -10,7 +11,7 @@ use crate::render::{DrawRequest, RenderError};
 use crate::types::{Color, Fixed64, Viewport};
 
 const MAX_STOPS: usize = 16;
-const BATCH_VERTICES: usize = 768;
+pub(super) const BATCH_VERTICES: usize = 768;
 
 pub(super) struct Linear<'a> {
     plane: [f64; 3],
@@ -51,19 +52,41 @@ struct Vertex {
     x: f64,
     y: f64,
     t: f64,
+    v: f64,
 }
 
-fn cut(input: &[Vertex], output: &mut [Vertex; 8], edge: f64, above: bool) -> usize {
+#[derive(Clone, Copy)]
+enum Axis {
+    U,
+    V,
+}
+impl Axis {
+    fn get(self, vertex: Vertex) -> f64 {
+        match self {
+            Self::U => vertex.t,
+            Self::V => vertex.v,
+        }
+    }
+}
+
+fn cut(input: &[Vertex], output: &mut [Vertex; 8], edge: f64, above: bool, axis: Axis) -> usize {
     let mut n = 0;
     let mut previous = input[input.len() - 1];
-    let inside = |v: Vertex| if above { v.t >= edge } else { v.t <= edge };
+    let inside = |v: Vertex| {
+        if above {
+            axis.get(v) >= edge
+        } else {
+            axis.get(v) <= edge
+        }
+    };
     for &current in input {
         if inside(current) != inside(previous) {
-            let amount = (edge - previous.t) / (current.t - previous.t);
+            let amount = (edge - axis.get(previous)) / (axis.get(current) - axis.get(previous));
             output[n] = Vertex {
                 x: previous.x + (current.x - previous.x) * amount,
                 y: previous.y + (current.y - previous.y) * amount,
-                t: edge,
+                t: previous.t + (current.t - previous.t) * amount,
+                v: previous.v + (current.v - previous.v) * amount,
             };
             n += 1;
         }
@@ -108,6 +131,7 @@ impl Linear<'_> {
                     x: p.x as f64,
                     y: p.y as f64,
                     t: self.plane[0] * p.x as f64 + self.plane[1] * p.y as f64 + self.plane[2],
+                    v: 0.0,
                 };
             }
             for band in 0..=self.stops.len() {
@@ -121,6 +145,7 @@ impl Linear<'_> {
                         &mut second,
                         self.stops[band - 1].offset.to_f32() as f64,
                         true,
+                        Axis::U,
                     );
                     core::mem::swap(&mut first, &mut second);
                 }
@@ -130,6 +155,7 @@ impl Linear<'_> {
                         &mut second,
                         self.stops[band].offset.to_f32() as f64,
                         false,
+                        Axis::U,
                     );
                     core::mem::swap(&mut first, &mut second);
                 }

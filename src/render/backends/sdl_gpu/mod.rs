@@ -832,7 +832,7 @@ impl<S> SdlGpuFactory<S> {
         self
     }
 
-    /// Limits retained image uploads in estimated pixel bytes. Zero disables retention.
+    /// Limits retained image uploads and generated gradient palettes in estimated bytes. Zero disables retention.
     /// Defaults to 16 MiB; entries are allocated only when used.
     pub fn with_texture_cache_budget(mut self, bytes: usize) -> Self {
         self.texture_cache = None;
@@ -1073,6 +1073,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 ..
             }
         ) && gradient::linear(request, self.viewport).is_none()
+            && !gradient::radial::plan(request, self.viewport)
+                .is_some_and(|plan| self.texture_cache.radial_fits(&plan.key))
     }
 
     fn needs_geometry_fallback(request: &DrawRequest<'_, '_>) -> bool {
@@ -1213,6 +1215,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             }
             if gradient::linear(request, self.viewport).is_some() {
                 return self.linear_gradient(request);
+            }
+            if gradient::radial::plan(request, self.viewport).is_some() {
+                return self.radial_gradient(request);
             }
             self.draw(request.command, &request.clip, source);
             return if let Some(error) = self.failure {

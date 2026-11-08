@@ -220,7 +220,7 @@ pub(super) struct RadialPaint<'a> {
 }
 
 impl<'a> RadialPaint<'a> {
-    fn new(gradient: &'a RadialGradient, draw: Transform, bbox: Rect) -> Option<Self> {
+    pub(super) fn new(gradient: &'a RadialGradient, draw: Transform, bbox: Rect) -> Option<Self> {
         if !GradientStop::sequence_is_valid(&gradient.stops) {
             return None;
         }
@@ -252,6 +252,36 @@ impl<'a> RadialPaint<'a> {
             quadratic,
             spread: gradient.spread,
             stops: &gradient.stops,
+        })
+    }
+
+    #[cfg(feature = "sdl-gpu")]
+    pub(super) fn centered_space(&self) -> Option<[f64; 6]> {
+        if self.dx != Fixed64::ZERO
+            || self.dy != Fixed64::ZERO
+            || self.inner_radius != Fixed64::ZERO
+            || self.quadratic >= Fixed64::ZERO
+        {
+            return None;
+        }
+        let radius = self.radius_delta.to_f32() as f64;
+        let scale = 0.5 / radius;
+        Some([
+            self.inverse.m00.to_f32() as f64 * scale,
+            self.inverse.m01.to_f32() as f64 * scale,
+            (self.inverse.tx - self.fx).to_f32() as f64 * scale + 0.5,
+            self.inverse.m10.to_f32() as f64 * scale,
+            self.inverse.m11.to_f32() as f64 * scale,
+            (self.inverse.ty - self.fy).to_f32() as f64 * scale + 0.5,
+        ])
+    }
+
+    #[cfg(feature = "sdl-gpu")]
+    pub(super) fn sample_centered(&self, x: f32, y: f32) -> Color {
+        let radius = self.radius_delta.to_f32();
+        let t = self.parameter(Fixed64::from_f32(x * radius), Fixed64::from_f32(y * radius));
+        t.map_or(Color::rgba(0, 0, 0, 0), |t| {
+            sample_stops(self.stops, spread(t, self.spread))
         })
     }
 
