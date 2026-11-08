@@ -1834,6 +1834,27 @@ impl Renderer for SwRenderer<'_> {
         self.submit_prepared(draw)
     }
 
+    fn poll_draw_request(
+        &mut self,
+        request: DrawRequest<'_, '_>,
+        text_run: Option<crate::render::TextRunIdentity>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Result<(), RenderError>> {
+        let route = self.route(&request)?;
+        let draw = core::task::ready!(self.prepare(request, route, cx))?;
+        let result = if let Some(identity) = text_run {
+            self.submit_text_run(&draw, identity)
+        } else if draw.projective().is_identity()
+            && !matches!(draw.command(), DrawCommand::Blit { .. })
+        {
+            // Route checked this immutable request against the unchanged viewport.
+            self.submit_routed_primitive(&draw.request())
+        } else {
+            self.submit(&draw)
+        };
+        core::task::Poll::Ready(result)
+    }
+
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
         SwRenderer::flush(self)
     }

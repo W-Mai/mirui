@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Software primitive submission reuses route validation within one prepared draw call while retaining independent submission and texture checks.
 - Damage collection retires inactive layout participants without preparing idle state or creating unused plans.
 - Nearby detail, configuration and save readers bind their existing positions reactively instead of polling animation systems.
 - Followed bounds use registered layout preparation and reuse completed layout for position-only settling.

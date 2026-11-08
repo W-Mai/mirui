@@ -3,6 +3,19 @@ use crate::render::{DrawCommand, PreparedDraw, RenderError, texture::Region};
 use crate::types::{Rect, Transform3D, TransformClass};
 
 impl SwRenderer<'_> {
+    pub(super) fn submit_routed_primitive(
+        &mut self,
+        request: &crate::render::DrawRequest<'_, '_>,
+    ) -> Result<(), RenderError> {
+        self.flush()?;
+        let saved = self.physical_clip;
+        self.physical_clip = request.physical_clip;
+        self.draw(request.command, &request.clip);
+        let result = self.flush();
+        self.physical_clip = saved;
+        result
+    }
+
     pub(super) fn submit_prepared(&mut self, draw: &PreparedDraw<'_>) -> Result<(), RenderError> {
         if draw.output_scale() != self.viewport.scale() {
             return Err(RenderError::InvalidScope);
@@ -132,6 +145,125 @@ mod tests {
         texture::{AlphaMode, ColorFormat, Texture},
     };
     use crate::types::{Color, Fixed, PhysicalRect, Point, Transform, Viewport};
+
+    #[test]
+    fn integrated_primitives_match_independent_preparation_in_physical_scopes() {
+        use core::task::{Context, Poll, Waker};
+        for format in [ColorFormat::RGBA8888, ColorFormat::RGB565Swapped] {
+            for scale in [Fixed::ONE, Fixed::from_ratio(3, 2), Fixed::from_int(2)] {
+                for transform in [
+                    Transform::IDENTITY,
+                    Transform::translate(Fixed::HALF, Fixed::HALF),
+                    Transform::rotate_deg(17.into()),
+                ] {
+                    let area = Rect::new(3, 4, 5, 7);
+                    let commands = [
+                        DrawCommand::Fill {
+                            area,
+                            transform,
+                            quad: None,
+                            color: Color::rgba(73, 141, 207, 181),
+                            radius: Fixed::from_ratio(3, 2),
+                            opa: 197,
+                        },
+                        DrawCommand::Border {
+                            area,
+                            transform,
+                            quad: None,
+                            color: Color::rgb(207, 97, 53),
+                            width: Fixed::ONE,
+                            radius: Fixed::from_int(2),
+                            opa: 225,
+                        },
+                    ];
+                    for command in &commands {
+                        let make = || {
+                            let mut renderer =
+                                SwRenderer::new(Texture::owned(24, 24, format).unwrap())
+                                    .with_alpha_mode(AlphaMode::Blend);
+                            renderer.viewport = Viewport::new(24, 24, scale);
+                            renderer
+                        };
+                        let mut expected = make();
+                        let mut actual = make();
+                        let request = DrawRequest::new(command, Rect::new(0, 0, 18, 18))
+                            .with_physical_clip(PhysicalRect::new(2, 1, 13, 15).unwrap());
+                        let mut cx = Context::from_waker(Waker::noop());
+                        let route = Renderer::route(&expected, &request).unwrap();
+                        let Poll::Ready(Ok(prepared)) =
+                            Renderer::prepare(&mut expected, request, route, &mut cx)
+                        else {
+                            panic!("primitive preparation must complete");
+                        };
+                        Renderer::submit(&mut expected, &prepared).unwrap();
+                        actual.draw_request(&request).unwrap();
+                        let independent_allocations =
+                            crate::test_support::tracked_allocations(|| {
+                                Renderer::submit(&mut expected, &prepared).unwrap();
+                            });
+                        let integrated_allocations =
+                            crate::test_support::tracked_allocations(|| {
+                                actual.draw_request(&request).unwrap();
+                            });
+                        assert_eq!(
+                            integrated_allocations, independent_allocations,
+                            "scale {scale:?}, transform {transform:?}"
+                        );
+                        assert_eq!(
+                            actual.target.read_pixels().unwrap().bytes(),
+                            expected.target.read_pixels().unwrap().bytes()
+                        );
+                        assert!(actual.physical_clip.is_none());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn independent_scope_checks_and_failed_flushes_remain_strict() {
+        use core::task::{Context, Poll, Waker};
+        let command = DrawCommand::Fill {
+            area: Rect::new(0, 0, 8, 8),
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(17, 83, 149),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let mut renderer = SwRenderer::new(Texture::owned(8, 8, ColorFormat::RGBA8888).unwrap());
+        let request = DrawRequest::new(&command, Rect::new(0, 0, 8, 8))
+            .with_physical_clip(PhysicalRect::new(1, 1, 4, 4).unwrap());
+        let mut cx = Context::from_waker(Waker::noop());
+        let route = Renderer::route(&renderer, &request).unwrap();
+        let Poll::Ready(Ok(prepared)) = Renderer::prepare(&mut renderer, request, route, &mut cx)
+        else {
+            panic!("primitive preparation must complete");
+        };
+        renderer.viewport = Viewport::new(8, 8, Fixed::from_int(2));
+        assert_eq!(
+            Renderer::submit(&mut renderer, &prepared),
+            Err(RenderError::InvalidScope)
+        );
+        renderer.viewport = Viewport::new(8, 8, Fixed::ONE);
+        let old_clip = Some(PhysicalRect::new(0, 0, 2, 2).unwrap());
+        renderer.physical_clip = old_clip;
+        renderer.failure = Some(RenderError::BackendFailure);
+        assert_eq!(
+            renderer.draw_request(&request),
+            Err(RenderError::BackendFailure)
+        );
+        assert_eq!(renderer.physical_clip, old_clip);
+        assert!(
+            renderer
+                .target
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .iter()
+                .all(|byte| *byte == 0)
+        );
+    }
 
     #[test]
     fn prepared_regions_match_full_sources_without_allocating() {
