@@ -157,6 +157,15 @@ pub(super) struct LinearPaint<'a> {
 }
 
 impl<'a> LinearPaint<'a> {
+    #[cfg(feature = "sdl-gpu")]
+    pub(super) fn plane(&self) -> [f64; 3] {
+        [
+            self.x.to_f32() as f64,
+            self.y.to_f32() as f64,
+            self.bias.to_f32() as f64,
+        ]
+    }
+
     pub(super) fn new(gradient: &'a LinearGradient, draw: Transform, bbox: Rect) -> Option<Self> {
         if !GradientStop::sequence_is_valid(&gradient.stops) {
             return None;
@@ -333,7 +342,7 @@ fn spread(t: Fixed64, mode: SpreadMode) -> Fixed64 {
     }
 }
 
-fn sample_stops(stops: &[GradientStop], t: Fixed64) -> Color {
+pub(super) fn sample_stops(stops: &[GradientStop], t: Fixed64) -> Color {
     let Some(first) = stops.first() else {
         return Color::rgba(0, 0, 0, 0);
     };

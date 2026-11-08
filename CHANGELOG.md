@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SDL-GPU renders supported linear path gradients with cached geometry and bounded vertex-color batches, retaining exact fallback for unsupported paint cases.
 - Fixed-point square roots use exact integer square-root operations without repeated wide division during gradient sampling.
 - Centered radial gradients skip unused focal-circle calculations while preserving the general sampler's fixed-point results.
 - Glass Light Toggle uses aligned image and primitive routes when its transforms preserve those shapes.

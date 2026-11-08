@@ -5,6 +5,7 @@
 mod blit;
 mod config;
 mod device;
+mod gradient;
 mod label;
 mod label_cache;
 mod line;
@@ -66,6 +67,30 @@ fn paint_color(paint: &Paint) -> Color {
             .first()
             .map(|stop| stop.color.into())
             .unwrap_or(Color::rgba(0, 0, 0, 0)),
+    }
+}
+
+fn draw_geometry<T: sdl2::render::RenderTarget>(
+    canvas: &mut SdlCanvas<T>,
+    texture: Option<&sdl2::render::Texture<'_>>,
+    vertices: &[sdl2_sys::SDL_Vertex],
+    indices: Option<&[i32]>,
+) -> Result<(), RenderError> {
+    // SDL copies the vertices into its queue; all borrowed storage is live for this call.
+    let result = unsafe {
+        sdl2_sys::SDL_RenderGeometry(
+            canvas.raw(),
+            texture.map_or(core::ptr::null_mut(), |texture| texture.raw()),
+            vertices.as_ptr(),
+            vertices.len() as _,
+            indices.map_or(core::ptr::null(), |indices| indices.as_ptr()),
+            indices.map_or(0, |indices| indices.len()) as _,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(RenderError::BackendFailure)
     }
 }
 
@@ -960,18 +985,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 
         let verts = &self.tessellator.verts;
         let indices = &self.tessellator.indices;
-        let result = unsafe {
-            sdl2_sys::SDL_RenderGeometry(
-                canvas.raw(),
-                core::ptr::null_mut(),
-                verts.as_ptr(),
-                verts.len() as _,
-                indices.as_ptr(),
-                indices.len() as _,
-            )
-        };
-        if result != 0 {
-            self.failure.get_or_insert(RenderError::BackendFailure);
+        if let Err(error) = draw_geometry(&mut canvas, None, verts, Some(indices)) {
+            self.failure.get_or_insert(error);
         }
         self.device.finish_draw(&mut canvas);
     }
@@ -1047,7 +1062,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         }
     }
 
-    fn needs_paint_fallback(request: &DrawRequest<'_, '_>) -> bool {
+    fn needs_paint_fallback(&self, request: &DrawRequest<'_, '_>) -> bool {
         matches!(
             request.command,
             DrawCommand::FillPath {
@@ -1057,7 +1072,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 paint: Paint::LinearGradient(_) | Paint::RadialGradient(_),
                 ..
             }
-        )
+        ) && gradient::linear(request, self.viewport).is_none()
     }
 
     fn needs_geometry_fallback(request: &DrawRequest<'_, '_>) -> bool {
@@ -1132,7 +1147,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             );
         }
         Self::classify_request(request)?;
-        let paint_fallback = Self::needs_paint_fallback(request);
+        let paint_fallback = self.needs_paint_fallback(request);
         if request.projective.is_identity()
             && !Self::needs_blit_fallback(request, self.native_target)
             && !paint_fallback
@@ -1187,7 +1202,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return self.blur_target_region(*alpha, region);
         }
         Self::classify_request(request)?;
-        let paint_fallback = Self::needs_paint_fallback(request);
+        let paint_fallback = self.needs_paint_fallback(request);
         let needs_fallback = !request.projective.is_identity()
             || Self::needs_blit_fallback(request, self.native_target)
             || paint_fallback
@@ -1195,6 +1210,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if !needs_fallback {
             if route != RenderRoute::Native {
                 return Err(RenderError::InvalidGeometry);
+            }
+            if gradient::linear(request, self.viewport).is_some() {
+                return self.linear_gradient(request);
             }
             self.draw(request.command, &request.clip, source);
             return if let Some(error) = self.failure {
@@ -1824,6 +1842,23 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for SdlGpuRenderer<'_, S> {
         opa: u8,
         fill_rule: crate::render::raster::FillRule,
     ) {
+        if !matches!(paint, Paint::Color(_)) {
+            let command = DrawCommand::FillPath {
+                path,
+                transform: Transform::IDENTITY,
+                paint,
+                opa,
+                fill_rule,
+            };
+            let request = DrawRequest::new(&command, *clip);
+            if let Err(error) = self
+                .route(&request)
+                .and_then(|route| self.submit_routed(&request, route, None))
+            {
+                self.failure.get_or_insert(error);
+            }
+            return;
+        }
         let color = paint_color(paint);
         self.fill_path_inner(path.commands(), clip, &color, opa, fill_rule);
     }
@@ -1840,6 +1875,27 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for SdlGpuRenderer<'_, S> {
         miter_limit: Fixed,
         dash: &[Fixed],
     ) {
+        if !matches!(paint, Paint::Color(_)) {
+            let command = DrawCommand::StrokePath {
+                path,
+                transform: Transform::IDENTITY,
+                paint,
+                width,
+                opa,
+                line_cap: cap,
+                line_join: join,
+                miter_limit,
+                dash,
+            };
+            let request = DrawRequest::new(&command, *clip);
+            if let Err(error) = self
+                .route(&request)
+                .and_then(|route| self.submit_routed(&request, route, None))
+            {
+                self.failure.get_or_insert(error);
+            }
+            return;
+        }
         let color = paint_color(paint);
         self.stroke_path_styled_inner(
             path.commands(),

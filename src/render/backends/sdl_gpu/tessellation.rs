@@ -27,6 +27,7 @@ pub struct TessellationCache {
     stroke_tess: SharedStrokeTessellator,
     pub(super) verts: Vec<SDL_Vertex>,
     pub(super) indices: Vec<i32>,
+    pub(super) gradient_batch: Vec<SDL_Vertex>,
 }
 
 impl TessellationCache {
@@ -37,6 +38,7 @@ impl TessellationCache {
             stroke_tess: SharedStrokeTessellator::new(),
             verts: Vec::new(),
             indices: Vec::new(),
+            gradient_batch: Vec::new(),
         }
     }
 
