@@ -160,11 +160,24 @@ impl Painter<'_, '_> {
         if opacity == 0 {
             return;
         }
+        let aligned = self.transform.m01 == Fixed::ZERO
+            && self.transform.m10 == Fixed::ZERO
+            && self.transform.m00 > Fixed::ZERO
+            && self.transform.m11 > Fixed::ZERO;
+        let area = if aligned {
+            self.transform.apply_rect_bbox(rect)
+        } else {
+            rect
+        };
         self.paint.draw(&DrawCommand::Blit {
-            pos: Point::new(rect.x, rect.y),
-            size: Point::new(rect.w, rect.h),
-            transform: self.transform,
-            quad: Some(self.transform.apply_rect(rect)),
+            pos: Point::new(area.x, area.y),
+            size: Point::new(area.w, area.h),
+            transform: if aligned {
+                Transform::IDENTITY
+            } else {
+                self.transform
+            },
+            quad: (!aligned).then(|| self.transform.apply_rect(rect)),
             texture,
             opa: opacity,
             radius: Fixed::ZERO,
@@ -187,12 +200,28 @@ impl Painter<'_, '_> {
         if opacity == 0 {
             return;
         }
+        let aligned = self.transform.m01 == Fixed::ZERO
+            && self.transform.m10 == Fixed::ZERO
+            && self.transform.m00 > Fixed::ZERO
+            && self.transform.m00 == self.transform.m11;
         self.paint.draw(&DrawCommand::Fill {
-            area: rect,
-            transform: self.transform,
+            area: if aligned {
+                self.transform.apply_rect_bbox(rect)
+            } else {
+                rect
+            },
+            transform: if aligned {
+                Transform::IDENTITY
+            } else {
+                self.transform
+            },
             quad: None,
             color,
-            radius,
+            radius: if aligned {
+                radius * self.transform.m00
+            } else {
+                radius
+            },
             opa: opacity,
         });
     }

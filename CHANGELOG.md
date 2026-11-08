@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Glass Light Toggle uses aligned image and primitive routes when its transforms preserve those shapes.
 - Paint batches reuse visibility checks during damage collection and drawing while preparing clipping only when needed.
 - Damage collection and paint acknowledgment skip scroll bookkeeping when neither current nor previously painted scroll state exists.
 - One-to-one software RGBA conversions reuse checked row ranges without per-pixel whole-image indexing.

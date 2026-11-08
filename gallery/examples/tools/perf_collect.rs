@@ -7,6 +7,8 @@
 //! Run:
 //!   cargo run --release -p gallery --example perf_collect
 
+#[path = "perf_collect/glass.rs"]
+mod glass;
 #[cfg(feature = "sdl-gpu")]
 #[path = "perf_collect/gpu.rs"]
 mod gpu;
@@ -62,6 +64,13 @@ fn scroll_list() -> Entity {
 }
 
 fn main() {
+    if std::env::args()
+        .nth(1)
+        .is_some_and(|arg| arg.starts_with("--glass-"))
+    {
+        glass::run();
+        return;
+    }
     if std::env::args_os().len() > 1 {
         #[cfg(feature = "sdl-gpu")]
         {
