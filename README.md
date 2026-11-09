@@ -1,12 +1,13 @@
-# mirui
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme-hero-dark.svg" />
+  <img src="docs/assets/readme-hero-light.svg" alt="mirui — animated Orbit Console in landscape and portrait layouts" width="1200" />
+</picture>
 
 [![Crates.io](https://img.shields.io/crates/v/mirui.svg)](https://crates.io/crates/mirui)
 [![docs.rs](https://docs.rs/mirui/badge.svg)](https://docs.rs/mirui)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A `no_std`, ECS-driven UI framework for embedded, mobile, desktop, Linux, and WebAssembly targets. Layout, hit testing, and draw geometry use Q24.8 fixed point before submission to the software rasterizer, SDL GPU, WGPU, Web Canvas, framebuffer, DRM, and NuttX backends.
-
-![Orbit Console adapting between wide and compact layouts](docs/assets/orbit-console-responsive.webp)
 
 [Open mirui.rs](https://mirui.rs/) to run the browser demos, inspect their Rust source, and browse the Play applications. Run a native example with `cargo run -p gallery --example orbit_console_demo --release --features wgpu`.
 

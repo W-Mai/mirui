@@ -1,5 +1,20 @@
 # Snapshot tools
 
+## README artwork
+
+The README uses self-contained light and dark SVGs with landscape and portrait captures of Orbit Console, a six-second animation, and a static presentation for reduced-motion preferences. Captured glyph positions, vector contours and shared gradients do not require external images, fonts or scripts. Glyphs use distance-field contours when available and retain coverage samples otherwise.
+
+Regenerate the artwork from the repository root:
+
+```sh
+cargo run -p gallery --example readme_capture --no-default-features --features snapshot -- .local/readme-hero/scenes.json
+uv run --python 3.13 --with psd-tools==1.26.0 --with vtracer==0.6.15 python gallery/examples/tools/readme_assets.py --capture .local/readme-hero/scenes.json
+```
+
+Add `--logo-psd path/to/logo.psd` to export the light and dark wordmarks from the layered source. Background layers are omitted and foreground colors are preserved. Intermediate captures stay under `.local/readme-hero/`; the exported SVGs are written to `docs/assets/`.
+
+## Demo captures
+
 Nearby save panels can be captured with `NEARBY_SCENE=saves-0` through `saves-6`, `NEARBY_VIEWPORT=480x320` or `640x480`, `NEARBY_PALETTE=0`, `1` or `2`, and `NEARBY_SETTLE_FRAMES=0`, using `demo_previews_snapshot <output-directory> nearby`. These scenes replay browsing, scrolling, load confirmation, return, operations, game progress and read-only session information with a fixed clock and synthetic save records. `NEARBY_SCENE=actions` captures the seven game actions; `saves-actions` uses the save-reference game and focus. Ordinary Nearby simulation controls expose save read/write failures, record conflicts, empty inventory and room occupancy without accessing host save files.
 
 `cargo run -p gallery --example surface_size_probe --no-default-features --features sdl` checks owner-thread content resizing, viewport feedback, rapid replacement, Nearby dock rendering and handle retirement in a temporary native window. Select `sdl-gpu` or `wgpu` to exercise those backends; this tool requires a windowed desktop session.
