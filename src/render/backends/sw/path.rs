@@ -67,7 +67,7 @@ mod clip_tests {
             let stride = usize::from(width) * format.bytes_per_pixel() + 5;
             let len = stride * usize::from(height);
             for mode in [AlphaMode::Opaque, AlphaMode::Blend] {
-                for alpha in [0, 127, 255] {
+                for alpha in [0, 1, 127, 255] {
                     let color = Color::rgba(177, 45, 99, alpha);
                     let paint = Paint::RadialGradient(RadialGradient {
                         center: Point::new(5, 4).into(),
@@ -804,13 +804,15 @@ impl SwRenderer<'_> {
                         let c = gradient.sample(px, py);
                         let paint_alpha =
                             ((u16::from(final_alpha) * u16::from(c.a) + 127) / 255) as u8;
-                        format.blend_pixel(
-                            target_bytes,
-                            py as usize * target_stride + px as usize * pixel_size,
-                            &c,
-                            paint_alpha,
-                            alpha_mode,
-                        );
+                        if paint_alpha != 0 {
+                            format.blend_pixel(
+                                target_bytes,
+                                py as usize * target_stride + px as usize * pixel_size,
+                                &c,
+                                paint_alpha,
+                                alpha_mode,
+                            );
+                        }
                     } else {
                         format.blend_pixel(
                             target_bytes,
@@ -1055,13 +1057,15 @@ impl SwRenderer<'_> {
                         let c = gradient.sample(px, py);
                         let paint_alpha =
                             ((u16::from(final_alpha) * u16::from(c.a) + 127) / 255) as u8;
-                        format.blend_pixel(
-                            target_bytes,
-                            py as usize * target_stride + px as usize * pixel_size,
-                            &c,
-                            paint_alpha,
-                            alpha_mode,
-                        );
+                        if paint_alpha != 0 {
+                            format.blend_pixel(
+                                target_bytes,
+                                py as usize * target_stride + px as usize * pixel_size,
+                                &c,
+                                paint_alpha,
+                                alpha_mode,
+                            );
+                        }
                     } else {
                         format.blend_pixel(
                             target_bytes,

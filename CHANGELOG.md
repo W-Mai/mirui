@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Axis-aligned radial drawing prepares constant Pad cutoffs once per command within the existing sampler size.
 - Gradient colors use exact integer channel interpolation and normalized offset conversion without double-precision arithmetic.
 - Software path shading prepares target layout after clipping and reuses the checked pixel range across scanlines.
+- Gradient path shading skips zero-effective-alpha writes before target offset calculation and blending.
 - Path rasterization accumulates interval boundaries in the existing scanline scratch, preserving exact subpixel coverage and fill rules.
 - Fixed-point square roots use exact integer square-root operations without repeated wide division during gradient sampling.
 - Centered radial gradients skip unused focal-circle calculations while preserving the general sampler's fixed-point results.
