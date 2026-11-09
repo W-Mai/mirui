@@ -77,6 +77,8 @@ The input demo repeatedly taps and drags its composed targets. In the lifecycle 
 
 ### SDL-GPU rendering samples
 
+Glass Light Toggle uses a fixed interaction replay with separate initial-render, first-16-frame and warmed measurements. Run `cargo run --release -p gallery --example perf_collect --no-default-features --features sdl,sdl-gpu,perf -- --glass-sdl-gpu 90`; select `--glass-sdl` for software drawing in an SDL window or `--glass-sw` for a headless software target. Omit `--release` to measure unoptimized Rust. `initial_render_us` includes the initial drawing and presentation; `warmup_mean_us` and `warmup_max_us` include first-use resources reached during early interaction. The remaining mean, percentiles and spans cover only warmed frames. Vsync is disabled, animation uses a fixed clock, and these are wall times without a forced GPU completion wait. Set `GLASS_SNAPSHOTS` to an output directory for visual captures; capture runs should be kept separate from performance comparisons.
+
 The same collector can measure native SDL-GPU full-frame rendering without the simulated transfer delay:
 
 ```sh
