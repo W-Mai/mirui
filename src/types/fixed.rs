@@ -515,6 +515,16 @@ impl Fixed64 {
             return Self::ZERO;
         }
         let n = (self.0 as u128) << FRAC_BITS_64;
+        #[cfg(feature = "std")]
+        {
+            let candidate = ((self.0 as f64 * SCALE_64 as f64).sqrt()) as u64;
+            let low = u128::from(candidate);
+            let high = low + 1;
+            // The input bounds the candidate below 2^40, so both squares fit.
+            if low * low <= n && high * high > n {
+                return Self(candidate as i64);
+            }
+        }
         Self(n.isqrt() as i64)
     }
 
@@ -959,6 +969,40 @@ mod tests {
         }
         assert_eq!(Fixed(-1).sqrt(), Fixed::ZERO);
         assert_eq!(Fixed(i32::MIN).sqrt(), Fixed::ZERO);
+    }
+
+    #[test]
+    fn square_roots_match_integer_reference_across_dense_and_near_square_inputs() {
+        let check = |raw: i64| {
+            assert_eq!(
+                Fixed64(raw).sqrt().0,
+                ((raw as u128) << FRAC_BITS_64).isqrt() as i64
+            );
+        };
+        for raw in 0..=1_048_576 {
+            check(raw);
+        }
+        let mut seed = 0x7A6C_5219_93DB_17E5_u64;
+        for bits in 0..=62 {
+            let mask = (1_u64 << bits).wrapping_sub(1);
+            for _ in 0..4096 {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let raw = (seed & mask) as i64;
+                check(raw);
+                let root = ((raw as u128) << FRAC_BITS_64).isqrt();
+                let boundary = ((root * root) >> FRAC_BITS_64) as i64;
+                for neighbor in [
+                    boundary.saturating_sub(1).max(0),
+                    boundary,
+                    boundary.saturating_add(1),
+                ] {
+                    check(neighbor);
+                }
+            }
+        }
+        // Floating conversion rounds this input up to a square; the integer guard rejects it.
+        assert_eq!(Fixed64((1_i64 << 62) - 1).sqrt().0, (1_i64 << 39) - 1);
+        check(i64::MAX);
     }
 
     #[test]

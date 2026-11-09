@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Axis-aligned radial gradients use exact integer multiplication for pixel coordinates while retaining fractional sampling and fixed-point overflow behavior.
 - Path rasterization accumulates interval boundaries in the existing scanline scratch, preserving exact subpixel coverage and fill rules.
 - Fixed-point square roots use exact integer square-root operations without repeated wide division during gradient sampling.
+- Standard-library builds validate floating-point square-root candidates against exact integer bounds before accepting them; other cases retain integer square roots.
 - Centered radial gradients skip unused focal-circle calculations while preserving the general sampler's fixed-point results.
 - Padded radial samples beyond the outer endpoint skip square roots and interpolation without changing sampled colors.
 - Software RGBA scaling reuses checked row ranges for nearest sampling, alpha and fractional edge coverage while retaining one-to-one copies and generic format/mask paths.

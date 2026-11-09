@@ -25,6 +25,8 @@ The stop walk carries each converted boundary into the following interval, avoid
 
 Axis-aligned radial gradients evaluate integer pixel coordinates without lifting them into a wide fractional product. The integer path preserves the existing input wrapping and low-word product; fractional and projective sampling retain wide multiplication. Sampler storage and output precision are unchanged.
 
+With `std`, wide fixed-point square roots can accept a standard floating-point candidate only after exact integer checks establish the same floor as integer square root. Rejected candidates use integer square root. Builds without `std` use the integer implementation throughout; no precision tolerance or additional storage is introduced.
+
 Path shaders borrow their existing scanline differences. Solid and scanline-constant linear gradients without a clip mask batch exact constant-coverage spans on opaque byte-channel targets, preparing opacity and fixed-source channel products once per span. Other formats, alpha-aware targets, masks, projective coordinates and varying gradient colors retain the general per-point shader without span partitioning. No expanded coverage array, intermediate image, retained span list or per-draw allocation is added.
 
 Path shading clips scanline bounds to the target before borrowing pixel storage. The exclusive borrow reuses target format, stride and alpha mode throughout the draw while preserving the existing pixel-format blending rules. Gradient samples with zero effective write alpha skip target offset calculation and blending.
