@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Software pixel writes store byte-format channels directly without integer packing, preserving format byte order and RGB565 quantization.
 - Software paths batch exact constant-coverage spans and share fixed-color blending for solid and scanline-constant gradients without intermediate pixel buffers.
 - Gradient stop interpolation uses exact bounded 32-bit division within normalized intervals.
+- Gradient stop traversal reuses converted interval boundaries without preparing additional storage.
 - Path rasterization accumulates interval boundaries in the existing scanline scratch, preserving exact subpixel coverage and fill rules.
 - Fixed-point square roots use exact integer square-root operations without repeated wide division during gradient sampling.
 - Centered radial gradients skip unused focal-circle calculations while preserving the general sampler's fixed-point results.

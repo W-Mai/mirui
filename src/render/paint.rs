@@ -541,14 +541,14 @@ pub(super) fn sample_stops(stops: &[GradientStop], t: Fixed64) -> Color {
     let Some(first) = stops.first() else {
         return Color::rgba(0, 0, 0, 0);
     };
-    if t < stop_offset(first.offset) {
+    let mut start_offset = stop_offset(first.offset);
+    if t < start_offset {
         return first.color.into();
     }
     for pair in stops.windows(2) {
         let [start, end] = pair else { unreachable!() };
         let end_offset = stop_offset(end.offset);
         if t < end_offset {
-            let start_offset = stop_offset(start.offset);
             let interval = end_offset - start_offset;
             if interval == Fixed64::ZERO {
                 return end.color.into();
@@ -559,6 +559,7 @@ pub(super) fn sample_stops(stops: &[GradientStop], t: Fixed64) -> Color {
                 (t - start_offset).div_unit_interval(interval),
             );
         }
+        start_offset = end_offset;
     }
     stops[stops.len() - 1].color.into()
 }
@@ -567,6 +568,90 @@ pub(super) fn sample_stops(stops: &[GradientStop], t: Fixed64) -> Color {
 mod tests {
     use super::*;
     use alloc::borrow::Cow;
+
+    #[test]
+    fn stop_boundaries_match_right_continuous_integer_interpolation() {
+        let colors = [
+            mirx::types::Color {
+                r: 19,
+                g: 231,
+                b: 87,
+                a: 255,
+            },
+            mirx::types::Color {
+                r: 254,
+                g: 23,
+                b: 99,
+                a: 17,
+            },
+            mirx::types::Color {
+                r: 0,
+                g: 127,
+                b: 251,
+                a: 180,
+            },
+            mirx::types::Color {
+                r: 231,
+                g: 5,
+                b: 18,
+                a: 0,
+            },
+        ];
+        for offsets in [
+            [0, 85, 85, 256],
+            [17, 17, 17, 256],
+            [64, 64, 64, 64],
+            [0, 17, 128, 200],
+            [256, 256, 256, 256],
+        ] {
+            let stops: [_; 4] = core::array::from_fn(|i| GradientStop {
+                offset: mirx::types::Fixed::from_ratio(offsets[i], 256),
+                color: colors[i],
+            });
+            for count in 1..=4 {
+                let check = |raw: i64| {
+                    let selected = offsets[..count]
+                        .iter()
+                        .rposition(|offset| i64::from(*offset) * 256 <= raw);
+                    let expected = match selected {
+                        None => colors[0].into(),
+                        Some(index) if index + 1 == count => colors[index].into(),
+                        Some(index) => {
+                            let begin = i128::from(offsets[index]) * 256;
+                            let width = i128::from(offsets[index + 1] - offsets[index]) * 256;
+                            let amount = ((i128::from(raw) - begin) * 65_536) / width;
+                            let channel = |a: u8, b: u8| {
+                                ((i128::from(a) * 65_536
+                                    + (i128::from(b) - i128::from(a)) * amount)
+                                    / 65_536) as u8
+                            };
+                            let a = colors[index];
+                            let b = colors[index + 1];
+                            Color::rgba(
+                                channel(a.r, b.r),
+                                channel(a.g, b.g),
+                                channel(a.b, b.b),
+                                channel(a.a, b.a),
+                            )
+                        }
+                    };
+                    assert_eq!(
+                        sample_stops(&stops[..count], Fixed64::from_ratio(raw, 65_536)),
+                        expected,
+                        "{offsets:?} {count} {raw}"
+                    );
+                };
+                for raw in (-257..=65_793).step_by(17) {
+                    check(raw);
+                }
+                for offset in &offsets[..count] {
+                    for neighbor in [-1, 0, 1] {
+                        check(i64::from(*offset) * 256 + neighbor);
+                    }
+                }
+            }
+        }
+    }
 
     fn gradient(units: GradientUnits, transform: mirx::types::Transform) -> LinearGradient {
         LinearGradient {
