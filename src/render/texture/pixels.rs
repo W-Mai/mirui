@@ -91,16 +91,19 @@ impl ColorFormat {
 
     #[inline(always)]
     pub(super) fn write_pixel(self, bytes: &mut [u8], offset: usize, color: &Color) {
-        let packed = self.pack(color).to_le_bytes();
         match self {
             Self::RGB565 | Self::RGB565Swapped => {
+                let packed = self.pack(color).to_le_bytes();
                 bytes[offset..offset + 2].copy_from_slice(&packed[..2]);
             }
             Self::RGB888 => {
-                bytes[offset..offset + 3].copy_from_slice(&packed[..3]);
+                bytes[offset..offset + 3].copy_from_slice(&[color.r, color.g, color.b]);
             }
-            Self::RGBA8888 | Self::BGRA8888 => {
-                bytes[offset..offset + 4].copy_from_slice(&packed);
+            Self::RGBA8888 => {
+                bytes[offset..offset + 4].copy_from_slice(&[color.r, color.g, color.b, color.a]);
+            }
+            Self::BGRA8888 => {
+                bytes[offset..offset + 4].copy_from_slice(&[color.b, color.g, color.r, color.a]);
             }
         }
     }
