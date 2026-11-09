@@ -168,40 +168,52 @@ impl Radial<'_> {
             write(size - 1, index, self.last);
         }
         for y in 1..size / 2 {
-            for x in 1..=y {
-                let opposite_x = size - 1 - x;
-                let opposite_y = size - 1 - y;
-                let near = self.texel(x, y);
-                let across_x = if reflected[x] {
-                    near
-                } else {
-                    self.texel(opposite_x, y)
-                };
-                let across_y = if reflected[y] {
-                    near
-                } else {
-                    self.texel(x, opposite_y)
-                };
-                let across_both = if reflected[x] {
-                    across_y
-                } else if reflected[y] {
-                    across_x
-                } else {
-                    self.texel(opposite_x, opposite_y)
-                };
-                for (x, y, color) in [
-                    (x, y, near),
-                    (opposite_x, y, across_x),
-                    (x, opposite_y, across_y),
-                    (opposite_x, opposite_y, across_both),
-                ] {
-                    // Coordinate exchange preserves the centered squared distance exactly.
-                    write(x, y, color);
-                    write(y, x, color);
-                }
+            let (previous, remaining) = pixels.split_at_mut(y * pitch);
+            let (row, remaining) = remaining.split_at_mut(pitch);
+            self.write_row(row, y, &reflected, previous, pitch);
+            let opposite_y = size - 1 - y;
+            let offset = (opposite_y - y - 1) * pitch;
+            let opposite = &mut remaining[offset..offset + size * 4];
+            if reflected[y] {
+                opposite.copy_from_slice(&row[..size * 4]);
+            } else {
+                self.write_row(opposite, opposite_y, &reflected, &[], pitch);
             }
         }
         Ok(())
+    }
+
+    fn write_row(
+        &self,
+        row: &mut [u8],
+        y: usize,
+        reflected: &[bool],
+        previous: &[u8],
+        pitch: usize,
+    ) {
+        let size = usize::from(self.key.size);
+        let (near, far) = row[..size * 4].split_at_mut(size * 2);
+        for (x, (near, far)) in near
+            .chunks_exact_mut(4)
+            .zip(far.rchunks_exact_mut(4))
+            .enumerate()
+            .skip(1)
+        {
+            if x < y && !previous.is_empty() {
+                // Coordinate exchange preserves the centered squared distance exactly.
+                let offset = x * pitch + y * 4;
+                near.copy_from_slice(&previous[offset..offset + 4]);
+            } else {
+                let color = self.texel(x, y);
+                near.copy_from_slice(&[color.r, color.g, color.b, color.a]);
+            }
+            if reflected[x] {
+                far.copy_from_slice(near);
+            } else {
+                let color = self.texel(size - 1 - x, y);
+                far.copy_from_slice(&[color.r, color.g, color.b, color.a]);
+            }
+        }
     }
 
     fn emit(
