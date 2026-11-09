@@ -586,6 +586,13 @@ impl Fixed64 {
     pub fn div_wide(self, rhs: Self) -> Self {
         Self((((self.0 as i128) << FRAC_BITS_64) / (rhs.0 as i128)) as i64)
     }
+
+    /// Divide a nonnegative numerator strictly inside a positive unit interval.
+    pub(crate) fn div_unit_interval(self, rhs: Self) -> Self {
+        debug_assert!(self >= Self::ZERO && self < rhs && rhs <= Self::ONE);
+        // The strict endpoint bounds the shifted numerator below 2^32.
+        Self(i64::from(((self.0 as u32) << FRAC_BITS_64) / rhs.0 as u32))
+    }
 }
 
 impl Div for Fixed64 {
@@ -727,6 +734,30 @@ impl fmt::Display for Fixed {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unit_interval_division_matches_wide_for_all_gradient_fractions() {
+        for width in 1..=256_i64 {
+            let interval = Fixed64(width << 8);
+            for raw in 0..interval.0 {
+                let numerator = Fixed64(raw);
+                assert_eq!(
+                    numerator.div_unit_interval(interval),
+                    numerator.div_wide(interval)
+                );
+            }
+        }
+        for raw in 1..=65_536 {
+            let interval = Fixed64(raw);
+            for numerator in [0, raw / 2, raw - 1] {
+                let numerator = Fixed64(numerator);
+                assert_eq!(
+                    numerator.div_unit_interval(interval),
+                    numerator.div_wide(interval)
+                );
+            }
+        }
+    }
 
     #[test]
     fn from_int_roundtrip() {

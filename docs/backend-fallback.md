@@ -19,6 +19,8 @@ Gradient stop interpolation retains its full Q48.16 fraction and evaluates byte 
 
 Software path rasterization records weighted interval boundaries in its existing row scratch and reconstructs coverage once per row. Subpixel sampling, fill rules and fractional edge coverage are unchanged.
 
+Gradient stop interpolation uses the selected normalized interval to bound its fixed-point fraction and evaluate the exact quotient with 32-bit arithmetic. General fixed-point division and color rounding remain unchanged.
+
 Path shaders borrow their existing scanline differences. Solid and scanline-constant linear gradients without a clip mask batch exact constant-coverage spans on opaque byte-channel targets, preparing opacity and fixed-source channel products once per span. Other formats, alpha-aware targets, masks, projective coordinates and varying gradient colors retain the general per-point shader without span partitioning. No expanded coverage array, intermediate image, retained span list or per-draw allocation is added.
 
 Path shading clips scanline bounds to the target before borrowing pixel storage. The exclusive borrow reuses target format, stride and alpha mode throughout the draw while preserving the existing pixel-format blending rules. Gradient samples with zero effective write alpha skip target offset calculation and blending.

@@ -553,8 +553,11 @@ pub(super) fn sample_stops(stops: &[GradientStop], t: Fixed64) -> Color {
             if interval == Fixed64::ZERO {
                 return end.color.into();
             }
-            // Selected normalized stop intervals bound the shifted numerator below 2^32.
-            return interpolate_stop_color(start.color, end.color, (t - start_offset) / interval);
+            return interpolate_stop_color(
+                start.color,
+                end.color,
+                (t - start_offset).div_unit_interval(interval),
+            );
         }
     }
     stops[stops.len() - 1].color.into()
