@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SDL-GPU reuses exact radial palette symmetries and contiguous row copies during initialization without additional image storage.
 - SDL-GPU retains command clipping across multisampled window frames and restores driver state when frames complete or abort.
 - Software linear gradients reuse exact colors within constant scanlines while preserving fractional and projective sampling.
+- Path rasterization accumulates interval boundaries in the existing scanline scratch, preserving exact subpixel coverage and fill rules.
 - Fixed-point square roots use exact integer square-root operations without repeated wide division during gradient sampling.
 - Centered radial gradients skip unused focal-circle calculations while preserving the general sampler's fixed-point results.
 - Padded radial samples beyond the outer endpoint skip square roots and interpolation without changing sampled colors.

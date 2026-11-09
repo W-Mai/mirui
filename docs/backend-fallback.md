@@ -13,6 +13,8 @@ Software affine rounded fills use the existing quad raster path, preserving the 
 
 Software linear gradients whose physical color is constant along a scanline evaluate that color once per row. The draw-local sampler retains no data after the command; fractional and projective sampling preserve the original coordinate evaluation.
 
+Software path rasterization records weighted interval boundaries in its existing row scratch and reconstructs coverage once per row. Subpixel sampling, fill rules and fractional edge coverage are unchanged.
+
 SDL-GPU and native WGPU use bounded destination-region fallback for affine and projective lines and arcs. Planning includes stroke extent and clipping before device access. Affine requests retain the software affine raster path; projected strokes are rebased in physical coordinates to avoid scaling a fractional region offset twice.
 
 `PaintCtx::with_clip_path` uses native clipping when supported and otherwise executes its complete body through `plan_scope` and `render_scope`. Planning failure skips the body; successful entry executes it once, preserves nested clip order and drawing context, and retains drawing failures before writeback failures. Region rebasing preserves affine commands as affine operations instead of selecting a projective raster path for a translation.

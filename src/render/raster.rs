@@ -509,15 +509,17 @@ pub fn scanline_fill(
             }
         }
 
-        for (i, cov) in acc.iter().enumerate() {
-            if *cov > Fixed::ZERO {
-                emit(px_x0 + i as i32, py, *cov);
+        let mut coverage = Fixed::ZERO;
+        for (i, difference) in acc.iter().enumerate() {
+            coverage += *difference;
+            if coverage > Fixed::ZERO {
+                emit(px_x0 + i as i32, py, coverage);
             }
         }
     }
 }
 
-/// Add `weight` × (fraction of each pixel covered by [xa, xb]) into `acc`.
+/// Add weighted interval coverage as differences in the existing row scratch.
 fn accumulate_interval(
     acc: &mut [Fixed],
     px_x0: i32,
@@ -534,15 +536,24 @@ fn accumulate_interval(
     let lo_int = xlo.to_int().max(px_x0);
     let hi_int = xhi.ceil().to_int().min(px_x1);
 
-    for px in lo_int..hi_int {
-        let pixel_left = Fixed::from_int(px);
-        let pixel_right = Fixed::from_int(px + 1);
-        let left = xlo.max(pixel_left);
-        let right = xhi.min(pixel_right);
-        let frac = right - left;
-        if frac > Fixed::ZERO {
-            acc[(px - px_x0) as usize] += frac * weight;
+    if lo_int >= hi_int {
+        return;
+    }
+    let lo = (lo_int - px_x0) as usize;
+    let hi = (hi_int - px_x0) as usize;
+    let first = (xhi.min(Fixed::from_int(lo_int + 1)) - xlo.max(Fixed::from_int(lo_int))) * weight;
+    acc[lo] += first;
+    if hi == lo + 1 {
+        if hi < acc.len() {
+            acc[hi] -= first;
         }
+        return;
+    }
+    let last = (xhi.min(Fixed::from_int(hi_int)) - xlo.max(Fixed::from_int(hi_int - 1))) * weight;
+    acc[lo + 1] += weight - first;
+    acc[hi - 1] += last - weight;
+    if hi < acc.len() {
+        acc[hi] -= last;
     }
 }
 
@@ -1964,6 +1975,44 @@ mod tests {
                     p2: pt(x0, y0)
                 },
             ]
+        }
+    }
+
+    #[test]
+    fn interval_differences_match_independent_pixel_intersections() {
+        let mut seed = 0x7391A5D3_u32;
+        for (left, right) in [(-5, -4), (-3, 11), (0, 1), (4, 13), (-17, 31), (9, 9)] {
+            let width = (right - left) as usize;
+            for _ in 0..1024 {
+                let mut differences = [Fixed::ZERO; 64];
+                let mut expected = [Fixed::ZERO; 64];
+                for _ in 0..5 {
+                    let mut next = || {
+                        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                        seed
+                    };
+                    let a = Fixed::from_ratio((next() % 2048) as i32 - 1024, 32);
+                    let b = Fixed::from_ratio((next() % 2048) as i32 - 1024, 32);
+                    let weight = Fixed::from_ratio((next() % 5) as i32, 16);
+                    accumulate_interval(&mut differences[..width], left, right, a, b, weight);
+                    for pixel in left..right {
+                        let lo = a.min(b).max(Fixed::from_int(pixel));
+                        let hi = a.max(b).min(Fixed::from_int(pixel + 1));
+                        expected[(pixel - left) as usize] += (hi - lo).max(Fixed::ZERO) * weight;
+                    }
+                }
+                let mut coverage = Fixed::ZERO;
+                for (difference, expected) in differences[..width].iter().zip(&expected[..width]) {
+                    coverage += *difference;
+                    assert_eq!(coverage, *expected);
+                }
+            }
+        }
+        for endpoint in [-513, -256, -1, 0, 1, 255, 256, 513] {
+            let mut differences = [Fixed::ZERO; 3];
+            let point = Fixed::from_ratio(endpoint, 256);
+            accumulate_interval(&mut differences, -1, 2, point, point, Fixed::ONE);
+            assert_eq!(differences, [Fixed::ZERO; 3]);
         }
     }
 
