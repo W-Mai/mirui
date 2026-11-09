@@ -264,6 +264,7 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     responsive!(editor_lab, [(440, 760)]);
     fixed_palette!(page_studio, [(960, 680)]);
     fixed_palette!(nearby, [(360, 480), (640, 480)]);
+    fixed_palette!(glass_light_toggle);
     compact!(kinetic_console);
     fixed_palette!(signal_scope);
     fixed_palette!(marble_play);
