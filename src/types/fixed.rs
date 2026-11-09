@@ -593,6 +593,11 @@ impl Fixed64 {
         // The strict endpoint bounds the shifted numerator below 2^32.
         Self(i64::from(((self.0 as u32) << FRAC_BITS_64) / rhs.0 as u32))
     }
+
+    /// Preserve the low word of an integer product, as in `mul_wide`.
+    pub(crate) fn wrapping_mul_int(self, rhs: i32) -> Self {
+        Self(self.0.wrapping_mul(i64::from(rhs)))
+    }
 }
 
 impl Div for Fixed64 {
@@ -734,6 +739,34 @@ impl fmt::Display for Fixed {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn integer_products_match_wide_storage_for_extremes_and_random_inputs() {
+        let mut seed = 0xC139715B24687ACD_u64;
+        for index in 0..65_536 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let raw = match index {
+                0 => i64::MIN,
+                1 => i64::MAX,
+                _ => seed as i64,
+            };
+            for integer in [
+                i32::MIN,
+                i32::MAX,
+                -65_535,
+                -1,
+                0,
+                1,
+                65_535,
+                (seed >> 32) as i32,
+            ] {
+                assert_eq!(
+                    Fixed64(raw).wrapping_mul_int(integer),
+                    Fixed64((i128::from(raw) * i128::from(integer)) as i64)
+                );
+            }
+        }
+    }
 
     #[test]
     fn unit_interval_division_matches_wide_for_all_gradient_fractions() {

@@ -201,14 +201,14 @@ impl<'a> AxisRadialPaint<'a> {
         let y_squared = match self.row {
             Some((previous_y, squared)) if previous_y == py => squared,
             _ => {
-                let y =
-                    self.y.mul_wide(Fixed64::from_fixed(Fixed::from_int(py))) + self.ty - self.fy;
+                let y = self.y.wrapping_mul_int(Fixed::from_int(py).to_int()) + self.ty - self.fy;
                 let squared = y.mul_wide(y);
                 self.row = Some((py, squared));
                 squared
             }
         };
-        self.sample_with_y_squared(Fixed::from_int(px), y_squared)
+        let x = self.x.wrapping_mul_int(Fixed::from_int(px).to_int()) + self.tx - self.fx;
+        self.sample_with_distance(x, y_squared)
     }
 
     fn sample_point(&self, point: Point) -> Color {
@@ -218,6 +218,10 @@ impl<'a> AxisRadialPaint<'a> {
 
     fn sample_with_y_squared(&self, px: Fixed, y_squared: Fixed64) -> Color {
         let x = self.x.mul_wide(Fixed64::from_fixed(px)) + self.tx - self.fx;
+        self.sample_with_distance(x, y_squared)
+    }
+
+    fn sample_with_distance(&self, x: Fixed64, y_squared: Fixed64) -> Color {
         let distance = x.mul_wide(x) + y_squared;
         let discriminant = -self.quadratic.mul_wide(distance);
         if self
@@ -568,6 +572,44 @@ pub(super) fn sample_stops(stops: &[GradientStop], t: Fixed64) -> Color {
 mod tests {
     use super::*;
     use alloc::borrow::Cow;
+
+    #[test]
+    fn integer_axis_coordinates_preserve_lifting_and_wrapping() {
+        let coefficients = [
+            i64::MIN,
+            i64::MIN + 1,
+            -(1_i64 << 47),
+            -65_537,
+            -1,
+            0,
+            1,
+            65_537,
+            1_i64 << 47,
+            i64::MAX,
+        ];
+        for raw in coefficients {
+            let scale = Fixed64::from_ratio(raw, 65_536);
+            for pixel in [
+                i32::MIN,
+                -8_388_609,
+                -8_388_608,
+                -65_535,
+                -1,
+                0,
+                1,
+                65_535,
+                8_388_607,
+                8_388_608,
+                i32::MAX,
+            ] {
+                let original = scale.mul_wide(Fixed64::from_fixed(Fixed::from_int(pixel)));
+                assert_eq!(
+                    scale.wrapping_mul_int(Fixed::from_int(pixel).to_int()),
+                    original
+                );
+            }
+        }
+    }
 
     #[test]
     fn stop_boundaries_match_right_continuous_integer_interpolation() {
