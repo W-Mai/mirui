@@ -495,33 +495,47 @@ fn spread(t: Fixed64, mode: SpreadMode) -> Fixed64 {
     }
 }
 
+fn stop_offset(offset: mirx::types::Fixed) -> Fixed64 {
+    // Normalized Q24.8 offsets are exactly representable in f32.
+    Fixed64::from_fixed(Fixed::from_f32(offset.to_f32()))
+}
+
+fn interpolate_stop_color(
+    start: mirx::types::Color,
+    end: mirx::types::Color,
+    amount: Fixed64,
+) -> Color {
+    // The normalized fraction and byte channels keep all f32 intermediates exact.
+    let channel = |start: u8, end: u8| {
+        (Fixed64::from_int(i64::from(start)) + amount * (i64::from(end) - i64::from(start)))
+            .to_int() as u8
+    };
+    Color::rgba(
+        channel(start.r, end.r),
+        channel(start.g, end.g),
+        channel(start.b, end.b),
+        channel(start.a, end.a),
+    )
+}
+
 pub(super) fn sample_stops(stops: &[GradientStop], t: Fixed64) -> Color {
     let Some(first) = stops.first() else {
         return Color::rgba(0, 0, 0, 0);
     };
-    if t < Fixed64::from_fixed(first.offset.into()) {
+    if t < stop_offset(first.offset) {
         return first.color.into();
     }
     for pair in stops.windows(2) {
         let [start, end] = pair else { unreachable!() };
-        let end_offset = Fixed64::from_fixed(end.offset.into());
+        let end_offset = stop_offset(end.offset);
         if t < end_offset {
-            let start_offset = Fixed64::from_fixed(start.offset.into());
+            let start_offset = stop_offset(start.offset);
             let interval = end_offset - start_offset;
             if interval == Fixed64::ZERO {
                 return end.color.into();
             }
             // Selected normalized stop intervals bound the shifted numerator below 2^32.
-            let amount = ((t - start_offset) / interval).to_f32();
-            let channel = |start: u8, end: u8| {
-                (f32::from(start) + (f32::from(end) - f32::from(start)) * amount) as u8
-            };
-            return Color::rgba(
-                channel(start.color.r, end.color.r),
-                channel(start.color.g, end.color.g),
-                channel(start.color.b, end.color.b),
-                channel(start.color.a, end.color.a),
-            );
+            return interpolate_stop_color(start.color, end.color, (t - start_offset) / interval);
         }
     }
     stops[stops.len() - 1].color.into()
@@ -776,6 +790,61 @@ mod tests {
                 let numerator = Fixed64::from_ratio(fraction, 65_536).min(interval);
                 assert_eq!(numerator / interval, numerator.div_wide(interval));
             }
+        }
+    }
+
+    #[test]
+    fn integer_stop_colors_preserve_float_interpolation_and_normalized_offsets() {
+        let check = |a: u8, b: u8, fraction: i64| {
+            let amount = Fixed64::from_ratio(fraction, 65_536);
+            let start = mirx::types::Color {
+                r: a,
+                g: b,
+                b: a ^ 0x55,
+                a: 255 - a,
+            };
+            let end = mirx::types::Color {
+                r: b,
+                g: a,
+                b: b ^ 0xAA,
+                a: 255 - b,
+            };
+            let channel = |start: u8, end: u8| {
+                (f32::from(start) + (f32::from(end) - f32::from(start)) * amount.to_f32()) as u8
+            };
+            let reference = Color::rgba(
+                channel(start.r, end.r),
+                channel(start.g, end.g),
+                channel(start.b, end.b),
+                channel(start.a, end.a),
+            );
+            assert_eq!(interpolate_stop_color(start, end, amount), reference);
+        };
+        for a in 0..=255 {
+            for b in 0..=255 {
+                for fraction in [
+                    0, 1, 127, 255, 256, 257, 32_767, 32_768, 32_769, 65_279, 65_280, 65_535,
+                    65_536,
+                ] {
+                    check(a, b, fraction);
+                }
+            }
+        }
+        for (a, b) in [
+            (0, 255),
+            (255, 0),
+            (1, 254),
+            (254, 1),
+            (127, 128),
+            (128, 127),
+        ] {
+            for fraction in 0..=65_536 {
+                check(a, b, fraction);
+            }
+        }
+        for value in 0..=256 {
+            let offset = mirx::types::Fixed::from_ratio(value, 256);
+            assert_eq!(stop_offset(offset), Fixed64::from_fixed(offset.into()));
         }
     }
 
