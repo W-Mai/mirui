@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Workspace builds support `--profile release-opt` for optimization level 3 with the existing release settings.
 - Glass Light Toggle demonstrates a draggable illuminated glass switch, pixel moon/sun morphing and spring motion across light and dark scenes.
 - Glass Light Toggle generates its contours and pixel masks at compile time and registers its input and animation through a shared View descriptor.
 - `commands.scroll_into` reveals descendant widgets with minimal movement; `commands.scroll_to` aligns a descendant or positions one container after layout. Requests respect input ownership, retained identity and configured scroll axes.
