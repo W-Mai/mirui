@@ -94,7 +94,10 @@ impl Affine {
 }
 
 pub(super) enum GradientPaint<'a> {
-    Linear(LinearPaint<'a>),
+    Linear {
+        paint: LinearPaint<'a>,
+        row: Option<(i32, Color)>,
+    },
     Radial(RadialPaint<'a>),
 }
 
@@ -102,22 +105,38 @@ impl<'a> GradientPaint<'a> {
     pub(super) fn new(paint: &'a Paint, draw: Transform, bbox: Rect) -> Option<Self> {
         match paint {
             Paint::Color(_) => None,
-            Paint::LinearGradient(gradient) => {
-                Some(Self::Linear(LinearPaint::new(gradient, draw, bbox)?))
-            }
+            Paint::LinearGradient(gradient) => Some(Self::Linear {
+                paint: LinearPaint::new(gradient, draw, bbox)?,
+                row: None,
+            }),
             Paint::RadialGradient(gradient) => {
                 Some(Self::Radial(RadialPaint::new(gradient, draw, bbox)?))
             }
         }
     }
 
-    pub(super) fn sample(&self, px: i32, py: i32) -> Color {
-        self.sample_point(Point::new(px, py))
+    pub(super) fn sample(&mut self, px: i32, py: i32) -> Color {
+        match self {
+            Self::Linear { paint, row } => {
+                if paint.x == Fixed64::ZERO
+                    && let Some((previous_y, color)) = *row
+                    && previous_y == py
+                {
+                    return color;
+                }
+                let color = paint.sample_point(Point::new(px, py));
+                if paint.x == Fixed64::ZERO {
+                    *row = Some((py, color));
+                }
+                color
+            }
+            Self::Radial(paint) => paint.sample_point(Point::new(px, py)),
+        }
     }
 
     fn sample_point(&self, point: Point) -> Color {
         match self {
-            Self::Linear(paint) => paint.sample_point(point),
+            Self::Linear { paint, .. } => paint.sample_point(point),
             Self::Radial(paint) => paint.sample_point(point),
         }
     }
@@ -471,6 +490,73 @@ mod tests {
             units: GradientUnits::ObjectBoundingBox,
             transform,
         }
+    }
+
+    #[test]
+    fn integer_row_reuse_matches_independent_linear_sampling_in_any_order() {
+        let transforms = [
+            Transform::IDENTITY,
+            Transform::translate(Fixed::from_ratio(-7, 3), Fixed::from_ratio(5, 4)),
+            Transform::scale(Fixed::from_ratio(3, 2), Fixed::from_ratio(2, 3)),
+            Transform {
+                m10: Fixed::from_ratio(1, 3),
+                ..Transform::IDENTITY
+            },
+            Transform {
+                m00: Fixed::ZERO,
+                m01: -Fixed::ONE,
+                m10: Fixed::ONE,
+                m11: Fixed::ZERO,
+                ..Transform::IDENTITY
+            },
+            Transform::scale(-Fixed::ONE, Fixed::from_int(2)),
+        ];
+        for vertical in [false, true] {
+            for mode in [SpreadMode::Pad, SpreadMode::Repeat, SpreadMode::Reflect] {
+                for draw in transforms {
+                    let mut gradient = gradient(
+                        GradientUnits::ObjectBoundingBox,
+                        mirx::types::Transform::IDENTITY,
+                    );
+                    gradient.spread = mode;
+                    if vertical {
+                        gradient.end.x = mirx::types::Fixed::ZERO;
+                        gradient.end.y = mirx::types::Fixed::ONE;
+                    }
+                    let bbox = Rect::new(-3, -2, 11, 7);
+                    let paint = Paint::LinearGradient(gradient);
+                    let Paint::LinearGradient(gradient) = &paint else {
+                        unreachable!()
+                    };
+                    let reference = LinearPaint::new(gradient, draw, bbox).unwrap();
+                    let mut sampler = GradientPaint::new(&paint, draw, bbox).unwrap();
+                    for y in [-7, 0, 3, 0, 12, -7, 5] {
+                        for x in -20..41 {
+                            let expected = reference.sample_point(Point::new(x, y));
+                            assert_eq!(sampler.sample(x, y), expected);
+                            let fractional = Point::new(
+                                Fixed::from_ratio(x * 3 - 2, 8),
+                                Fixed::from_ratio(y * 5 + 3, 8),
+                            );
+                            assert_eq!(
+                                sampler.sample_point(fractional),
+                                reference.sample_point(fractional)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            core::mem::size_of::<GradientPaint<'_>>()
+                <= core::mem::size_of::<RadialPaint<'_>>()
+                    + core::mem::align_of::<RadialPaint<'_>>()
+        );
+        std::println!(
+            "gradient_sampler_bytes={} radial_sampler_bytes={}",
+            core::mem::size_of::<GradientPaint<'_>>(),
+            core::mem::size_of::<RadialPaint<'_>>()
+        );
     }
 
     #[test]

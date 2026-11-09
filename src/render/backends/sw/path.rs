@@ -608,7 +608,7 @@ impl SwRenderer<'_> {
         if opa == 0 {
             return;
         }
-        let gradient = match paint {
+        let mut gradient = match paint {
             Paint::LinearGradient(_) | Paint::RadialGradient(_) => {
                 let Some(bbox) = path.bbox() else { return };
                 let Some(sampler) = GradientPaint::new(paint, *phys_tf, bbox) else {
@@ -670,7 +670,7 @@ impl SwRenderer<'_> {
                     .unwrap_or(255);
                 let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
                 if final_alpha > 0 {
-                    if let Some(gradient) = gradient.as_ref() {
+                    if let Some(gradient) = gradient.as_mut() {
                         let c = gradient.sample(px, py);
                         let paint_alpha =
                             ((u16::from(final_alpha) * u16::from(c.a) + 127) / 255) as u8;
@@ -850,7 +850,7 @@ impl SwRenderer<'_> {
         if opa == 0 {
             return;
         }
-        let gradient = match paint {
+        let mut gradient = match paint {
             Paint::LinearGradient(_) | Paint::RadialGradient(_) => {
                 let Some(sampler) = GradientPaint::new(paint, *paint_tf, paint_bbox) else {
                     return;
@@ -904,7 +904,7 @@ impl SwRenderer<'_> {
                     .unwrap_or(255);
                 let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
                 if final_alpha > 0 {
-                    if let Some(gradient) = gradient.as_ref() {
+                    if let Some(gradient) = gradient.as_mut() {
                         let c = gradient.sample(px, py);
                         let paint_alpha =
                             ((u16::from(final_alpha) * u16::from(c.a) + 127) / 255) as u8;
