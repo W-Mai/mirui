@@ -140,13 +140,56 @@ pub(super) fn try_fractional(
     let mode = dst.alpha_mode();
     let source = src.bytes();
     let target = dst.bytes_mut();
+    let batch_pixels = mode == AlphaMode::Opaque && Fixed::from_int(sw) < area.w;
     for y in y0..y1 {
-        let row = (sy + ys.next(sh)) as usize * source_stride + sx as usize * 4;
-        let pixels = &source[row..row + sw as usize * 4];
+        let source_y = ys.next(sh);
         let coverage_y = super::rect_fill::pixel_axis_coverage(area.y, bottom, y);
+        if (Fixed::from_int(i32::from(opacity)) * coverage_y).to_int() == 0 {
+            continue;
+        }
+        let row = (sy + source_y) as usize * source_stride + sx as usize * 4;
+        let pixels = &source[row..row + sw as usize * 4];
         let begin = y as usize * target_stride + x0 as usize * 4;
         let end = y as usize * target_stride + x1 as usize * 4;
         let mut xs = first_x;
+        if batch_pixels {
+            let target_row = &mut target[begin..end];
+            let mut x = x0;
+            while x < x1 {
+                let interior = x >= left_full && x < right_full;
+                let limit = if interior {
+                    (x1.min(right_full) - x) as u32
+                } else {
+                    1
+                };
+                let (sample, count) = xs.next_run(sw, limit);
+                let index = sample as usize * 4;
+                let color = Color::rgba(
+                    pixels[index],
+                    pixels[index + 1],
+                    pixels[index + 2],
+                    pixels[index + 3],
+                );
+                let mut alpha = ((u16::from(color.a) * u16::from(opacity) + 127) / 255) as u8;
+                let coverage = if interior {
+                    coverage_y
+                } else {
+                    super::rect_fill::pixel_axis_coverage(area.x, right, x) * coverage_y
+                };
+                if coverage != Fixed::ONE {
+                    alpha = (Fixed::from_int(i32::from(alpha)) * coverage).to_int() as u8;
+                }
+                let offset = (x - x0) as usize * 4;
+                ColorFormat::RGBA8888.blend_solid_span(
+                    &mut target_row[offset..offset + count as usize * 4],
+                    &color,
+                    alpha,
+                    mode,
+                );
+                x += count as i32;
+            }
+            continue;
+        }
         for (i, pixel) in target[begin..end].chunks_exact_mut(4).enumerate() {
             let index = xs.next(sw) as usize * 4;
             let color = &pixels[index..index + 4];

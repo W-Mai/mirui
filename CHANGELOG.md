@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Opaque-target software blending computes paired RGB channels with the existing per-channel rounding across pixel formats.
 - Software pixel writes store byte-format channels directly without integer packing, preserving format byte order and RGB565 quantization.
 - Software paths batch exact constant-coverage spans and share fixed-color blending for solid and scanline-constant gradients without intermediate pixel buffers.
+- Fractional nearest-neighbor image upscaling groups repeated source samples through the existing span blender and skips rows with zero effective opacity.
 - Gradient stop interpolation uses exact bounded 32-bit division within normalized intervals.
 - Gradient stop traversal reuses converted interval boundaries without preparing additional storage.
 - Axis-aligned radial gradients use exact integer multiplication for pixel coordinates while retaining fractional sampling and fixed-point overflow behavior.
