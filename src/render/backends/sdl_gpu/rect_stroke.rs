@@ -50,7 +50,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                     &mut canvas,
                     &phys_area,
                     &phys_clip,
-                    self.device.persistent_frame_active(),
+                    self.device.frame_active(),
                 ) {
                     self.failure.get_or_insert(error);
                 }

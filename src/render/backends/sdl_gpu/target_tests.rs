@@ -216,7 +216,7 @@ fn retained_frame_is_restored_after_nested_outputs_without_reallocation() {
     let allocations = tracked_allocations(|| {
         for _ in 0..8 {
             assert!(device.prepare_persistent_target((16, 16)).unwrap());
-            assert!(device.begin_persistent_frame().unwrap());
+            assert!(device.begin_frame().unwrap());
             let frame = {
                 let canvas = device.canvas().unwrap();
                 core::ptr::NonNull::new(unsafe { sdl2::sys::SDL_GetRenderTarget(canvas.raw()) })
@@ -246,7 +246,7 @@ fn retained_frame_is_restored_after_nested_outputs_without_reallocation() {
                 .unwrap();
                 assert_eq!(pixel, [7, 29, 53, 255]);
             }
-            assert!(device.finish_persistent_frame().unwrap());
+            assert!(device.finish_frame().unwrap());
         }
     });
     assert_eq!(allocations, 0);

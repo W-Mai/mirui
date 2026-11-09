@@ -434,7 +434,7 @@ fn rotate_scale_around(p: &mut (f32, f32), cx: f32, cy: f32, theta: f32, scale: 
 #[cfg(feature = "sync")]
 impl Drop for SdlGpuSurface {
     fn drop(&mut self) {
-        self.device.abort_persistent_frame();
+        self.device.abort_frame();
         if self.device.close_targets().is_err() {
             self.device.poison();
         }
@@ -485,7 +485,7 @@ impl Surface for SdlGpuSurface {
     }
 
     fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
-        self.device.finish_persistent_frame()?;
+        self.device.finish_frame()?;
         let mut canvas = self.device.canvas()?;
         let submission = crate::core::perf::submission("sdl.queue.submit");
         let result = {
@@ -507,7 +507,7 @@ impl Surface for SdlGpuSurface {
     }
 
     fn abort_flush(&mut self) {
-        self.device.abort_persistent_frame();
+        self.device.abort_frame();
         self.needs_redraw = true;
     }
 
@@ -536,7 +536,7 @@ impl Surface for SdlGpuSurface {
             return Err(RenderError::SurfaceUnavailable);
         }
         self.device.prepare_persistent_target((width, height))?;
-        self.device.begin_persistent_frame()?;
+        self.device.begin_frame()?;
         Ok(())
     }
 

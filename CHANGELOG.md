@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SDL-GPU samples supported centered radial path gradients natively with palettes in the existing image cache budget, preserving padded regions and independent image filtering.
 - SDL-GPU rejects radial palette ranges that exceed fixed-point intermediate precision before creating native storage.
 - SDL-GPU reuses exact radial palette symmetries and contiguous row copies during initialization without additional image storage.
+- SDL-GPU retains command clipping across multisampled window frames and restores driver state when frames complete or abort.
 - Fixed-point square roots use exact integer square-root operations without repeated wide division during gradient sampling.
 - Centered radial gradients skip unused focal-circle calculations while preserving the general sampler's fixed-point results.
 - Padded radial samples beyond the outer endpoint skip square roots and interpolation without changing sampled colors.

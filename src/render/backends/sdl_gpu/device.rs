@@ -45,7 +45,7 @@ impl<T: RenderTarget> Drop for Device<T> {
         // The retained texture borrows the renderer represented by `canvas`.
         // Drop it before Canvas releases that renderer; the field order cannot
         // express this because TextureCreator is only a lifetime witness.
-        self.abort_persistent_frame();
+        self.abort_frame();
         self.persistent.get_mut().take();
     }
 }
@@ -153,53 +153,62 @@ impl<T: RenderTarget> Device<T> {
     }
 
     pub(super) fn persistent_frame_active(&self) -> bool {
+        self.frame_active() && self.has_persistent_target()
+    }
+
+    pub(super) fn frame_active(&self) -> bool {
         self.frame_state.borrow().is_some()
     }
 
     pub(super) fn finish_draw(&self, canvas: &mut Canvas<T>) {
-        if !self.persistent_frame_active() {
+        if !self.frame_active() {
             canvas.set_clip_rect(None);
         }
     }
 
-    pub(super) fn begin_persistent_frame(&self) -> Result<bool, RenderError> {
-        if self.persistent.borrow().is_none() {
-            return Ok(false);
-        }
+    pub(super) fn begin_frame(&self) -> Result<bool, RenderError> {
         if self.frame_state.borrow().is_some() {
             return Err(RenderError::InvalidScope);
         }
         let canvas = self.canvas()?;
         let mut target = self.persistent.borrow_mut();
-        let target = target.as_mut().ok_or(RenderError::InvalidScope)?;
         let driver = DriverState::capture(&canvas)?;
-        if let Err(error) = target_state::select(&canvas, &target.texture) {
-            if driver.restore(&canvas).is_err() {
-                self.poison();
-            }
-            return Err(error);
-        }
-        if !target.initialized {
-            if let Err(error) = target_state::clear(&canvas) {
+        if let Some(target) = target.as_mut() {
+            if let Err(error) = target_state::select(&canvas, &target.texture) {
                 if driver.restore(&canvas).is_err() {
                     self.poison();
                 }
                 return Err(error);
             }
-            target.initialized = true;
+            if !target.initialized {
+                if let Err(error) = target_state::clear(&canvas) {
+                    if driver.restore(&canvas).is_err() {
+                        self.poison();
+                    }
+                    return Err(error);
+                }
+                target.initialized = true;
+            }
         }
         *self.frame_state.borrow_mut() = Some(driver);
-        Ok(true)
+        Ok(target.is_some())
     }
 
-    pub(super) fn finish_persistent_frame(&self) -> Result<bool, RenderError> {
+    pub(super) fn finish_frame(&self) -> Result<bool, RenderError> {
         crate::trace_span!("sdl.frame.compose");
         let mut canvas = self.canvas()?;
         let Some(driver) = self.frame_state.borrow_mut().take() else {
             return Ok(false);
         };
         let target = self.persistent.borrow();
-        let texture = &target.as_ref().unwrap().texture;
+        let Some(target) = target.as_ref() else {
+            let result = driver.restore(&canvas);
+            if result.is_err() {
+                self.poison();
+            }
+            return result.map(|()| false);
+        };
+        let texture = &target.texture;
         let result = (|| {
             driver.restore_target(&canvas)?;
             let copy = (|| {
@@ -227,7 +236,7 @@ impl<T: RenderTarget> Device<T> {
         result.map(|()| true)
     }
 
-    pub(super) fn abort_persistent_frame(&self) {
+    pub(super) fn abort_frame(&self) {
         let Some(driver) = self.frame_state.borrow_mut().take() else {
             return;
         };
@@ -255,7 +264,7 @@ impl<T: RenderTarget> Device<T> {
     }
 
     pub(super) fn invalidate(&self) {
-        self.abort_persistent_frame();
+        self.abort_frame();
         self.persistent.borrow_mut().take();
         #[cfg(feature = "sync")]
         {
@@ -350,6 +359,98 @@ mod tests {
     }
 
     #[test]
+    fn transient_frames_retain_clip_without_claiming_native_target_storage() {
+        let device = device();
+        let initial_clip = sdl2::rect::Rect::new(0, 0, 1, 1);
+        let changed = sdl2::rect::Rect::new(1, 1, 2, 2);
+        device.canvas().unwrap().set_clip_rect(initial_clip);
+        for abort in [false, true] {
+            assert_eq!(
+                tracked_allocations(|| assert!(!device.begin_frame().unwrap())),
+                0
+            );
+            assert!(device.frame_active());
+            assert!(!device.persistent_frame_active());
+            assert!(!device.has_persistent_target());
+            assert_eq!(device.begin_frame(), Err(RenderError::InvalidScope));
+            {
+                let mut canvas = device.canvas().unwrap();
+                canvas.set_clip_rect(changed);
+                device.finish_draw(&mut canvas);
+                assert_eq!(canvas.clip_rect(), Some(changed));
+            }
+            assert_eq!(
+                tracked_allocations(|| {
+                    if abort {
+                        device.abort_frame();
+                    } else {
+                        assert!(!device.finish_frame().unwrap());
+                    }
+                }),
+                0
+            );
+            assert!(!device.frame_active());
+            assert_eq!(device.canvas().unwrap().clip_rect(), Some(initial_clip));
+        }
+        assert!(!device.begin_frame().unwrap());
+        device.canvas().unwrap().set_clip_rect(changed);
+        device.invalidate();
+        assert!(!device.frame_active());
+        assert_eq!(device.canvas().unwrap().clip_rect(), Some(initial_clip));
+        let mut canvas = device.canvas().unwrap();
+        device.finish_draw(&mut canvas);
+        assert_eq!(canvas.clip_rect(), None);
+    }
+
+    #[test]
+    fn transient_frames_restore_nested_target_and_original_driver_properties() {
+        let device = device();
+        let original_pixel = read_pixel(&device, 0, 0);
+        let expected = {
+            let canvas = device.canvas().unwrap();
+            (
+                canvas.viewport(),
+                canvas.clip_rect(),
+                canvas.scale(),
+                canvas.blend_mode(),
+            )
+        };
+        assert!(!device.begin_frame().unwrap());
+        let target = device
+            .creator
+            .create_texture_target(PixelFormatEnum::RGBA32, 2, 2)
+            .unwrap();
+        {
+            let mut canvas = device.canvas().unwrap();
+            let clip = sdl2::rect::Rect::new(1, 1, 2, 2);
+            canvas.set_clip_rect(clip);
+            let parent = DriverState::capture(&canvas).unwrap();
+            target_state::select(&canvas, &target).unwrap();
+            canvas.set_draw_color(sdl2::pixels::Color::RGBA(201, 5, 9, 255));
+            canvas.clear();
+            canvas.set_clip_rect(sdl2::rect::Rect::new(0, 0, 1, 1));
+            device.finish_draw(&mut canvas);
+            parent.restore(&canvas).unwrap();
+            assert_eq!(canvas.clip_rect(), Some(clip));
+            canvas.set_viewport(sdl2::rect::Rect::new(1, 1, 2, 2));
+            canvas.set_scale(1.5, 1.5).unwrap();
+            canvas.set_blend_mode(BlendMode::Add);
+        }
+        assert!(!device.finish_frame().unwrap());
+        assert_eq!(read_pixel(&device, 0, 0), original_pixel);
+        let canvas = device.canvas().unwrap();
+        assert_eq!(
+            (
+                canvas.viewport(),
+                canvas.clip_rect(),
+                canvas.scale(),
+                canvas.blend_mode()
+            ),
+            expected
+        );
+    }
+
+    #[test]
     fn command_clip_reuse_is_confined_to_owned_frames_and_restores_on_abort() {
         let device = device();
         let clip = sdl2::rect::Rect::new(0, 0, 1, 1);
@@ -361,7 +462,7 @@ mod tests {
             canvas.set_clip_rect(clip);
         }
         device.prepare_persistent_target((4, 3)).unwrap();
-        device.begin_persistent_frame().unwrap();
+        device.begin_frame().unwrap();
         let changed = sdl2::rect::Rect::new(1, 1, 2, 2);
         {
             let mut canvas = device.canvas().unwrap();
@@ -381,15 +482,15 @@ mod tests {
             outer.restore(&canvas).unwrap();
             assert_eq!(canvas.clip_rect(), Some(changed));
         }
-        device.abort_persistent_frame();
+        device.abort_frame();
         assert_eq!(device.canvas().unwrap().clip_rect(), Some(clip));
-        device.begin_persistent_frame().unwrap();
+        device.begin_frame().unwrap();
         {
             let mut canvas = device.canvas().unwrap();
             canvas.set_clip_rect(changed);
             device.finish_draw(&mut canvas);
         }
-        device.finish_persistent_frame().unwrap();
+        device.finish_frame().unwrap();
         assert_eq!(device.canvas().unwrap().clip_rect(), Some(clip));
     }
 
@@ -398,7 +499,7 @@ mod tests {
         let device = device();
         assert!(device.prepare_persistent_target((4, 3)).unwrap());
         for (x, color) in [(0, [120, 30, 60, 128]), (2, [7, 19, 83, 255])] {
-            assert!(device.begin_persistent_frame().unwrap());
+            assert!(device.begin_frame().unwrap());
             {
                 let mut canvas = device.canvas().unwrap();
                 canvas.set_blend_mode(BlendMode::None);
@@ -407,7 +508,7 @@ mod tests {
                 ));
                 canvas.fill_rect(sdl2::rect::Rect::new(x, 0, 1, 1)).unwrap();
             }
-            assert!(device.finish_persistent_frame().unwrap());
+            assert!(device.finish_frame().unwrap());
             assert_eq!(read_pixel(&device, 0, 0), [120, 30, 60, 128]);
             assert_eq!(read_pixel(&device, 3, 2), [0; 4]);
             // A discarded window backbuffer cannot erase retained pixels.
@@ -418,7 +519,7 @@ mod tests {
             }
         }
         assert_eq!(read_pixel(&device, 2, 0), [7, 19, 83, 255]);
-        assert!(!device.finish_persistent_frame().unwrap());
+        assert!(!device.finish_frame().unwrap());
     }
 
     #[test]
@@ -438,16 +539,13 @@ mod tests {
                 canvas.blend_mode(),
             )
         };
-        assert!(device.begin_persistent_frame().unwrap());
-        assert_eq!(
-            device.begin_persistent_frame(),
-            Err(RenderError::InvalidScope)
-        );
+        assert!(device.begin_frame().unwrap());
+        assert_eq!(device.begin_frame(), Err(RenderError::InvalidScope));
         assert_eq!(
             device.prepare_persistent_target((8, 6)),
             Err(RenderError::InvalidScope)
         );
-        device.abort_persistent_frame();
+        device.abort_frame();
         {
             let canvas = device.canvas().unwrap();
             assert_eq!(
@@ -463,9 +561,9 @@ mod tests {
         device.invalidate();
         assert!(!device.has_persistent_target());
         assert!(device.prepare_persistent_target((8, 6)).unwrap());
-        assert!(device.begin_persistent_frame().unwrap());
+        assert!(device.begin_frame().unwrap());
         assert_eq!(read_pixel(&device, 7, 5), [0; 4]);
-        assert!(device.finish_persistent_frame().unwrap());
+        assert!(device.finish_frame().unwrap());
         let canvas = device.canvas().unwrap();
         assert_eq!(
             (
