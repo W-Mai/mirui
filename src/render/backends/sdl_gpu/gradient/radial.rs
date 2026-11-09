@@ -8,7 +8,9 @@ use crate::render::backends::sdl_gpu::{SdlGpuRenderer, draw_geometry, sdl_pixel_
 use crate::render::command::DrawCommand;
 use crate::render::paint::RadialPaint;
 use crate::render::{DrawRequest, RenderError};
-use crate::types::{Color, Fixed, Viewport};
+use crate::types::{Color, Fixed, Fixed64, Viewport};
+
+const MAX_PALETTE_SIZE: usize = 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Key {
@@ -96,7 +98,7 @@ pub(crate) fn plan<'a>(request: &DrawRequest<'_, 'a>, viewport: Viewport) -> Opt
     // Bilinear interpolation of a Lipschitz radial field has error <= sqrt(2)*slope/(size-1).
     let needed = (core::f64::consts::SQRT_2 * slope / 2.0).ceil() as usize + 1;
     let size = needed.max(32).checked_next_power_of_two()?;
-    if size > 1024 {
+    if size > MAX_PALETTE_SIZE {
         return None;
     }
     space[2] -= (space[0] + space[1]) * 0.5;
@@ -124,15 +126,82 @@ pub(crate) fn plan<'a>(request: &DrawRequest<'_, 'a>, viewport: Viewport) -> Opt
 }
 
 impl Radial<'_> {
+    fn coordinate(&self, index: usize) -> f32 {
+        index as f32 * 2.0 / (f32::from(self.key.size) - 1.0) - 1.0
+    }
+
     pub(crate) fn texel(&self, x: usize, y: usize) -> Color {
         let size = usize::from(self.key.size);
         if x == 0 || y == 0 || x == size - 1 || y == size - 1 {
             return self.last;
         }
-        self.sampler.sample_centered(
-            x as f32 * 2.0 / (size - 1) as f32 - 1.0,
-            y as f32 * 2.0 / (size - 1) as f32 - 1.0,
-        )
+        self.sampler
+            .sample_centered(self.coordinate(x), self.coordinate(y))
+    }
+
+    pub(crate) fn write_pixels(&self, pixels: &mut [u8], pitch: usize) -> Result<(), RenderError> {
+        let size = usize::from(self.key.size);
+        let end = pitch
+            .checked_mul(size - 1)
+            .and_then(|offset| offset.checked_add(size * 4))
+            .ok_or(RenderError::InvalidTexture)?;
+        if pitch < size * 4 || pixels.len() < end {
+            return Err(RenderError::InvalidTexture);
+        }
+
+        // Floating-point reflection can quantize differently. Reuse only equal magnitudes.
+        let radius = self.key.radius.to_f32();
+        let mut reflected = [false; MAX_PALETTE_SIZE / 2];
+        for (index, equal) in reflected[..size / 2].iter_mut().enumerate().skip(1) {
+            let near = Fixed64::from_f32(self.coordinate(index) * radius);
+            let far = Fixed64::from_f32(self.coordinate(size - 1 - index) * radius);
+            *equal = near.abs() == far.abs();
+        }
+        let mut write = |x: usize, y: usize, color: Color| {
+            let offset = y * pitch + x * 4;
+            pixels[offset..offset + 4].copy_from_slice(&[color.r, color.g, color.b, color.a]);
+        };
+        for index in 0..size {
+            write(index, 0, self.last);
+            write(index, size - 1, self.last);
+            write(0, index, self.last);
+            write(size - 1, index, self.last);
+        }
+        for y in 1..size / 2 {
+            for x in 1..=y {
+                let opposite_x = size - 1 - x;
+                let opposite_y = size - 1 - y;
+                let near = self.texel(x, y);
+                let across_x = if reflected[x] {
+                    near
+                } else {
+                    self.texel(opposite_x, y)
+                };
+                let across_y = if reflected[y] {
+                    near
+                } else {
+                    self.texel(x, opposite_y)
+                };
+                let across_both = if reflected[x] {
+                    across_y
+                } else if reflected[y] {
+                    across_x
+                } else {
+                    self.texel(opposite_x, opposite_y)
+                };
+                for (x, y, color) in [
+                    (x, y, near),
+                    (opposite_x, y, across_x),
+                    (x, opposite_y, across_y),
+                    (opposite_x, opposite_y, across_both),
+                ] {
+                    // Coordinate exchange preserves the centered squared distance exactly.
+                    write(x, y, color);
+                    write(y, x, color);
+                }
+            }
+        }
+        Ok(())
     }
 
     fn emit(
@@ -303,6 +372,83 @@ pub(crate) mod tests {
         };
         let request = DrawRequest::new(&command, Rect::new(-100, -100, 200, 200));
         f(&plan(&request, Viewport::new(200, 200, Fixed::ONE)).unwrap())
+    }
+
+    #[test]
+    fn palette_generation_preserves_quantized_samples_and_stride_without_allocations() {
+        let path = Path::rect(0.into(), 0.into(), 100.into(), 100.into());
+        for radius in [
+            mirx::types::Fixed::from_ratio(1, 2),
+            mirx::types::Fixed::from_ratio(133, 256),
+            mirx::types::Fixed::from_ratio(230, 256),
+            mirx::types::Fixed::from_int(20),
+            mirx::types::Fixed::from_int(2048),
+        ] {
+            let mut paint = paint(Color::rgba(17, 43, 91, 3));
+            let Paint::RadialGradient(gradient) = &mut paint else {
+                unreachable!()
+            };
+            gradient.radius = radius;
+            let command = DrawCommand::FillPath {
+                path: &path,
+                paint: &paint,
+                transform: Transform::IDENTITY,
+                opa: 255,
+                fill_rule: FillRule::NonZero,
+            };
+            let mut plan = plan(
+                &DrawRequest::new(&command, Rect::new(0, 0, 100, 100)),
+                Viewport::new(100, 100, Fixed::ONE),
+            )
+            .unwrap();
+            for size in [32, 64, 256, 512, MAX_PALETTE_SIZE] {
+                plan.key.size = size as u16;
+                let pitch = size * 4 + 12;
+                let mut pixels = alloc::vec![0xA5; pitch * size + 32];
+                assert_eq!(
+                    crate::test_support::tracked_allocations(|| plan
+                        .write_pixels(&mut pixels, pitch)
+                        .unwrap()),
+                    0
+                );
+                for y in 0..size {
+                    for x in 0..size {
+                        let color = plan.texel(x, y);
+                        let offset = y * pitch + x * 4;
+                        assert_eq!(
+                            pixels[offset..offset + 4],
+                            [color.r, color.g, color.b, color.a],
+                            "radius={radius:?} size={size} x={x} y={y}"
+                        );
+                    }
+                    assert!(
+                        pixels[y * pitch + size * 4..(y + 1) * pitch]
+                            .iter()
+                            .all(|&value| value == 0xA5)
+                    );
+                }
+                assert!(pixels[pitch * size..].iter().all(|&value| value == 0xA5));
+            }
+        }
+    }
+
+    #[test]
+    fn palette_generation_rejects_invalid_storage_before_writing() {
+        with_plan(Color::rgba(1, 2, 3, 4), |plan| {
+            let size = usize::from(plan.key.size);
+            let mut pixels = alloc::vec![0xA5; size * size * 4];
+            for pitch in [size * 4 - 1, size * 4 + 1, usize::MAX] {
+                assert_eq!(
+                    plan.write_pixels(&mut pixels, pitch),
+                    Err(RenderError::InvalidTexture)
+                );
+                assert!(pixels.iter().all(|&value| value == 0xA5));
+            }
+            assert_eq!(
+                plan.write_pixels(&mut pixels[..size * size * 4 - 1], size * 4),
+                Err(RenderError::InvalidTexture)
+            );
+        });
     }
 
     #[test]

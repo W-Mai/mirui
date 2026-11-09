@@ -110,20 +110,7 @@ impl<T: RenderTarget + 'static> TextureCache<T> {
                     )
                     .map_err(|_| RenderError::BackendFailure)?;
                 texture
-                    .with_lock(None, |pixels, pitch| {
-                        if pitch < size * 4 || pixels.len() < pitch * (size - 1) + size * 4 {
-                            return Err(RenderError::InvalidTexture);
-                        }
-                        for y in 0..size {
-                            for x in 0..size {
-                                let color = plan.texel(x, y);
-                                let offset = y * pitch + x * 4;
-                                pixels[offset..offset + 4]
-                                    .copy_from_slice(&[color.r, color.g, color.b, color.a]);
-                            }
-                        }
-                        Ok(())
-                    })
+                    .with_lock(None, |pixels, pitch| plan.write_pixels(pixels, pitch))
                     .map_err(|_| RenderError::BackendFailure)??;
                 // Filtering is local to this generated palette; ordinary images stay nearest sampled.
                 if unsafe {
