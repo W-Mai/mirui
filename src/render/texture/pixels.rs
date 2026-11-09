@@ -30,6 +30,45 @@ pub(super) fn pixel_offset(
 }
 
 impl ColorFormat {
+    /// Whether arbitrary-alpha fixed-source rows use the byte-channel kernel.
+    pub(crate) fn can_batch_solid(self, mode: AlphaMode) -> bool {
+        mode == AlphaMode::Opaque && matches!(self, Self::RGBA8888 | Self::BGRA8888 | Self::RGB888)
+    }
+
+    /// Blend complete pixels with a fixed source and effective alpha.
+    pub(crate) fn blend_solid_span(
+        self,
+        bytes: &mut [u8],
+        color: &Color,
+        alpha: u8,
+        mode: AlphaMode,
+    ) {
+        if alpha == 0 {
+            return;
+        }
+        if self.can_batch_solid(mode) || alpha == 255 {
+            match self {
+                Self::RGBA8888 => {
+                    blend_constant_bytes::<4>(bytes, [color.r, color.g, color.b], alpha);
+                    return;
+                }
+                Self::BGRA8888 => {
+                    blend_constant_bytes::<4>(bytes, [color.b, color.g, color.r], alpha);
+                    return;
+                }
+                Self::RGB888 => {
+                    blend_constant_bytes::<3>(bytes, [color.r, color.g, color.b], alpha);
+                    return;
+                }
+                Self::RGB565 | Self::RGB565Swapped => {}
+            }
+        }
+        let size = self.bytes_per_pixel();
+        for pixel in bytes.chunks_exact_mut(size) {
+            self.blend_pixel(pixel, 0, color, alpha, mode);
+        }
+    }
+
     #[inline]
     pub(crate) fn blend_pixel(
         self,
@@ -109,12 +148,71 @@ impl ColorFormat {
     }
 }
 
+fn blend_constant_bytes<const BPP: usize>(bytes: &mut [u8], color: [u8; 3], alpha: u8) {
+    if alpha == 255 {
+        for pixel in bytes.chunks_exact_mut(BPP) {
+            pixel[..3].copy_from_slice(&color);
+            if BPP == 4 {
+                pixel[3] = 255;
+            }
+        }
+        return;
+    }
+    let alpha = u16::from(alpha);
+    let inverse = 255 - alpha;
+    let source = color.map(|channel| u16::from(channel) * alpha + 127);
+    for pixel in bytes.chunks_exact_mut(BPP) {
+        for channel in 0..3 {
+            let sum = u16::from(pixel[channel]) * inverse + source[channel];
+            pixel[channel] = ((sum + (sum >> 8)) >> 8) as u8;
+        }
+        if BPP == 4 {
+            pixel[3] = 255;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn paired_rgb_blending_matches_all_scalar_channel_inputs() {
+    fn solid_spans_match_scalar_writes_for_all_formats_modes_and_tails() {
+        for format in [
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+            ColorFormat::RGB888,
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+        ] {
+            for mode in [AlphaMode::Opaque, AlphaMode::Blend] {
+                for alpha in [0, 1, 17, 127, 128, 254, 255] {
+                    for length in 0..=33 {
+                        for prefix in 0..=4 {
+                            let color = Color::rgba(19, 254, 87, 41);
+                            let mut actual = [0_u8; 148];
+                            for (i, byte) in actual.iter_mut().enumerate() {
+                                *byte = (i as u8).wrapping_mul(71).wrapping_add(9);
+                            }
+                            let mut expected = actual;
+                            let end = prefix + length * format.bytes_per_pixel();
+                            format.blend_solid_span(&mut actual[prefix..end], &color, alpha, mode);
+                            for offset in (prefix..end).step_by(format.bytes_per_pixel()) {
+                                format.blend_pixel(&mut expected, offset, &color, alpha, mode);
+                            }
+                            assert_eq!(
+                                actual, expected,
+                                "{format:?} {mode:?} {alpha} {length} {prefix}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn opaque_blending_kernels_match_all_scalar_channel_inputs() {
         for alpha in 0..=255_u8 {
             for source in 0..=255_u8 {
                 for destination in 0..=255_u8 {
@@ -132,10 +230,14 @@ mod tests {
                             + 127;
                         ((sum + (sum >> 8)) >> 8) as u8
                     };
-                    assert_eq!(
-                        blend_opaque(&a, &b, alpha),
-                        Color::rgb(scalar(a.r, b.r), scalar(a.g, b.g), scalar(a.b, b.b))
-                    );
+                    let expected = Color::rgb(scalar(a.r, b.r), scalar(a.g, b.g), scalar(a.b, b.b));
+                    assert_eq!(blend_opaque(&a, &b, alpha), expected);
+                    let mut rgba = [b.r, b.g, b.b, b.a];
+                    blend_constant_bytes::<4>(&mut rgba, [a.r, a.g, a.b], alpha);
+                    assert_eq!(rgba, [expected.r, expected.g, expected.b, 255]);
+                    let mut rgb = [b.r, b.g, b.b];
+                    blend_constant_bytes::<3>(&mut rgb, [a.r, a.g, a.b], alpha);
+                    assert_eq!(rgb, [expected.r, expected.g, expected.b]);
                 }
             }
         }

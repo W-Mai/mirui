@@ -126,6 +126,10 @@ impl<'a> GradientPaint<'a> {
         }
     }
 
+    pub(super) fn has_constant_rows(&self) -> bool {
+        matches!(self, Self::Linear { paint, .. } if paint.x == Fixed64::ZERO)
+    }
+
     pub(super) fn sample(&mut self, px: i32, py: i32) -> Color {
         match self {
             Self::Linear { paint, row } => {

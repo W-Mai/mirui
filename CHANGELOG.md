@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gradient path shading skips zero-effective-alpha writes before target offset calculation and blending.
 - Opaque-target software blending computes paired RGB channels with the existing per-channel rounding across pixel formats.
 - Software pixel writes store byte-format channels directly without integer packing, preserving format byte order and RGB565 quantization.
+- Software paths batch exact constant-coverage spans and share fixed-color blending for solid and scanline-constant gradients without intermediate pixel buffers.
 - Path rasterization accumulates interval boundaries in the existing scanline scratch, preserving exact subpixel coverage and fill rules.
 - Fixed-point square roots use exact integer square-root operations without repeated wide division during gradient sampling.
 - Centered radial gradients skip unused focal-circle calculations while preserving the general sampler's fixed-point results.

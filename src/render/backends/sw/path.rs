@@ -784,6 +784,48 @@ impl SwRenderer<'_> {
         let target_bytes = target.bytes_mut();
         let acc = &mut scratch.scanline_acc;
         let crossings = &mut scratch.scanline_crossings;
+        if format.can_batch_solid(alpha_mode)
+            && clip_mask.is_none()
+            && gradient
+                .as_ref()
+                .is_none_or(GradientPaint::has_constant_rows)
+        {
+            let is_gradient = gradient.is_some();
+            raster::scanline_fill_rows(
+                segs,
+                px_x0,
+                px_y0,
+                px_x1,
+                px_y1,
+                fill_rule,
+                acc,
+                crossings,
+                |x, py, differences| {
+                    let begin = py as usize * target_stride + x as usize * pixel_size;
+                    let end = begin + differences.len() * pixel_size;
+                    let target_row = &mut target_bytes[begin..end];
+                    let color = gradient
+                        .as_mut()
+                        .map(|paint| paint.sample(x, py))
+                        .unwrap_or(solid_color);
+                    raster::coverage_spans(differences, |start, end, cov| {
+                        let base_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
+                        let alpha = if is_gradient {
+                            ((u16::from(base_alpha) * u16::from(color.a) + 127) / 255) as u8
+                        } else {
+                            base_alpha
+                        };
+                        format.blend_solid_span(
+                            &mut target_row[start * pixel_size..end * pixel_size],
+                            &color,
+                            alpha,
+                            alpha_mode,
+                        );
+                    });
+                },
+            );
+            return;
+        }
         raster::scanline_fill(
             segs,
             px_x0,
@@ -1037,6 +1079,48 @@ impl SwRenderer<'_> {
         let target_bytes = target.bytes_mut();
         let acc = &mut scratch.scanline_acc;
         let crossings = &mut scratch.scanline_crossings;
+        if format.can_batch_solid(alpha_mode)
+            && clip_mask.is_none()
+            && gradient
+                .as_ref()
+                .is_none_or(GradientPaint::has_constant_rows)
+        {
+            let is_gradient = gradient.is_some();
+            raster::scanline_fill_rows(
+                segs,
+                px_x0,
+                px_y0,
+                px_x1,
+                py_y1,
+                FillRule::EvenOdd,
+                acc,
+                crossings,
+                |x, py, differences| {
+                    let begin = py as usize * target_stride + x as usize * pixel_size;
+                    let end = begin + differences.len() * pixel_size;
+                    let target_row = &mut target_bytes[begin..end];
+                    let color = gradient
+                        .as_mut()
+                        .map(|paint| paint.sample(x, py))
+                        .unwrap_or(solid_color);
+                    raster::coverage_spans(differences, |start, end, cov| {
+                        let base_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
+                        let alpha = if is_gradient {
+                            ((u16::from(base_alpha) * u16::from(color.a) + 127) / 255) as u8
+                        } else {
+                            base_alpha
+                        };
+                        format.blend_solid_span(
+                            &mut target_row[start * pixel_size..end * pixel_size],
+                            &color,
+                            alpha,
+                            alpha_mode,
+                        );
+                    });
+                },
+            );
+            return;
+        }
         raster::scanline_fill(
             segs,
             px_x0,

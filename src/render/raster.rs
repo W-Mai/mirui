@@ -439,6 +439,41 @@ pub fn scanline_fill(
     crossings: &mut Vec<(Fixed, i8)>,
     mut emit: impl FnMut(i32, i32, Fixed),
 ) {
+    scanline_fill_rows(
+        segs,
+        px_x0,
+        py_y0,
+        px_x1,
+        py_y1,
+        rule,
+        acc,
+        crossings,
+        |x, y, differences| {
+            let mut coverage = Fixed::ZERO;
+            for (i, difference) in differences.iter().enumerate() {
+                coverage += *difference;
+                if coverage > Fixed::ZERO {
+                    emit(x + i as i32, y, coverage);
+                }
+            }
+        },
+    );
+}
+
+/// Emit borrowed coverage differences from the existing row scratch.
+/// Consumers reconstruct coverage in order while retaining their row-local state.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn scanline_fill_rows(
+    segs: &[LineSeg],
+    px_x0: i32,
+    py_y0: i32,
+    px_x1: i32,
+    py_y1: i32,
+    rule: FillRule,
+    acc: &mut Vec<Fixed>,
+    crossings: &mut Vec<(Fixed, i8)>,
+    mut emit: impl FnMut(i32, i32, &[Fixed]),
+) {
     if segs.is_empty() || px_x1 <= px_x0 || py_y1 <= py_y0 {
         return;
     }
@@ -509,13 +544,24 @@ pub fn scanline_fill(
             }
         }
 
-        let mut coverage = Fixed::ZERO;
-        for (i, difference) in acc.iter().enumerate() {
-            coverage += *difference;
-            if coverage > Fixed::ZERO {
-                emit(px_x0 + i as i32, py, coverage);
-            }
+        emit(px_x0, py, acc);
+    }
+}
+
+/// Visit exact positive-coverage runs without expanding or copying the row scratch.
+pub(crate) fn coverage_spans(differences: &[Fixed], mut emit: impl FnMut(usize, usize, Fixed)) {
+    let mut coverage = Fixed::ZERO;
+    let mut start = 0;
+    while start < differences.len() {
+        coverage += differences[start];
+        let mut end = start + 1;
+        while end < differences.len() && differences[end] == Fixed::ZERO {
+            end += 1;
         }
+        if coverage > Fixed::ZERO {
+            emit(start, end, coverage);
+        }
+        start = end;
     }
 }
 
@@ -1975,6 +2021,90 @@ mod tests {
                     p2: pt(x0, y0)
                 },
             ]
+        }
+    }
+
+    #[test]
+    fn coverage_runs_reconstruct_independent_prefix_sums_without_storage() {
+        let mut seed = 0xC139715B_u32;
+        for length in 0..=64 {
+            for _ in 0..64 {
+                let mut differences = [Fixed::ZERO; 64];
+                let mut expected = [Fixed::ZERO; 64];
+                let mut actual = [Fixed::ZERO; 64];
+                let mut sum = Fixed::ZERO;
+                for (difference, output) in differences[..length].iter_mut().zip(&mut expected) {
+                    seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                    if seed % 5 == 0 {
+                        *difference = Fixed::from_ratio(((seed >> 8) % 7) as i32 - 3, 4);
+                    }
+                    sum += *difference;
+                    *output = sum.max(Fixed::ZERO);
+                }
+                let mut previous_end = 0;
+                let allocations = crate::test_support::tracked_allocations(|| {
+                    coverage_spans(&differences[..length], |start, end, coverage| {
+                        assert!(previous_end <= start && start < end && end <= length);
+                        assert!(coverage > Fixed::ZERO);
+                        previous_end = end;
+                        actual[start..end].fill(coverage);
+                    });
+                });
+                assert_eq!(actual, expected);
+                assert_eq!(allocations, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn row_emission_borrows_scratch_and_preserves_disconnected_fractional_spans() {
+        let mut segments = rect_segs(-2, 0, 0, 3, false);
+        segments.extend(rect_segs(2, 0, 4, 3, false));
+        for segment in &mut segments {
+            segment.p1.x += Fixed::from_ratio(1, 2);
+            segment.p2.x += Fixed::from_ratio(1, 2);
+        }
+        for rule in [FillRule::EvenOdd, FillRule::NonZero] {
+            let mut acc = Vec::with_capacity(9);
+            let mut crossings = Vec::with_capacity(8);
+            let storage = acc.as_ptr();
+            let mut rows = 0;
+            let allocations = crate::test_support::tracked_allocations(|| {
+                scanline_fill_rows(
+                    &segments,
+                    -3,
+                    -1,
+                    6,
+                    4,
+                    rule,
+                    &mut acc,
+                    &mut crossings,
+                    |left, y, differences| {
+                        assert_eq!(left, -3);
+                        assert_eq!(differences.len(), 9);
+                        assert_eq!(differences.as_ptr(), storage);
+                        assert_eq!(y, rows - 1);
+                        rows += 1;
+                        let mut coverage = Fixed::ZERO;
+                        for (i, difference) in differences.iter().enumerate() {
+                            coverage += *difference;
+                            let x = left + i as i32;
+                            let expected = if !(0..3).contains(&y) {
+                                Fixed::ZERO
+                            } else {
+                                match x {
+                                    -2 | 0 | 2 | 4 => Fixed::from_ratio(1, 2),
+                                    -1 | 3 => Fixed::ONE,
+                                    _ => Fixed::ZERO,
+                                }
+                            };
+                            assert_eq!(coverage, expected, "{x},{y}");
+                        }
+                    },
+                );
+            });
+            assert_eq!(rows, 5);
+            assert_eq!(allocations, 0);
         }
     }
 
