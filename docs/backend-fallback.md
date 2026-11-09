@@ -13,6 +13,8 @@ Software affine rounded fills use the existing quad raster path, preserving the 
 
 Software linear gradients whose physical color is constant along a scanline evaluate that color once per row. The draw-local sampler retains no data after the command; fractional and projective sampling preserve the original coordinate evaluation.
 
+Centered radial gradients with an axis-aligned paint mapping reuse the squared vertical distance within each integer scanline. The specialized sampler fits within the general sampler's existing storage; fractional and projective reads evaluate their own coordinates independently. Other radial fields retain the general solver.
+
 Software path rasterization records weighted interval boundaries in its existing row scratch and reconstructs coverage once per row. Subpixel sampling, fill rules and fractional edge coverage are unchanged.
 
 Nearest-neighbor RGBA upscaling reuses completed destination rows only after validating full source-row opacity and full command opacity. Copies use disjoint row slices; transparent rows retain independent destination blending. The draw-local cursor does not allocate or retain pixel storage, and downscales, fractional coverage, masks and other composites preserve their existing paths.

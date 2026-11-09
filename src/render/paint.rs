@@ -98,6 +98,7 @@ pub(super) enum GradientPaint<'a> {
         paint: LinearPaint<'a>,
         row: Option<(i32, Color)>,
     },
+    AxisRadial(AxisRadialPaint<'a>),
     Radial(RadialPaint<'a>),
 }
 
@@ -110,7 +111,17 @@ impl<'a> GradientPaint<'a> {
                 row: None,
             }),
             Paint::RadialGradient(gradient) => {
-                Some(Self::Radial(RadialPaint::new(gradient, draw, bbox)?))
+                let paint = RadialPaint::new(gradient, draw, bbox)?;
+                Some(
+                    if paint.is_centered()
+                        && paint.inverse.m01 == Fixed64::ZERO
+                        && paint.inverse.m10 == Fixed64::ZERO
+                    {
+                        Self::AxisRadial(AxisRadialPaint::new(paint))
+                    } else {
+                        Self::Radial(paint)
+                    },
+                )
             }
         }
     }
@@ -130,6 +141,7 @@ impl<'a> GradientPaint<'a> {
                 }
                 color
             }
+            Self::AxisRadial(paint) => paint.sample(px, py),
             Self::Radial(paint) => paint.sample_point(Point::new(px, py)),
         }
     }
@@ -137,8 +149,74 @@ impl<'a> GradientPaint<'a> {
     fn sample_point(&self, point: Point) -> Color {
         match self {
             Self::Linear { paint, .. } => paint.sample_point(point),
+            Self::AxisRadial(paint) => paint.sample_point(point),
             Self::Radial(paint) => paint.sample_point(point),
         }
+    }
+}
+
+pub(super) struct AxisRadialPaint<'a> {
+    x: Fixed64,
+    y: Fixed64,
+    tx: Fixed64,
+    ty: Fixed64,
+    fx: Fixed64,
+    fy: Fixed64,
+    quadratic: Fixed64,
+    spread: SpreadMode,
+    stops: &'a [GradientStop],
+    row: Option<(i32, Fixed64)>,
+}
+
+const _: () = assert!(
+    core::mem::size_of::<AxisRadialPaint<'static>>()
+        <= core::mem::size_of::<RadialPaint<'static>>()
+);
+
+impl<'a> AxisRadialPaint<'a> {
+    fn new(paint: RadialPaint<'a>) -> Self {
+        Self {
+            x: paint.inverse.m00,
+            y: paint.inverse.m11,
+            tx: paint.inverse.tx,
+            ty: paint.inverse.ty,
+            fx: paint.fx,
+            fy: paint.fy,
+            quadratic: paint.quadratic,
+            spread: paint.spread,
+            stops: paint.stops,
+            row: None,
+        }
+    }
+
+    fn sample(&mut self, px: i32, py: i32) -> Color {
+        let y_squared = match self.row {
+            Some((previous_y, squared)) if previous_y == py => squared,
+            _ => {
+                let y =
+                    self.y.mul_wide(Fixed64::from_fixed(Fixed::from_int(py))) + self.ty - self.fy;
+                let squared = y.mul_wide(y);
+                self.row = Some((py, squared));
+                squared
+            }
+        };
+        self.sample_with_y_squared(Fixed::from_int(px), y_squared)
+    }
+
+    fn sample_point(&self, point: Point) -> Color {
+        let y = self.y.mul_wide(Fixed64::from_fixed(point.y)) + self.ty - self.fy;
+        self.sample_with_y_squared(point.x, y.mul_wide(y))
+    }
+
+    fn sample_with_y_squared(&self, px: Fixed, y_squared: Fixed64) -> Color {
+        let x = self.x.mul_wide(Fixed64::from_fixed(px)) + self.tx - self.fx;
+        let distance = x.mul_wide(x) + y_squared;
+        centered_radial_color(
+            self.quadratic,
+            -self.quadratic.mul_wide(distance),
+            self.spread,
+            self.stops,
+        )
     }
 }
 
@@ -276,11 +354,7 @@ impl<'a> RadialPaint<'a> {
 
     #[cfg(feature = "sdl-gpu")]
     pub(super) fn centered_space(&self) -> Option<[f64; 6]> {
-        if self.dx != Fixed64::ZERO
-            || self.dy != Fixed64::ZERO
-            || self.inner_radius != Fixed64::ZERO
-            || self.quadratic >= Fixed64::ZERO
-        {
+        if !self.is_centered() {
             return None;
         }
         let radius = self.radius_delta.to_f32() as f64;
@@ -317,31 +391,17 @@ impl<'a> RadialPaint<'a> {
     }
 
     fn sample_relative(&self, qx: Fixed64, qy: Fixed64) -> Color {
-        let t = if let Some(discriminant) = self.centered_discriminant(qx, qy) {
-            // A Q48.16 value of magnitude <= 2^23 has a square that fits its storage.
-            if self.spread == SpreadMode::Pad
-                && self.quadratic >= -Fixed64::from_int(1 << 23)
-                && discriminant > self.quadratic.mul_wide(self.quadratic)
-            {
-                // A discriminant above A² guarantees t >= 1 after integer truncation.
-                return self.stops[self.stops.len() - 1].color.into();
-            }
-            self.centered_parameter(discriminant)
-        } else {
-            self.conical_parameter(qx, qy)
-        };
-        let Some(t) = t else {
+        if let Some(discriminant) = self.centered_discriminant(qx, qy) {
+            return centered_radial_color(self.quadratic, discriminant, self.spread, self.stops);
+        }
+        let Some(t) = self.conical_parameter(qx, qy) else {
             return Color::rgba(0, 0, 0, 0);
         };
         sample_stops(self.stops, spread(t, self.spread))
     }
 
     fn centered_discriminant(&self, qx: Fixed64, qy: Fixed64) -> Option<Fixed64> {
-        if self.dx == Fixed64::ZERO
-            && self.dy == Fixed64::ZERO
-            && self.inner_radius == Fixed64::ZERO
-            && self.quadratic < Fixed64::ZERO
-        {
+        if self.is_centered() {
             // Keep the conical solver's rounding; the second root has negative radius.
             let distance = qx.mul_wide(qx) + qy.mul_wide(qy);
             return Some(-self.quadratic.mul_wide(distance));
@@ -349,8 +409,11 @@ impl<'a> RadialPaint<'a> {
         None
     }
 
-    fn centered_parameter(&self, discriminant: Fixed64) -> Option<Fixed64> {
-        (discriminant >= Fixed64::ZERO).then(|| (-discriminant.sqrt()).div_wide(self.quadratic))
+    fn is_centered(&self) -> bool {
+        self.dx == Fixed64::ZERO
+            && self.dy == Fixed64::ZERO
+            && self.inner_radius == Fixed64::ZERO
+            && self.quadratic < Fixed64::ZERO
     }
 
     fn conical_parameter(&self, qx: Fixed64, qy: Fixed64) -> Option<Fixed64> {
@@ -389,6 +452,30 @@ impl<'a> RadialPaint<'a> {
             self.inner_radius + self.radius_delta.mul_wide(*candidate) >= Fixed64::ZERO
         })
     }
+}
+
+fn centered_radial_parameter(quadratic: Fixed64, discriminant: Fixed64) -> Option<Fixed64> {
+    (discriminant >= Fixed64::ZERO).then(|| (-discriminant.sqrt()).div_wide(quadratic))
+}
+
+fn centered_radial_color(
+    quadratic: Fixed64,
+    discriminant: Fixed64,
+    mode: SpreadMode,
+    stops: &[GradientStop],
+) -> Color {
+    // A Q48.16 value of magnitude <= 2^23 has a square that fits its storage.
+    if mode == SpreadMode::Pad
+        && quadratic >= -Fixed64::from_int(1 << 23)
+        && discriminant > quadratic.mul_wide(quadratic)
+    {
+        // A discriminant above A² guarantees t >= 1 after integer truncation.
+        return stops[stops.len() - 1].color.into();
+    }
+    let Some(t) = centered_radial_parameter(quadratic, discriminant) else {
+        return Color::rgba(0, 0, 0, 0);
+    };
+    sample_stops(stops, spread(t, mode))
 }
 
 fn spread(t: Fixed64, mode: SpreadMode) -> Fixed64 {
@@ -560,6 +647,97 @@ mod tests {
     }
 
     #[test]
+    fn radial_scanlines_match_independent_sampling_across_row_order_and_transforms() {
+        let center = mirx::types::Point::new(
+            mirx::types::Fixed::from_ratio(1, 2),
+            mirx::types::Fixed::from_ratio(1, 2),
+        );
+        let transforms = [
+            Transform::IDENTITY,
+            Transform::translate(Fixed::from_ratio(-7, 3), Fixed::from_ratio(5, 4)),
+            Transform::scale(Fixed::from_ratio(3, 2), Fixed::from_ratio(2, 3)),
+            Transform::scale(-Fixed::ONE, Fixed::from_int(2)),
+            Transform {
+                m01: Fixed::from_ratio(1, 3),
+                ..Transform::IDENTITY
+            },
+            Transform {
+                m00: Fixed::ZERO,
+                m01: -Fixed::ONE,
+                m10: Fixed::ONE,
+                m11: Fixed::ZERO,
+                ..Transform::IDENTITY
+            },
+        ];
+        for mode in [SpreadMode::Pad, SpreadMode::Repeat, SpreadMode::Reflect] {
+            for units in [
+                GradientUnits::ObjectBoundingBox,
+                GradientUnits::UserSpaceOnUse,
+            ] {
+                for draw in transforms {
+                    for paint_transform in [
+                        mirx::types::Transform::IDENTITY,
+                        mirx::types::Transform::translate(
+                            mirx::types::Fixed::from_ratio(3, 7),
+                            mirx::types::Fixed::from_ratio(-5, 9),
+                        ),
+                    ] {
+                        let mut gradient =
+                            radial(center, mirx::types::Fixed::ZERO, paint_transform);
+                        gradient.spread = mode;
+                        gradient.units = units;
+                        if units == GradientUnits::UserSpaceOnUse {
+                            gradient.radius = mirx::types::Fixed::from_int(23);
+                        }
+                        let bbox = Rect::new(-3, 4, 43, 29);
+                        let paint = Paint::RadialGradient(gradient);
+                        let Paint::RadialGradient(gradient) = &paint else {
+                            unreachable!()
+                        };
+                        let original = RadialPaint::new(gradient, draw, bbox).unwrap();
+                        let allocations = crate::test_support::tracked_allocations(|| {
+                            let mut sampler = GradientPaint::new(&paint, draw, bbox).unwrap();
+                            assert_eq!(
+                                matches!(sampler, GradientPaint::AxisRadial(_)),
+                                original.inverse.m01 == Fixed64::ZERO
+                                    && original.inverse.m10 == Fixed64::ZERO
+                            );
+                            for y in [4, 4, 17, -2, 31, 17, 4] {
+                                for x in (-20..=80).rev() {
+                                    assert_eq!(sampler.sample(x, y), original.sample(x, y));
+                                    let point = Point::new(
+                                        Fixed::from_ratio(x * 4 + 1, 4),
+                                        Fixed::from_ratio(y * 4 - 1, 4),
+                                    );
+                                    assert_eq!(
+                                        sampler.sample_point(point),
+                                        original.sample_point(point)
+                                    );
+                                }
+                            }
+                        });
+                        assert_eq!(allocations, 0);
+                    }
+                }
+            }
+        }
+        for (focal, inner) in [
+            (center, mirx::types::Fixed::from_ratio(1, 8)),
+            (
+                mirx::types::Point::new(mirx::types::Fixed::ZERO, mirx::types::Fixed::ZERO),
+                mirx::types::Fixed::ZERO,
+            ),
+        ] {
+            let paint =
+                Paint::RadialGradient(radial(focal, inner, mirx::types::Transform::IDENTITY));
+            assert!(matches!(
+                GradientPaint::new(&paint, Transform::IDENTITY, Rect::new(0, 0, 40, 30)),
+                Some(GradientPaint::Radial(_))
+            ));
+        }
+    }
+
+    #[test]
     fn object_bbox_and_paint_transform_map_into_physical_pixels() {
         let gradient = gradient(
             GradientUnits::ObjectBoundingBox,
@@ -651,7 +829,7 @@ mod tests {
                     assert_eq!(
                         sampler
                             .centered_discriminant(qx, qy)
-                            .and_then(|d| sampler.centered_parameter(d)),
+                            .and_then(|d| centered_radial_parameter(sampler.quadratic, d)),
                         sampler.conical_parameter(qx, qy),
                         "radius={radius} x={x} y={y}",
                     );
