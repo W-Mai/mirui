@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-11-09
+
 ### Added
 
 - Workspace builds support `--profile release-opt` for optimization level 3 with the existing release settings.

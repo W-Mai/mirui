@@ -36,7 +36,7 @@ The Glass Light Toggle demo supports clicking, dragging, Space/Enter and arrow k
 
 ```toml
 [dependencies]
-mirui = { version = "0.54", features = ["sdl"] }
+mirui = { version = "0.55", features = ["sdl"] }
 ```
 
 ```rust
