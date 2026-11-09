@@ -163,6 +163,7 @@ pub(super) struct AxisRadialPaint<'a> {
     fx: Fixed64,
     fy: Fixed64,
     quadratic: Fixed64,
+    pad_endpoint: Option<Fixed64>,
     spread: SpreadMode,
     stops: &'a [GradientStop],
     row: Option<(i32, Fixed64)>,
@@ -183,6 +184,9 @@ impl<'a> AxisRadialPaint<'a> {
             fx: paint.fx,
             fy: paint.fy,
             quadratic: paint.quadratic,
+            pad_endpoint: (paint.spread == SpreadMode::Pad
+                && paint.quadratic >= -Fixed64::from_int(1 << 23))
+            .then(|| paint.quadratic.mul_wide(paint.quadratic)),
             spread: paint.spread,
             stops: paint.stops,
             row: None,
@@ -211,12 +215,14 @@ impl<'a> AxisRadialPaint<'a> {
     fn sample_with_y_squared(&self, px: Fixed, y_squared: Fixed64) -> Color {
         let x = self.x.mul_wide(Fixed64::from_fixed(px)) + self.tx - self.fx;
         let distance = x.mul_wide(x) + y_squared;
-        centered_radial_color(
-            self.quadratic,
-            -self.quadratic.mul_wide(distance),
-            self.spread,
-            self.stops,
-        )
+        let discriminant = -self.quadratic.mul_wide(distance);
+        if self
+            .pad_endpoint
+            .is_some_and(|endpoint| discriminant > endpoint)
+        {
+            return self.stops[self.stops.len() - 1].color.into();
+        }
+        centered_radial_interior_color(self.quadratic, discriminant, self.spread, self.stops)
     }
 }
 
@@ -473,6 +479,15 @@ fn centered_radial_color(
         // A discriminant above A² guarantees t >= 1 after integer truncation.
         return stops[stops.len() - 1].color.into();
     }
+    centered_radial_interior_color(quadratic, discriminant, mode, stops)
+}
+
+fn centered_radial_interior_color(
+    quadratic: Fixed64,
+    discriminant: Fixed64,
+    mode: SpreadMode,
+    stops: &[GradientStop],
+) -> Color {
     let Some(t) = centered_radial_parameter(quadratic, discriminant) else {
         return Color::rgba(0, 0, 0, 0);
     };
@@ -846,6 +861,54 @@ mod tests {
             let offset = mirx::types::Fixed::from_ratio(value, 256);
             assert_eq!(stop_offset(offset), Fixed64::from_fixed(offset.into()));
         }
+    }
+
+    #[test]
+    fn prepared_radial_endpoint_preserves_tiny_radii_and_square_boundaries() {
+        let center = mirx::types::Point::new(mirx::types::Fixed::ZERO, mirx::types::Fixed::ZERO);
+        for radius in [
+            mirx::types::Fixed::from_ratio(1, 256),
+            mirx::types::Fixed::from_ratio(1, 2),
+            mirx::types::Fixed::ONE,
+            mirx::types::Fixed::from_int(2896),
+            mirx::types::Fixed::from_int(2897),
+        ] {
+            for mode in [SpreadMode::Pad, SpreadMode::Repeat, SpreadMode::Reflect] {
+                let mut gradient = radial(
+                    center,
+                    mirx::types::Fixed::ZERO,
+                    mirx::types::Transform::IDENTITY,
+                );
+                gradient.center = center;
+                gradient.radius = radius;
+                gradient.spread = mode;
+                gradient.units = GradientUnits::UserSpaceOnUse;
+                let bbox = Rect::new(0, 0, 64, 64);
+                let original = RadialPaint::new(&gradient, Transform::IDENTITY, bbox).unwrap();
+                let mut prepared = AxisRadialPaint::new(
+                    RadialPaint::new(&gradient, Transform::IDENTITY, bbox).unwrap(),
+                );
+                let radius: Fixed = radius.into();
+                for y in [0, -2, 5, 0] {
+                    for x in [-4, 0, 7, -1, 0] {
+                        assert_eq!(prepared.sample(x, y), original.sample(x, y));
+                    }
+                    for x in [
+                        radius - Fixed::from_ratio(1, 256),
+                        radius,
+                        radius + Fixed::from_ratio(1, 256),
+                    ] {
+                        let point = Point::new(x, Fixed::from_int(y));
+                        assert_eq!(prepared.sample_point(point), original.sample_point(point));
+                    }
+                }
+            }
+        }
+        std::println!(
+            "prepared_axis_bytes={} gradient_sampler_bytes={}",
+            core::mem::size_of::<AxisRadialPaint<'_>>(),
+            core::mem::size_of::<GradientPaint<'_>>()
+        );
     }
 
     #[test]

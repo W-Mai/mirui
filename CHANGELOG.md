@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Software linear gradients reuse exact colors within constant scanlines while preserving fractional and projective sampling.
 - Centered radial gradients reuse exact row distances during axis-aligned software drawing without increasing sampler storage.
 - Centered radial parameter division uses its square-root bound to avoid wide arithmetic while preserving exact fixed-point truncation.
+- Axis-aligned radial drawing prepares constant Pad cutoffs once per command within the existing sampler size.
 - Gradient colors use exact integer channel interpolation and normalized offset conversion without double-precision arithmetic.
 - Software path shading prepares target layout after clipping and reuses the checked pixel range across scanlines.
 - Path rasterization accumulates interval boundaries in the existing scanline scratch, preserving exact subpixel coverage and fill rules.

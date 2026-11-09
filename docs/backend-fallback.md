@@ -13,7 +13,7 @@ Software affine rounded fills use the existing quad raster path, preserving the 
 
 Software linear gradients whose physical color is constant along a scanline evaluate that color once per row. The draw-local sampler retains no data after the command; fractional and projective sampling preserve the original coordinate evaluation.
 
-Centered radial gradients with an axis-aligned paint mapping reuse the squared vertical distance within each integer scanline. The specialized sampler fits within the general sampler's existing storage; fractional and projective reads evaluate their own coordinates independently. Centered parameters use bounded fixed-point division with exact truncation; other radial fields retain the general solver and wide arithmetic.
+Centered radial gradients with an axis-aligned paint mapping reuse the squared vertical distance within each integer scanline and prepare constant Pad cutoffs once per command. The specialized sampler fits within the general sampler's existing storage; fractional and projective reads evaluate their own coordinates independently. Centered parameters use bounded fixed-point division with exact truncation; other radial fields retain the general solver and wide arithmetic.
 
 Gradient stop interpolation retains its full Q48.16 fraction and evaluates byte channels with exact integer arithmetic. Normalized MIRX offsets use exact single-precision conversion; general MIRX numeric conversion keeps its full range.
 
