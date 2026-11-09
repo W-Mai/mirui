@@ -1,6 +1,19 @@
 use super::{AlphaMode, ColorFormat, blend_straight_source_over};
 use crate::types::Color;
 
+fn blend_opaque(source: &Color, destination: &Color, alpha: u8) -> Color {
+    let alpha = u32::from(alpha);
+    let inverse = 255 - alpha;
+    let source_rb = u32::from(source.r) | (u32::from(source.b) << 16);
+    let destination_rb = u32::from(destination.r) | (u32::from(destination.b) << 16);
+    // Each 16-bit lane remains <= 65406 through the original rounding formula.
+    let rb_sum = source_rb * alpha + destination_rb * inverse + 0x007F_007F;
+    let rb = (rb_sum + ((rb_sum >> 8) & 0x00FF_00FF)) >> 8;
+    let g_sum = u32::from(source.g) * alpha + u32::from(destination.g) * inverse + 127;
+    let g = ((g_sum + (g_sum >> 8)) >> 8) as u8;
+    Color::rgb(rb as u8, g, (rb >> 16) as u8)
+}
+
 #[inline(always)]
 pub(super) fn pixel_offset(
     width: u16,
@@ -35,19 +48,7 @@ impl ColorFormat {
         }
         let previous = self.read_pixel(bytes, offset);
         let result = match alpha_mode {
-            AlphaMode::Opaque => {
-                let blend = |source: u8, destination: u8| {
-                    let sum = u32::from(source) * u32::from(alpha)
-                        + u32::from(destination) * (255 - u32::from(alpha))
-                        + 127;
-                    ((sum + (sum >> 8)) >> 8) as u8
-                };
-                Color::rgb(
-                    blend(color.r, previous.r),
-                    blend(color.g, previous.g),
-                    blend(color.b, previous.b),
-                )
-            }
+            AlphaMode::Opaque => blend_opaque(color, &previous, alpha),
             AlphaMode::Blend => blend_straight_source_over(color, &previous, alpha),
         };
         self.write_pixel(bytes, offset, &result);
@@ -108,6 +109,34 @@ impl ColorFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paired_rgb_blending_matches_all_scalar_channel_inputs() {
+        for alpha in 0..=255_u8 {
+            for source in 0..=255_u8 {
+                for destination in 0..=255_u8 {
+                    let a =
+                        Color::rgba(source, source ^ 0x55, source.rotate_left(3), source ^ alpha);
+                    let b = Color::rgba(
+                        destination,
+                        destination ^ 0xAA,
+                        destination.rotate_right(2),
+                        destination ^ alpha,
+                    );
+                    let scalar = |s: u8, d: u8| {
+                        let sum = u32::from(s) * u32::from(alpha)
+                            + u32::from(d) * (255 - u32::from(alpha))
+                            + 127;
+                        ((sum + (sum >> 8)) >> 8) as u8
+                    };
+                    assert_eq!(
+                        blend_opaque(&a, &b, alpha),
+                        Color::rgb(scalar(a.r, b.r), scalar(a.g, b.g), scalar(a.b, b.b))
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn packed_writes_preserve_surrounding_bytes_in_every_format() {
