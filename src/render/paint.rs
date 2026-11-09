@@ -455,7 +455,8 @@ impl<'a> RadialPaint<'a> {
 }
 
 fn centered_radial_parameter(quadratic: Fixed64, discriminant: Fixed64) -> Option<Fixed64> {
-    (discriminant >= Fixed64::ZERO).then(|| (-discriminant.sqrt()).div_wide(quadratic))
+    // A Q48.16 square root uses at most 40 raw bits; shifting it by 16 fits i64.
+    (discriminant >= Fixed64::ZERO).then(|| -discriminant.sqrt() / quadratic)
 }
 
 fn centered_radial_color(
@@ -510,7 +511,8 @@ pub(super) fn sample_stops(stops: &[GradientStop], t: Fixed64) -> Color {
             if interval == Fixed64::ZERO {
                 return end.color.into();
             }
-            let amount = (t - start_offset).div_wide(interval).to_f32();
+            // Selected normalized stop intervals bound the shifted numerator below 2^32.
+            let amount = ((t - start_offset) / interval).to_f32();
             let channel = |start: u8, end: u8| {
                 (f32::from(start) + (f32::from(end) - f32::from(start)) * amount) as u8
             };
@@ -734,6 +736,46 @@ mod tests {
                 GradientPaint::new(&paint, Transform::IDENTITY, Rect::new(0, 0, 40, 30)),
                 Some(GradientPaint::Radial(_))
             ));
+        }
+    }
+
+    #[test]
+    fn bounded_gradient_divisions_match_wide_arithmetic_at_numeric_limits() {
+        let maximum = Fixed64::from_int((1_i64 << 47) - 1) + Fixed64::from_ratio(65_535, 65_536);
+        let denominators = [
+            -Fixed64::from_ratio(1, 65_536),
+            -Fixed64::from_ratio(1, 4),
+            -Fixed64::ONE,
+            -Fixed64::from_int(64),
+            -maximum,
+            Fixed64::from_int(-(1_i64 << 47)),
+        ];
+        let mut seed = 0x7391_A5D3_5E81_6CA7_u64;
+        for index in 0..4096 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let discriminant = match index {
+                0 => Fixed64::ZERO,
+                1 => Fixed64::from_ratio(1, 65_536),
+                2 => maximum,
+                _ => Fixed64::from_ratio((seed >> 1) as i64, 65_536),
+            };
+            for quadratic in denominators {
+                assert_eq!(
+                    centered_radial_parameter(quadratic, discriminant),
+                    Some((-discriminant.sqrt()).div_wide(quadratic))
+                );
+            }
+        }
+        assert_eq!(
+            centered_radial_parameter(-Fixed64::ONE, -Fixed64::ONE),
+            None
+        );
+        for width in [1, 2, 3, 17, 127, 255, 256] {
+            let interval = Fixed64::from_ratio(width, 256);
+            for fraction in 0..=65_536 {
+                let numerator = Fixed64::from_ratio(fraction, 65_536).min(interval);
+                assert_eq!(numerator / interval, numerator.div_wide(interval));
+            }
         }
     }
 
