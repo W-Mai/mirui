@@ -19,6 +19,8 @@ Gradient stop interpolation retains its full Q48.16 fraction and evaluates byte 
 
 Software path rasterization records weighted interval boundaries in its existing row scratch and reconstructs coverage once per row. Subpixel sampling, fill rules and fractional edge coverage are unchanged.
 
+Path shading clips scanline bounds to the target before borrowing pixel storage. The exclusive borrow reuses target format, stride and alpha mode throughout the draw while preserving the existing pixel-format blending rules.
+
 Nearest-neighbor RGBA upscaling reuses completed destination rows only after validating full source-row opacity and full command opacity. Copies use disjoint row slices; transparent rows retain independent destination blending. The draw-local cursor does not allocate or retain pixel storage, and downscales, fractional coverage, masks and other composites preserve their existing paths.
 
 SDL-GPU and native WGPU use bounded destination-region fallback for affine and projective lines and arcs. Planning includes stroke extent and clipping before device access. Affine requests retain the software affine raster path; projected strokes are rebased in physical coordinates to avoid scaling a fractional region offset twice.

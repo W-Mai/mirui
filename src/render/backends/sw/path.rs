@@ -49,6 +49,120 @@ mod clip_tests {
     use crate::types::{Point, Viewport};
 
     #[test]
+    fn clipped_path_writes_match_checked_pixels_for_every_target_layout() {
+        use crate::render::scene::{GradientStop, GradientUnits, RadialGradient, SpreadMode};
+        use crate::render::texture::AlphaMode;
+        use alloc::borrow::Cow;
+
+        let width = 11_u16;
+        let height = 8_u16;
+        let path = Path::rect((-4).into(), (-3).into(), 21.into(), 18.into());
+        for format in [
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+            ColorFormat::RGB888,
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+        ] {
+            let stride = usize::from(width) * format.bytes_per_pixel() + 5;
+            let len = stride * usize::from(height);
+            for mode in [AlphaMode::Opaque, AlphaMode::Blend] {
+                for alpha in [0, 127, 255] {
+                    let color = Color::rgba(177, 45, 99, alpha);
+                    let paint = Paint::RadialGradient(RadialGradient {
+                        center: Point::new(5, 4).into(),
+                        focal: Point::new(5, 4).into(),
+                        radius: Fixed::from_int(4).into(),
+                        focal_radius: Fixed::ZERO.into(),
+                        stops: Cow::Owned(alloc::vec![
+                            GradientStop {
+                                offset: Fixed::ZERO.into(),
+                                color: color.into()
+                            },
+                            GradientStop {
+                                offset: Fixed::ONE.into(),
+                                color: color.into()
+                            },
+                        ]),
+                        spread: SpreadMode::Pad,
+                        units: GradientUnits::UserSpaceOnUse,
+                        transform: Transform::IDENTITY.into(),
+                    });
+                    for clip in [
+                        Rect::new(0, 0, width, height),
+                        Rect::new(2, 1, 7, 5),
+                        Rect::new(-4, -4, 7, 6),
+                        Rect::new(20, 20, 3, 3),
+                    ] {
+                        for route in 0..3 {
+                            let mut actual = alloc::vec![0xA7_u8; 9 + len + 8];
+                            let mut expected = actual.clone();
+                            {
+                                let mut target =
+                                    Texture::new(&mut actual[9..9 + len], width, height, format)
+                                        .unwrap();
+                                target.stride = stride;
+                                target.alpha_mode = mode;
+                                let mut reference =
+                                    Texture::new(&mut expected[9..9 + len], width, height, format)
+                                        .unwrap();
+                                reference.stride = stride;
+                                reference.alpha_mode = mode;
+                                let mut renderer = SwRenderer::new(target);
+                                let mut draw = || match route {
+                                    0 => renderer.fill_path_transformed(
+                                        &path,
+                                        clip,
+                                        &Transform::IDENTITY,
+                                        &paint,
+                                        255,
+                                        FillRule::NonZero,
+                                    ),
+                                    1 => renderer.fill_physical_path(
+                                        &path,
+                                        &clip,
+                                        &paint,
+                                        255,
+                                        &Transform::IDENTITY,
+                                        path.bbox().unwrap(),
+                                    ),
+                                    _ => renderer
+                                        .fill_path_projective(
+                                            &path,
+                                            &Transform3D::IDENTITY,
+                                            clip,
+                                            &paint,
+                                            255,
+                                            FillRule::NonZero,
+                                        )
+                                        .unwrap(),
+                                };
+                                draw();
+                                assert_eq!(crate::test_support::tracked_allocations(draw), 0);
+                                let mut pixels = reference.pixels_mut().unwrap();
+                                let (x0, y0, x1, y1) = clip.pixel_bounds();
+                                for _ in 0..2 {
+                                    for y in 0..i32::from(height) {
+                                        for x in 0..i32::from(width) {
+                                            if (x0..x1).contains(&x) && (y0..y1).contains(&y) {
+                                                pixels.blend_pixel_int(x, y, &color, alpha);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            assert_eq!(
+                                actual, expected,
+                                "{format:?} {mode:?} {alpha} {clip:?} {route}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn transformed_stroke_uses_physical_clip_once_at_hidpi_scale() {
         let mut renderer = SwRenderer::new(
             Texture::owned(64, 64, ColorFormat::RGBA8888).expect("valid pixel storage"),
@@ -484,6 +598,11 @@ impl SwRenderer<'_> {
         let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
             return Ok(());
         };
+        let format = target.format();
+        let target_stride = target.stride();
+        let pixel_size = format.bytes_per_pixel();
+        let alpha_mode = target.alpha_mode();
+        let target_bytes = target.bytes_mut();
         let acc = &mut scratch.scanline_acc;
         let crossings = &mut scratch.scanline_crossings;
         raster::scanline_fill(
@@ -508,7 +627,13 @@ impl SwRenderer<'_> {
                     ((u32::from(coverage) * u32::from(clip_alpha) * u32::from(color.a) + 32_512)
                         / 65_025) as u8;
                 if final_alpha != 0 {
-                    target.blend_pixel_int(px, py, &color, final_alpha);
+                    format.blend_pixel(
+                        target_bytes,
+                        py as usize * target_stride + px as usize * pixel_size,
+                        &color,
+                        final_alpha,
+                        alpha_mode,
+                    );
                 }
             },
         );
@@ -652,6 +777,11 @@ impl SwRenderer<'_> {
         let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
             return;
         };
+        let format = target.format();
+        let target_stride = target.stride();
+        let pixel_size = format.bytes_per_pixel();
+        let alpha_mode = target.alpha_mode();
+        let target_bytes = target.bytes_mut();
         let acc = &mut scratch.scanline_acc;
         let crossings = &mut scratch.scanline_crossings;
         raster::scanline_fill(
@@ -674,9 +804,21 @@ impl SwRenderer<'_> {
                         let c = gradient.sample(px, py);
                         let paint_alpha =
                             ((u16::from(final_alpha) * u16::from(c.a) + 127) / 255) as u8;
-                        target.blend_pixel_int(px, py, &c, paint_alpha);
+                        format.blend_pixel(
+                            target_bytes,
+                            py as usize * target_stride + px as usize * pixel_size,
+                            &c,
+                            paint_alpha,
+                            alpha_mode,
+                        );
                     } else {
-                        target.blend_pixel_int(px, py, &solid_color, final_alpha);
+                        format.blend_pixel(
+                            target_bytes,
+                            py as usize * target_stride + px as usize * pixel_size,
+                            &solid_color,
+                            final_alpha,
+                            alpha_mode,
+                        );
                     }
                 }
             },
@@ -886,6 +1028,11 @@ impl SwRenderer<'_> {
         let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
             return;
         };
+        let format = target.format();
+        let target_stride = target.stride();
+        let pixel_size = format.bytes_per_pixel();
+        let alpha_mode = target.alpha_mode();
+        let target_bytes = target.bytes_mut();
         let acc = &mut scratch.scanline_acc;
         let crossings = &mut scratch.scanline_crossings;
         raster::scanline_fill(
@@ -908,9 +1055,21 @@ impl SwRenderer<'_> {
                         let c = gradient.sample(px, py);
                         let paint_alpha =
                             ((u16::from(final_alpha) * u16::from(c.a) + 127) / 255) as u8;
-                        target.blend_pixel_int(px, py, &c, paint_alpha);
+                        format.blend_pixel(
+                            target_bytes,
+                            py as usize * target_stride + px as usize * pixel_size,
+                            &c,
+                            paint_alpha,
+                            alpha_mode,
+                        );
                     } else {
-                        target.blend_pixel_int(px, py, &solid_color, final_alpha);
+                        format.blend_pixel(
+                            target_bytes,
+                            py as usize * target_stride + px as usize * pixel_size,
+                            &solid_color,
+                            final_alpha,
+                            alpha_mode,
+                        );
                     }
                 }
             },
