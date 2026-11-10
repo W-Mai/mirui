@@ -1,5 +1,4 @@
 use crate::prelude::{Color, ColorToken};
-use crate::render::font::FontToken;
 use crate::ui::Theme;
 use crate::ui::theme::ThemeInfo;
 use crate::ui::widgets::{ParagraphStyle, TextOverflow, TextWrap};
@@ -17,8 +16,6 @@ pub(super) const SEE: ColorToken = ColorToken::Primary;
 pub(super) const OK: ColorToken = ColorToken::Success;
 /// Clipped shadows or highlights.
 pub(super) const CLIP: ColorToken = ColorToken::Error;
-
-pub(super) const FONT: FontToken = FontToken::Custom("iris_ui");
 
 pub use super::{DARK_ID, LIGHT_ID};
 

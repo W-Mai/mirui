@@ -280,7 +280,7 @@ impl FocusScale {
                 230,
             );
         }
-        let x = left + width * focus_track(state.focus() * 100);
+        let x = left + width * focus_track(state.focus * 100);
         fill(
             paint,
             Rect::new(
@@ -330,7 +330,7 @@ impl ShutterRing {
             width: Fixed::from_int(3).max(size / 24),
             opa: 235,
         });
-        let press = state.closure();
+        let press = state.closure;
         let disc = radius * (Fixed::from_ratio(80, 100) - press * Fixed::from_ratio(12, 100));
         fill(
             paint,

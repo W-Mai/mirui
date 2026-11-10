@@ -32,8 +32,8 @@ pub const VIEWPORT: (u16, u16) = (1280, 800);
 /// Length of the showcase loop that `IrisRun::Capture` repeats exactly.
 pub const LOOP_MS: u32 = 8_000;
 
-/// The Play face covers the punctuation the readouts need (`1/250`, `-3`).
-#[cfg(any(feature = "std", test))]
+/// The Play face that `PlayFontPlugin` installs, checked for readout coverage.
+#[cfg(test)]
 const FONT_BYTES: &[u8] = crate::gallery::play::font::FONT_BYTES;
 
 pub const DEMO_SIZE: crate::gallery::DemoSize =

@@ -395,7 +395,7 @@ impl IrisLens {
         lens.fill(&SCALE_RING, Transform::IDENTITY, &ring, 255);
         lens.ring(870, finish.ring_edge, Fixed::ONE, 255);
 
-        let phase = state.phase();
+        let phase = state.phase;
         // The iris drifts a little, like an eye that keeps looking around.
         let glance = Point::new(
             Fixed::cos_deg(phase) * Fixed::from_ratio(166, 100),
@@ -403,7 +403,7 @@ impl IrisLens {
         );
         // Overshoot slightly past zero so a closed shutter leaves no pinhole.
         let swing = blade_swing(
-            (state.edge() * UNIT - Fixed::from_ratio(192, 100) * state.closure())
+            (state.edge() * UNIT - Fixed::from_ratio(192, 100) * state.closure)
                 .max(Fixed::from_ratio(-256, 100)),
         );
         let blade = &finish.blade;

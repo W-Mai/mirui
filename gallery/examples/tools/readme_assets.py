@@ -2,6 +2,7 @@
 """Export the layered wordmark and assemble the README's SVG artwork."""
 
 import argparse
+import difflib
 import json
 import re
 import tempfile
@@ -17,6 +18,44 @@ ROOT = Path(__file__).resolve().parents[3]
 
 def number(value):
     return f"{value:.5f}".rstrip("0").rstrip(".") if value else "0"
+
+
+def align(frames):
+    """Index-align draw lists whose elements appear and disappear.
+
+    The renderer culls a draw that leaves its clip, so a frame can lack some of
+    the elements another frame has. The longest frame is the reference: every
+    frame is matched to it in order by draw kind, and a draw the frame lacks
+    becomes `None`. The long unchanged runs anchor the match.
+    """
+    reference = max(frames, key=len)
+    kinds = [op["tag"] for op in reference]
+    aligned = []
+    for frame in frames:
+        row = [None] * len(reference)
+        matcher = difflib.SequenceMatcher(
+            None, kinds, [op["tag"] for op in frame], autojunk=False
+        )
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "delete":
+                continue
+            if i2 - i1 != j2 - j1:
+                raise ValueError(
+                    f"a frame draws elements the longest frame lacks: {tag}"
+                )
+            row[i1:i2] = frame[j1:j2]
+        aligned.append(row)
+    return aligned
+
+
+def held(samples):
+    """Fill frames that lack a draw with its nearest drawn sample."""
+    first = next(sample for sample in samples if sample is not None)
+    result = []
+    for sample in samples:
+        first = sample if sample is not None else first
+        result.append(first)
+    return result
 
 
 def matrix(values):
@@ -397,16 +436,17 @@ class Hero:
                 "preserveAspectRatio": "none",
             },
         )
-        frames = screen["frames"]
-        assert all(len(frame) == len(frames[0]) for frame in frames)
+        frames = align(screen["frames"])
         movie = ET.SubElement(canvas, "g", {"class": "movie"})
         poster = ET.SubElement(canvas, "g", {"class": "poster", "display": "none"})
         stacks = [[movie], [poster]]
         for index in range(len(frames[0])):
-            samples = [frame[index] for frame in frames]
+            raw = [frame[index] for frame in frames]
+            shown = [sample is not None for sample in raw]
+            samples = held(raw)
             tag = samples[0]["tag"]
             if tag == "clip-push":
-                assert all(sample == samples[0] for sample in samples)
+                assert all(shown) and all(sample == samples[0] for sample in samples)
                 path_name = self.name("path")
                 clip = ET.SubElement(
                     self.defs,
@@ -427,11 +467,22 @@ class Hero:
                         ET.SubElement(stack[-1], "g", {"clip-path": f"url(#{path_name})"})
                     )
             elif tag == "clip-pop":
+                assert all(shown)
                 for stack in stacks:
                     stack.pop()
             else:
-                stacks[0][-1].append(self.node(samples))
-                stacks[1][-1].append(self.node([samples[self.poster]]))
+                node = self.node(samples)
+                if not all(shown):
+                    # A draw that culling dropped on some frames, such as a
+                    # notice parked outside its stage, shows only where drawn.
+                    presence = ET.Element("g", {"opacity": str(int(shown[0]))})
+                    self.steps(presence, "opacity", [int(value) for value in shown])
+                    presence.append(node)
+                    node = presence
+                    self.stats["presence_states"] += 1
+                stacks[0][-1].append(node)
+                if shown[self.poster]:
+                    stacks[1][-1].append(self.node([samples[self.poster]]))
         self.stats[f"{name}_draws"] = len(frames[0])
         return screen
 

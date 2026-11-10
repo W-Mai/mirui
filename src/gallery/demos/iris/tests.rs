@@ -1,5 +1,8 @@
 use super::lens::{IrisLens, UNIT, blade_reach, blade_swing, glass_radius};
-use super::state::{IrisLayout, IrisRun, IrisState, MAX_STOP, OPEN_EDGE, f_number, opening};
+use super::state::{
+    ExposureMode, FocusMode, IrisLayout, IrisRun, IrisState, MAX_STOP, NOTICE_PARKED, OPEN_EDGE,
+    f_number, opening,
+};
 use super::*;
 use crate::prelude::*;
 use crate::render::texture::ColorFormat;
@@ -63,7 +66,7 @@ fn scheduled_frames_advance_the_showcase_clock() {
         .map(|(_, lens)| lens.model.clone())
         .unwrap();
     let (stop, shots) = crate::core::model::with_model_read_only(|| {
-        crate::core::model::ModelHandle::read(&model, |state| (state.stop(), state.shots()))
+        crate::core::model::ModelHandle::read(&model, |state| (state.stop, state.shots))
     });
     assert!(stop > fx(4), "stop {stop}");
     assert_eq!(shots, 42);
@@ -122,7 +125,7 @@ fn capture_run_loops_exactly() {
         for _ in 0..(LOOP_MS / 50) {
             state.advance(50);
             if loop_index > 0 {
-                samples.push((state.stop(), state.closure(), state.shots(), state.toast()));
+                samples.push((state.stop, state.closure, state.shots, state.notice));
             }
         }
     }
@@ -131,24 +134,40 @@ fn capture_run_loops_exactly() {
     assert!(samples[..half].iter().any(|sample| sample.1 == Fixed::ONE));
     assert!(samples[..half].iter().any(|sample| sample.2 == 42));
     assert_eq!(samples[0].2, 41);
-    assert!(samples[..half].iter().any(|sample| sample.3 > 200));
+    // The notice drops in once a loop and is parked again before it ends.
+    assert!(samples[..half].iter().any(|sample| sample.3 >= Fixed::ZERO));
+    assert_eq!(samples[half - 1].3, NOTICE_PARKED);
 }
 
 #[test]
-fn manual_aperture_stops_the_script() {
+fn turning_the_aperture_leaves_program_mode() {
     let mut state = IrisState::new(IrisRun::Live, 1280, 800);
     state.set_stop(fx(6));
     for _ in 0..80 {
         state.advance(50);
     }
     assert!(!state.scripted());
+    assert_eq!(state.exposure_mode, ExposureMode::Aperture);
     assert_eq!(super::state::third_label(state.aperture_third()), "11");
-    state.toggle_auto();
+    state.select_exposure(ExposureMode::Program);
     for _ in 0..80 {
         state.advance(50);
     }
     assert!(state.scripted());
-    assert!(state.stop() < fx(6), "the showcase path takes over again");
+    assert!(state.stop < fx(6), "the programme takes over again");
+}
+
+#[test]
+fn manual_focus_holds_the_distance() {
+    let mut state = IrisState::new(IrisRun::Live, 1280, 800);
+    state.select_focus(FocusMode::Manual);
+    let held = state.focus;
+    for _ in 0..(LOOP_MS / 50) {
+        state.advance(50);
+        assert_eq!(state.focus, held);
+    }
+    // The programme still stops down and shoots.
+    assert_eq!(state.shots, 42);
 }
 
 /// Render a few capture frames and return the lens rectangle and the pixels.
@@ -204,4 +223,68 @@ fn every_layout_renders_a_lit_iris() {
             );
         }
     }
+}
+
+#[test]
+fn segment_taps_select_the_camera_modes() {
+    use crate::input::event::gesture::GestureEvent;
+    use crate::ui::widgets::{Button, Text};
+
+    let mut app = App::headless(1280, 800);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    setup(&mut app, root, IrisRun::Live);
+    app.set_root(root);
+    app.render().unwrap();
+    let world = &mut app.world;
+    // Every layout is built once, so pick the segment the landscape face shows.
+    let labelled = |world: &crate::ecs::World, label: &str| {
+        world
+            .query::<Button>()
+            .iter()
+            .map(|(entity, _)| entity)
+            .find(|entity| {
+                let shown = world
+                    .get::<crate::ui::ComputedRect>(*entity)
+                    .is_some_and(|rect| rect.0.w.is_positive());
+                shown
+                    && world
+                        .get::<Text>(*entity)
+                        .is_some_and(|text| text.resolve(world.resource()) == label)
+            })
+            .unwrap_or_else(|| panic!("no {label} segment"))
+    };
+    for label in ["M", "MF", "Video"] {
+        let target = labelled(world, label);
+        crate::__macro_support::dispatch_entity_gesture(
+            world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
+    }
+    let model = world
+        .query::<IrisLens>()
+        .iter()
+        .next()
+        .map(|(_, lens)| lens.model.clone())
+        .unwrap();
+    let modes = crate::core::model::with_model_read_only(|| {
+        crate::core::model::ModelHandle::read(&model, |state| {
+            (state.exposure_mode, state.focus_mode, state.capture_mode)
+        })
+    });
+    assert_eq!(
+        modes,
+        (
+            ExposureMode::Manual,
+            FocusMode::Manual,
+            super::state::CaptureMode::Video
+        )
+    );
 }

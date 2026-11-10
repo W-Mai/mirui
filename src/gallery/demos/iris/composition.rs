@@ -2,8 +2,10 @@ use super::lens::IrisLens;
 use super::meters::{
     DialMeter, ExposureMeter, FOCUS_MARKS, FocusScale, Histogram, ShutterRing, focus_track,
 };
-use super::state::{IrisLayout, IrisState, MAX_STOP, third_label};
-use super::style::{BG, BORDER, FONT, MUTED, OK, PANEL, RAISED, SEE, TEXT, label};
+use super::state::{
+    CaptureMode, ExposureMode, FocusMode, IrisLayout, IrisState, MAX_STOP, third_label,
+};
+use super::style::{BG, BORDER, MUTED, OK, PANEL, RAISED, SEE, TEXT, label};
 use crate::gallery::brand::MiruiMark;
 use crate::prelude::*;
 use crate::types::Transform;
@@ -16,18 +18,14 @@ fn lens_fit(width: Fixed, height: Fixed, inset: i32) -> Fixed {
     (width.min(height) - Fixed::from_int(inset)).max(Fixed::from_int(24))
 }
 
-fn centred(outer: Fixed, inner: Fixed) -> Fixed {
-    ((outer - inner) / 2).max(Fixed::ZERO)
+/// Side of the lens on a round face.
+fn dial_lens(width: Fixed, height: Fixed) -> Fixed {
+    width.min(height) * 66 / 100
 }
 
-/// The saved notice pops from a point instead of fading: glyph colour alpha is
-/// not applied by every backend, while a transform is.
-fn toast_pose(level: u8) -> Transform {
-    let t = Fixed::from_ratio(i32::from(level), 255);
-    // Ease out with a small overshoot, settling at 1.
-    let overshoot = Fixed::sin_deg(t * 180) * Fixed::from_ratio(12, 100);
-    let scale = (t + overshoot * t).max(Fixed::from_ratio(1, 256));
-    Transform::scale(scale, scale)
+/// Space between the lens and the face edge, above or below it.
+fn dial_margin(width: Fixed, height: Fixed) -> Fixed {
+    ((height - dial_lens(width, height)) / 2).max(Fixed::ZERO)
 }
 
 fn focus_label(mark: i32) -> &'static str {
@@ -51,38 +49,60 @@ fn portrait_stage(width: Fixed, height: Fixed) -> Fixed {
     (width - Fixed::from_int(32)).min(height * 40 / 100)
 }
 
+fn segment_fill(selected: bool) -> ColorToken {
+    if selected { RAISED } else { BG }
+}
+
+fn segment_text(selected: bool) -> ColorToken {
+    if selected { TEXT } else { MUTED }
+}
+
+/// File name prefix and extension of the latest capture.
+fn file_parts(mode: CaptureMode) -> (&'static str, &'static str) {
+    match mode {
+        CaptureMode::Photo => ("IMG", "ARW"),
+        CaptureMode::Video => ("CLIP", "MP4"),
+    }
+}
+
+/// The saved notice drops in from above its stage, which clips it while parked.
 #[compose]
-fn compose_toast(model: model!(IrisState), width: i32) -> Entity {
+fn compose_notice(model: model!(IrisState), width: i32) -> Entity {
     ui! {
         Row (
             position: Position::Absolute,
+            left: 0,
             top: 14,
-            left: Dimension::percent(50),
-            width: width,
+            width: Dimension::percent(100),
             height: 30,
-            padding: Padding::all(6),
-            column_gap: 6,
-            align: AlignItems::Center,
             justify: JustifyContent::Center,
-            bg_color: BG,
-            border_color: BORDER,
-            border_width: 1,
-            border_radius: 15,
-            transform: ${
-                Transform::translate(Fixed::from_int(-width / 2), Fixed::ZERO)
-                    .compose(&toast_pose(model.toast()))
-            }
+            transform: ${ Transform::translate(Fixed::ZERO, model.notice()) }
         ) {
-            Text ("✓", font: FONT, font_size: 12, text_color: OK, paragraph: label())
-            Text ("Saved", font: FONT, font_size: 12, text_color: TEXT, paragraph: label())
-            Text (
-                text: ${ format_args!("IMG_{:04}.ARW", model.shots()) },
-                capacity: 12,
-                font: FONT,
-                font_size: 12,
-                text_color: MUTED,
-                paragraph: label()
-            )
+            Row (
+                width: width,
+                height: 30,
+                padding: Padding::all(6),
+                column_gap: 6,
+                align: AlignItems::Center,
+                justify: JustifyContent::Center,
+                bg_color: BG,
+                border_color: BORDER,
+                border_width: 1,
+                border_radius: 15
+            ) {
+                Text ("✓", font_size: 12, text_color: OK, paragraph: label())
+                Text ("Saved", font_size: 12, text_color: TEXT, paragraph: label())
+                Text (
+                    text: ${
+                        let (prefix, extension) = file_parts(model.capture_mode());
+                        format_args!("{prefix}_{:04}.{extension}", model.shots())
+                    },
+                    capacity: 13,
+                    font_size: 12,
+                    text_color: MUTED,
+                    paragraph: label()
+                )
+            }
         }
     }
 }
@@ -101,18 +121,11 @@ fn compose_brand(compact: bool) -> Entity {
             ]
             Text (
                 "Iris",
-                font: FONT,
                 font_size: if compact { 16 } else { 17 },
                 text_color: TEXT,
                 paragraph: label()
             )
-            Text (
-                "35mm f/1.4",
-                font: FONT,
-                font_size: 12,
-                text_color: MUTED,
-                paragraph: label()
-            )
+            Text ("35mm f/1.4", font_size: 12, text_color: MUTED, paragraph: label())
         }
     }
 }
@@ -128,42 +141,20 @@ fn compose_status(compact: bool) -> Entity {
             column_gap: 6
         ) {
             View (width: 7, height: 7, bg_color: OK, border_radius: 4)
-            Text ("Connected", font: FONT, font_size: 12, text_color: MUTED, paragraph: label())
+            Text ("Connected", font_size: 12, text_color: MUTED, paragraph: label())
             if !compact {
                 View (width: 14)
-                Text ("RAW", font: FONT, font_size: 12, text_color: MUTED, paragraph: label())
+                Text ("RAW", font_size: 12, text_color: MUTED, paragraph: label())
                 View (width: 14)
-                Text (
-                    "Battery 82%",
-                    font: FONT,
-                    font_size: 12,
-                    text_color: MUTED,
-                    paragraph: label()
-                )
+                Text ("Battery 82%", font_size: 12, text_color: MUTED, paragraph: label())
             }
         }
     }
 }
 
+/// The P / A / S / M dial as a segmented control.
 #[compose]
-fn compose_segment(name: &'static str, selected: bool, width: i32) -> Entity {
-    ui! {
-        Text (
-            name,
-            width: width,
-            height: 20,
-            bg_color: if selected { RAISED } else { BG },
-            border_radius: 5,
-            font: FONT,
-            font_size: 11,
-            text_color: if selected { TEXT } else { MUTED },
-            paragraph: label().with_align(TextAlign::Center)
-        )
-    }
-}
-
-#[compose]
-fn compose_modes() -> Entity {
+fn compose_exposure_modes(model: model!(IrisState)) -> Entity {
     ui! {
         Row (
             width: 98,
@@ -173,10 +164,78 @@ fn compose_modes() -> Entity {
             bg_color: BG,
             border_radius: 7
         ) {
-            compose_segment ("P", false, 22)
-            compose_segment ("A", false, 22)
-            compose_segment ("S", false, 22)
-            compose_segment ("M", true, 22)
+            walk ExposureMode::ALL with mode {
+                Button (
+                    text: mode.label(),
+                    size: ButtonSize::Compact,
+                    width: 22,
+                    height: 20,
+                    normal_color: ${ segment_fill(model.exposure_mode() == mode) },
+                    pressed_color: RAISED,
+                    border_width: 0,
+                    border_radius: 5,
+                    font_size: 11,
+                    text_color: ${ segment_text(model.exposure_mode() == mode) }
+                ) on Tap { model.select_exposure(mode); }
+            }
+        }
+    }
+}
+
+#[compose]
+fn compose_focus_modes(model: model!(IrisState)) -> Entity {
+    ui! {
+        Row (
+            width: 78,
+            height: 24,
+            padding: Padding::all(2),
+            column_gap: 2,
+            bg_color: BG,
+            border_radius: 7
+        ) {
+            walk FocusMode::ALL with mode {
+                Button (
+                    text: mode.label(),
+                    size: ButtonSize::Compact,
+                    width: if mode == FocusMode::Single { 40 } else { 32 },
+                    height: 20,
+                    normal_color: ${ segment_fill(model.focus_mode() == mode) },
+                    pressed_color: RAISED,
+                    border_width: 0,
+                    border_radius: 5,
+                    font_size: 11,
+                    text_color: ${ segment_text(model.focus_mode() == mode) }
+                ) on Tap { model.select_focus(mode); }
+            }
+        }
+    }
+}
+
+#[compose]
+fn compose_capture_modes(model: model!(IrisState)) -> Entity {
+    ui! {
+        Row (
+            width: 118,
+            height: 24,
+            padding: Padding::all(2),
+            column_gap: 2,
+            bg_color: BG,
+            border_radius: 7
+        ) {
+            walk CaptureMode::ALL with mode {
+                Button (
+                    text: mode.label(),
+                    size: ButtonSize::Compact,
+                    width: 56,
+                    height: 20,
+                    normal_color: ${ segment_fill(model.capture_mode() == mode) },
+                    pressed_color: RAISED,
+                    border_width: 0,
+                    border_radius: 5,
+                    font_size: 11,
+                    text_color: ${ segment_text(model.capture_mode() == mode) }
+                ) on Tap { model.select_capture(mode); }
+            }
         }
     }
 }
@@ -185,8 +244,8 @@ fn compose_modes() -> Entity {
 fn compose_value(name: &'static str, value: &'static str, size: u16) -> Entity {
     ui! {
         Column (grow: 1.0, row_gap: 4) {
-            Text (name, font: FONT, font_size: 11, text_color: MUTED, paragraph: label())
-            Text (value, font: FONT, font_size: size, text_color: TEXT, paragraph: label())
+            Text (name, font_size: 11, text_color: MUTED, paragraph: label())
+            Text (value, font_size: size, text_color: TEXT, paragraph: label())
         }
     }
 }
@@ -196,17 +255,10 @@ fn compose_values(model: model!(IrisState), size: u16) -> Entity {
     ui! {
         Row (width: Dimension::percent(100), height: i32::from(size) + 22, column_gap: 8) {
             Column (grow: 1.0, row_gap: 4) {
-                Text (
-                    "Aperture",
-                    font: FONT,
-                    font_size: 11,
-                    text_color: MUTED,
-                    paragraph: label()
-                )
+                Text ("Aperture", font_size: 11, text_color: MUTED, paragraph: label())
                 Text (
                     text: ${ format_args!("f/{}", third_label(model.aperture_third())) },
                     capacity: 6,
-                    font: FONT,
                     font_size: size,
                     text_color: TEXT,
                     paragraph: label()
@@ -228,9 +280,9 @@ fn compose_meter(model: model!(IrisState)) -> Entity {
                 },
             ]
             Row (height: 12, justify: JustifyContent::SpaceBetween, padding: Padding::all(2)) {
-                Text ("-3", font: FONT, font_size: 10, text_color: MUTED, paragraph: label())
-                Text ("0", font: FONT, font_size: 10, text_color: MUTED, paragraph: label())
-                Text ("+3", font: FONT, font_size: 10, text_color: MUTED, paragraph: label())
+                Text ("-3", font_size: 10, text_color: MUTED, paragraph: label())
+                Text ("0", font_size: 10, text_color: MUTED, paragraph: label())
+                Text ("+3", font_size: 10, text_color: MUTED, paragraph: label())
             }
         }
     }
@@ -243,29 +295,24 @@ fn compose_divider() -> Entity {
     }
 }
 
+/// Readouts and, when the window is tall enough, the level meter.
 #[compose]
-fn compose_exposure(model: model!(IrisState), height: i32) -> Entity {
+fn compose_exposure(model: model!(IrisState)) -> Entity {
     ui! {
         Column (
             width: Dimension::percent(100),
-            height: height,
+            height: ${ if model.roomy() { 164 } else { 100 } },
             padding: Padding::all(14),
-            row_gap: 12,
-            clip_children: true
+            row_gap: 12
         ) {
             Row (height: 24, align: AlignItems::Center) {
-                Text (
-                    "Exposure",
-                    grow: 1.0,
-                    font: FONT,
-                    font_size: 13,
-                    text_color: TEXT,
-                    paragraph: label()
-                )
-                compose_modes ()
+                Text ("Exposure", grow: 1.0, font_size: 13, text_color: TEXT, paragraph: label())
+                compose_exposure_modes (model)
             }
             compose_values (model, 22)
-            compose_meter (model)
+            if ${ model.roomy() } {
+                compose_meter (model)
+            }
         }
     }
 }
@@ -275,18 +322,10 @@ fn compose_aperture(model: model!(IrisState)) -> Entity {
     ui! {
         Column (width: Dimension::percent(100), height: 94, padding: Padding::all(14), row_gap: 8) {
             Row (height: 20, align: AlignItems::Center) {
-                Text (
-                    "Aperture",
-                    grow: 1.0,
-                    font: FONT,
-                    font_size: 13,
-                    text_color: TEXT,
-                    paragraph: label()
-                )
+                Text ("Aperture", grow: 1.0, font_size: 13, text_color: TEXT, paragraph: label())
                 Text (
                     text: ${ format_args!("f/{}", third_label(model.aperture_third())) },
                     capacity: 6,
-                    font: FONT,
                     font_size: 13,
                     text_color: MUTED,
                     paragraph: label()
@@ -310,41 +349,28 @@ fn compose_aperture(model: model!(IrisState)) -> Entity {
                 height: 12,
                 justify: JustifyContent::SpaceBetween
             ) {
-                walk APERTURE_MARKS.iter() with mark {
-                    Text (*mark, font: FONT, font_size: 10, text_color: MUTED, paragraph: label())
+                walk APERTURE_MARKS with mark {
+                    Text (mark, font_size: 10, text_color: MUTED, paragraph: label())
                 }
             }
         }
     }
 }
 
+/// Fills the height its parent leaves for it.
 #[compose]
-fn compose_histogram(model: model!(IrisState), height: i32) -> Entity {
+fn compose_histogram(model: model!(IrisState)) -> Entity {
     ui! {
         Column (
             width: Dimension::percent(100),
-            height: if height > 0 { Dimension::px(height) } else { Dimension::Auto },
-            grow: if height > 0 { 0.0 } else { 1.0 },
+            grow: 1.0,
             min_height: 64,
             padding: Padding::all(14),
             row_gap: 10
         ) {
             Row (height: 20, align: AlignItems::Center) {
-                Text (
-                    "Histogram",
-                    grow: 1.0,
-                    font: FONT,
-                    font_size: 13,
-                    text_color: TEXT,
-                    paragraph: label()
-                )
-                Text (
-                    "Luminance",
-                    font: FONT,
-                    font_size: 11,
-                    text_color: MUTED,
-                    paragraph: label()
-                )
+                Text ("Histogram", grow: 1.0, font_size: 13, text_color: TEXT, paragraph: label())
+                Text ("Luminance", font_size: 11, text_color: MUTED, paragraph: label())
             }
             View (width: Dimension::percent(100), grow: 1.0) [
                 Histogram { model: model.clone() },
@@ -358,14 +384,7 @@ fn compose_focus(model: model!(IrisState)) -> Entity {
     ui! {
         Column (width: Dimension::percent(100), height: 98, padding: Padding::all(14), row_gap: 8) {
             Row (height: 24, align: AlignItems::Center, column_gap: 10) {
-                Text (
-                    "Focus",
-                    grow: 1.0,
-                    font: FONT,
-                    font_size: 13,
-                    text_color: TEXT,
-                    paragraph: label()
-                )
+                Text ("Focus", grow: 1.0, font_size: 13, text_color: TEXT, paragraph: label())
                 Text (
                     text: ${
                         format_args!(
@@ -373,34 +392,22 @@ fn compose_focus(model: model!(IrisState)) -> Entity {
                         )
                     },
                     capacity: 8,
-                    font: FONT,
                     font_size: 12,
                     text_color: MUTED,
                     paragraph: label()
                 )
-                Row (
-                    width: 78,
-                    height: 24,
-                    padding: Padding::all(2),
-                    column_gap: 2,
-                    bg_color: BG,
-                    border_radius: 7
-                ) {
-                    compose_segment ("AF-S", true, 40)
-                    compose_segment ("MF", false, 32)
-                }
+                compose_focus_modes (model)
             }
             View (width: Dimension::percent(100), height: 16) [
                 FocusScale { model: model.clone() },
             ]
             View (width: Dimension::percent(100), height: 12) {
-                walk FOCUS_MARKS.iter() with mark {
+                walk FOCUS_MARKS with mark {
                     Text (
-                        focus_label(*mark),
+                        focus_label(mark),
                         position: Position::Absolute,
-                        left: focus_left(*mark),
+                        left: focus_left(mark),
                         top: 0,
-                        font: FONT,
                         font_size: 10,
                         text_color: MUTED,
                         paragraph: label()
@@ -421,30 +428,31 @@ fn compose_capture(model: model!(IrisState), size: i32) -> Entity {
             align: AlignItems::Center,
             justify: JustifyContent::SpaceBetween
         ) {
-            Button (
-                size: ButtonSize::Compact,
-                text: ${ if model.scripted() { "Auto iris" } else { "Manual" } },
-                width: 92,
-                height: 30,
-                normal_color: BG,
-                pressed_color: RAISED,
-                border_color: BORDER,
-                border_width: 1,
-                border_radius: 15,
-                font: FONT,
-                font_size: 12,
-                text_color: TEXT
-            ) on Tap { model.toggle_auto(); }
+            compose_capture_modes (model)
             View (width: size, height: size) [
                 ShutterRing {
                     model: model.clone(),
                 },
             ] on Tap { model.capture(); }
             Column (width: 92, align: AlignItems::FlexEnd, row_gap: 2) {
-                Text ("1,284", font: FONT, font_size: 14, text_color: TEXT, paragraph: label())
                 Text (
-                    "shots left",
-                    font: FONT,
+                    text: ${
+                        match model.capture_mode() {
+                            CaptureMode::Photo => "1,284",
+                            CaptureMode::Video => "42 min",
+                        }
+                    },
+                    font_size: 14,
+                    text_color: TEXT,
+                    paragraph: label()
+                )
+                Text (
+                    text: ${
+                        match model.capture_mode() {
+                            CaptureMode::Photo => "shots left",
+                            CaptureMode::Video => "recording left",
+                        }
+                    },
                     font_size: 11,
                     text_color: MUTED,
                     paragraph: label()
@@ -488,21 +496,19 @@ fn compose_micro(model: model!(IrisState)) -> Entity {
                 width: Dimension::percent(100),
                 grow: 1.0,
                 align: AlignItems::Center,
-                padding: Padding::all(3),
-                column_gap: 4
+                justify: JustifyContent::SpaceBetween,
+                padding: Padding::all(3)
             ) {
                 Text (
                     text: ${ format_args!("f/{}", third_label(model.aperture_third())) },
                     capacity: 6,
-                    font: FONT,
                     font_size: 20,
                     text_color: TEXT,
                     paragraph: label()
                 )
-                View (grow: 1.0)
                 Column (align: AlignItems::FlexEnd, row_gap: 1) {
-                    Text ("1/250", font: FONT, font_size: 10, text_color: TEXT, paragraph: label())
-                    Text ("ISO 100", font: FONT, font_size: 10, text_color: MUTED, paragraph: label())
+                    Text ("1/250", font_size: 10, text_color: TEXT, paragraph: label())
+                    Text ("ISO 100", font_size: 10, text_color: MUTED, paragraph: label())
                 }
             }
         }
@@ -512,25 +518,24 @@ fn compose_micro(model: model!(IrisState)) -> Entity {
 #[compose]
 fn compose_dial(model: model!(IrisState)) -> Entity {
     ui! {
-        View (id: "iris_dial", width: Dimension::percent(100), height: Dimension::percent(100)) [
+        View (
+            id: "iris_dial",
+            width: Dimension::percent(100),
+            height: Dimension::percent(100),
+            align: AlignItems::Center,
+            justify: JustifyContent::Center
+        ) [
             DialMeter {
                 model: model.clone(),
             },
         ] {
             View (
                 id: "iris_lens_dial",
-                position: Position::Absolute,
-                left: @(id(iris_dial).width, id(iris_dial).height) {
-                    centred(iris_dial.width, iris_dial.width.min(iris_dial.height) * 66 / 100)
-                },
-                top: @(id(iris_dial).width, id(iris_dial).height) {
-                    centred(iris_dial.height, iris_dial.width.min(iris_dial.height) * 66 / 100)
-                },
                 width: @(id(iris_dial).width, id(iris_dial).height) {
-                    iris_dial.width.min(iris_dial.height) * 66 / 100
+                    dial_lens(iris_dial.width, iris_dial.height)
                 },
                 height: @(id(iris_dial).width, id(iris_dial).height) {
-                    iris_dial.width.min(iris_dial.height) * 66 / 100
+                    dial_lens(iris_dial.width, iris_dial.height)
                 }
             ) [
                 IrisLens::new(model.clone()),
@@ -539,13 +544,12 @@ fn compose_dial(model: model!(IrisState)) -> Entity {
                 text: ${ format_args!("f/{}", third_label(model.aperture_third())) },
                 capacity: 6,
                 position: Position::Absolute,
+                left: 0,
                 top: @(id(iris_dial).width, id(iris_dial).height) {
-                    centred(iris_dial.height, iris_dial.width.min(iris_dial.height) * 66 / 100) / 2
-                        - Fixed::from_int(12)
+                    dial_margin(iris_dial.width, iris_dial.height) / 2 - Fixed::from_int(12)
                 },
                 width: Dimension::percent(100),
                 height: Dimension::Content,
-                font: FONT,
                 font_size: 18,
                 text_color: TEXT,
                 paragraph: label().with_align(TextAlign::Center)
@@ -553,15 +557,13 @@ fn compose_dial(model: model!(IrisState)) -> Entity {
             Text (
                 "1/250 · ISO 100",
                 position: Position::Absolute,
+                left: 0,
                 top: @(id(iris_dial).width, id(iris_dial).height) {
-                    iris_dial.height
-                        - centred(iris_dial.height, iris_dial.width.min(iris_dial.height) * 66 / 100)
-                            / 2
+                    iris_dial.height - dial_margin(iris_dial.width, iris_dial.height) / 2
                         - Fixed::from_int(16)
                 },
                 width: Dimension::percent(100),
                 height: Dimension::Content,
-                font: FONT,
                 font_size: 10,
                 text_color: MUTED,
                 paragraph: label().with_align(TextAlign::Center)
@@ -580,9 +582,13 @@ fn compose_portrait(model: model!(IrisState)) -> Entity {
             padding: Padding::all(16),
             row_gap: 12
         ) {
-            Row (width: Dimension::percent(100), height: 32, align: AlignItems::Center) {
+            Row (
+                width: Dimension::percent(100),
+                height: 32,
+                align: AlignItems::Center,
+                justify: JustifyContent::SpaceBetween
+            ) {
                 compose_brand (true)
-                View (grow: 1.0)
                 compose_status (true)
             }
             View (
@@ -610,7 +616,7 @@ fn compose_portrait(model: model!(IrisState)) -> Entity {
                 ) [
                     IrisLens::new(model.clone()),
                 ]
-                compose_toast (model, 200)
+                compose_notice (model, 200)
             }
             Column (
                 width: Dimension::percent(100),
@@ -633,15 +639,9 @@ fn compose_portrait(model: model!(IrisState)) -> Entity {
                 border_width: 1,
                 border_radius: 14
             ) {
-                compose_histogram (model, 112)
+                compose_histogram (model)
             }
             View (grow: 1.0)
-            Row (width: Dimension::percent(100), height: 24, justify: JustifyContent::Center) {
-                Row (width: 118, height: 24, padding: Padding::all(2), column_gap: 2, bg_color: PANEL, border_radius: 7) {
-                    compose_segment ("Photo", true, 56)
-                    compose_segment ("Video", false, 56)
-                }
-            }
             compose_capture (model, 68)
         }
     }
@@ -660,10 +660,9 @@ fn compose_landscape(model: model!(IrisState)) -> Entity {
                 height: 48,
                 padding: Padding::all(12),
                 align: AlignItems::Center,
-                column_gap: 12
+                justify: JustifyContent::SpaceBetween
             ) {
                 compose_brand (false)
-                View (grow: 1.0)
                 compose_status (false)
             }
             compose_divider ()
@@ -696,10 +695,10 @@ fn compose_landscape(model: model!(IrisState)) -> Entity {
                     ) [
                         IrisLens::new(model.clone()),
                     ]
-                    compose_toast (model, 210)
+                    compose_notice (model, 210)
                 }
                 Column (
-                    width: @(id(iris_landscape).width, id(iris_landscape).height) {
+                    width: @id(iris_landscape).width {
                         if iris_landscape.width < Fixed::from_int(1000) { 300 } else { 340 }
                     },
                     height: Dimension::percent(100),
@@ -709,28 +708,13 @@ fn compose_landscape(model: model!(IrisState)) -> Entity {
                     border_radius: 14,
                     clip_children: true
                 ) {
-                    // Short panels keep the readouts and drop the level meter.
-                    View (
-                        width: Dimension::percent(100),
-                        height: @(id(iris_landscape).width, id(iris_landscape).height) {
-                            if iris_landscape.height < Fixed::from_int(600) { 100 } else { 164 }
-                        },
-                        clip_children: true
-                    ) {
-                        compose_exposure (model, 164)
-                    }
+                    compose_exposure (model)
                     compose_divider ()
                     compose_aperture (model)
                     compose_divider ()
-                    compose_histogram (model, 0)
-                    // Short panels drop the focus section rather than squeeze it.
-                    Column (
-                        width: Dimension::percent(100),
-                        height: @(id(iris_landscape).width, id(iris_landscape).height) {
-                            if iris_landscape.height < Fixed::from_int(600) { 0 } else { 99 }
-                        },
-                        clip_children: true
-                    ) {
+                    compose_histogram (model)
+                    // Short windows drop the focus section rather than squeeze it.
+                    if ${ model.roomy() } {
                         compose_divider ()
                         compose_focus (model)
                     }

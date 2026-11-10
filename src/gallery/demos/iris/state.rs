@@ -1,3 +1,7 @@
+use crate::anim::{
+    BOUNCY, INTERACTIVE, MAX_FRAME_DT_MS, Motion, PlayMode, SMOOTH, Spring, Transition, Tween,
+    TweenConfig, ease,
+};
 use crate::prelude::Fixed;
 
 /// One-third stops shown by the readouts, from f/1.4 to f/16.
@@ -19,33 +23,66 @@ pub(super) const OPEN_EDGE: Fixed = Fixed::from_ratio(70, 100);
 const METERED_STOP: i32 = 3;
 
 pub(super) use super::LOOP_MS;
-const CAPTURE_AT_MS: u32 = 3_400;
-const SHUTTER_CLOSE_MS: u32 = 110;
-const SHUTTER_HOLD_MS: u32 = 60;
-const SHUTTER_OPEN_MS: u32 = 240;
-const TOAST_IN_MS: u32 = 420;
-const TOAST_HOLD_MS: u32 = 2_700;
-const TOAST_OUT_MS: u32 = 380;
 const FIRST_SHOT: u16 = 41;
+/// Windows shorter than this drop the level meter and the focus section.
+const ROOMY_HEIGHT: i32 = 600;
+/// The blades snap shut, then reopen more slowly.
+const SHUTTER_CLOSE: TweenConfig = TweenConfig::new(110, &ease::IN_QUAD);
+const SHUTTER_OPEN: TweenConfig = TweenConfig::new(240, &ease::IN_OUT_CUBIC);
+/// How long the saved notice stays down before it slides away.
+const NOTICE_HOLD_MS: u16 = 2_700;
+/// Offset that parks the saved notice above its stage, which clips it away.
+pub(super) const NOTICE_PARKED: Fixed = Fixed::from_int(-48);
 
-/// Showcase aperture path: stop down from f/2 to f/8, capture, open again.
-const STOP_KEYS: [(u32, i32); 6] = [
-    (0, 1),
-    (700, 1),
-    (2_700, 5),
-    (4_100, 5),
-    (6_700, 1),
-    (LOOP_MS, 1),
+/// One step of the program mode, applied when the loop clock passes it.
+#[derive(Clone, Copy)]
+enum Cue {
+    /// Move the aperture to a full stop.
+    Stop(i32, TweenConfig),
+    /// Pull focus to a distance in centimetres.
+    Focus(i32, TweenConfig),
+    /// Release the shutter.
+    Shoot,
+}
+
+/// Stop down from f/2 to f/8 while focus pulls back, shoot, then open again.
+const PROGRAMME: [(u16, Cue); 5] = [
+    (
+        700,
+        Cue::Stop(5, TweenConfig::new(2_000, &ease::IN_OUT_CUBIC)),
+    ),
+    (
+        2_200,
+        Cue::Focus(300, TweenConfig::new(950, &ease::IN_OUT_CUBIC)),
+    ),
+    (3_400, Cue::Shoot),
+    (
+        4_100,
+        Cue::Stop(1, TweenConfig::new(2_600, &ease::IN_OUT_CUBIC)),
+    ),
+    (
+        5_400,
+        Cue::Focus(70, TweenConfig::new(1_500, &ease::IN_OUT_CUBIC)),
+    ),
 ];
-/// Focus pull in centimetres, paired with the aperture path.
-const FOCUS_KEYS: [(u32, i32); 6] = [
-    (0, 70),
-    (2_200, 70),
-    (3_150, 300),
-    (5_400, 300),
-    (6_900, 70),
-    (LOOP_MS, 70),
-];
+
+/// Whether the loop clock passed `at` while moving from `before` to `now`.
+fn passed(before: u16, now: u16, at: u16) -> bool {
+    if now >= before {
+        before < at && at <= now
+    } else {
+        before < at || at <= now
+    }
+}
+
+/// The last cue of one kind at or before `now`, wrapping to the end of the loop.
+fn latest(now: u16, kind: fn(&Cue) -> bool) -> Option<Cue> {
+    let mut cues = PROGRAMME.iter().rev().filter(|(_, cue)| kind(cue));
+    cues.clone()
+        .find(|(at, _)| *at <= now)
+        .or_else(|| cues.next())
+        .map(|(_, cue)| *cue)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IrisLayout {
@@ -77,30 +114,67 @@ impl IrisLayout {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IrisRun {
-    /// Gallery use: the showcase path runs until the user takes over.
+    /// Gallery use: program mode runs until the user takes over.
     Live,
-    /// README capture: the path loops exactly and the shot counter repeats.
+    /// README capture: the programme loops exactly and the shot counter repeats.
     Capture,
 }
 
-fn smoothstep(t: Fixed) -> Fixed {
-    let t = t.max(Fixed::ZERO).min(Fixed::ONE);
-    t * t * (Fixed::from_int(3) - t * 2)
+/// The P / A / S / M dial. Program mode runs the aperture programme.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ExposureMode {
+    Program,
+    Aperture,
+    Shutter,
+    Manual,
 }
 
-fn keyed(keys: &[(u32, i32)], ms: u32, unit: i32) -> Fixed {
-    let ms = ms % LOOP_MS;
-    for pair in keys.windows(2) {
-        let (t0, v0) = pair[0];
-        let (t1, v1) = pair[1];
-        if ms >= t0 && ms <= t1 {
-            let t = Fixed::from_ratio((ms - t0) as i32, (t1 - t0).max(1) as i32);
-            let from = Fixed::from_ratio(v0, unit);
-            let to = Fixed::from_ratio(v1, unit);
-            return from + (to - from) * smoothstep(t);
+impl ExposureMode {
+    pub(super) const ALL: [Self; 4] = [Self::Program, Self::Aperture, Self::Shutter, Self::Manual];
+
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::Program => "P",
+            Self::Aperture => "A",
+            Self::Shutter => "S",
+            Self::Manual => "M",
         }
     }
-    Fixed::from_ratio(keys[0].1, unit)
+}
+
+/// Single autofocus lets the programme pull focus; manual focus holds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FocusMode {
+    Single,
+    Manual,
+}
+
+impl FocusMode {
+    pub(super) const ALL: [Self; 2] = [Self::Single, Self::Manual];
+
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::Single => "AF-S",
+            Self::Manual => "MF",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CaptureMode {
+    Photo,
+    Video,
+}
+
+impl CaptureMode {
+    pub(super) const ALL: [Self; 2] = [Self::Photo, Self::Video];
+
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::Photo => "Photo",
+            Self::Video => "Video",
+        }
+    }
 }
 
 /// f-number for a continuous stop position, interpolated between full stops.
@@ -119,101 +193,127 @@ pub(super) fn opening(stop: Fixed) -> Fixed {
     OPEN_EDGE * Fixed::from_ratio(F_MILLI[0], 1000) / f_number(stop)
 }
 
-fn shutter_closure(elapsed: u32) -> Fixed {
-    if elapsed < SHUTTER_CLOSE_MS {
-        let t = Fixed::from_ratio(elapsed as i32, SHUTTER_CLOSE_MS as i32);
-        t * t
-    } else if elapsed < SHUTTER_CLOSE_MS + SHUTTER_HOLD_MS {
-        Fixed::ONE
-    } else if elapsed < SHUTTER_CLOSE_MS + SHUTTER_HOLD_MS + SHUTTER_OPEN_MS {
-        let t = Fixed::from_ratio(
-            (elapsed - SHUTTER_CLOSE_MS - SHUTTER_HOLD_MS) as i32,
-            SHUTTER_OPEN_MS as i32,
-        );
-        Fixed::ONE - smoothstep(t)
-    } else {
-        Fixed::ZERO
-    }
-}
-
-fn toast_alpha(elapsed: u32) -> u8 {
-    let start = SHUTTER_CLOSE_MS + SHUTTER_HOLD_MS + 120;
-    let level = if elapsed < start {
-        Fixed::ZERO
-    } else if elapsed < start + TOAST_IN_MS {
-        smoothstep(Fixed::from_ratio(
-            (elapsed - start) as i32,
-            TOAST_IN_MS as i32,
-        ))
-    } else if elapsed < start + TOAST_IN_MS + TOAST_HOLD_MS {
-        Fixed::ONE
-    } else if elapsed < start + TOAST_IN_MS + TOAST_HOLD_MS + TOAST_OUT_MS {
-        Fixed::ONE
-            - smoothstep(Fixed::from_ratio(
-                (elapsed - start - TOAST_IN_MS - TOAST_HOLD_MS) as i32,
-                TOAST_OUT_MS as i32,
-            ))
-    } else {
-        Fixed::ZERO
-    };
-    // Keep one level of coverage so captured frames retain a stable draw list.
-    (level * 254).to_int().clamp(0, 254) as u8 + 1
+/// A motion already resting at `value`.
+fn resting(value: Fixed) -> Motion {
+    Spring::preset(value, value, SMOOTH).into()
 }
 
 #[crate::model]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct IrisState {
-    stop: Fixed,
-    target: Fixed,
-    focus: Fixed,
-    focus_target: Fixed,
-    closure: Fixed,
-    since_capture: u32,
-    shots: u16,
-    clock: u32,
-    scripted: bool,
+    /// Continuous aperture position in stops from f/1.4.
+    #[observe]
+    pub(super) stop: Fixed,
+    /// Focus distance in metres.
+    #[observe]
+    pub(super) focus: Fixed,
+    /// How far the shutter pushes the blades shut, from 0 to 1.
+    #[observe]
+    pub(super) closure: Fixed,
+    /// Vertical offset of the saved notice; [`NOTICE_PARKED`] hides it.
+    #[observe]
+    pub(super) notice: Fixed,
+    #[observe]
+    pub(super) shots: u16,
+    #[observe]
+    pub(super) layout: IrisLayout,
+    /// The window is tall enough for the level meter and the focus section.
+    #[observe]
+    pub(super) roomy: bool,
+    /// Ambient phase in degrees; it completes one turn per programme loop.
+    #[observe]
+    pub(super) phase: Fixed,
+    #[observe]
+    pub(super) exposure_mode: ExposureMode,
+    #[observe]
+    pub(super) focus_mode: FocusMode,
+    #[observe]
+    pub(super) capture_mode: CaptureMode,
+    /// Loop clock of the programme; its value is the ambient phase.
+    programme: Tween,
+    aperture: Motion,
+    focus_pull: Motion,
+    shutter: Motion,
+    closing: bool,
+    notice_motion: Motion,
+    notice_hold: u16,
     run: IrisRun,
-    layout: IrisLayout,
 }
 
 impl IrisState {
     pub fn new(run: IrisRun, width: u16, height: u16) -> Self {
+        let width = Fixed::from_int(i32::from(width));
+        let height = Fixed::from_int(i32::from(height));
         Self {
             stop: Fixed::ONE,
-            target: Fixed::ONE,
             focus: Fixed::from_ratio(70, 100),
-            focus_target: Fixed::from_ratio(70, 100),
             closure: Fixed::ZERO,
-            since_capture: u32::MAX,
+            notice: NOTICE_PARKED,
             shots: FIRST_SHOT,
-            clock: 0,
-            scripted: true,
-            run,
-            layout: IrisLayout::classify(
-                Fixed::from_int(i32::from(width)),
-                Fixed::from_int(i32::from(height)),
+            layout: IrisLayout::classify(width, height),
+            roomy: height >= Fixed::from_int(ROOMY_HEIGHT),
+            phase: Fixed::ZERO,
+            exposure_mode: ExposureMode::Program,
+            focus_mode: FocusMode::Single,
+            capture_mode: CaptureMode::Photo,
+            programme: Tween::new(
+                Fixed::ZERO,
+                Fixed::from_int(360),
+                LOOP_MS as u16,
+                &ease::LINEAR,
+                PlayMode::Loop,
             ),
+            aperture: resting(Fixed::ONE),
+            focus_pull: resting(Fixed::from_ratio(70, 100)),
+            shutter: resting(Fixed::ZERO),
+            closing: false,
+            notice_motion: resting(NOTICE_PARKED),
+            notice_hold: 0,
+            run,
+        }
+    }
+
+    fn apply(&mut self, cue: Cue, transition: Option<Transition>) {
+        match cue {
+            Cue::Stop(stop, config) => transition
+                .unwrap_or(config.into())
+                .retarget(&mut self.aperture, Fixed::from_int(stop)),
+            Cue::Focus(centimetres, config) if self.focus_mode == FocusMode::Single => transition
+                .unwrap_or(config.into())
+                .retarget(&mut self.focus_pull, Fixed::from_ratio(centimetres, 100)),
+            Cue::Focus(..) => {}
+            Cue::Shoot => self.release(),
+        }
+    }
+
+    fn release(&mut self) {
+        if self.closing || !self.shutter.is_done() {
+            return;
+        }
+        self.shutter = Tween::preset(self.closure, Fixed::ONE, SHUTTER_CLOSE).into();
+        self.closing = true;
+    }
+
+    /// Hand the aperture and focus back to the programme at its current place.
+    fn resume(&mut self) {
+        let now = self.programme.elapsed_ms;
+        let kinds: [fn(&Cue) -> bool; 2] = [
+            |cue| matches!(cue, Cue::Stop(..)),
+            |cue| matches!(cue, Cue::Focus(..)),
+        ];
+        for kind in kinds {
+            if let Some(cue) = latest(now, kind) {
+                self.apply(cue, Some(SMOOTH.into()));
+            }
         }
     }
 }
 
 #[crate::model]
 impl IrisState {
-    /// Continuous aperture position in stops from f/1.4.
-    #[observe]
-    pub fn stop(&self) -> Fixed {
-        self.stop
-    }
-
     /// Blade edge distance with the shutter closure applied.
     #[observe]
     pub fn edge(&self) -> Fixed {
         opening(self.stop) * (Fixed::ONE - self.closure)
-    }
-
-    #[observe]
-    pub fn closure(&self) -> Fixed {
-        self.closure
     }
 
     /// Nearest third stop, counted from f/1.4.
@@ -230,101 +330,89 @@ impl IrisState {
             .min(Fixed::from_int(3))
     }
 
-    /// Focus distance in metres.
-    #[observe]
-    pub fn focus(&self) -> Fixed {
-        self.focus
-    }
-
-    #[observe]
-    pub fn shots(&self) -> u16 {
-        self.shots
-    }
-
-    #[observe]
-    pub fn toast(&self) -> u8 {
-        toast_alpha(self.since_capture)
-    }
-
+    /// Program mode drives the aperture; every other mode leaves it to the user.
     #[observe]
     pub fn scripted(&self) -> bool {
-        self.scripted
-    }
-
-    #[observe]
-    pub fn layout(&self) -> IrisLayout {
-        self.layout
-    }
-
-    /// Ambient phase in degrees; it completes one turn per showcase loop.
-    #[observe]
-    pub fn phase(&self) -> Fixed {
-        Fixed::from_ratio((self.clock % LOOP_MS) as i32 * 9, (LOOP_MS / 40) as i32)
+        self.exposure_mode == ExposureMode::Program
     }
 
     pub fn set_viewport(&mut self, width: Fixed, height: Fixed) {
-        let layout = IrisLayout::classify(width, height);
-        if self.layout != layout {
-            self.layout = layout;
+        self.layout = IrisLayout::classify(width, height);
+        self.roomy = height >= Fixed::from_int(ROOMY_HEIGHT);
+    }
+
+    /// Follow the aperture slider. Turning it in program mode switches to
+    /// aperture priority, as on a camera dial.
+    pub fn set_stop(&mut self, value: Fixed) {
+        if self.exposure_mode == ExposureMode::Program {
+            self.exposure_mode = ExposureMode::Aperture;
+        }
+        let target = value.max(Fixed::ZERO).min(Fixed::from_int(MAX_STOP));
+        Transition::from(INTERACTIVE).retarget(&mut self.aperture, target);
+    }
+
+    pub fn select_exposure(&mut self, mode: ExposureMode) {
+        let resumed = mode == ExposureMode::Program && self.exposure_mode != mode;
+        self.exposure_mode = mode;
+        if resumed {
+            self.resume();
         }
     }
 
-    pub fn set_stop(&mut self, value: Fixed) {
-        self.scripted = false;
-        self.target = value.max(Fixed::ZERO).min(Fixed::from_int(MAX_STOP));
+    pub fn select_focus(&mut self, mode: FocusMode) {
+        self.focus_mode = mode;
     }
 
-    pub fn toggle_auto(&mut self) {
-        self.scripted = !self.scripted;
+    pub fn select_capture(&mut self, mode: CaptureMode) {
+        self.capture_mode = mode;
     }
 
     pub fn capture(&mut self) {
-        let busy = SHUTTER_CLOSE_MS + SHUTTER_HOLD_MS + SHUTTER_OPEN_MS;
-        if self.since_capture < busy {
-            return;
-        }
-        self.since_capture = 0;
+        self.release();
     }
 
     pub fn advance(&mut self, delta_ms: u16) {
         if delta_ms == 0 {
             return;
         }
-        let dt = u32::from(delta_ms.min(100));
-        let before = self.clock % LOOP_MS;
-        self.clock = self.clock.wrapping_add(dt);
-        let now = self.clock % LOOP_MS;
-
-        if self.scripted {
-            self.target = keyed(&STOP_KEYS, now, 1);
-            self.focus_target = keyed(&FOCUS_KEYS, now, 100);
-            let crossed = if now >= before {
-                before < CAPTURE_AT_MS && now >= CAPTURE_AT_MS
-            } else {
-                before < CAPTURE_AT_MS || now >= CAPTURE_AT_MS
-            };
-            if crossed {
-                self.since_capture = 0;
+        let dt = delta_ms.min(MAX_FRAME_DT_MS);
+        let before = self.programme.elapsed_ms;
+        self.programme.tick(dt);
+        let now = self.programme.elapsed_ms;
+        self.phase = self.programme.value();
+        if self.exposure_mode == ExposureMode::Program {
+            for (at, cue) in PROGRAMME {
+                if passed(before, now, at) {
+                    self.apply(cue, None);
+                }
             }
             if self.run == IrisRun::Capture && now < before {
                 self.shots = FIRST_SHOT;
             }
         }
 
-        let ease = Fixed::from_ratio(dt as i32, (dt + 70) as i32);
-        self.stop += (self.target - self.stop) * ease;
-        self.focus += (self.focus_target - self.focus) * ease;
+        self.aperture.tick(dt);
+        self.stop = self.aperture.value();
+        self.focus_pull.tick(dt);
+        self.focus = self.focus_pull.value();
 
-        let previous = self.since_capture;
-        self.since_capture = self.since_capture.saturating_add(dt);
-        let swap = SHUTTER_CLOSE_MS + SHUTTER_HOLD_MS / 2;
-        if previous < swap && self.since_capture >= swap {
+        self.shutter.tick(dt);
+        self.closure = self.shutter.value();
+        if self.closing && self.shutter.is_done() {
+            // Blades fully shut: the frame is exposed and the notice drops in.
+            self.closing = false;
             self.shots = self.shots.wrapping_add(1);
+            self.shutter = Tween::preset(Fixed::ONE, Fixed::ZERO, SHUTTER_OPEN).into();
+            Transition::from(BOUNCY).retarget(&mut self.notice_motion, Fixed::ZERO);
+            self.notice_hold = NOTICE_HOLD_MS;
         }
-        self.closure = if self.since_capture == u32::MAX {
-            Fixed::ZERO
-        } else {
-            shutter_closure(self.since_capture)
-        };
+        if self.notice_hold > 0 {
+            self.notice_hold = self.notice_hold.saturating_sub(dt);
+            if self.notice_hold == 0 {
+                Transition::from(SMOOTH).retarget(&mut self.notice_motion, NOTICE_PARKED);
+            }
+        }
+        self.notice_motion.tick(dt);
+        self.notice = self.notice_motion.value();
     }
 }
