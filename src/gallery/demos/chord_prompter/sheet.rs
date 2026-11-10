@@ -1,3 +1,4 @@
+use super::font::CONTENT_SIZE;
 use super::{Score, Session};
 use crate::prelude::*;
 use crate::render::{command::DrawCommand, font::Font};
@@ -30,7 +31,6 @@ pub(super) struct Sheet {
     pub previous_height: u16,
     pub next_height: u16,
     pub height: u16,
-    pub size: u16,
     accents: [u8; BAR_BYTES / 8],
 }
 
@@ -46,28 +46,19 @@ impl Sheet {
             previous_height: 0,
             next_height: 0,
             height: 0,
-            size: 18,
             accents: [0; BAR_BYTES / 8],
         }
     }
 
-    pub fn prepare(&mut self, score: &Score, width: u16, height: u16, large: bool) {
+    pub fn prepare(&mut self, score: &Score, width: u16, height: u16) {
         for bar in 0..score.bars() {
-            self.rebuild(score, bar, width, height, large);
+            self.rebuild(score, bar, width, height);
         }
     }
 
-    pub fn rebuild(
-        &mut self,
-        score: &Score,
-        bar: u16,
-        width: u16,
-        viewport_height: u16,
-        large: bool,
-    ) {
+    pub fn rebuild(&mut self, score: &Score, bar: u16, width: u16, viewport_height: u16) {
         self.text.clear();
         self.accents.fill(0);
-        self.size = if large { 24 } else { 18 };
         self.count = 0;
         for page in 0..3 {
             let source_bar = match page {
@@ -102,7 +93,7 @@ impl Sheet {
             }
         }
         self.lines.clear();
-        let width = width.max(self.size * 2);
+        let width = width.max(CONTENT_SIZE * 2);
         for (page, range) in [
             0..self.current_start,
             self.current_start..self.current_count,
@@ -111,7 +102,10 @@ impl Sheet {
         .into_iter()
         .enumerate()
         {
-            let columns = range.len().min(usize::from(width / (self.size * 2))).max(1);
+            let columns = range
+                .len()
+                .min(usize::from(width / (CONTENT_SIZE * 2)))
+                .max(1);
             let first_line = self.lines.len();
             let (mut height, overflow) = self.wrap(width, columns, viewport_height, range.clone());
             if overflow && columns > 1 {
@@ -145,7 +139,7 @@ impl Sheet {
     ) -> (u16, bool) {
         let mut y = 0u16;
         let mut overflow = false;
-        let line_height = self.size + 2;
+        let line_height = CONTENT_SIZE + 2;
         for group in (slots.start..slots.end).step_by(columns) {
             let mut group_height = 0;
             for index in group..(group + columns).min(slots.end) {
@@ -156,7 +150,7 @@ impl Sheet {
                 slot.y = y;
                 slot.first_line = self.lines.len() as u16;
                 let text = &self.text[usize::from(slot.start)..usize::from(slot.end)];
-                let units = usize::from(slot.width.saturating_sub(4) / (self.size / 2)).max(2);
+                let units = usize::from(slot.width.saturating_sub(4) / (CONTENT_SIZE / 2)).max(2);
                 for line in TextFlow::new(text, units) {
                     let range = line.range();
                     self.lines.push([
@@ -220,7 +214,7 @@ pub(super) fn sheet_view(
     let sheet = &model.sheet;
     let handle = fonts.resolve(crate::render::font::FontToken::Default.cache_key());
     let mut body = handle.as_ref().clone();
-    body.size = sheet.size;
+    body.size = CONTENT_SIZE;
     let ink = theme.resolve(ColorToken::OnSurface);
     let accent = theme.resolve(ColorToken::Primary);
     let muted = theme.resolve(ColorToken::OnSurfaceVariant);
@@ -247,10 +241,10 @@ pub(super) fn sheet_view(
         {
             let pos = Point::new(
                 x,
-                y + Fixed::from_int(2 + line_index as i32 * i32::from(sheet.size + 2)),
+                y + Fixed::from_int(2 + line_index as i32 * i32::from(CONTENT_SIZE + 2)),
             );
             if transform
-                .apply_rect_bbox(Rect::new(pos.x, pos.y, slot.width, sheet.size + 2))
+                .apply_rect_bbox(Rect::new(pos.x, pos.y, slot.width, CONTENT_SIZE + 2))
                 .intersect(&clip)
                 .is_none()
             {

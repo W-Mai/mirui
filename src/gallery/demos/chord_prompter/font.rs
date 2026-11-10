@@ -1,6 +1,8 @@
 use super::{Score, ScoreError};
 use crate::render::font::Font;
 
+pub(super) const CONTENT_SIZE: u16 = 24;
+
 pub(super) fn body() -> Font {
     Font::from_mirx(
         "Prompter Pixel",

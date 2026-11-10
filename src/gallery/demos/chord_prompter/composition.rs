@@ -33,9 +33,9 @@ pub(super) fn build_widgets(session: model!(Session)) {
                 ) [
                     crate::input::event::scroll::ScrollOffset::default(),
                     crate::input::event::scroll::ScrollConfig {direction:crate::input::event::scroll::ScrollAxis::Horizontal,elastic:false,..Default::default()},
-                ] on SizeChanged { session.sheet_viewport(event.new.width,(event.new.height-Fixed::from_int(22)).max(Fixed::ONE)); } {
+                ] on SizeChanged { session.sheet_viewport(event.new.width,(event.new.height-Fixed::from_int(super::strips::CHORD_TRACK_HEIGHT)).max(Fixed::ONE)); } {
                     Column(id:"prompter_sheet",width:${session.stage_width()*3},height:Dimension::percent(100),shrink:0.0,min_height:0) {
-                        View(height:22,width:Dimension::percent(100),shrink:0.0) [super::strips::ChordTimeline{model:session.clone()},IgnoreHitTest]
+                        View(height:super::strips::CHORD_TRACK_HEIGHT,width:Dimension::percent(100),shrink:0.0) [super::strips::ChordTimeline{model:session.clone()},IgnoreHitTest]
                         Row(width:Dimension::percent(100),grow:1.0,min_height:0,shrink:0.0) {
                             sheet_page(session.clone(),0)
                             sheet_page(session.clone(),1)
@@ -45,14 +45,14 @@ pub(super) fn build_widgets(session: model!(Session)) {
                 }
                 View(position:Position::Absolute,left:${session.stage_width()/2-Fixed::from_int(3)},top:0,width:6,height:Dimension::percent(100)) [super::strips::TimeNeedle{},IgnoreHitTest]
             }
-            View (height: 6) [
+            View (height: 10) [
                 RhythmStrip {
                     model: session.clone(),
                     strums: false,
                 },
                 IgnoreHitTest,
             ]
-            View (height: 10) [
+            View (height: 18) [
                 RhythmStrip {
                     model: session.clone(),
                     strums: true,

@@ -40,8 +40,6 @@ pub struct Session {
     pub pattern: Pattern,
     #[observe]
     pub stage_width: crate::types::Fixed,
-    #[observe]
-    pub large: bool,
     pub(super) sheet: super::sheet::Sheet,
     sheet_bar: u16,
     sheet_view_height: u16,
@@ -87,7 +85,6 @@ impl Session {
             beat: 0,
             pattern: score.sections()[0].pattern,
             stage_width: crate::types::Fixed::ZERO,
-            large: false,
             sheet: super::sheet::Sheet::new(),
             sheet_bar: u16::MAX,
             sheet_view_height: 64,
@@ -180,7 +177,6 @@ impl Session {
                 &self.score,
                 self.stage_width.to_int().max(120) as u16,
                 self.sheet_view_height,
-                self.large,
             );
             self.sheet_needs_prepare = false;
         }
@@ -189,7 +185,6 @@ impl Session {
             bar,
             self.stage_width.to_int().max(120) as u16,
             self.sheet_view_height,
-            self.large,
         );
         self.sheet_bar = bar;
         self.content_height = Fixed::from_int(i32::from(self.sheet.height));
@@ -212,10 +207,9 @@ impl Session {
 
 #[crate::model]
 impl Session {
-    pub fn resize(&mut self, width: crate::types::Fixed, height: crate::types::Fixed) {
+    pub fn resize(&mut self, width: crate::types::Fixed, _height: crate::types::Fixed) {
         use crate::types::Fixed;
         self.stage_width = (width - Fixed::from_int(8)).max(Fixed::ZERO);
-        self.large = width >= Fixed::from_int(256) && height >= Fixed::from_int(200);
         self.sheet_needs_prepare = true;
         self.sheet_bar = u16::MAX;
         self.sync();
@@ -342,12 +336,10 @@ impl Session {
         super::font::validate(&score)?;
         let connected = self.connected;
         let stage_width = self.stage_width;
-        let large = self.large;
         let sheet_view_height = self.sheet_view_height;
         *self = Self::new(score);
         self.connected = connected;
         self.stage_width = stage_width;
-        self.large = large;
         self.sheet_view_height = sheet_view_height;
         self.sheet_needs_prepare = true;
         self.sheet_bar = u16::MAX;

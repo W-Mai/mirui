@@ -51,10 +51,9 @@ fn source_accents_are_borrowed_with_plain_utf8_offsets_without_losing_bar_conten
 fn whole_bar_wrapping_retains_every_character_accent_and_timed_column() {
     let score = Score::parse(SONG, ScoreLimits::DEVICE).unwrap();
     let mut sheet = super::sheet::Sheet::new();
-    sheet.rebuild(&score, 0, 120, 80, false);
+    sheet.rebuild(&score, 0, 120, 80);
     assert_eq!(sheet.text, "跟着节拍");
     assert_eq!(sheet.current_count, 2);
-    assert_eq!(sheet.size, 18);
     assert_eq!(sheet.slots[0].width, sheet.slots[1].width);
     assert!(sheet.accented(0));
     assert!(!sheet.accented(3));
@@ -62,7 +61,7 @@ fn whole_bar_wrapping_retains_every_character_accent_and_timed_column() {
     let plain_cap = sheet.text.capacity();
     let line_cap = sheet.lines.capacity();
     for bar in 0..score.bars() {
-        sheet.rebuild(&score, bar, 120, 80, false);
+        sheet.rebuild(&score, bar, 120, 80);
     }
     assert_eq!(sheet.text.capacity(), plain_cap);
     assert_eq!(sheet.lines.capacity(), line_cap);
@@ -198,10 +197,21 @@ fn incremental_musical_scroll_matches_full_redraw_at_onsets_and_overflow() {
                 .bytes()
                 .to_vec();
             app.render().unwrap();
-            assert!(
-                expected == app.backend.framebuffer().read_pixels().unwrap().bytes(),
-                "scroll damage differs at {time}"
-            );
+            let texture = app.backend.framebuffer();
+            let pixels = texture.read_pixels().unwrap();
+            if let Some(pixel) = expected
+                .chunks_exact(4)
+                .zip(pixels.bytes().chunks_exact(4))
+                .position(|(a, b)| a != b)
+            {
+                panic!(
+                    "scroll damage differs at {time}, pixel ({}, {}): incremental {:?}, full {:?}",
+                    pixel % 128,
+                    pixel / 128,
+                    &expected[pixel * 4..pixel * 4 + 4],
+                    &pixels.bytes()[pixel * 4..pixel * 4 + 4]
+                );
+            }
         }
         session.pause(11_250_000);
         app.render_dirty().unwrap();
@@ -644,7 +654,6 @@ fn prompter_fonts_use_native_one_bit_strikes_at_every_requested_size() {
     use mirx::image::SampleLayout;
     for (font, size, text) in [
         (super::font::body(), 12, "跟着节拍"),
-        (super::font::body(), 18, "跟着节拍"),
         (super::font::body(), 24, "跟着节拍"),
         (super::font::body(), 12, "C#Dmb"),
     ] {
@@ -693,7 +702,6 @@ fn upcoming_card_uses_the_next_bar_while_split_chords_keep_their_actual_timing()
     assert_eq!(session.bar_phase, 0);
     session.load(PRACTICE).unwrap();
     assert_eq!(session.stage_width, crate::types::Fixed::from_int(312));
-    assert!(session.large);
 }
 
 #[test]
