@@ -108,7 +108,10 @@ async function control(opcode, arg = 0, boundary = 0) {
     }
     message(opcode === 4 ? 'Tempo · next beat' : opcode === 5 ? 'Jump · next bar' : opcode === 6 ? 'Strum · next bar' : '');
 }
-$('play').onclick = () => run(() => control((usingDevice() ? sample?.playing : preview?.playing) ? 2 : 1, 0));
+$('play').onclick = () => run(() => {
+    const playing = usingDevice() ? sample?.playing : preview?.playing;
+    return control(playing ? 2 : 1, usingDevice() && !playing ? 500 : 0);
+});
 $('stop').onclick = () => run(() => control(3));
 $('tempo-form').onsubmit = event => { event.preventDefault(); $('tempo').blur(); };
 $('tempo').onchange = () => { if ($('tempo').validity.valid) run(() => control(4, Math.round(Number($('tempo').value) * 1000), 1)); };
