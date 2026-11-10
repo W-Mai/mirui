@@ -15,6 +15,10 @@ const HOME_DEMO: &str = "iris";
 
 thread_local! {
     static APP: RefCell<Option<Rc<RefCell<Option<WebApp>>>>> = const { RefCell::new(None) };
+    /// The homepage's game pane runs a second application on its own canvas.
+    static PLAY: RefCell<Option<Rc<RefCell<Option<WebApp>>>>> = const { RefCell::new(None) };
+    /// The game pane's application while paused; its frame loop idles without it.
+    static PLAY_PARKED: RefCell<Option<WebApp>> = const { RefCell::new(None) };
     static DARK: core::cell::Cell<bool> = const { core::cell::Cell::new(true) };
 }
 
@@ -108,11 +112,100 @@ pub fn set_theme(theme_id: &str) {
         _ => return,
     };
     DARK.with(|dark| dark.set(matches!(theme_id, "dark" | "showcase-dark")));
-    let cell = APP.with(|slot| slot.borrow().clone());
-    let Some(cell) = cell else { return };
-    if let Some(app) = cell.borrow_mut().as_mut() {
-        apply_appearance(app);
+    for cell in [APP.with(|slot| slot.borrow().clone()), play_cell()]
+        .into_iter()
+        .flatten()
+    {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            apply_appearance(app);
+        }
     }
+    PLAY_PARKED.with(|slot| {
+        if let Some(app) = slot.borrow_mut().as_mut() {
+            apply_appearance(app);
+        }
+    });
+}
+
+fn play_cell() -> Option<Rc<RefCell<Option<WebApp>>>> {
+    PLAY.with(|slot| slot.borrow().clone())
+}
+
+/// Starts a demo on another canvas, next to the main application.
+#[wasm_bindgen]
+pub fn play_start(canvas_id: &str, slug: &str) -> bool {
+    if play_cell().is_some() {
+        return play_switch(slug);
+    }
+    let Some(demo) = lookup_demo(slug) else {
+        return false;
+    };
+    let Some(backend) = gallery::grab_canvas_by_id(canvas_id) else {
+        return false;
+    };
+    let cell = Rc::new(RefCell::new(Some(build_app_for(demo, backend))));
+    PLAY.with(|slot| *slot.borrow_mut() = Some(cell.clone()));
+    gallery::mirui::app::Runner::<gallery::ActiveSurface, gallery::ActiveFactory>::drive_animation_frame(cell);
+    true
+}
+
+/// Replaces the game pane's demo, keeping it paused if it was.
+#[wasm_bindgen]
+pub fn play_switch(slug: &str) -> bool {
+    let Some(demo) = lookup_demo(slug) else {
+        return false;
+    };
+    let Some(cell) = play_cell() else {
+        return false;
+    };
+    let parked = PLAY_PARKED.with(|slot| slot.borrow_mut().take());
+    let paused = parked.is_some();
+    let Some(old) = parked.or_else(|| cell.borrow_mut().take()) else {
+        return false;
+    };
+    let mut backend = old.into_backend();
+    backend.reset_size_control();
+    let app = build_app_for(demo, backend);
+    if paused {
+        PLAY_PARKED.with(|slot| *slot.borrow_mut() = Some(app));
+    } else {
+        *cell.borrow_mut() = Some(app);
+    }
+    true
+}
+
+#[wasm_bindgen]
+pub fn play_set_logical_size(width: u16, height: u16) {
+    let size = (width > 0 && height > 0).then_some((width, height));
+    if let Some(cell) = play_cell()
+        && let Some(app) = cell.borrow().as_ref()
+    {
+        app.backend.set_logical_size(size);
+        return;
+    }
+    PLAY_PARKED.with(|slot| {
+        if let Some(app) = slot.borrow().as_ref() {
+            app.backend.set_logical_size(size);
+        }
+    });
+}
+
+/// Paused, the game pane keeps its last frame and stops ticking.
+#[wasm_bindgen]
+pub fn play_set_paused(paused: bool) {
+    let Some(cell) = play_cell() else {
+        return;
+    };
+    PLAY_PARKED.with(|slot| {
+        let mut parked = slot.borrow_mut();
+        if paused {
+            if parked.is_none() {
+                *parked = cell.borrow_mut().take();
+            }
+        } else if let Some(app) = parked.take() {
+            *cell.borrow_mut() = Some(app);
+        }
+    });
 }
 
 #[wasm_bindgen]

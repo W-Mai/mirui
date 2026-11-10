@@ -1170,98 +1170,78 @@
 
       <main class="site-main">
         <section class="home-hero" id="home">
-          <div class="hero-head">
-            <h1 class="hero-lockup">
-              <span class="sr-only">mirui</span>
-              <svg class="hero-logo" id="hero-logo" viewBox="298.36 144.42 878.39 295.16" aria-hidden="true">
-                <g transform="translate(420 292)">
-                  <g class="eye-iris"><circle class="logo-see" cx="23.26" cy="-11.63" r="23"/></g>
-                  <g class="eye-glint"><circle cx="27.88" cy="-20.89" r="8" fill="#fff"/></g>
-                  <path class="logo-ink" d="M-49.19 -147.58L88.55 -29.52L-29.52 -88.55L-72.45 -2.68L-121.64 -2.68Z"/>
-                  <path class="logo-ink" d="M49.19 147.58L-88.55 29.52L29.52 88.55L72.45 2.68L121.64 2.68Z"/>
-                </g>
-                <g class="logo-ink">
-                  <path d="M597 385V298A62.5 62.5 0 0 1 703.75 253.86A62.5 62.5 0 0 1 810.5 298V385H774V298A26 26 0 0 0 722 298V366.75L685.5 385V298A26 26 0 0 0 633.5 298V366.75Z"/>
-                  <path d="M838.5 238H875V385H838.5Z"/>
-                  <path d="M903 385V298A62.5 62.5 0 0 1 965.5 235.5V272A26 26 0 0 0 939.5 298V366.75L903 385Z"/>
-                  <path d="M983.5 238H1020V325A26 26 0 0 0 1072 325V238L1108.5 219.75V325A62.5 62.5 0 0 1 983.5 325Z"/>
-                  <path d="M1135.5 238H1172V385H1135.5Z"/>
-                </g>
-                <circle class="logo-see" cx="856.75" cy="204" r="23"/>
-                <circle class="logo-ui" cx="1153.75" cy="204" r="23"/>
-              </svg>
-              <span class="hero-tagline" data-i18n-html="hero.tagline"><span class="t">Possibly the most elegant</span><span class="t"><em>declarative embedded</em></span><span class="t"><em>graphics library</em></span></span>
-            </h1>
-            <div class="hero-actions">
-              <div class="install-chip">
-                <span class="prompt" aria-hidden="true">$</span>
-                <code>cargo add mirui</code>
-                <button type="button" data-copy-command="cargo add mirui" aria-label="Copy cargo add mirui" data-i18n="common.copy">Copy</button>
-              </div>
-              <a class="site-cta primary" href="#play"><span data-i18n="hero.demos">Browse demos</span><svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M6 1.5v9M2.5 7 6 10.5 9.5 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
-              <a class="site-cta" href="#start"><span data-i18n="hero.start">Get started</span></a>
-            </div>
-          </div>
-
-          <div class="workbench" id="workbench">
-            <div class="wb-bar">
-              <div class="wb-title">
-                <svg class="wb-mark" viewBox="-160 -160 320 320" aria-hidden="true">
-                  <path class="logo-ink" d="M-49.19 -147.58L88.55 -29.52L-29.52 -88.55L-72.45 -2.68L-121.64 -2.68Z"/>
-                  <path class="logo-ink" d="M49.19 147.58L-88.55 29.52L29.52 88.55L72.45 2.68L121.64 2.68Z"/>
-                  <circle class="logo-see" cx="23.26" cy="-11.63" r="23"/>
-                  <circle cx="27.88" cy="-20.89" r="8" fill="#fff"/>
-                </svg>
-                <strong>Iris</strong>
-                <span class="wb-live" data-i18n="wb.live">Live</span>
-              </div>
-              <div class="wb-devices" id="wb-devices" role="radiogroup" aria-label="Screen">
-                <i class="wb-thumb" aria-hidden="true"></i>
-                <button type="button" role="radio" aria-checked="true" data-preset="board">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3.5" y="1.5" width="9" height="13" rx="1.4" stroke="currentColor" stroke-width="1.3"/><rect x="5.5" y="3.5" width="5" height="5.5" rx=".5" stroke="currentColor" stroke-width="1.1"/><path d="M1.5 4.5h2M1.5 7h2M1.5 9.5h2M12.5 4.5h2M12.5 7h2M12.5 9.5h2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
-                  <span>ESP32-C3</span>
+          <h1 class="sr-only">mirui. Small screens. Big play.</h1>
+          <div class="split" id="split">
+            <article class="pane pane-small" id="pane-small" data-pane="small">
+              <header class="pane-head">
+                <button class="pane-title" type="button" data-pane-open="small" aria-controls="pane-small" aria-expanded="false">
+                  <span data-i18n-html="hero.small">Small screens<i class="dot-see">.</i></span>
                 </button>
-                <button type="button" role="radio" aria-checked="false" data-preset="watch">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="4.6" stroke="currentColor" stroke-width="1.3"/><path d="M5.6 4 6.3 1.5h3.4L10.4 4M5.6 12l.7 2.5h3.4l.7-2.5" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M8 5.8V8l1.4 1" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
-                  <span data-i18n="wb.watch">Watch</span>
-                </button>
-                <button type="button" role="radio" aria-checked="false" data-preset="phone">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M7 3.4h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-                  <span data-i18n="wb.phone">Phone</span>
-                </button>
-                <button type="button" role="radio" aria-checked="false" data-preset="browser">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 5.5h13" stroke="currentColor" stroke-width="1.2"/><circle cx="3.6" cy="4" r=".55" fill="currentColor"/><circle cx="5.3" cy="4" r=".55" fill="currentColor"/></svg>
-                  <span data-i18n="wb.browser">Browser</span>
-                </button>
-              </div>
-              <div class="wb-tools">
-                <button class="wb-tool" id="loupe-toggle" type="button" aria-pressed="false" data-i18n-label="wb.loupe" aria-label="Pixel loupe" title="Pixel loupe">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.6" stroke="currentColor" stroke-width="1.4"/><path d="m10.3 10.3 3.9 3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M5 6.8h3.6M6.8 5v3.6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
-                </button>
-                <button class="wb-tool wb-open" id="workbench-open" type="button">
-                  <span data-i18n="wb.open">Open in gallery</span>
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M3 2h5v5M8 2 2.5 7.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-              </div>
-            </div>
-            <div class="wb-body">
-              <div class="wb-stage" id="wb-stage" data-stage-panel>
-                <div class="home-stage-host" id="home-stage-host">
-                  <div class="stage-placeholder" id="stage-placeholder" aria-hidden="true">
-                    <svg viewBox="-160 -160 320 320">
+                <p class="pane-sub" data-i18n="hero.smallSub">One ui! tree, from a 128 × 160 panel to a desktop window.</p>
+              </header>
+              <span class="pane-spine" aria-hidden="true" data-i18n-html="hero.small">Small screens<i class="dot-see">.</i></span>
+              <button class="pane-toggle" type="button" data-pane-open="small" aria-controls="pane-small" aria-expanded="false" data-i18n-label="hero.expand" aria-label="Expand" title="Expand">
+                <svg class="ico-open" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M8.5 1.5h4v4M5.5 12.5h-4v-4M12.5 1.5 8 6M1.5 12.5 6 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg class="ico-close" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M5.5 1.5v4h-4M8.5 12.5v-4h4M1.5 1.5 6 6M12.5 12.5 8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div class="workbench" id="workbench">
+                <div class="wb-bar">
+                  <div class="wb-title">
+                    <svg class="wb-mark" viewBox="-160 -160 320 320" aria-hidden="true">
                       <path class="logo-ink" d="M-49.19 -147.58L88.55 -29.52L-29.52 -88.55L-72.45 -2.68L-121.64 -2.68Z"/>
                       <path class="logo-ink" d="M49.19 147.58L-88.55 29.52L29.52 88.55L72.45 2.68L121.64 2.68Z"/>
                       <circle class="logo-see" cx="23.26" cy="-11.63" r="23"/>
+                      <circle cx="27.88" cy="-20.89" r="8" fill="#fff"/>
                     </svg>
-                    <span data-i18n="wb.loading">Loading WebAssembly</span>
+                    <strong>Iris</strong>
+                  </div>
+                  <div class="wb-devices" id="wb-devices" role="radiogroup" aria-label="Screen">
+                    <i class="wb-thumb" aria-hidden="true"></i>
+                    <button type="button" role="radio" aria-checked="true" data-preset="board">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3.5" y="1.5" width="9" height="13" rx="1.4" stroke="currentColor" stroke-width="1.3"/><rect x="5.5" y="3.5" width="5" height="5.5" rx=".5" stroke="currentColor" stroke-width="1.1"/><path d="M1.5 4.5h2M1.5 7h2M1.5 9.5h2M12.5 4.5h2M12.5 7h2M12.5 9.5h2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+                      <span data-i18n="wb.board">MCU</span>
+                    </button>
+                    <button type="button" role="radio" aria-checked="false" data-preset="watch">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="4.6" stroke="currentColor" stroke-width="1.3"/><path d="M5.6 4 6.3 1.5h3.4L10.4 4M5.6 12l.7 2.5h3.4l.7-2.5" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M8 5.8V8l1.4 1" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+                      <span data-i18n="wb.watch">Watch</span>
+                    </button>
+                    <button type="button" role="radio" aria-checked="false" data-preset="phone">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M7 3.4h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+                      <span data-i18n="wb.phone">Phone</span>
+                    </button>
+                    <button type="button" role="radio" aria-checked="false" data-preset="browser">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 5.5h13" stroke="currentColor" stroke-width="1.2"/><circle cx="3.6" cy="4" r=".55" fill="currentColor"/><circle cx="5.3" cy="4" r=".55" fill="currentColor"/></svg>
+                      <span data-i18n="wb.browser">Browser</span>
+                    </button>
+                  </div>
+                  <div class="wb-tools">
+                    <button class="wb-tool" id="loupe-toggle" type="button" aria-pressed="false" data-i18n-label="wb.loupe" aria-label="Pixel loupe" title="Pixel loupe">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.6" stroke="currentColor" stroke-width="1.4"/><path d="m10.3 10.3 3.9 3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M5 6.8h3.6M6.8 5v3.6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+                    </button>
+                    <button class="wb-tool wb-open" id="workbench-open" type="button">
+                      <span data-i18n="wb.open">Open in gallery</span>
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M3 2h5v5M8 2 2.5 7.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
                   </div>
                 </div>
-                <div class="wb-caption" aria-live="polite"><strong id="wb-size">128 × 160</strong><span id="wb-device">ESP32-C3 · ST7735</span></div>
-              </div>
-              <div class="wb-code" id="wb-code" role="region" aria-label="Layout source">
-                <section class="wb-file">
-                  <header><span>iris/state.rs</span><small id="wb-classify-range">100–112</small></header>
-                  <div class="wb-src" id="wb-classify"><i class="wb-rod" aria-hidden="true"></i><pre class="wb-static">pub fn classify(width: Fixed, height: Fixed) -> Self {
+                <div class="wb-body">
+                  <div class="wb-stage" id="wb-stage" data-stage-panel>
+                    <div class="home-stage-host" id="home-stage-host">
+                      <div class="stage-placeholder" id="stage-placeholder" aria-hidden="true">
+                        <svg viewBox="-160 -160 320 320">
+                          <path class="logo-ink" d="M-49.19 -147.58L88.55 -29.52L-29.52 -88.55L-72.45 -2.68L-121.64 -2.68Z"/>
+                          <path class="logo-ink" d="M49.19 147.58L-88.55 29.52L29.52 88.55L72.45 2.68L121.64 2.68Z"/>
+                          <circle class="logo-see" cx="23.26" cy="-11.63" r="23"/>
+                        </svg>
+                        <span data-i18n="wb.loading">Loading WebAssembly</span>
+                      </div>
+                    </div>
+                    <div class="wb-caption" aria-live="polite"><strong id="wb-size">128 × 160</strong><span id="wb-device">MCU · SPI LCD</span></div>
+                  </div>
+                  <div class="wb-code" id="wb-code" role="region" aria-label="Layout source">
+                    <section class="wb-file">
+                      <header><span>iris/state.rs</span><small id="wb-classify-range">100–112</small></header>
+                      <div class="wb-src" id="wb-classify"><i class="wb-rod" aria-hidden="true"></i><pre class="wb-static">pub fn classify(width: Fixed, height: Fixed) -> Self {
     let short = width.min(height);
     let long = width.max(height);
     if long * 10 &lt;= short * 12 &amp;&amp; long &lt;= Fixed::from_int(480) {
@@ -1274,10 +1254,10 @@
         Self::Landscape
     }
 }</pre></div>
-                </section>
-                <section class="wb-file">
-                  <header><span>iris/composition.rs</span><small id="wb-match-range">740–753</small></header>
-                  <div class="wb-src" id="wb-match"><i class="wb-rod" aria-hidden="true"></i><pre class="wb-static">match ${ model.layout() } {
+                    </section>
+                    <section class="wb-file">
+                      <header><span>iris/composition.rs</span><small id="wb-match-range">740–753</small></header>
+                      <div class="wb-src" id="wb-match"><i class="wb-rod" aria-hidden="true"></i><pre class="wb-static">match ${ model.layout() } {
     IrisLayout :: Micro =&gt; {
         compose_micro (model)
     }
@@ -1291,22 +1271,103 @@
         compose_landscape (model)
     }
 }</pre></div>
-                </section>
+                    </section>
+                  </div>
+                </div>
+                <div class="wb-status">
+                  <span class="wb-arm"><span data-i18n="wb.layout">Layout</span><code id="wb-layout">IrisLayout::Micro</code></span>
+                  <span class="wb-scale"><span data-i18n="wb.scale">Scale</span><b id="wb-scale">—</b></span>
+                  <span class="wb-backend">Web Canvas · wasm32</span>
+                  <span class="wb-hint" data-i18n="wb.hint">Drag the screen corner to resize. Click a match arm to switch screens.</span>
+                </div>
               </div>
+            </article>
+
+            <article class="pane pane-play" id="pane-play" data-pane="play">
+              <header class="pane-head">
+                <button class="pane-title" type="button" data-pane-open="play" aria-controls="pane-play" aria-expanded="false">
+                  <span data-i18n-html="hero.play">Big play<i class="dot-ui">.</i></span>
+                </button>
+                <p class="pane-sub" data-i18n="hero.playSub">Thirteen games written with mirui. Play one right here.</p>
+              </header>
+              <span class="pane-spine" aria-hidden="true" data-i18n-html="hero.play">Big play<i class="dot-ui">.</i></span>
+              <button class="pane-toggle" type="button" data-pane-open="play" aria-controls="pane-play" aria-expanded="false" data-i18n-label="hero.expand" aria-label="Expand" title="Expand">
+                <svg class="ico-open" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M8.5 1.5h4v4M5.5 12.5h-4v-4M12.5 1.5 8 6M1.5 12.5 6 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg class="ico-close" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M5.5 1.5v4h-4M8.5 12.5v-4h4M1.5 1.5 6 6M12.5 12.5 8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div class="arcade" id="arcade">
+                <div class="arcade-stage" id="arcade-stage" tabindex="0" aria-label="Featured games; drag or use the arrow keys to change game">
+                  <button class="arcade-card arcade-prev" id="arcade-prev" type="button" aria-label="Previous game">
+                    <span class="arcade-card-bar"><b></b><small></small></span>
+                    <img alt="" draggable="false" />
+                  </button>
+                  <button class="arcade-card arcade-next" id="arcade-next" type="button" aria-label="Next game">
+                    <span class="arcade-card-bar"><b></b><small></small></span>
+                    <img alt="" draggable="false" />
+                  </button>
+                  <div class="arcade-screen" id="arcade-screen">
+                    <div class="arcade-meta"><span class="arcade-led" aria-hidden="true"></span><strong id="arcade-name">Marble Playground</strong><small id="arcade-genre">Creative</small></div>
+                    <div class="arcade-glass" id="arcade-glass">
+                      <img class="arcade-poster show" id="arcade-poster" src="demo-previews/marble_play.png" alt="" draggable="false" />
+                      <canvas id="mirui-play" tabindex="0" aria-label="Live game"></canvas>
+                    </div>
+                  </div>
+                  <button class="sticker sticker-source" type="button" id="arcade-source" aria-label="Open this game's source"><strong>{ }</strong><i></i><i></i><span data-i18n="arcade.source">Source</span></button>
+                  <span class="sticker sticker-device" aria-hidden="true"><b>▦</b><small>480 × 320</small></span>
+                  <span class="sticker sticker-burst" aria-hidden="true">✳</span>
+                  <span class="sticker sticker-plus top" aria-hidden="true">+</span>
+                  <span class="sticker sticker-plus bottom" aria-hidden="true">+</span>
+                  <span class="sticker sticker-drag" aria-hidden="true">← &nbsp;DRAG&nbsp; →</span>
+                </div>
+                <div class="arcade-nav">
+                  <button class="arcade-step" id="arcade-step-prev" type="button" aria-label="Previous game">←</button>
+                  <span class="arcade-dots" id="arcade-dots"></span>
+                  <button class="arcade-step" id="arcade-step-next" type="button" aria-label="Next game">→</button>
+                  <span class="arcade-count" id="arcade-count">01 / 05</span>
+                  <button class="arcade-play" id="arcade-play" type="button"><span data-i18n="arcade.full">Play full screen</span><svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M3 2h5v5M8 2 2.5 7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+                <div class="arcade-shelf" id="arcade-shelf" role="list" aria-label="All games"></div>
+              </div>
+            </article>
+          </div>
+
+          <div class="hero-actions">
+            <div class="install-chip">
+              <span class="prompt" aria-hidden="true">$</span>
+              <code>cargo add mirui</code>
+              <button type="button" data-copy-command="cargo add mirui" aria-label="Copy cargo add mirui" data-i18n="common.copy">Copy</button>
             </div>
-            <div class="wb-status">
-              <span class="wb-arm"><span data-i18n="wb.layout">Layout</span><code id="wb-layout">IrisLayout::Micro</code></span>
-              <span class="wb-scale"><span data-i18n="wb.scale">Scale</span><b id="wb-scale">—</b></span>
-              <span class="wb-backend">Web Canvas · wasm32</span>
-              <span class="wb-hint" data-i18n="wb.hint">Drag the screen corner to resize. Click a match arm to switch screens.</span>
-            </div>
+            <a class="site-cta primary" href="#play"><span data-i18n="hero.demos">Browse demos</span><svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M6 1.5v9M2.5 7 6 10.5 9.5 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+            <a class="site-cta" href="#start"><span data-i18n="hero.start">Get started</span></a>
           </div>
         </section>
+
+        <div class="signal-band" aria-hidden="true">
+          <div class="signal-track">
+            <div class="signal-loop">
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+            </div>
+            <div class="signal-loop">
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+            </div>
+          </div>
+        </div>
 
         <section class="home-section" id="play">
           <div class="section-head">
             <div>
-              <h2 class="section-title" data-i18n="play.title">Play</h2>
+              <div class="section-kicker" data-i18n="play.kicker">Games</div>
+              <h2 class="section-title"><span data-i18n-html="play.title">Play<i class="dot-ui">.</i></span></h2>
               <p class="section-intro" data-i18n="play.intro">Thirteen games at 480 × 320. Each one also builds as a native app.</p>
             </div>
             <div class="play-toolbar">
@@ -1424,7 +1485,8 @@
         <section class="home-section catalog-section" id="demos">
           <div class="section-head">
             <div>
-              <h2 class="section-title" data-i18n="catalog.title">Demos</h2>
+              <div class="section-kicker" data-i18n="catalog.kicker">Demos</div>
+              <h2 class="section-title"><span data-i18n-html="catalog.title">Explore<i class="dot-ui">.</i></span></h2>
               <p class="section-intro" data-i18n="catalog.intro">Components, rendering, motion, effects, state and scrolling, each with its Rust source.</p>
             </div>
           </div>
@@ -1433,25 +1495,25 @@
           <p class="home-empty" id="catalog-empty" hidden data-i18n="catalog.empty">No demos match this search.</p>
         </section>
 
-        <section class="home-section" id="how">
-          <div class="section-head">
-            <div>
-              <h2 class="section-title" data-i18n="how.title">How it works</h2>
-              <p class="section-intro" data-i18n="how.intro">A retained component tree, laid out in Q24.8 fixed point, drawn by the backend the target has.</p>
-            </div>
-          </div>
-          <div class="how" id="how-explorer">
-            <ol class="how-steps" role="tablist" aria-label="Pipeline">
-              <li><button class="how-step" type="button" role="tab" id="how-tab-0" aria-controls="how-panel-0" aria-selected="true" data-how="0"><i class="node" aria-hidden="true"></i><strong><span data-i18n="how.s0">Declare</span><code>ui!</code></strong><small data-i18n="how.s0d">Widgets, attributes and children in one Rust macro.</small></button></li>
-              <li><button class="how-step" type="button" role="tab" id="how-tab-1" aria-controls="how-panel-1" aria-selected="false" tabindex="-1" data-how="1"><i class="node" aria-hidden="true"></i><strong><span data-i18n="how.s1">Bind</span><code>$</code></strong><small data-i18n="how.s1d">Observed model fields update only the bindings that read them.</small></button></li>
-              <li><button class="how-step" type="button" role="tab" id="how-tab-2" aria-controls="how-panel-2" aria-selected="false" tabindex="-1" data-how="2"><i class="node" aria-hidden="true"></i><strong><span data-i18n="how.s2">Lay out</span><code>@</code></strong><small data-i18n="how.s2d">Flexbox and absolute positioning in fixed point. @ attributes rerun when geometry changes.</small></button></li>
-              <li><button class="how-step" type="button" role="tab" id="how-tab-3" aria-controls="how-panel-3" aria-selected="false" tabindex="-1" data-how="3"><i class="node" aria-hidden="true"></i><strong><span data-i18n="how.s3">Draw</span><code>Dirty</code></strong><small data-i18n="how.s3d">Only changed regions are redrawn, with coverage antialiasing on every path.</small></button></li>
-              <li><button class="how-step" type="button" role="tab" id="how-tab-4" aria-controls="how-panel-4" aria-selected="false" tabindex="-1" data-how="4"><i class="node" aria-hidden="true"></i><strong><span data-i18n="how.s4">Present</span><code>Surface</code></strong><small data-i18n="how.s4d">Software framebuffer, SDL, WGPU, Web Canvas, Linux and NuttX surfaces.</small></button></li>
-            </ol>
-            <div class="how-panels">
-              <article class="how-panel active" id="how-panel-0" role="tabpanel" aria-labelledby="how-tab-0">
-                <header><span>main.rs</span><span>README.md</span></header>
-                <pre data-rust>#[compose]
+        <section class="build-section" id="how">
+          <div class="build-inner">
+            <div class="build-grid">
+              <div class="build-copy">
+                <div class="section-kicker" data-i18n="how.kicker">How it works</div>
+                <h2 class="headline"><span data-i18n="build.title1">Build once.</span><br/><span data-i18n-html="build.title2">Route precisely<i class="dot-ui">.</i></span></h2>
+                <p data-i18n="build.body">One retained component tree. Layout runs in Q24.8 fixed point, then each target draws it with the backend it has.</p>
+                <div class="capability-list">
+                  <span data-i18n="build.cap1">Q24.8 layout + hit testing</span>
+                  <span data-i18n="build.cap2">no_std + alloc core</span>
+                  <span data-i18n="build.cap3">Dirty-region redraw</span>
+                  <span data-i18n="build.cap4">Software + GPU routes</span>
+                </div>
+              </div>
+              <div class="build-demo" id="build-demo" tabindex="0" aria-label="How mirui builds a frame; use the arrow keys to change card">
+                <div class="build-card-stack" id="build-card-stack">
+                  <article class="build-demo-card build-code-card is-active" data-build-panel="0" role="button" tabindex="0" aria-label="Compose">
+                    <div class="build-card-head"><span>Compose · ui!</span><span>README.md</span></div>
+                    <pre data-rust>#[compose]
 fn build_root() {
     ui! {
         Column (grow: 1.0) {
@@ -1469,23 +1531,14 @@ fn build_root() {
         }
     };
 }</pre>
-                <ul class="how-facts">
-                  <li data-i18n="how.f0a">#[compose] functions return reusable subtrees</li>
-                  <li data-i18n="how.f0b">walk loops and if / match branches inside the tree</li>
-                  <li data-i18n="how.f0c">Integer literals coerce to Fixed and Dimension</li>
-                </ul>
-              </article>
-              <article class="how-panel" id="how-panel-1" role="tabpanel" aria-labelledby="how-tab-1">
-                <header><span>counter.rs</span><span>README.md · value 41</span></header>
-                <pre data-rust>#[model]
+                  </article>
+
+                  <article class="build-demo-card build-code-card is-next" data-build-panel="1" role="button" tabindex="0" aria-label="Bind">
+                    <div class="build-card-head"><span>Bind · $</span><span>README.md, adapted</span></div>
+                    <pre data-rust>#[model]
 struct Counter {
     #[observe]
     value: i32,
-}
-
-#[compose]
-fn counter_label(counter: model!(Counter), prefix: &amp;'static str) -> Entity {
-    ui! { Text(text: ${ format!("{prefix}: {}", counter.value()) }) }
 }
 
 #[compose]
@@ -1493,22 +1546,17 @@ fn counter_panel(counter: model!(Counter)) {
     ui! {
         Row {
             Button(text: "+") on Tap { counter.increment(); }
-            counter_label(counter, "count")
+            Text(text: ${ format!("count: {}", counter.value()) })
         }
     };
 }
 
-// One tap on + and the label reads 42.
-let counter = app.add_model(Counter { value: 41 }).finish();</pre>
-                <ul class="how-facts">
-                  <li data-i18n="how.f1a">$ subscribes to the fields a binding reads</li>
-                  <li data-i18n="how.f1b">Errors from a method publish no updates</li>
-                  <li data-i18n="how.f1c">One model can feed many views</li>
-                </ul>
-              </article>
-              <article class="how-panel" id="how-panel-2" role="tabpanel" aria-labelledby="how-tab-2">
-                <header><span>title.rs</span><span>README.md</span></header>
-                <pre data-rust>ui! {
+// Starts at 41. One tap and the Text reads 42.</pre>
+                  </article>
+
+                  <article class="build-demo-card build-code-card" data-build-panel="2" role="button" tabindex="0" aria-label="Respond">
+                    <div class="build-card-head"><span>Respond · @</span><span>README.md</span></div>
+                    <pre data-rust>ui! {
     Column (container: true) {
         Text(
             "Adaptive title",
@@ -1521,44 +1569,36 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
         )
     }
 }</pre>
-                <ul class="how-facts">
-                  <li data-i18n="how.f2a">Q24.8 fixed point for layout, raster and hit tests</li>
-                  <li data-i18n="how.f2b">No FPU needed. The ESP32-C3 has none</li>
-                  <li data-i18n="how.f2c">Dependencies are declared and checked at compile time</li>
-                </ul>
-              </article>
-              <article class="how-panel" id="how-panel-3" role="tabpanel" aria-labelledby="how-tab-3">
-                <header><span>render</span><span>README.md</span></header>
-                <dl class="how-specs">
-                  <div><dt data-i18n="how.k3a">Geometry</dt><dd data-i18n="how.v3a">24.8 fixed point from layout to raster, hit testing and events</dd></div>
-                  <div><dt data-i18n="how.k3b">Antialiasing</dt><dd data-i18n="how.v3b">Scanline coverage on any Path. SDF and 2×2 supersample fast paths for quads</dd></div>
-                  <div><dt data-i18n="how.k3c">Refresh</dt><dd data-i18n="how.v3c">Per-entity Dirty and PrevRect markers. Unchanged regions are not redrawn</dd></div>
-                  <div><dt data-i18n="how.k3d">Text</dt><dd data-i18n="how.v3d">Shaped text with fallback fonts, bidirectional scripts and text on paths</dd></div>
-                  <div><dt data-i18n="how.k3e">Scale</dt><dd data-i18n="how.v3e">HiDPI scale factors propagate automatically. This page renders at your device pixel ratio</dd></div>
-                </dl>
-              </article>
-              <article class="how-panel" id="how-panel-4" role="tabpanel" aria-labelledby="how-tab-4">
-                <header><span>main.rs</span><span>README.md</span></header>
-                <pre data-rust>fn main() {
-    let backend = SdlSurface::new("hello mirui", 480, 320);
-    let mut app = App::new(backend);
-    app.with_default_widgets().with_default_systems();
+                    <p class="build-card-note" data-i18n="build.respondNote">Drag the screen corner in the hero to watch this kind of rule run.</p>
+                  </article>
 
-    // Root fills the viewport with a Surface bg + Column layout by default.
-    let root = app.spawn_root().id();
-    app.compose(root, build_root());
+                  <article class="build-demo-card build-route-card is-prev" data-build-panel="3" role="button" tabindex="0" aria-label="Route">
+                    <div class="build-card-head"><span>Route · Surface</span><span>compose_backend!</span></div>
+                    <div class="build-route-map">
+                      <div class="build-route-source"><small>RETAINED</small><strong>UI TREE</strong><span>ECS · Q24.8</span></div>
+                      <span class="build-route-connector" aria-hidden="true"></span>
+                      <div class="build-route-scene"><small>NORMALIZED</small><strong>SCENE</strong><span>COMMANDS</span></div>
+                      <span class="build-route-branches" aria-hidden="true"><i></i><i></i><i></i></span>
+                      <div class="build-route-target"><small>BOUNDED</small><strong>SOFTWARE</strong><span>RGB565 · MCU</span></div>
+                      <div class="build-route-target"><small>NATIVE</small><strong>GPU</strong><span>WGPU · SDL</span></div>
+                      <div class="build-route-target"><small>BROWSER</small><strong>WEB</strong><span>CANVAS</span></div>
+                    </div>
+                    <p class="build-card-note">FRAMEBUF · SDL2 · WGPU · WEB CANVAS · FBDEV / DRM · NUTTX</p>
+                  </article>
+                </div>
 
-    app.run();
-}</pre>
-                <ul class="how-facts">
-                  <li>FramebufSurface · RGB565</li>
-                  <li>SDL2 CPU / GPU</li>
-                  <li>WGPU</li>
-                  <li>Web Canvas</li>
-                  <li>Linux fbdev / DRM</li>
-                  <li>NuttX</li>
-                </ul>
-              </article>
+                <div class="build-demo-controls">
+                  <button id="build-demo-prev" type="button" aria-label="Previous card">←</button>
+                  <span class="build-demo-readout"><b id="build-demo-title">Compose</b><small id="build-demo-meta">ui! macro · #[compose]</small></span>
+                  <span class="build-demo-dots" role="tablist" aria-label="Cards">
+                    <button type="button" role="tab" data-build-dot="0" aria-label="Compose" aria-selected="true"></button>
+                    <button type="button" role="tab" data-build-dot="1" aria-label="Bind" aria-selected="false"></button>
+                    <button type="button" role="tab" data-build-dot="2" aria-label="Respond" aria-selected="false"></button>
+                    <button type="button" role="tab" data-build-dot="3" aria-label="Route" aria-selected="false"></button>
+                  </span>
+                  <button id="build-demo-next" type="button" aria-label="Next card">→</button>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -1566,8 +1606,9 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
         <section class="home-section" id="targets">
           <div class="section-head">
             <div>
-              <h2 class="section-title" data-i18n="targets.title">Targets</h2>
-              <p class="section-intro" data-i18n="targets.intro">The same component tree on each host. Rows marked Show open that screen in the Iris workbench above.</p>
+              <div class="section-kicker" data-i18n="targets.kicker">Runtime targets</div>
+              <h2 class="section-title"><span data-i18n-html="targets.title">Everywhere<i class="dot-ui">.</i></span></h2>
+              <p class="section-intro" data-i18n="targets.intro">The same component tree on each host. Rows marked Show open that screen in the hero above.</p>
             </div>
           </div>
           <div class="target-table" role="table" aria-label="Supported targets">
@@ -1579,18 +1620,11 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
               <span role="columnheader"></span>
             </div>
             <div class="target-row" role="row">
-              <span class="target-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="5.5" y="3.5" width="13" height="17" rx="1.6" stroke="currentColor" stroke-width="1.4"/><rect x="8" y="6" width="8" height="7" rx=".6" stroke="currentColor" stroke-width="1.2"/><path d="M2.5 7h3M2.5 10.5h3M2.5 14h3M18.5 7h3M18.5 10.5h3M18.5 14h3M10 17h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
-              <strong role="cell">ESP32-C3</strong>
-              <span class="spec" role="cell" data-i18n="targets.esp">RISC-V · 160 MHz · 400 KB SRAM · 1.8″ ST7735</span>
-              <code class="backend" role="cell">FramebufSurface · no_std</code>
-              <span class="target-actions" role="cell"><a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/esp32c3" target="_blank" rel="noopener" data-i18n="targets.template">Template</a><button type="button" data-show-preset="board" data-i18n="targets.show">Show</button></span>
-            </div>
-            <div class="target-row" role="row">
               <span class="target-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="5" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="6" height="6" rx=".8" stroke="currentColor" stroke-width="1.2"/><path d="M9 2.5v2.5M12 2.5v2.5M15 2.5v2.5M9 19v2.5M12 19v2.5M15 19v2.5M2.5 9H5M2.5 12H5M2.5 15H5M19 9h2.5M19 12h2.5M19 15h2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
-              <strong role="cell">Cortex-M</strong>
-              <span class="spec" role="cell" data-i18n="targets.stm">STM32 and other ARM microcontrollers</span>
+              <strong role="cell" data-i18n="targets.mcu">MCU</strong>
+              <span class="spec" role="cell" data-i18n="targets.mcuSpec">RISC-V, Arm Cortex-M and other microcontrollers. No FPU needed</span>
               <code class="backend" role="cell">FramebufSurface · no_std + alloc</code>
-              <span class="target-actions" role="cell"></span>
+              <span class="target-actions" role="cell"><a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/esp32c3" target="_blank" rel="noopener" data-i18n="targets.template">Template</a><button type="button" data-show-preset="board" data-i18n="targets.show">Show</button></span>
             </div>
             <div class="target-row" role="row">
               <span class="target-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="6.5" stroke="currentColor" stroke-width="1.4"/><path d="M8.6 6.4 9.4 2.5h5.2l.8 3.9M8.6 17.6l.8 3.9h5.2l.8-3.9" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M12 9v3l2 1.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
@@ -1630,13 +1664,15 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
           </div>
         </section>
 
-        <section class="home-section start-section" id="start">
-          <div class="section-head">
-            <div>
-              <h2 class="section-title" data-i18n="start.title">Get started</h2>
-              <p class="section-intro" data-i18n="start.intro">Add mirui to an existing crate, or generate a project for desktop, browser, mobile or ESP32-C3.</p>
+        <section class="start-section" id="start">
+          <div class="start-inner">
+            <div class="start-head">
+              <div>
+                <div class="section-kicker" data-i18n="start.kicker">Getting started</div>
+                <h2 class="headline"><span data-i18n="start.title1">Open a terminal.</span><br/><span data-i18n-html="start.title2">Make it yours<i class="dot-ui">.</i></span></h2>
+              </div>
+              <p data-i18n="start.intro">Add mirui to an existing crate, or generate a project for desktop, browser, mobile or an embedded board.</p>
             </div>
-          </div>
           <div class="start-grid">
             <article class="start-card">
               <div class="start-card-head"><h3 data-i18n="start.crateTitle">Add to a crate</h3><span>crates.io</span></div>
@@ -1649,7 +1685,7 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
             </article>
             <article class="start-card">
               <div class="start-card-head"><h3 data-i18n="start.templateTitle">Start from a template</h3><a href="https://github.com/W-Mai/mirui-templates" target="_blank" rel="noopener">W-Mai/mirui-templates</a></div>
-              <p data-i18n="start.templateBody">Generate one target, or a workspace with desktop, WebAssembly, ESP32-C3, Android and iOS apps.</p>
+              <p data-i18n="start.templateBody">Generate one target, or a workspace with desktop, WebAssembly, embedded, Android and iOS apps.</p>
               <div class="start-command start-command-stack">
                 <code><span>cargo install cargo-generate</span><span>cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/workspace --name hello-mirui</span></code>
                 <button type="button" data-copy-command="cargo install cargo-generate&#10;cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/workspace --name hello-mirui" aria-label="Copy template commands" data-i18n="common.copy">Copy</button>
@@ -1663,6 +1699,7 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
                 <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/esp32c3" target="_blank" rel="noopener">esp32c3</a>
               </nav>
             </article>
+          </div>
           </div>
         </section>
       </main>
@@ -1771,7 +1808,7 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
               <div class="resize-ring" id="resize-ring" title="Drag to resize"></div>
               <div class="device-deco" aria-hidden="true">
                 <i class="dv b bezel"></i><i class="dv b hole h1"></i><i class="dv b hole h2"></i><i class="dv b hole h3"></i><i class="dv b hole h4"></i>
-                <i class="dv b pins l"></i><i class="dv b pins r"></i><i class="dv b module">ESP32-C3</i><i class="dv b key k1"></i><i class="dv b key k2"></i><i class="dv b usb"></i>
+                <i class="dv b pins l"></i><i class="dv b pins r"></i><i class="dv b module">MCU</i><i class="dv b key k1"></i><i class="dv b key k2"></i><i class="dv b usb"></i>
                 <i class="dv w strap top"></i><i class="dv w strap bottom"></i><i class="dv w crown"></i><i class="dv w pusher"></i><i class="dv w case"></i>
                 <i class="dv p side l"></i><i class="dv p side r"></i><i class="dv p island"></i>
                 <i class="dv br dots"></i><i class="dv br address">mirui.rs/?demo=iris</i>
@@ -1825,53 +1862,50 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
         const copy = {
           en: {
             "nav.play": "Play", "nav.demos": "Demos", "nav.how": "How it works", "nav.targets": "Targets", "nav.start": "Get started", "nav.docs": "Docs",
-            "hero.tagline": '<span class="t">Possibly the most elegant</span><span class="t"><em>declarative embedded</em></span><span class="t"><em>graphics library</em></span>',
+            "hero.small": 'Small screens<i class="dot-see">.</i>', "hero.play": 'Big play<i class="dot-ui">.</i>',
+            "hero.smallSub": "One ui! tree, from a 128 × 160 panel to a desktop window.",
+            "hero.playSub": "Thirteen games written with mirui. Play one right here.",
+            "hero.expand": "Expand", "hero.collapse": "Show both",
             "hero.demos": "Browse demos", "hero.start": "Get started",
             "common.copy": "Copy", "common.copied": "Copied",
-            "wb.live": "Live", "wb.watch": "Watch", "wb.phone": "Phone", "wb.browser": "Browser",
+            "arcade.source": "Source", "arcade.full": "Play full screen",
+            "wb.board": "MCU", "wb.watch": "Watch", "wb.phone": "Phone", "wb.browser": "Browser",
             "wb.loupe": "Pixel loupe", "wb.loupeOff": "Turn off the pixel loupe", "wb.open": "Open in gallery", "wb.loading": "Loading WebAssembly",
             "wb.layout": "Layout", "wb.scale": "Scale", "wb.grip": "Resize the screen",
             "wb.hint": "Drag the screen corner to resize. Click a match arm to switch screens.",
-            "wb.dev.board": "ESP32-C3 · ST7735", "wb.dev.watch": "NuttX · round 1.28″", "wb.dev.phone": "Android · WGPU",
+            "wb.dev.board": "MCU · SPI LCD", "wb.dev.watch": "NuttX · round 1.28″", "wb.dev.phone": "Android · WGPU",
             "wb.dev.browser": "Browser · Web Canvas", "wb.dev.custom": "Resizable window · Web Canvas",
             "wb.arm": "Show this layout",
-            "play.title": "Play", "play.intro": "Thirteen games at 480 × 320. Each one also builds as a native app.",
+            "play.kicker": "Games", "play.title": 'Play<i class="dot-ui">.</i>',
+            "play.intro": "Thirteen games at 480 × 320. Each one also builds as a native app.",
             "play.search": "Search demos", "play.empty": "No games match this search.",
-            "catalog.title": "Demos", "catalog.intro": "Components, rendering, motion, effects, state and scrolling, each with its Rust source.",
+            "catalog.kicker": "Demos", "catalog.title": 'Explore<i class="dot-ui">.</i>',
+            "catalog.intro": "Components, rendering, motion, effects, state and scrolling, each with its Rust source.",
             "catalog.empty": "No demos match this search.", "catalog.count": "{n} demos",
             "filter.all": "All", "filter.puzzle": "Puzzle", "filter.strategy": "Strategy", "filter.creative": "Creative",
             "genre.puzzle": "Puzzle", "genre.strategy": "Strategy", "genre.creative": "Creative",
             "game.marble": "Marble Playground", "game.twin": "Twin Beacons", "game.tidal": "Tidal Atlas", "game.echo": "Echo Walker",
             "game.loom": "Pixel Loom", "game.lumen": "Lumen Lab", "game.ark": "Folding Ark", "game.atlas": "Atlas Restoration",
             "game.factory": "Module Factory", "game.orbit": "Orbital Mission", "game.circuit": "Logic Circuit", "game.moss": "Moss Study", "game.post": "Pocket Post",
-            "how.title": "How it works",
-            "how.intro": "A retained component tree, laid out in Q24.8 fixed point, drawn by the backend the target has.",
-            "how.s0": "Declare", "how.s0d": "Widgets, attributes and children in one Rust macro.",
-            "how.s1": "Bind", "how.s1d": "Observed model fields update only the bindings that read them.",
-            "how.s2": "Lay out", "how.s2d": "Flexbox and absolute positioning in fixed point. @ attributes rerun when geometry changes.",
-            "how.s3": "Draw", "how.s3d": "Only changed regions are redrawn, with coverage antialiasing on every path.",
-            "how.s4": "Present", "how.s4d": "Software framebuffer, SDL, WGPU, Web Canvas, Linux and NuttX surfaces.",
-            "how.f0a": "#[compose] functions return reusable subtrees", "how.f0b": "walk loops and if / match branches inside the tree", "how.f0c": "Integer literals coerce to Fixed and Dimension",
-            "how.f1a": "$ subscribes to the fields a binding reads", "how.f1b": "A method that returns an error publishes nothing", "how.f1c": "One model can feed many views",
-            "how.f2a": "Q24.8 fixed point for layout, raster and hit tests", "how.f2b": "No FPU needed. The ESP32-C3 has none", "how.f2c": "Dependencies are declared and checked at compile time",
-            "how.k3a": "Geometry", "how.v3a": "24.8 fixed point from layout to raster, hit testing and events",
-            "how.k3b": "Antialiasing", "how.v3b": "Scanline coverage on any Path. SDF and 2×2 supersample fast paths for quads",
-            "how.k3c": "Refresh", "how.v3c": "Per-entity Dirty and PrevRect markers. Unchanged regions are not redrawn",
-            "how.k3d": "Text", "how.v3d": "Shaped text with fallback fonts, bidirectional scripts and text on paths",
-            "how.k3e": "Scale", "how.v3e": "HiDPI scale factors propagate automatically. This page renders at your device pixel ratio",
-            "targets.title": "Targets",
-            "targets.intro": "The same component tree on each host. Rows marked Show open that screen in the Iris workbench above.",
+            "how.kicker": "How it works", "build.title1": "Build once.", "build.title2": 'Route precisely<i class="dot-ui">.</i>',
+            "build.body": "One retained component tree. Layout runs in Q24.8 fixed point, then each target draws it with the backend it has.",
+            "build.cap1": "Q24.8 layout + hit testing", "build.cap2": "no_std + alloc core", "build.cap3": "Dirty-region redraw", "build.cap4": "Software + GPU routes",
+            "build.respondNote": "Drag the screen corner in the hero to watch this kind of rule run.",
+            "build.c0": "Compose", "build.c0d": "ui! macro · #[compose]", "build.c1": "Bind", "build.c1d": "#[model] · $ bindings",
+            "build.c2": "Respond", "build.c2d": "@ layout queries", "build.c3": "Route", "build.c3d": "software · GPU · Web",
+            "targets.kicker": "Runtime targets", "targets.title": 'Everywhere<i class="dot-ui">.</i>',
+            "targets.intro": "The same component tree on each host. Rows marked Show open that screen in the hero above.",
             "targets.colTarget": "Target", "targets.colHost": "Hardware or OS", "targets.colBackend": "mirui backend",
-            "targets.esp": "RISC-V · 160 MHz · 400 KB SRAM · 1.8″ ST7735", "targets.stm": "STM32 and other ARM microcontrollers",
+            "targets.mcu": "MCU", "targets.mcuSpec": "RISC-V, Arm Cortex-M and other microcontrollers. No FPU needed",
             "targets.nuttx": "Real-time OS · round 1.28″ 240 × 240", "targets.linux": "Embedded Linux without a compositor",
             "targets.mobile": "Android · iOS", "targets.mobileSpec": "Phones and tablets", "targets.desktop": "Desktop",
             "targets.browser": "Browser", "targets.browserSpec": "WebAssembly. This page is one",
             "targets.template": "Template", "targets.show": "Show",
-            "start.title": "Get started",
-            "start.intro": "Add mirui to an existing crate, or generate a project for desktop, browser, mobile or ESP32-C3.",
+            "start.kicker": "Getting started", "start.title1": "Open a terminal.", "start.title2": 'Make it yours<i class="dot-ui">.</i>',
+            "start.intro": "Add mirui to an existing crate, or generate a project for desktop, browser, mobile or an embedded board.",
             "start.crateTitle": "Add to a crate", "start.crateBody": "Use the library directly when the runtime and window integration already exist.",
             "start.docs": "Read the API docs", "start.templateTitle": "Start from a template",
-            "start.templateBody": "Generate one target, or a workspace with desktop, WebAssembly, ESP32-C3, Android and iOS apps.",
+            "start.templateBody": "Generate one target, or a workspace with desktop, WebAssembly, embedded, Android and iOS apps.",
             "footer.note": "MIT licensed. The live demos on this page are mirui compiled to WebAssembly.",
             "gallery.title": "mirui · gallery", "gallery.tag": "subpixel UI · no_std · wasm",
             "gallery.filter": "Filter demos…", "gallery.noMatch": "No demos match that filter.", "gallery.rendering": "rendering",
@@ -1883,53 +1917,50 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
           },
           zh: {
             "nav.play": "游戏", "nav.demos": "示例", "nav.how": "工作原理", "nav.targets": "平台", "nav.start": "开始使用", "nav.docs": "文档",
-            "hero.tagline": '<span class="t">这可能是最优雅的</span><span class="t"><em>声明式嵌入式图形库</em></span>',
+            "hero.small": '小屏幕<i class="dot-see">。</i>', "hero.play": '大游戏<i class="dot-ui">。</i>',
+            "hero.smallSub": "同一棵 ui! 组件树，从 128 × 160 小屏到桌面窗口。",
+            "hero.playSub": "13 个用 mirui 写的小游戏，在这里就能玩。",
+            "hero.expand": "展开", "hero.collapse": "回到双屏",
             "hero.demos": "浏览 Demo", "hero.start": "开始使用",
             "common.copy": "复制", "common.copied": "已复制",
-            "wb.live": "实时", "wb.watch": "手表", "wb.phone": "手机", "wb.browser": "浏览器",
+            "arcade.source": "源码", "arcade.full": "全屏玩",
+            "wb.board": "MCU", "wb.watch": "手表", "wb.phone": "手机", "wb.browser": "浏览器",
             "wb.loupe": "像素放大镜", "wb.loupeOff": "关闭像素放大镜", "wb.open": "在 Gallery 中打开", "wb.loading": "正在加载 WebAssembly",
             "wb.layout": "布局", "wb.scale": "缩放", "wb.grip": "调整屏幕尺寸",
             "wb.hint": "拖动屏幕右下角改变尺寸，点 match 分支切换屏幕。",
-            "wb.dev.board": "ESP32-C3 · ST7735", "wb.dev.watch": "NuttX · 1.28″ 圆屏", "wb.dev.phone": "Android · WGPU",
+            "wb.dev.board": "MCU · SPI 屏", "wb.dev.watch": "NuttX · 1.28″ 圆屏", "wb.dev.phone": "Android · WGPU",
             "wb.dev.browser": "浏览器 · Web Canvas", "wb.dev.custom": "可调窗口 · Web Canvas",
             "wb.arm": "切换到这个布局",
-            "play.title": "游戏", "play.intro": "13 个 480 × 320 的小游戏，每一个也能编译成原生应用。",
+            "play.kicker": "游戏", "play.title": '开玩<i class="dot-ui">。</i>',
+            "play.intro": "13 个 480 × 320 的小游戏，每一个也能编译成原生应用。",
             "play.search": "搜索 Demo", "play.empty": "没有匹配的游戏。",
-            "catalog.title": "示例", "catalog.intro": "组件、渲染、动效、特效、状态与滚动，每个都附带 Rust 源码。",
+            "catalog.kicker": "Demo", "catalog.title": '继续看<i class="dot-ui">。</i>',
+            "catalog.intro": "组件、渲染、动效、特效、状态与滚动，每个都附带 Rust 源码。",
             "catalog.empty": "没有匹配的 Demo。", "catalog.count": "{n} 个",
             "filter.all": "全部", "filter.puzzle": "解谜", "filter.strategy": "策略", "filter.creative": "创作",
             "genre.puzzle": "解谜", "genre.strategy": "策略", "genre.creative": "创作",
             "game.marble": "弹珠游乐场", "game.twin": "双子信标", "game.tidal": "潮汐群岛", "game.echo": "回声行者",
             "game.loom": "像素织机", "game.lumen": "光路实验室", "game.ark": "折叠方舟", "game.atlas": "星图修复局",
             "game.factory": "模块工厂", "game.orbit": "轨道任务台", "game.circuit": "逻辑电路台", "game.moss": "微型生态瓶", "game.post": "轨道邮局",
-            "how.title": "工作原理",
-            "how.intro": "一棵常驻的组件树，用 Q24.8 定点数排版，再交给目标平台上的后端绘制。",
-            "how.s0": "声明", "how.s0d": "组件、属性和子节点写在一个 Rust 宏里。",
-            "how.s1": "绑定", "how.s1d": "被观察的模型字段，只更新读到它的那些绑定。",
-            "how.s2": "排版", "how.s2d": "定点数实现的 Flexbox 与绝对定位，几何变化后重新计算 @ 属性。",
-            "how.s3": "绘制", "how.s3d": "只重绘变化的区域，每条路径都有覆盖率抗锯齿。",
-            "how.s4": "输出", "how.s4d": "软件帧缓冲、SDL、WGPU、Web Canvas、Linux 与 NuttX。",
-            "how.f0a": "#[compose] 函数返回可复用的子树", "how.f0b": "树里可以写 walk 循环和 if / match 分支", "how.f0c": "整数字面量自动转成 Fixed 和 Dimension",
-            "how.f1a": "$ 只订阅绑定读到的字段", "how.f1b": "方法返回错误时不发布任何更新", "how.f1c": "一个模型可以驱动多个视图",
-            "how.f2a": "布局、光栅化和命中测试都用 Q24.8 定点数", "how.f2b": "不需要 FPU，ESP32-C3 就没有", "how.f2c": "依赖在编译期声明并检查",
-            "how.k3a": "几何", "how.v3a": "从布局到光栅化、命中测试和事件，全程 24.8 定点数",
-            "how.k3b": "抗锯齿", "how.v3b": "任意 Path 的扫描线覆盖率抗锯齿，矩形有 SDF 与 2×2 超采样快速路径",
-            "how.k3c": "刷新", "how.v3c": "每个实体带 Dirty 与 PrevRect 标记，没变的区域不重绘",
-            "how.k3d": "文本", "how.v3d": "带回退字体、双向文字和路径排布的塑形文本",
-            "how.k3e": "缩放", "how.v3e": "HiDPI 缩放系数自动传递，本页按你的设备像素比渲染",
-            "targets.title": "运行平台",
-            "targets.intro": "同一棵组件树跑在不同的宿主上。带「查看」的行，会在上方的 Iris 工作台里打开对应屏幕。",
+            "how.kicker": "工作原理", "build.title1": "构建一次。", "build.title2": '精确分流<i class="dot-ui">。</i>',
+            "build.body": "一棵常驻的组件树。布局用 Q24.8 定点数计算，再由每个平台用自己的后端绘制。",
+            "build.cap1": "Q24.8 布局与命中测试", "build.cap2": "no_std + alloc 核心", "build.cap3": "只重绘变化的区域", "build.cap4": "软件与 GPU 路由",
+            "build.respondNote": "在上面拖动屏幕右下角，就能看到这类规则生效。",
+            "build.c0": "声明", "build.c0d": "ui! 宏 · #[compose]", "build.c1": "绑定", "build.c1d": "#[model] · $ 绑定",
+            "build.c2": "响应", "build.c2d": "@ 布局查询", "build.c3": "分流", "build.c3d": "软件 · GPU · Web",
+            "targets.kicker": "运行目标", "targets.title": '全平台<i class="dot-ui">。</i>',
+            "targets.intro": "同一棵组件树跑在不同的宿主上。带「查看」的行，会在上方首屏打开对应屏幕。",
             "targets.colTarget": "目标", "targets.colHost": "硬件或系统", "targets.colBackend": "mirui 后端",
-            "targets.esp": "RISC-V · 160 MHz · 400 KB SRAM · 1.8″ ST7735", "targets.stm": "STM32 等 ARM 微控制器",
+            "targets.mcu": "单片机", "targets.mcuSpec": "RISC-V、Arm Cortex-M 等单片机，不需要 FPU",
             "targets.nuttx": "实时操作系统 · 1.28″ 圆屏 240 × 240", "targets.linux": "没有合成器的嵌入式 Linux",
             "targets.mobile": "Android · iOS", "targets.mobileSpec": "手机与平板", "targets.desktop": "桌面",
             "targets.browser": "浏览器", "targets.browserSpec": "WebAssembly，本页就是",
             "targets.template": "模板", "targets.show": "查看",
-            "start.title": "开始使用",
-            "start.intro": "把 mirui 加入现有 crate，或者生成桌面、浏览器、移动端与 ESP32-C3 工程。",
+            "start.kicker": "开始使用", "start.title1": "打开终端。", "start.title2": '开始构建<i class="dot-ui">。</i>',
+            "start.intro": "把 mirui 加入现有 crate，或者生成桌面、浏览器、移动端与嵌入式开发板工程。",
             "start.crateTitle": "加入现有 crate", "start.crateBody": "已经有运行时和窗口集成时，直接把 mirui 作为依赖接入。",
             "start.docs": "查看 API 文档", "start.templateTitle": "从模板开始",
-            "start.templateBody": "生成单一目标工程，或同时包含桌面、WebAssembly、ESP32-C3、Android 与 iOS 的 workspace。",
+            "start.templateBody": "生成单一目标工程，或同时包含桌面、WebAssembly、嵌入式、Android 与 iOS 的 workspace。",
             "footer.note": "MIT 许可。本页的实时 Demo 是编译成 WebAssembly 的 mirui。",
             "gallery.title": "mirui · Gallery", "gallery.tag": "亚像素 UI · no_std · wasm",
             "gallery.filter": "筛选 Demo…", "gallery.noMatch": "没有匹配的 Demo。", "gallery.rendering": "渲染中",
@@ -2124,98 +2155,124 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
         block.innerHTML = highlightRust(block.textContent);
       }
 
-      // The hero mark is an eye. Its iris follows the pointer with a low-pass
-      // lag; the highlight is a reflection, so it travels a little less.
+      // Small screens | Big play: either half can open over the other for a while.
       (function () {
-        const logo = document.getElementById("hero-logo");
-        if (!logo) return;
-        const iris = logo.querySelector(".eye-iris");
-        const glint = logo.querySelector(".eye-glint");
-        const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-        const REACH = 18;
-        let target = { x: 0, y: 0 };
-        const current = { x: 0, y: 0 };
-        let frame = 0;
-        const allowed = () => !reduced.matches
-          && !document.documentElement.classList.contains("site-motion-off")
-          && document.documentElement.dataset.mode === "home";
-        function render() {
-          frame = 0;
-          current.x += (target.x - current.x) * 0.12;
-          current.y += (target.y - current.y) * 0.12;
-          iris.setAttribute("transform", `translate(${current.x.toFixed(2)} ${current.y.toFixed(2)})`);
-          glint.setAttribute("transform", `translate(${(current.x * 0.6).toFixed(2)} ${(current.y * 0.6).toFixed(2)})`);
-          if (Math.abs(target.x - current.x) > 0.02 || Math.abs(target.y - current.y) > 0.02) {
-            frame = requestAnimationFrame(render);
+        const split = document.getElementById("split");
+        if (!split) return;
+        const panes = {
+          small: document.getElementById("pane-small"),
+          play: document.getElementById("pane-play"),
+        };
+        const t = (key) => window.miruiLanguage.t(key);
+        function label() {
+          for (const [name, pane] of Object.entries(panes)) {
+            const open = split.dataset.open === name;
+            for (const control of pane.querySelectorAll("[data-pane-open]")) {
+              control.setAttribute("aria-expanded", String(open));
+            }
+            const toggle = pane.querySelector(".pane-toggle");
+            toggle.title = t(open ? "hero.collapse" : "hero.expand");
+            toggle.setAttribute("aria-label", toggle.title);
           }
         }
-        function settle(next) {
-          target = next;
-          if (!frame) frame = requestAnimationFrame(render);
+        // Stacked on narrow screens, both halves stay in view and nothing collapses.
+        const stacked = window.matchMedia("(max-width: 1023px)");
+        function paint() {
+          const open = split.dataset.open || "";
+          for (const [name, pane] of Object.entries(panes)) {
+            pane.classList.toggle("is-open", open === name);
+            pane.classList.toggle("is-collapsed", !stacked.matches && open !== "" && open !== name);
+          }
+          label();
         }
-        function lookAt(x, y) {
-          const box = logo.getBoundingClientRect();
-          if (!box.width) return;
-          // Iris centre: viewBox (443.26, 280.37) inside 298.36 144.42 878.39 295.16.
-          const unit = box.width / 878.39;
-          const dx = x - (box.left + 144.9 * unit);
-          const dy = y - (box.top + 135.95 * unit);
-          const distance = Math.hypot(dx, dy) || 1;
-          const pull = Math.tanh(distance / 240) * REACH;
-          settle({ x: (dx / distance) * pull, y: (dy / distance) * pull * 0.8 });
+        function setOpen(which) {
+          const next = which && split.dataset.open !== which ? which : "";
+          if ((split.dataset.open || "") === next) return;
+          split.dataset.open = next;
+          paint();
+          document.dispatchEvent(new CustomEvent("mirui-split-change", { detail: { open: next } }));
         }
-        // At rest the eye watches the live screen below it.
-        function watchStage() {
-          const screen = document.querySelector("#home-stage-host canvas, #home-stage-host .stage-placeholder");
-          if (!screen || !allowed()) return settle({ x: 0, y: 0 });
-          const box = screen.getBoundingClientRect();
-          lookAt(box.left + box.width / 2, box.top + box.height / 2);
+        stacked.addEventListener("change", paint);
+        for (const control of document.querySelectorAll("[data-pane-open]")) {
+          control.addEventListener("click", (event) => {
+            event.stopPropagation();
+            setOpen(control.dataset.paneOpen);
+          });
         }
-        window.addEventListener("pointermove", (event) => {
-          if (allowed()) lookAt(event.clientX, event.clientY);
-        }, { passive: true });
-        document.documentElement.addEventListener("pointerleave", watchStage);
-        window.addEventListener("blur", watchStage);
-        window.addEventListener("TrunkApplicationStarted", () => window.setTimeout(watchStage, 600));
+        // A collapsed half is one large target; clicks do not reach its content.
+        for (const [name, pane] of Object.entries(panes)) {
+          pane.addEventListener("click", (event) => {
+            if (!pane.classList.contains("is-collapsed")) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(name);
+          }, true);
+        }
+        document.addEventListener("keydown", (event) => {
+          if (event.key !== "Escape" || !split.dataset.open) return;
+          if (document.documentElement.dataset.mode !== "home") return;
+          setOpen("");
+        });
+        document.addEventListener("mirui-language-change", label);
+        label();
+        window.miruiSplit = { setOpen, open: () => split.dataset.open || "" };
       })();
 
-      // How it works: tabs over real snippets. No wasm needed.
+      // Build once, route precisely: a swipeable stack of real snippets.
       (function () {
-        const tabs = Array.from(document.querySelectorAll("[data-how]"));
-        if (!tabs.length) return;
-        const panels = tabs.map((tab) => document.getElementById(tab.getAttribute("aria-controls")));
-        const frame = panels[0].parentElement;
-        function select(index, focus) {
-          const from = frame.offsetHeight;
-          tabs.forEach((tab, order) => {
-            const on = order === index;
-            tab.setAttribute("aria-selected", String(on));
-            tab.tabIndex = on ? 0 : -1;
-            panels[order].classList.toggle("active", on);
-            panels[order].inert = !on;
-            panels[order].setAttribute("aria-hidden", String(!on));
+        const demo = document.getElementById("build-demo");
+        if (!demo) return;
+        const stack = document.getElementById("build-card-stack");
+        const cards = Array.from(demo.querySelectorAll("[data-build-panel]"));
+        const dots = Array.from(demo.querySelectorAll("[data-build-dot]"));
+        const title = document.getElementById("build-demo-title");
+        const meta = document.getElementById("build-demo-meta");
+        let active = 0;
+        let swipeStart = null;
+        let swiped = false;
+        function select(index) {
+          active = (index + cards.length) % cards.length;
+          cards.forEach((card, order) => {
+            const distance = (order - active + cards.length) % cards.length;
+            card.classList.toggle("is-active", distance === 0);
+            card.classList.toggle("is-next", distance === 1);
+            card.classList.toggle("is-prev", distance === cards.length - 1);
+            card.classList.toggle("is-back", distance > 1 && distance < cards.length - 1);
+            card.setAttribute("aria-pressed", String(distance === 0));
           });
-          const to = frame.offsetHeight;
-          const still = document.documentElement.classList.contains("site-motion-off")
-            || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-          if (from && from !== to && !still) {
-            frame.animate([{ height: `${from}px` }, { height: `${to}px` }], {
-              duration: 380,
-              easing: "cubic-bezier(.2,.8,.2,1)",
-            });
-          }
-          if (focus) tabs[index].focus();
+          dots.forEach((dot) => dot.setAttribute("aria-selected", String(Number(dot.dataset.buildDot) === active)));
+          title.textContent = window.miruiLanguage.t(`build.c${active}`);
+          meta.textContent = window.miruiLanguage.t(`build.c${active}d`);
         }
-        tabs.forEach((tab, index) => {
-          tab.addEventListener("click", () => select(index, false));
-          tab.addEventListener("keydown", (event) => {
-            const delta = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
-            if (!delta) return;
+        cards.forEach((card) => {
+          card.addEventListener("click", () => { if (!swiped) select(Number(card.dataset.buildPanel)); });
+          card.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
             event.preventDefault();
-            select((index + delta + tabs.length) % tabs.length, true);
+            select(Number(card.dataset.buildPanel));
           });
         });
-        select(0, false);
+        dots.forEach((dot) => dot.addEventListener("click", () => select(Number(dot.dataset.buildDot))));
+        document.getElementById("build-demo-prev").addEventListener("click", () => select(active - 1));
+        document.getElementById("build-demo-next").addEventListener("click", () => select(active + 1));
+        demo.addEventListener("keydown", (event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          select(active + (event.key === "ArrowRight" ? 1 : -1));
+        });
+        stack.addEventListener("pointerdown", (event) => { swipeStart = event.clientX; swiped = false; });
+        stack.addEventListener("pointerup", (event) => {
+          if (swipeStart === null) return;
+          const distance = event.clientX - swipeStart;
+          swipeStart = null;
+          if (Math.abs(distance) < 42) return;
+          swiped = true;
+          select(active + (distance < 0 ? 1 : -1));
+          window.setTimeout(() => { swiped = false; }, 0);
+        });
+        stack.addEventListener("pointercancel", () => { swipeStart = null; });
+        document.addEventListener("mirui-language-change", () => select(active));
+        select(0);
       })();
 
       document.addEventListener("scroll", () => {
@@ -2962,6 +3019,10 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
 
         applyStoredAudioPreference();
         applyCanvasSize(resolveCanvasSize());
+        // Web fonts can move the hero by a few pixels after the first fit.
+        document.fonts?.ready.then(() => {
+          if (!sizeTween && !gripDrag) applyCanvasSize(resolveCanvasSize());
+        });
 
         // ── Resize ring ────────────────────────────────────────
         // Center-scaling: <main> already flex-centers the stage, so growing
@@ -3075,6 +3136,7 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
         });
         fitObserver.observe(focusStageHost);
         fitObserver.observe(homeStagePanel);
+        fitObserver.observe(wbDevices);
 
         function adoptDeviceOrientation() {
           adoptPortraitOrientation();
@@ -3309,6 +3371,7 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
           }
           siteMode = next;
           document.documentElement.dataset.mode = next;
+          document.dispatchEvent(new CustomEvent("mirui-site-mode", { detail: { mode: next } }));
           document.title = next === "home"
             ? "mirui — no_std UI framework for embedded, desktop, and WebAssembly"
             : `${stageName.textContent} — mirui`;
@@ -3337,6 +3400,7 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
         let homeTransitionTarget = stage;
 
         function homeOriginFor(trigger) {
+          if (trigger && trigger.closest("#pane-play")) return document.getElementById("arcade-screen");
           const card = trigger && trigger.closest(".demo-card, .catalog-card");
           return card && card.querySelector(".game-cover, .catalog-cover") || stage;
         }
@@ -3721,6 +3785,272 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
           loupe.classList.remove("visible");
         });
         updatePresetButtons();
+
+        // ── Source column: fit every line, no scrollbar ────────
+        const wbCode = document.getElementById("wb-code");
+        const stackedHero = window.matchMedia("(max-width: 1023px)");
+        function fitCode() {
+          if (!wbCode || !layoutCode.classify || !wbCode.clientHeight) return;
+          const rows = layoutCode.classify.rows.length + layoutCode.match.rows.length;
+          let chrome = 0;
+          for (const file of wbCode.querySelectorAll(".wb-file")) {
+            const head = file.querySelector("header");
+            const body = file.querySelector(".wb-src");
+            const style = getComputedStyle(body);
+            chrome += head.offsetHeight + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+          }
+          chrome += 2;
+          const line = Math.max(12, Math.min(21, (wbCode.clientHeight - chrome) / rows));
+          let size = Math.max(10, Math.min(12.5, line / 1.5));
+          wbCode.style.setProperty("--code-lh", `${line.toFixed(2)}px`);
+          wbCode.style.setProperty("--code-fs", `${size.toFixed(2)}px`);
+          // Files keep the open column width while it slides in, so the widest
+          // line can shrink the face too. Stacked phones scroll sideways instead.
+          if (!stackedHero.matches) {
+            let room = 0;
+            let over = 0;
+            for (const src of wbCode.querySelectorAll(".wb-src")) {
+              room = src.clientWidth;
+              over = Math.max(over, src.scrollWidth - src.clientWidth);
+            }
+            if (over > 0 && room > 200) {
+              size = Math.max(9, (size * (room - 60)) / (room + over - 60) - 0.05);
+              wbCode.style.setProperty("--code-fs", `${size.toFixed(2)}px`);
+            }
+          }
+          layoutCode.classify.placed = false;
+          layoutCode.match.placed = false;
+          layoutCode.layout = null;
+          if (currentSize && homeSizingActive()) syncDeviceFrame(currentSize);
+        }
+        new ResizeObserver(() => requestAnimationFrame(fitCode)).observe(wbCode);
+
+        // ── Big play: a second application on its own canvas ───
+        const arcade = document.getElementById("arcade");
+        const arcadeStage = document.getElementById("arcade-stage");
+        const arcadeScreen = document.getElementById("arcade-screen");
+        const arcadeGlass = document.getElementById("arcade-glass");
+        const arcadePoster = document.getElementById("arcade-poster");
+        const playCanvas = document.getElementById("mirui-play");
+        const arcadePrev = document.getElementById("arcade-prev");
+        const arcadeNext = document.getElementById("arcade-next");
+        const arcadeShelf = document.getElementById("arcade-shelf");
+        const split = document.getElementById("split");
+        const GAMES = Array.from(document.querySelectorAll("#demo-grid .demo-card")).map((card) => {
+          const opener = card.querySelector("[data-open-demo]");
+          const title = card.querySelector(".card-title strong");
+          return { slug: opener.dataset.openDemo, key: title.dataset.i18n, genre: card.dataset.category };
+        });
+        let arcadeIndex = 0;
+        let playStarted = false;
+        let arcadeSwitching = false;
+        let paneVisible = true;
+        let arcadeDrag = null;
+        const t = (key) => window.miruiLanguage.t(key);
+        const gameAt = (index) => GAMES[(index + GAMES.length) % GAMES.length];
+        const two = (value) => String(value).padStart(2, "0");
+
+        function fillCard(card, game, order) {
+          card.querySelector("img").src = `demo-previews/${game.slug}.png`;
+          card.querySelector(".arcade-card-bar b").textContent = t(game.key);
+          card.querySelector(".arcade-card-bar small").textContent = `${two(order + 1)} / ${two(GAMES.length)}`;
+          card.dataset.slug = game.slug;
+        }
+
+        function renderArcade() {
+          const game = gameAt(arcadeIndex);
+          document.getElementById("arcade-name").textContent = t(game.key);
+          document.getElementById("arcade-genre").textContent = t(`genre.${game.genre}`);
+          document.getElementById("arcade-count").textContent = `${two(arcadeIndex + 1)} / ${two(GAMES.length)}`;
+          fillCard(arcadePrev, gameAt(arcadeIndex - 1), (arcadeIndex - 1 + GAMES.length) % GAMES.length);
+          fillCard(arcadeNext, gameAt(arcadeIndex + 1), (arcadeIndex + 1) % GAMES.length);
+          for (const item of arcadeShelf.children) {
+            item.setAttribute("aria-current", String(item.dataset.slug === game.slug));
+          }
+        }
+
+        GAMES.forEach((game, order) => {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "arcade-shelf-item";
+          item.dataset.slug = game.slug;
+          item.setAttribute("role", "listitem");
+          item.setAttribute("aria-label", game.slug);
+          const image = document.createElement("img");
+          image.src = `demo-previews/${game.slug}.png`;
+          image.alt = "";
+          image.loading = "lazy";
+          image.draggable = false;
+          item.append(image);
+          item.addEventListener("click", () => selectGame(order, order > arcadeIndex ? 1 : -1));
+          arcadeShelf.append(item);
+        });
+
+        const playPane = document.getElementById("pane-play");
+        function sizePlay() {
+          if (!arcadeGlass.clientWidth) return;
+          const open = playPane.classList.contains("is-open");
+          const collapsed = playPane.classList.contains("is-collapsed");
+          const box = arcadeStage.getBoundingClientRect();
+          const meta = arcadeScreen.querySelector(".arcade-meta").offsetHeight + 14;
+          const width = box.width * (open ? 0.72 : collapsed ? 0.86 : 0.68);
+          const height = box.height - meta - (collapsed ? 30 : 46);
+          const scale = Math.max(0.2, Math.min(open ? 1.45 : 1.15, width / 480, height / 320));
+          const screenW = 480 * scale;
+          const screenH = 320 * scale + meta;
+          playCanvas.style.width = `${screenW}px`;
+          playCanvas.style.height = `${320 * scale}px`;
+          arcadeStage.style.setProperty("--screen-w", `${screenW}px`);
+          arcadeStage.style.setProperty("--screen-h", `${screenH}px`);
+          // Neighbours peek out from behind the screen, but their tilted outline
+          // stays 10px inside the stage, so their titles are never clipped.
+          const cardW = screenW * 0.72;
+          const cardH = arcadePrev.offsetHeight || cardW * 0.75;
+          const tilt = Math.sin((8 * Math.PI) / 180);
+          const halfW = 0.86 * (cardW / 2 + (cardH / 2) * tilt);
+          const halfH = 0.86 * (cardH / 2 + (cardW / 2) * tilt);
+          const peek = Math.max(screenW * 0.26, Math.min(screenW * 0.44, box.width / 2 - halfW - 10));
+          const room = Math.max(0, box.height * 0.48 - halfH - 10);
+          arcadeStage.style.setProperty("--peek", `${peek}px`);
+          arcadeStage.style.setProperty("--lift-prev", `${Math.min(screenH * 0.34, room)}px`);
+          arcadeStage.style.setProperty("--lift-next", `${Math.min(screenH * 0.26, room)}px`);
+        }
+        new ResizeObserver(() => requestAnimationFrame(sizePlay)).observe(arcadeStage);
+
+        function syncPlayPause() {
+          if (!playStarted) return;
+          const live = paneVisible && siteMode === "home" && !document.hidden && !playPane.classList.contains("is-collapsed");
+          try { wasmBindings.play_set_paused(!live); } catch (_) {}
+        }
+
+        function revealPlay() {
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            window.setTimeout(() => arcadePoster.classList.remove("show"), 90);
+          }));
+        }
+
+        function startPlay() {
+          if (playStarted) return;
+          sizePlay();
+          try {
+            playStarted = Boolean(wasmBindings.play_start("mirui-play", gameAt(arcadeIndex).slug));
+            wasmBindings.play_set_logical_size(480, 320);
+          } catch (error) {
+            playStarted = false;
+            console.warn("mirui: game pane did not start", error);
+          }
+          if (playStarted) revealPlay();
+          syncPlayPause();
+        }
+
+        function switchPlay(index) {
+          arcadeIndex = (index + GAMES.length) % GAMES.length;
+          const game = gameAt(arcadeIndex);
+          arcadePoster.src = `demo-previews/${game.slug}.png`;
+          arcadePoster.classList.add("show");
+          renderArcade();
+          if (playStarted) {
+            try {
+              wasmBindings.play_switch(game.slug);
+              wasmBindings.play_set_logical_size(480, 320);
+            } catch (_) {}
+            revealPlay();
+          }
+        }
+
+        function selectGame(index, direction = 1) {
+          if (arcadeSwitching || index === arcadeIndex) return;
+          if (!motionEnabled) {
+            switchPlay(index);
+            return;
+          }
+          arcadeSwitching = true;
+          const incoming = direction < 0 ? arcadePrev : arcadeNext;
+          fillCard(incoming, gameAt(index), (index + GAMES.length) % GAMES.length);
+          arcadeStage.classList.add("switching", direction < 0 ? "to-prev" : "to-next");
+          window.setTimeout(() => {
+            arcadeStage.classList.add("landing");
+            switchPlay(index);
+            arcadeStage.classList.remove("switching", "to-prev", "to-next");
+            window.setTimeout(() => {
+              arcadeStage.classList.remove("landing");
+              arcadeSwitching = false;
+            }, 380);
+          }, 460);
+        }
+
+        const stepGame = (direction) => selectGame(arcadeIndex + direction, direction);
+        arcadePrev.addEventListener("click", () => stepGame(-1));
+        arcadeNext.addEventListener("click", () => stepGame(1));
+        document.getElementById("arcade-step-prev").addEventListener("click", () => stepGame(-1));
+        document.getElementById("arcade-step-next").addEventListener("click", () => stepGame(1));
+        document.getElementById("arcade-play").addEventListener("click", (event) => {
+          openDemo(gameAt(arcadeIndex).slug, true, false, event.currentTarget);
+        });
+        document.getElementById("arcade-source").addEventListener("click", (event) => {
+          openDemo(gameAt(arcadeIndex).slug, true, true, event.currentTarget);
+        });
+        arcadeStage.addEventListener("keydown", (event) => {
+          if (event.target === playCanvas) return;
+          if (event.key === "ArrowLeft") { event.preventDefault(); stepGame(-1); }
+          if (event.key === "ArrowRight") { event.preventDefault(); stepGame(1); }
+        });
+        // Drag the backdrop, not the game, to flip to the neighbouring cartridge.
+        arcadeStage.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || event.target.closest("button, canvas")) return;
+          arcadeDrag = { id: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, captured: false };
+        });
+        arcadeStage.addEventListener("pointermove", (event) => {
+          if (!arcadeDrag || arcadeDrag.id !== event.pointerId) return;
+          const dx = event.clientX - arcadeDrag.x;
+          const dy = event.clientY - arcadeDrag.y;
+          if (!arcadeDrag.captured && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 12) {
+            arcadeDrag = null;
+            return;
+          }
+          if (!arcadeDrag.captured && Math.abs(dx) > 9) {
+            arcadeStage.setPointerCapture(event.pointerId);
+            arcadeStage.classList.add("dragging");
+            arcadeDrag.captured = true;
+          }
+          if (arcadeDrag.captured) {
+            arcadeDrag.dx = dx;
+            arcadeStage.style.setProperty("--drag", `${Math.max(-80, Math.min(80, dx * 0.36))}px`);
+          }
+        });
+        function endArcadeDrag(event, cancelled = false) {
+          if (!arcadeDrag || arcadeDrag.id !== event.pointerId) return;
+          const { captured, dx } = arcadeDrag;
+          arcadeDrag = null;
+          arcadeStage.classList.remove("dragging");
+          arcadeStage.style.removeProperty("--drag");
+          if (!captured) return;
+          try { arcadeStage.releasePointerCapture(event.pointerId); } catch (_) {}
+          if (!cancelled && Math.abs(dx) > 46) stepGame(dx < 0 ? 1 : -1);
+        }
+        arcadeStage.addEventListener("pointerup", (event) => endArcadeDrag(event));
+        arcadeStage.addEventListener("pointercancel", (event) => endArcadeDrag(event, true));
+
+        new IntersectionObserver((entries) => {
+          paneVisible = entries.some((entry) => entry.isIntersecting);
+          syncPlayPause();
+        }, { threshold: 0.04 }).observe(arcade);
+        document.addEventListener("visibilitychange", syncPlayPause);
+        document.addEventListener("mirui-split-change", () => {
+          stopTour();
+          syncPlayPause();
+          window.setTimeout(() => {
+            sizePlay();
+            fitCode();
+          }, 780);
+        });
+        document.addEventListener("mirui-language-change", renderArcade);
+        document.addEventListener("mirui-site-mode", () => {
+          syncPlayPause();
+          requestAnimationFrame(sizePlay);
+        });
+        renderArcade();
+        window.setTimeout(startPlay, 350);
 
         for (const button of document.querySelectorAll("[data-open-demo]")) {
           button.addEventListener("click", () => openDemo(button.dataset.openDemo, true, false, button));
@@ -4197,7 +4527,7 @@ let counter = app.add_model(Counter { value: 41 }).finish();</pre>
           }
         });
 
-        const revealTargets = document.querySelectorAll(".home-section .section-head, .demo-card, .how, .target-table, .start-card");
+        const revealTargets = document.querySelectorAll(".home-section .section-head, .demo-card, .build-copy, .build-demo, .target-table, .start-head, .start-card");
         document.documentElement.classList.add("site-motion-ready");
         for (const target of revealTargets) target.classList.add("reveal");
         if ("IntersectionObserver" in window) {

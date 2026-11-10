@@ -317,6 +317,16 @@ mod backend {
         WebCanvasSurface::new(canvas)
     }
 
+    /// A second application, such as the homepage's game pane, needs its own canvas.
+    pub fn grab_canvas_by_id(id: &str) -> Option<WebCanvasSurface> {
+        let canvas = web_sys::window()?
+            .document()?
+            .get_element_by_id(id)?
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .ok()?;
+        Some(WebCanvasSurface::new(canvas))
+    }
+
     pub fn assemble_app(
         backend: ActiveSurface,
         factory: ActiveFactory,
@@ -328,7 +338,7 @@ mod backend {
 }
 
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
-pub use backend::{assemble_app, configured_factory, grab_canvas};
+pub use backend::{assemble_app, configured_factory, grab_canvas, grab_canvas_by_id};
 
 #[cfg(all(
     feature = "snapshot",

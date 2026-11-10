@@ -1,6 +1,6 @@
 # mirui.rs — Web Canvas site
 
-The root route presents the mirui.rs homepage with one live `<canvas>` running Iris in a device workbench, the Play applications, generated preview cards for the demo registry, a pipeline walkthrough, targets and setup. `?demo=<slug>` opens the selected demo workspace directly. Both routes share the same `web-canvas` backend, `requestAnimationFrame` driver, and application instance. Demo routes are generated from the `register_demos!` table in `src/lib.rs`.
+The root route presents the mirui.rs homepage: a split hero with Iris in a device workbench and a Play application on a second `<canvas>`, generated preview cards for the demo registry, a card-stack walkthrough, targets and setup. `?demo=<slug>` opens the selected demo workspace directly. Both routes share the same `web-canvas` backend, `requestAnimationFrame` driver, and primary application instance. Demo routes are generated from the `register_demos!` table in `src/lib.rs`.
 
 ## Prerequisites
 
@@ -24,9 +24,13 @@ The watcher includes the gallery, mirui, mirx, and macro sources outside this di
 
 ## Site structure
 
-The homepage keeps one application live. The workbench frames the Iris canvas as an ESP32-C3 board with a 128×160 ST7735 panel, a 240×240 round watch, a 390×844 phone or a 1280×800 browser window, and morphs between them by animating the logical viewport, so the layout reflows through the intermediate sizes. Dragging the screen corner switches to a resizable window; arrow keys on the grip resize in 8 px steps. Next to the stage, the `IrisLayout::classify` and `match ${ model.layout() }` excerpts are taken from the embedded Iris source at runtime: a glass rod marks the branch and arm that run, the gutter marks evaluated conditions, and clicking an arm selects the matching screen. The pixel loupe magnifies canvas pixels under the pointer and reads the logical position in Q24.8 steps. First visits in a session tour the four screens once; any input stops the tour. The hero mark's iris follows the pointer. With reduced motion, the tour, morphs and eye movement are off.
+The hero has two halves. Small screens holds the Iris workbench; Big play runs one of the Play applications on `#mirui-play`. Clicking a half's title, its expand button or the folded half widens it to about three quarters of the row while the other half folds to a vertical title; Esc restores the even split. Below 1024 px the halves stack, and the expand button reveals the layout source or the game shelf instead.
 
-Game and demo cards use generated previews. Opening one reuses the live canvas instead of creating another renderer or application instance. Opening a demo from the homepage preserves the scroll position in browser history, and returning restores the workbench screen.
+The workbench frames the Iris canvas as an MCU board with a 128×160 SPI LCD, a 240×240 round watch, a 390×844 phone or a 1280×800 browser window, and morphs between them by animating the logical viewport, so the layout reflows through the intermediate sizes. Dragging the screen corner switches to a resizable window; arrow keys on the grip resize in 8 px steps. When the left half is expanded, the `IrisLayout::classify` and `match ${ model.layout() }` excerpts appear next to the stage, taken from the embedded Iris source at runtime and sized so every line fits without scrolling: a glass rod marks the branch and arm that run, the gutter marks evaluated conditions, and clicking an arm selects the matching screen. The pixel loupe magnifies canvas pixels under the pointer and reads the logical position in Q24.8 steps. First visits in a session tour the four screens once; any input stops the tour. With reduced motion, the tour and morphs are off.
+
+The game half is a second `App`. `play_start(canvas_id, slug)` creates it, `play_switch(slug)` replaces the running game, `play_set_logical_size(w, h)` fixes its logical viewport and `play_set_paused(true)` parks it while the half is folded or off screen, the page is hidden or a demo workspace is open. Arrow keys, dragging the backdrop or the neighbouring cartridges select another game; Play full screen opens it in the demo workspace on the primary canvas. `set_theme` reaches both applications; a game with its own fixed palette keeps it.
+
+Game and demo cards use generated previews. Opening one reuses the primary canvas instead of creating another renderer or application instance. Opening a demo from the homepage preserves the scroll position in browser history, and returning restores the workbench screen.
 
 Page text uses the bundled Geist and Geist Mono Latin subsets in `fonts/`; Chinese falls back to the platform CJK face.
 
