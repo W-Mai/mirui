@@ -4162,7 +4162,8 @@ fn counter_panel(counter: model!(Counter)) {
           }
           if (arcadeDrag.captured) {
             arcadeDrag.dx = dx;
-            arcadeStage.style.setProperty("--drag", `${Math.max(-80, Math.min(80, dx * 0.36))}px`);
+            // A soft limit: the deck gives way less the further it is pulled.
+            arcadeStage.style.setProperty("--pull", Math.tanh(dx / 240).toFixed(4));
           }
         });
         function endArcadeDrag(event, cancelled = false) {
@@ -4170,7 +4171,7 @@ fn counter_panel(counter: model!(Counter)) {
           const { captured, dx } = arcadeDrag;
           arcadeDrag = null;
           arcadeStage.classList.remove("dragging");
-          arcadeStage.style.removeProperty("--drag");
+          arcadeStage.style.removeProperty("--pull");
           if (!captured) return;
           try { arcadeStage.releasePointerCapture(event.pointerId); } catch (_) {}
           if (!cancelled && Math.abs(dx) > 46) stepGame(dx < 0 ? 1 : -1);

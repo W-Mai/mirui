@@ -1401,11 +1401,18 @@ html[data-mode="focus"] .device-grip { display: none; }
   grid-template-rows: minmax(0, 1fr) auto auto;
   min-width: 0;
   min-height: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
+/* --pull runs from -1 to 1 while the backdrop is dragged. Each layer moves
+   by its own depth: the screen most, the cartridges about half, stickers
+   less, the blueprint least. */
 .arcade-stage {
   --deck-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --drag: 0px;
+  --trail-ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --pull: 0;
   --screen-w: 480px;
   --screen-h: 360px;
   position: relative;
@@ -1433,7 +1440,8 @@ html[data-mode="focus"] .device-grip { display: none; }
     linear-gradient(color-mix(in srgb, var(--site-blue) 9%, transparent) 1px, transparent 1px),
     color-mix(in srgb, var(--site-blue-wash) 75%, transparent);
   background-size: 34px 34px;
-  transform: rotate(3deg);
+  transform: translateX(calc(var(--pull) * 18px)) rotate(3deg);
+  transition: transform 0.6s var(--deck-ease);
 }
 
 .arcade-stage::after {
@@ -1443,7 +1451,8 @@ html[data-mode="focus"] .device-grip { display: none; }
   z-index: -2;
   border: 1px dashed color-mix(in srgb, var(--site-blue) 34%, transparent);
   border-radius: 50%;
-  transform: rotate(-8deg);
+  transform: translateX(calc(var(--pull) * 10px)) rotate(calc(-8deg + var(--pull) * 2deg));
+  transition: transform 0.6s var(--deck-ease);
   pointer-events: none;
 }
 
@@ -1458,7 +1467,7 @@ html[data-mode="focus"] .device-grip { display: none; }
   border-radius: 22px;
   background: linear-gradient(180deg, #1a1d25, #121419);
   box-shadow: 0 40px 80px -40px rgba(8, 12, 40, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
-  transform: translate(calc(-50% + var(--drag)), -50%);
+  transform: translate(calc(-50% + var(--pull) * 120px), -50%) rotate(calc(var(--pull) * 2.2deg));
   transition: transform 0.56s var(--deck-ease), opacity 0.36s ease;
 }
 
@@ -1555,8 +1564,9 @@ html[data-mode="focus"] .device-grip { display: none; }
 
 /* Deck slots. A switch moves every card one slot on; a card only changes
    game while it is out of sight. */
-.arcade-card[data-slot="prev"] { transform: translate(calc(-50% - var(--peek, var(--screen-w) * 0.44) + var(--drag)), calc(-50% - var(--lift-prev, var(--screen-h) * 0.34))) rotate(-8deg) scale(0.86); }
-.arcade-card[data-slot="next"] { z-index: 2; transform: translate(calc(-50% + var(--peek, var(--screen-w) * 0.44) + var(--drag)), calc(-50% - var(--lift-next, var(--screen-h) * 0.26))) rotate(7deg) scale(0.86); }
+/* Pulled toward a neighbour, that cartridge rises a little to meet the screen. */
+.arcade-card[data-slot="prev"] { transform: translate(calc(-50% - var(--peek, var(--screen-w) * 0.44) + var(--pull) * 56px), calc(-50% - var(--lift-prev, var(--screen-h) * 0.34))) rotate(calc(-8deg + var(--pull) * 1.2deg)) scale(calc(0.86 + max(var(--pull), 0) * 0.05)); }
+.arcade-card[data-slot="next"] { z-index: 2; transform: translate(calc(-50% + var(--peek, var(--screen-w) * 0.44) + var(--pull) * 56px), calc(-50% - var(--lift-next, var(--screen-h) * 0.26))) rotate(calc(7deg + var(--pull) * 1.2deg)) scale(calc(0.86 - min(var(--pull), 0) * 0.05)); }
 .arcade-card[data-slot="far-prev"] { transform: translate(calc(-50% - var(--peek, var(--screen-w) * 0.44) * 1.9), calc(-50% - var(--lift-prev, var(--screen-h) * 0.34) * 0.55)) rotate(-15deg) scale(0.7); }
 .arcade-card[data-slot="far-next"] { z-index: 2; transform: translate(calc(-50% + var(--peek, var(--screen-w) * 0.44) * 1.9), calc(-50% - var(--lift-next, var(--screen-h) * 0.26) * 0.55)) rotate(14deg) scale(0.7); }
 
@@ -1586,11 +1596,22 @@ html[data-mode="focus"] .device-grip { display: none; }
 .arcade-stage.to-prev .arcade-screen { transform: translate(calc(-50% + var(--peek, 0px)), calc(-50% - var(--lift-next, 0px))) rotate(7deg) scale(var(--screen-as-card, 0.62)); }
 .arcade-stage.landing .arcade-screen { transition: none; }
 
+/* While dragging, depth also sets the lag: the screen keeps up with the
+   pointer, the cartridges and stickers trail, the blueprint trails most. */
+.arcade-stage.dragging .arcade-screen { transition: transform 0.07s linear, opacity 0.36s ease; }
+.arcade-stage.dragging .arcade-card { transition: transform 0.24s var(--trail-ease), opacity 0.32s ease, filter 0.4s ease; }
+.arcade-stage.dragging .sticker { transition: translate 0.32s var(--trail-ease); }
+.arcade-stage.dragging .sticker-source { transition: transform 0.25s ease, translate 0.32s var(--trail-ease); }
+.arcade-stage.dragging::before,
+.arcade-stage.dragging::after { transition: transform 0.45s var(--trail-ease); }
+
 .sticker {
   position: absolute;
   z-index: 5;
+  translate: calc(var(--pull) * 30px) 0;
   pointer-events: none;
   user-select: none;
+  transition: translate 0.4s var(--deck-ease);
 }
 
 .sticker-source {
@@ -1606,7 +1627,7 @@ html[data-mode="focus"] .device-grip { display: none; }
   transform: rotate(-8deg);
   pointer-events: auto;
   cursor: pointer;
-  transition: transform 0.25s ease;
+  transition: transform 0.25s ease, translate 0.4s var(--deck-ease);
 }
 
 .sticker-source:hover { transform: rotate(-4deg) scale(1.05); }
