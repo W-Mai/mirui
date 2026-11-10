@@ -77,6 +77,10 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .transport .play-button { height: 50px; width: 50px; display: grid; place-items: center; border-radius: 50%; background: var(--signal); color: var(--signal-on); padding: 0; box-shadow: var(--lift-pop); }
 .transport .play-button:hover:not(:disabled) { background: var(--signal-bright); color: var(--signal-on); }
 .play-button svg { width: 26px; height: 26px; stroke-width: 2.5; }
+.play-button #pause-icon, #fullscreen .fullscreen-exit { display: none; }
+.play-button[aria-pressed="true"] #play-icon, #fullscreen[aria-pressed="true"] .fullscreen-enter { display: none; }
+.play-button[aria-pressed="true"] #pause-icon, #fullscreen[aria-pressed="true"] .fullscreen-exit { display: block; }
+.icon-button[aria-expanded="true"], .icon-button[aria-pressed="true"], #preview[aria-pressed="true"] { border-color: var(--signal-edge); background: var(--signal-wash); color: var(--signal-bright); }
 .scrubber { flex: 1; min-width: 40px; }
 .scrubber label { font-size: 11px; color: var(--ink-dim); display: block; margin-bottom: 9px; font-variant-numeric: tabular-nums; }
 input[type="range"] { width: 100%; accent-color: var(--signal); cursor: pointer; height: 4px; margin: 0; display: block; }

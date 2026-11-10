@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Keep prompter play, fullscreen and editor icons consistent with their actual control state.
+
 - Link the chord Demo and fullscreen prompter, share Gallery theme tokens, and preserve editor drafts during navigation.
 
 - Add fullscreen chord playback with a bottom glass controller, a right editor and acknowledged upload progress; use centered native bitmap strikes and BLE connection colors on small displays.

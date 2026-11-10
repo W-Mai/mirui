@@ -59,6 +59,7 @@ function refreshConnection() {
     $('connect').disabled = connecting || !engineReady;
     for (const button of document.querySelectorAll('[data-ready]')) button.disabled = !engineReady || (!preview && !usingDevice()) || connecting;
     $('preview').disabled = !engineReady || !draftData || connecting || uploading;
+    $('preview').setAttribute('aria-pressed', String(engineReady && !usingDevice()));
     for (const button of document.querySelectorAll('[data-device]')) button.disabled = !engineReady || !link.connected || connecting || uploading || !draftData;
 }
 async function run(operation) {
@@ -69,6 +70,8 @@ function editor(open) {
     const focusInside = $('editor').contains(document.activeElement);
     $('workbench').classList.toggle('editor-open', open);
     $('editor-toggle').setAttribute('aria-expanded', String(open));
+    $('editor-toggle').setAttribute('aria-label', open ? 'Close editor' : 'Open editor');
+    $('editor-toggle').title = open ? 'Close editor' : 'Open editor';
     $('editor').inert = !open;
     document.querySelector('.music').inert = open && mobileLayout.matches;
     if (!open && focusInside) $('editor-toggle').focus();
@@ -84,7 +87,11 @@ $('fullscreen').onclick = () => run(async () => {
     else await document.documentElement.requestFullscreen();
 });
 document.addEventListener('fullscreenchange', () => {
-    $('fullscreen').setAttribute('aria-label', document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen');
+    const active = !!document.fullscreenElement;
+    const label = active ? 'Exit fullscreen' : 'Enter fullscreen';
+    $('fullscreen').setAttribute('aria-pressed', String(active));
+    $('fullscreen').setAttribute('aria-label', label);
+    $('fullscreen').title = label;
 });
 window.addEventListener('keydown', event => {
     if (event.code === 'Escape' && $('workbench').classList.contains('editor-open')) { editor(false); return; }
@@ -268,8 +275,9 @@ function frame() {
         }
         for (const [index, dot] of [...$('beats').children].entries()) dot.classList.toggle('active', !state.armed && !state.stale && index === beat);
         $('meter').textContent = `${state.beats} / ${state.unit}`;
-        $('play-icon').hidden = state.playing; $('pause-icon').hidden = !state.playing;
+        $('play').setAttribute('aria-pressed', String(state.playing));
         $('play').setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
+        $('play').title = state.playing ? 'Pause' : 'Play';
         if (!scrubbing) { $('position').textContent = `Bar ${bar + 1} / ${data?.bars ?? '—'}${state.pending ? ' · queued' : ''}`; $('position-range').max = String(data?.bars ?? 128); $('position-range').value = String(bar + 1); }
         if (document.activeElement !== $('tempo') && !state.pending) $('tempo').value = String(state.bpm / 1000);
         updateWords(data, tick, remote ? `device-${deviceGeneration}` : `preview-${revision}`);
