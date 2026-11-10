@@ -57,6 +57,7 @@ jobs:
           test -s gallery/web/dist/sitemap.xml
           test -s gallery/web/dist/site.webmanifest
           test -s gallery/web/dist/favicon.svg
+          test -s gallery/web/dist/shared-theme.css
           test -s gallery/web/dist/chord-prompter/index.html
           test -s gallery/web/dist/chord-prompter/app.js
           test -s gallery/web/dist/chord-prompter/protocol.js

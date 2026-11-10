@@ -3,6 +3,40 @@ import { ChordLink, SERVICE, PATTERNS } from './protocol.js';
 const $ = id => document.getElementById(id);
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const mobileLayout = matchMedia('(max-width: 800px)');
+const appearanceQuery = matchMedia('(prefers-color-scheme: dark)');
+let appearancePicked = false;
+try { appearancePicked = !!localStorage.getItem('mirui-theme'); } catch { /* Use the head-resolved appearance. */ }
+function applyAppearance(dark, persist = false) {
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    const label = dark ? 'Switch to light theme' : 'Switch to dark theme';
+    $('appearance').title = label;
+    $('appearance').setAttribute('aria-label', label);
+    document.querySelector('meta[name="theme-color"]').content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+    if (persist) {
+        appearancePicked = true;
+        try { localStorage.setItem('mirui-theme', dark ? 'dark' : 'light'); } catch { /* Appearance still applies to this page. */ }
+    }
+}
+$('appearance').onclick = () => applyAppearance(document.documentElement.dataset.theme !== 'dark', true);
+appearanceQuery.addEventListener('change', event => { if (!appearancePicked) applyAppearance(event.matches); });
+window.addEventListener('storage', event => {
+    if (event.key !== 'mirui-theme') return;
+    appearancePicked = !!event.newValue;
+    applyAppearance(event.newValue ? event.newValue === 'dark' : appearanceQuery.matches);
+});
+applyAppearance(document.documentElement.dataset.theme !== 'light');
+
+function savedDraft() {
+    try {
+        const source = sessionStorage.getItem('mirui-chord-draft');
+        return source !== null && new TextEncoder().encode(source).length <= 8192 ? source : null;
+    } catch { return null; }
+}
+function saveDraft() {
+    const source = $('source').value;
+    if (new TextEncoder().encode(source).length > 8192) return;
+    try { sessionStorage.setItem('mirui-chord-draft', source); } catch { /* Editing does not require storage. */ }
+}
 const errorText = error => String(error?.message ?? error);
 let bindings, patterns = [], preview, previewData, draftData, deviceData, deviceGeneration;
 let engineReady = false;
@@ -21,7 +55,7 @@ function refreshConnection() {
     $('lamp').classList.toggle('online', link.connected);
     $('workbench').classList.toggle('device', usingDevice());
     $('mode').textContent = usingDevice() ? 'Display' : 'Browser preview';
-    $('connect').textContent = connecting ? 'Connecting…' : link.connected ? 'Disconnect' : 'Connect display';
+    $('connect').textContent = connecting ? 'Connecting…' : link.connected ? 'Disconnect' : mobileLayout.matches ? 'Connect' : 'Connect display';
     $('connect').disabled = connecting || !engineReady;
     for (const button of document.querySelectorAll('[data-ready]')) button.disabled = !engineReady || (!preview && !usingDevice()) || connecting;
     $('preview').disabled = !engineReady || !draftData || connecting || uploading;
@@ -41,6 +75,7 @@ function editor(open) {
 }
 mobileLayout.addEventListener('change', () => {
     document.querySelector('.music').inert = mobileLayout.matches && $('workbench').classList.contains('editor-open');
+    refreshConnection();
 });
 $('editor-toggle').onclick = () => editor(!$('workbench').classList.contains('editor-open'));
 $('editor-close').onclick = () => editor(false);
@@ -54,7 +89,7 @@ document.addEventListener('fullscreenchange', () => {
 window.addEventListener('keydown', event => {
     if (event.code === 'Escape' && $('workbench').classList.contains('editor-open')) { editor(false); return; }
     if (event.code !== 'Space' || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.target.closest('input,textarea,select,button,summary')) return;
+    if (event.target.closest('a,input,textarea,select,button,summary')) return;
     event.preventDefault(); $('play').click();
 });
 
@@ -267,11 +302,12 @@ run(async () => {
     await bindings.default({ module_or_path: new URL(wasmPath, new URL('../', location.href)).href });
     patterns = JSON.parse(bindings.chord_patterns_json());
     engineReady = true;
-    if (!$('source').value) $('source').value = source;
+    if (!$('source').value) $('source').value = savedDraft() ?? source;
     parseEditor(true);
+    if (!preview) editor(true);
     refreshConnection();
 });
 refreshConnection();
 setInterval(() => {if (!document.hidden) poll();}, 180);
 requestAnimationFrame(frame);
-window.addEventListener('pagehide', () => link.close());
+window.addEventListener('pagehide', () => { saveDraft(); link.close(); });

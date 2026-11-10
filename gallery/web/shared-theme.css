@@ -1,0 +1,101 @@
+/* Shared Gallery surfaces, typography and semantic colors. */
+:root {
+  color-scheme: dark;
+
+  --bg:        #090b0f;
+  --panel:     #0e1116;
+  --panel-2:   #12161d;
+  --raised:    #171c25;
+  --raised-2:  #1f2632;
+  --well:      #06080b;
+
+  --line:        #20262f;
+  --line-soft:   #161b22;
+  --line-strong: #303845;
+
+  --ink:       #e3e8ee;
+  --ink-dim:   #9aa4b2;
+  --ink-faint: #616c7b;
+
+  --signal:        #46e5d0;
+  --signal-bright: #7df4e4;
+  --signal-deep:   #1b8a7d;
+  --signal-on:     #04130f;
+  --signal-wash:   rgba(70, 229, 208, 0.10);
+  --signal-edge:   rgba(70, 229, 208, 0.42);
+  --signal-glow:   rgba(70, 229, 208, 0.22);
+
+  --live: #46e5d0;
+  --good: #7bdcff;
+  --warning: #ffc857;
+  --error: #ffb8a6;
+  --warning-edge: rgba(255, 200, 87, 0.48);
+
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 20px; --s6: 24px; --s7: 32px; --s8: 44px;
+
+  --r1: 5px;  --r2: 7px;  --r3: 10px; --r4: 14px; --r-pill: 999px;
+
+  --lift-hero: 0 1px 0 rgba(255,255,255,0.03) inset,
+               0 24px 60px -28px rgba(0,0,0,0.85),
+               0 4px 14px rgba(0,0,0,0.4);
+  --lift-pop:  0 2px 8px rgba(0,0,0,0.5);
+  --ring:      0 0 0 1px var(--signal-edge), 0 0 0 6px var(--signal-glow);
+
+  --font-ui:   -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", "Cascadia Code", Menlo, Consolas, monospace;
+
+  --syn-kw:   #ff8a7a;
+  --syn-str:  #8fe6c9;
+  --syn-num:  #f3c177;
+  --syn-com:  #5a6573;
+  --syn-mac:  #b3a7ff;
+  --syn-type: #7df4e4;
+  --syn-attr: #8fd98a;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg:        #f4f6f8;
+  --panel:     #ffffff;
+  --panel-2:   #f0f3f6;
+  --raised:    #ffffff;
+  --raised-2:  #e9edf2;
+  --well:      #f7f9fb;
+
+  --line:        #d8dee6;
+  --line-soft:   #e7ebf0;
+  --line-strong: #c2cbd5;
+
+  --ink:       #1c2530;
+  --ink-dim:   #54616f;
+  --ink-faint: #8a96a4;
+
+  --signal:        #0d9488;
+  --signal-bright: #0b7a70;
+  --signal-deep:   #0f766e;
+  --signal-on:     #ffffff;
+  --signal-wash:   rgba(13, 148, 136, 0.10);
+  --signal-edge:   rgba(13, 148, 136, 0.45);
+  --signal-glow:   rgba(13, 148, 136, 0.18);
+
+  --live: #0d9488;
+  --good: #1f8fd6;
+  --warning: #b7791f;
+  --error: #a52e28;
+  --warning-edge: rgba(183, 121, 31, 0.48);
+
+  --lift-hero: 0 1px 0 rgba(255,255,255,0.6) inset,
+               0 18px 44px -26px rgba(31,45,61,0.30),
+               0 3px 10px rgba(31,45,61,0.08);
+  --lift-pop:  0 2px 8px rgba(31,45,61,0.16);
+
+  --syn-kw:   #b3261e;
+  --syn-str:  #0a7d4f;
+  --syn-num:  #9a5b00;
+  --syn-com:  #8a96a4;
+  --syn-mac:  #6b3fd1;
+  --syn-type: #0f766e;
+  --syn-attr: #2e7d32;
+}

@@ -2754,6 +2754,30 @@ html[data-mode="focus"] .stage { view-transition-name: live-stage; }
 :root[data-theme="light"] .focus-toolbar .theme-toggle .ico-sun { display: none; }
 :root[data-theme="light"] .focus-toolbar .theme-toggle .ico-moon { display: block; }
 .focus-toolbar .gh { color: var(--ink-dim); text-decoration: none; }
+.focus-toolbar .prompter-link {
+  padding: 8px 12px;
+  border: 1px solid var(--signal-edge);
+  border-radius: var(--r1);
+  color: var(--signal-bright);
+  background: var(--signal-wash);
+  text-decoration: none;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.focus-toolbar .prompter-link[hidden] { display: none; }
+.focus-toolbar .prompter-link:hover { background: var(--signal-edge); }
+.focus-toolbar .prompter-link:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+.prompter-label-compact { display: none; }
+@media (max-width: 760px), (max-width: 1000px) and (max-height: 500px) {
+  .focus-toolbar { gap: 8px; padding-inline: 12px; }
+  .focus-toolbar .brand-row { flex: 1; min-width: 0; overflow: hidden; }
+  .focus-toolbar .brand-text h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .focus-toolbar .topbar-spacer, .focus-toolbar .gh { display: none; }
+  .focus-toolbar .focus-back, .focus-toolbar .language-toggle, .focus-toolbar .theme-toggle, .focus-toolbar .prompter-link { flex-shrink: 0; }
+  .focus-toolbar .prompter-link { padding: 8px 10px; }
+  .prompter-label { display: none; }
+  .prompter-label-compact { display: inline; }
+}
 .focus-body { min-width: 0; min-height: 0; overflow: hidden; }
 .focus-body > aside,
 .focus-body > .nav-backdrop { display: none; }

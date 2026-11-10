@@ -44,6 +44,8 @@
     <link data-trunk rel="copy-file" href="sitemap.xml" />
     <link data-trunk rel="copy-file" href="site.webmanifest" />
     <link data-trunk rel="copy-file" href="favicon.svg" />
+    <link data-trunk rel="copy-file" href="shared-theme.css" />
+    <link rel="stylesheet" href="shared-theme.css" />
     <link data-trunk rel="copy-dir" href="chord-prompter" />
     <link data-trunk rel="copy-file" href="../../src/gallery/demos/chord_prompter/chord-practice.md" />
     <link data-trunk rel="copy-file" href="../../docs/assets/orbit-console.png" />
@@ -83,130 +85,7 @@
     </script>
     <link data-trunk rel="rust" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int" />
     <style>
-      /* ════════════════════════════════════════════════════════════
-         mirui gallery — one instrument, three panes.
-
-         The whole page is a single tool shell: a top status rail spans
-         everything, then a flush three-column body (navigator · stage ·
-         source) seamed by shared hairlines — no floating widgets. One
-         signal colour (cyan); everything else is neutral graphite so the
-         live canvas and the accent rail are the only things that glow.
-         ════════════════════════════════════════════════════════════ */
-      :root {
-        color-scheme: dark;
-
-        /* ── Graphite surface ladder (back → front) ── */
-        --bg:        #090b0f;   /* app shell base                     */
-        --panel:     #0e1116;   /* navigator + source bodies          */
-        --panel-2:   #12161d;   /* rails, heads, sunken fields        */
-        --raised:    #171c25;   /* stage card, controls               */
-        --raised-2:  #1f2632;   /* control hover                      */
-        --well:      #06080b;   /* code well + canvas backdrop        */
-
-        /* ── Hairlines ── */
-        --line:        #20262f; /* primary seam between panes          */
-        --line-soft:   #161b22; /* faint inner divider                 */
-        --line-strong: #303845; /* emphasised / focused edge           */
-
-        /* ── Ink ── */
-        --ink:       #e3e8ee;   /* primary text                        */
-        --ink-dim:   #9aa4b2;   /* secondary text                      */
-        --ink-faint: #616c7b;   /* tertiary / placeholder / metadata   */
-
-        /* ── The one signal ── */
-        --signal:        #46e5d0; /* cyan accent                       */
-        --signal-bright: #7df4e4;
-        --signal-deep:   #1b8a7d;
-        --signal-on:     #04130f; /* ink on a signal fill              */
-        --signal-wash:   rgba(70, 229, 208, 0.10);
-        --signal-edge:   rgba(70, 229, 208, 0.42);
-        --signal-glow:   rgba(70, 229, 208, 0.22);
-
-        /* warm marker reserved for the live/recording dot only */
-        --live: #46e5d0;
-        --good: #7bdcff;
-        --warning: #ffc857;
-        --warning-edge: rgba(255, 200, 87, 0.48);
-
-        /* ── Spacing scale (4px base) ── */
-        --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
-        --s5: 20px; --s6: 24px; --s7: 32px; --s8: 44px;
-
-        /* ── Radius scale ── */
-        --r1: 5px;  --r2: 7px;  --r3: 10px; --r4: 14px; --r-pill: 999px;
-
-        /* ── Elevation — only the hero stage earns the big lift ── */
-        --lift-hero: 0 1px 0 rgba(255,255,255,0.03) inset,
-                     0 24px 60px -28px rgba(0,0,0,0.85),
-                     0 4px 14px rgba(0,0,0,0.4);
-        --lift-pop:  0 2px 8px rgba(0,0,0,0.5);
-        --ring:      0 0 0 1px var(--signal-edge), 0 0 0 6px var(--signal-glow);
-
-        /* ── Type ── */
-        --font-ui:   -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
-        --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", "Cascadia Code", Menlo, Consolas, monospace;
-
-        /* ── Rust syntax — one violet pop for macros, rest tuned neutral ── */
-        --syn-kw:   #ff8a7a;
-        --syn-str:  #8fe6c9;
-        --syn-num:  #f3c177;
-        --syn-com:  #5a6573;
-        --syn-mac:  #b3a7ff;
-        --syn-type: #7df4e4;
-        --syn-attr: #8fd98a;
-      }
-
-      /* ── Light theme — same instrument in daylight. A warm-paper surface
-         ladder (front → back inverted so panels read as raised, not sunken),
-         a deepened teal signal that stays legible on white, and darkened
-         Rust tokens tuned for light backgrounds (Rust-playground / light
-         GitHub register). Same var names, light values — the design system
-         is unchanged, only repainted. ── */
-      :root[data-theme="light"] {
-        color-scheme: light;
-
-        --bg:        #f4f6f8;   /* app shell base — soft paper          */
-        --panel:     #ffffff;   /* navigator + source bodies            */
-        --panel-2:   #f0f3f6;   /* rails, heads, sunken fields          */
-        --raised:    #ffffff;   /* stage card, controls                 */
-        --raised-2:  #e9edf2;   /* control hover                        */
-        --well:      #f7f9fb;   /* code well + canvas backdrop          */
-
-        --line:        #d8dee6; /* primary seam                          */
-        --line-soft:   #e7ebf0; /* faint inner divider                   */
-        --line-strong: #c2cbd5; /* emphasised / focused edge             */
-
-        --ink:       #1c2530;   /* primary text                          */
-        --ink-dim:   #54616f;   /* secondary text                        */
-        --ink-faint: #8a96a4;   /* tertiary / placeholder / metadata     */
-
-        --signal:        #0d9488; /* deepened teal — legible on white    */
-        --signal-bright: #0b7a70;
-        --signal-deep:   #0f766e;
-        --signal-on:     #ffffff; /* ink on a signal fill                */
-        --signal-wash:   rgba(13, 148, 136, 0.10);
-        --signal-edge:   rgba(13, 148, 136, 0.45);
-        --signal-glow:   rgba(13, 148, 136, 0.18);
-
-        --live: #0d9488;
-        --good: #1f8fd6;
-        --warning: #b7791f;
-        --warning-edge: rgba(183, 121, 31, 0.48);
-
-        --lift-hero: 0 1px 0 rgba(255,255,255,0.6) inset,
-                     0 18px 44px -26px rgba(31,45,61,0.30),
-                     0 3px 10px rgba(31,45,61,0.08);
-        --lift-pop:  0 2px 8px rgba(31,45,61,0.16);
-
-        /* Rust tokens — darker, high-contrast on light surfaces */
-        --syn-kw:   #b3261e;
-        --syn-str:  #0a7d4f;
-        --syn-num:  #9a5b00;
-        --syn-com:  #8a96a4;
-        --syn-mac:  #6b3fd1;
-        --syn-type: #0f766e;
-        --syn-attr: #2e7d32;
-      }
+      /* Page layout uses the shared Gallery palette. */
       /* atmosphere washes are authored with the dark signal rgb; repaint
          them to the light teal so the shell tint matches the palette */
       :root[data-theme="light"] .layout {
@@ -1853,6 +1732,7 @@ fn counter_panel(counter: model!(Counter)) {
           <svg width="15" height="15" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M14.5 9h-11M8 3.5 2.5 9 8 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="topbar-spacer"></div>
+        <a class="prompter-link" id="prompter-link" href="chord-prompter/" hidden><span class="prompter-label" data-i18n="gallery.prompter">Open prompter</span><span class="prompter-label-compact" data-i18n="gallery.prompterCompact">Prompter</span></a>
         <button class="icon-btn language-toggle" type="button" aria-label="Switch language">中</button>
         <button class="theme-toggle" id="theme-toggle" type="button" title="Switch to light theme" aria-label="Toggle light / dark theme">
           <svg class="ico-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -2019,6 +1899,8 @@ fn counter_panel(counter: model!(Counter)) {
             "gallery.backHome": "Back to home", "gallery.choose": "Choose demo", "gallery.themeLight": "Switch to light theme", "gallery.themeDark": "Switch to dark theme",
             "gallery.rotate": "Swap portrait and landscape", "gallery.fixed": "This demo has a fixed logical canvas", "gallery.reset": "Reset canvas size", "gallery.audioOn": "Mute sound", "gallery.audioOff": "Enable sound", "gallery.audioUnlock": "Click to enable sound",
             "gallery.simulation": "Simulate", "gallery.simulationHint": "Toggle network simulation (F2)",
+            "gallery.prompter": "Open prompter",
+            "gallery.prompterCompact": "Prompter",
             "gallery.noSource": "No source available for"
           },
           zh: {
@@ -2077,6 +1959,8 @@ fn counter_panel(counter: model!(Counter)) {
             "gallery.backHome": "返回首页", "gallery.choose": "选择 Demo", "gallery.themeLight": "切换到亮色主题", "gallery.themeDark": "切换到暗色主题",
             "gallery.rotate": "交换横屏与竖屏", "gallery.fixed": "此 Demo 使用固定逻辑画布", "gallery.reset": "重置画布尺寸", "gallery.audioOn": "关闭声音", "gallery.audioOff": "打开声音", "gallery.audioUnlock": "点击启用声音",
             "gallery.simulation": "模拟联机", "gallery.simulationHint": "打开或关闭联机模拟面板（F2）",
+            "gallery.prompter": "打开提词器",
+            "gallery.prompterCompact": "提词器",
             "gallery.noSource": "没有可用源码："
           }
         };
@@ -2861,6 +2745,11 @@ fn counter_panel(counter: model!(Counter)) {
         const rotateBtn = document.getElementById("rotate-btn");
         const audioBtn = document.getElementById("audio-btn");
         const simulationBtn = document.getElementById("simulation-btn");
+        const prompterLink = document.getElementById("prompter-link");
+        function syncPrompterLink() {
+          prompterLink.hidden = activeSlug !== "chord_prompter";
+        }
+        syncPrompterLink();
         const portraitQuery = window.matchMedia("(orientation: portrait)");
         const defaultFixedCanvasMaxScale = 1.5;
         const defaultFixedCanvasInset = () => mobileQuery.matches ? 12 : 24;
@@ -3723,6 +3612,7 @@ fn counter_panel(counter: model!(Counter)) {
           hostExtraWidth = 0;
           activeDemo = demo;
           activeSlug = slug;
+          syncPrompterLink();
           syncSimulationControl();
 
           stageName.textContent = demo.label;
