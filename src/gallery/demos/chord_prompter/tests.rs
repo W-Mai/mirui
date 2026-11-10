@@ -331,3 +331,18 @@ fn explicit_late_controls_are_rejected_and_rhythm_changes_share_the_bar_clock() 
     assert_eq!(transport.rhythm(), Some(Pattern::Rock));
     assert_eq!(transport.position(), 4800);
 }
+
+#[test]
+fn bundled_charset_is_complete_and_missing_glyphs_preserve_the_active_score() {
+    let font = super::font::open();
+    for ch in include_str!("../assets/prompter-charset.txt").chars() {
+        assert!(font.map_char(ch).is_some(), "missing {ch}");
+    }
+    let mut session = Session::new(Score::parse(PRACTICE, ScoreLimits::DEVICE).unwrap());
+    session.load(SONG).unwrap();
+    assert!(matches!(
+        session.load(&SONG.replace("跟", "🦀")),
+        Err(ScoreError::UnsupportedCharacter('🦀'))
+    ));
+    assert_eq!(session.lyric, "跟着");
+}

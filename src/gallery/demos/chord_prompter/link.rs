@@ -15,6 +15,7 @@ pub enum LinkError {
     Checksum = 6,
     Score = 7,
     Control = 8,
+    Glyph = 9,
 }
 
 /// Fixed-size GATT packets share one ordered command stream per connection.
@@ -220,7 +221,10 @@ impl DeviceLink {
                     return Err(LinkError::Checksum);
                 }
                 let source = core::str::from_utf8(&self.staging).map_err(|_| LinkError::Score)?;
-                session.load(source).map_err(|_| LinkError::Score)?;
+                session.load(source).map_err(|error| match error {
+                    super::ScoreError::UnsupportedCharacter(_) => LinkError::Glyph,
+                    _ => LinkError::Score,
+                })?;
                 self.generation = self.generation.wrapping_add(1).max(1);
                 self.receiving = false;
                 self.staging.clear();

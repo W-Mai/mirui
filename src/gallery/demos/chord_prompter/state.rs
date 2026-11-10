@@ -220,6 +220,7 @@ impl Session {
     }
     pub fn load(&mut self, source: &str) -> Result<(), ScoreError> {
         let score = Score::parse(source, ScoreLimits::DEVICE)?;
+        super::font::validate(&score)?;
         *self = Self::new(score);
         Ok(())
     }

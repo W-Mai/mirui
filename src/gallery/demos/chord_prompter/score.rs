@@ -269,6 +269,7 @@ impl ScoreLimits {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScoreError {
+    UnsupportedCharacter(char),
     Capacity,
     Header { line: usize },
     Tempo { line: usize },

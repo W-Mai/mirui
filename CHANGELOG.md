@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Bundle a pixel font for chord prompting and reject unsupported uploaded lyrics before replacing the active score.
+
 ### Added
 
 - Chord prompting logic imports bounded song sheets with section rhythms, split chords and UTF-8 lyrics, and schedules beat-aligned controls from a monotonic playback position.

@@ -42,7 +42,7 @@ The device accepts up to 8192 source bytes, 128 bars, 256 chord slots and 16 sec
 
 | Bytes | Value |
 | --- | --- |
-| 0 | Result: success, sequence, generation, packet, capacity, transfer, checksum, score or control error, starting at zero |
+| 0 | Result: success, sequence, generation, packet, capacity, transfer, checksum, score, control or unsupported glyph error, starting at zero |
 | 1 | Request opcode |
 | 2–3 | Request sequence |
 | 4–7 | Active generation after processing |
@@ -56,3 +56,7 @@ Retrying the most recently accepted packet returns its original receipt without 
 Disconnect discards incomplete uploads and connection-local sequence state. The loaded score and playback continue on the board. Reconnection obtains current device state and starts a new request stream, without replaying old controls. Boot identities must change on a device restart; a hardware random value can seed the score generation. Browser clock mappings are discarded on reconnect and must handle the wrapping millisecond field.
 
 Browser audio should schedule future events against calibrated device/audio clocks, using the acknowledged start time and execution ticks. A received status packet is not a cue to play an immediate click. Audio-device latency, BLE transfer time and display presentation are separate measurements.
+
+## Display font
+
+The display uses a bundled 12px one-bit MIRX font with 271 mapped characters. ASCII and a fixed Chinese subset are supported; the exact repertoire is in `src/gallery/demos/assets/prompter-charset.txt`, and font provenance and license references are in `prompter-font-source.json`. Uploads containing unsupported visible title or lyric characters return result 9 and preserve the active score. The atlas is borrowed from static storage rather than expanded into a second bitmap buffer.

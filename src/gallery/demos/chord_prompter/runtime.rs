@@ -21,6 +21,10 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
     app: &mut App<B, F>,
     parent: Entity,
 ) -> SessionHandle {
+    app.with_fonts(crate::render::font::FontManager::new(
+        crate::core::cache::MaxSize::Unbound,
+        super::font::open(),
+    ));
     let session = app
         .add_model(Session::new(
             Score::parse(super::PRACTICE, ScoreLimits::DEVICE).expect("bundled practice score"),

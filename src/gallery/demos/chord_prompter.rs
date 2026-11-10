@@ -1,6 +1,7 @@
 //! A beat-driven chord and lyric display with a bounded song-sheet importer.
 
 mod composition;
+mod font;
 mod link;
 mod runtime;
 mod score;
