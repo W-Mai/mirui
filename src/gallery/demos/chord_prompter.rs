@@ -1,12 +1,14 @@
 //! A beat-driven chord and lyric display with a bounded song-sheet importer.
 
 mod composition;
+mod link;
 mod runtime;
 mod score;
 mod state;
 mod strips;
 mod transport;
 
+pub use link::{DeviceLink, LinkError, checksum};
 pub use runtime::install;
 #[cfg(feature = "std")]
 pub use runtime::setup_app;

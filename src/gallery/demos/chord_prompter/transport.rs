@@ -20,12 +20,15 @@ pub enum Boundary {
 pub enum Action {
     Tempo(u32),
     Seek(u64),
+    Rhythm(Option<super::Pattern>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandError {
     Capacity,
     Tempo,
+    Late,
+    NotRunning,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -42,6 +45,7 @@ pub struct Transport {
     milli_bpm: u32,
     beats_per_bar: u8,
     playback: Playback,
+    rhythm: Option<super::Pattern>,
     queue: [Option<Pending>; 8],
     len: usize,
 }
@@ -58,6 +62,7 @@ impl Transport {
             milli_bpm,
             beats_per_bar,
             playback: Playback::Stopped,
+            rhythm: None,
             queue: [None; 8],
             len: 0,
         })
@@ -74,6 +79,14 @@ impl Transport {
     }
     pub const fn pending(&self) -> usize {
         self.len
+    }
+
+    pub const fn rhythm(&self) -> Option<super::Pattern> {
+        self.rhythm
+    }
+
+    pub fn starts_at_us(&self) -> u64 {
+        self.anchor_us
     }
 
     pub fn start(&mut self, now_us: u64) {
@@ -113,9 +126,6 @@ impl Transport {
             self.apply(now_us, self.position, action);
             return Ok(self.position);
         }
-        if self.len == self.queue.len() {
-            return Err(CommandError::Capacity);
-        }
         let quantum = TICKS_PER_BEAT
             * if boundary == Boundary::Bar {
                 u64::from(self.beats_per_bar)
@@ -123,6 +133,40 @@ impl Transport {
                 1
             };
         let tick = (self.position / quantum + 1).saturating_mul(quantum);
+        self.enqueue(tick, action)?;
+        Ok(tick)
+    }
+
+    pub fn schedule_at(
+        &mut self,
+        now_us: u64,
+        tick: u64,
+        action: Action,
+    ) -> Result<u64, CommandError> {
+        if let Action::Tempo(value) = action
+            && !(1000..=999_000).contains(&value)
+        {
+            return Err(CommandError::Tempo);
+        }
+        self.advance(now_us);
+        if tick < self.position {
+            return Err(CommandError::Late);
+        }
+        if tick == self.position {
+            self.apply(now_us, tick, action);
+            return Ok(tick);
+        }
+        if self.playback != Playback::Running {
+            return Err(CommandError::NotRunning);
+        }
+        self.enqueue(tick, action)?;
+        Ok(tick)
+    }
+
+    fn enqueue(&mut self, tick: u64, action: Action) -> Result<(), CommandError> {
+        if self.len == self.queue.len() {
+            return Err(CommandError::Capacity);
+        }
         // Stable insertion preserves receipt order for controls on one boundary.
         let mut index = self.len;
         while index > 0 && self.queue[index - 1].is_some_and(|entry| entry.tick > tick) {
@@ -131,7 +175,7 @@ impl Transport {
         }
         self.queue[index] = Some(Pending { tick, action });
         self.len += 1;
-        Ok(tick)
+        Ok(())
     }
 
     pub fn advance(&mut self, now_us: u64) -> u64 {
@@ -167,6 +211,7 @@ impl Transport {
         self.anchor_tick = tick;
         match action {
             Action::Tempo(value) => self.milli_bpm = value,
+            Action::Rhythm(value) => self.rhythm = value,
             Action::Seek(position) => {
                 self.anchor_tick = position;
                 // Coordinates after a seek belong to a different playback epoch.

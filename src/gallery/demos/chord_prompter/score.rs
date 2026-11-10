@@ -51,6 +51,20 @@ const fn hit(offset: u16, stroke: Stroke, velocity: u8, lo: u8, hi: u8) -> Attac
 }
 
 impl Pattern {
+    pub const ALL: [Self; 12] = [
+        Self::Whole,
+        Self::Quarter,
+        Self::Pop,
+        Self::PopRock,
+        Self::Ballad,
+        Self::Folk,
+        Self::Rock,
+        Self::Punk,
+        Self::Reggae,
+        Self::Shuffle,
+        Self::Country,
+        Self::Arpeggio,
+    ];
     pub const fn attacks(self) -> &'static [Attack] {
         use Stroke::{Down as D, Pick as P, Up as U};
         match self {
@@ -235,6 +249,8 @@ impl Pattern {
 #[derive(Clone, Copy, Debug)]
 pub struct ScoreLimits {
     pub bytes: usize,
+    pub lyric_bytes: usize,
+    pub label_bytes: usize,
     pub bars: usize,
     pub chords: usize,
     pub sections: usize,
@@ -243,6 +259,8 @@ pub struct ScoreLimits {
 impl ScoreLimits {
     pub const DEVICE: Self = Self {
         bytes: 8192,
+        lyric_bytes: 128,
+        label_bytes: 64,
         bars: 128,
         chords: 256,
         sections: 16,
@@ -326,7 +344,12 @@ impl Score {
             };
             let value = value.trim();
             match key.trim() {
-                "title" => score.title = score.intern(value),
+                "title" => {
+                    if value.len() > limits.label_bytes {
+                        return Err(ScoreError::Capacity);
+                    }
+                    score.title = score.intern(value);
+                }
                 "key" => {
                     score.key = [
                         "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
@@ -370,6 +393,9 @@ impl Score {
             if let Some(header) = line.strip_prefix("---").and_then(|s| s.strip_suffix("---")) {
                 let mut parts = header.split('|');
                 let name = parts.next().unwrap_or("").trim();
+                if name.len() > limits.label_bytes {
+                    return Err(ScoreError::Capacity);
+                }
                 let mut pattern = default_pattern;
                 for part in parts {
                     let value = part
@@ -436,6 +462,9 @@ impl Score {
                         next.next().unwrap_or(bar.len())
                     };
                     let text_start = score.text.len();
+                    if end - start > limits.lyric_bytes {
+                        return Err(ScoreError::Capacity);
+                    }
                     score.text.extend(
                         bar[start..end]
                             .chars()

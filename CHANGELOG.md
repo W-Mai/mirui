@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Chord prompting logic imports bounded song sheets with section rhythms, split chords and UTF-8 lyrics, and schedules beat-aligned controls from a monotonic playback position.
 - Chord Prompter displays current and upcoming chords and lyrics, beat indicators and strumming guidance, with play, pause, stop, tempo and section controls in compact and desktop layouts.
+- Chord Prompter accepts ordered device controls and bounded, checked score uploads with source identity checks, retry acknowledgements and explicit beat targets.
 
 ## [0.55.0] - 2026-11-09
 

@@ -75,7 +75,10 @@ impl Session {
         self.bar_phase = ((position % bar_ticks) * 256 / bar_ticks) as u16;
         self.beat = ((position % bar_ticks) / TICKS_PER_BEAT) as u8;
         self.playing = self.transport.playback() == Playback::Running;
-        self.pattern = self.score.sections()[self.score.section_at(bar)].pattern;
+        self.pattern = self
+            .transport
+            .rhythm()
+            .unwrap_or(self.score.sections()[self.score.section_at(bar)].pattern);
         let next = self.score.chord_at(position);
         if next != self.current {
             self.current = next;
@@ -111,6 +114,66 @@ impl Session {
 
 #[crate::model]
 impl Session {
+    pub fn position(&self) -> u64 {
+        self.transport.position()
+    }
+    pub fn milli_bpm(&self) -> u32 {
+        self.transport.milli_bpm()
+    }
+    pub fn playback(&self) -> Playback {
+        self.transport.playback()
+    }
+    pub fn starts_at_us(&self) -> u64 {
+        self.transport.starts_at_us()
+    }
+    pub fn bars(&self) -> u16 {
+        self.score.bars()
+    }
+    pub fn unit(&self) -> u8 {
+        self.score.meter.unit
+    }
+    pub fn pending(&self) -> usize {
+        self.transport.pending()
+    }
+
+    #[model(local)]
+    pub(super) fn play_at(&mut self, now_us: u64, delay_ms: u16) -> u64 {
+        if !self.playing {
+            let end = u64::from(self.score.bars()) * u64::from(self.beats) * TICKS_PER_BEAT;
+            if self.position() >= end - 1 {
+                self.transport.stop();
+            }
+            self.transport
+                .start(now_us.saturating_add(u64::from(delay_ms) * 1000));
+        }
+        self.now_us = now_us;
+        self.sync();
+        self.transport.starts_at_us()
+    }
+
+    pub fn pause(&mut self, now_us: u64) {
+        self.transport.pause(now_us);
+        self.now_us = now_us;
+        self.sync();
+    }
+
+    #[model(local)]
+    pub(super) fn control(
+        &mut self,
+        now_us: u64,
+        action: Action,
+        boundary: Boundary,
+        target: Option<u64>,
+    ) -> Result<u64, CommandError> {
+        self.now_us = now_us;
+        let target = if let Some(tick) = target {
+            self.transport.schedule_at(now_us, tick, action)?
+        } else {
+            self.transport.schedule(now_us, boundary, action)?
+        };
+        self.sync();
+        Ok(target)
+    }
     pub fn advance(&mut self, now_us: u64) {
         self.now_us = now_us;
         self.transport.advance(now_us);
@@ -127,7 +190,7 @@ impl Session {
         if self.transport.playback() == Playback::Running {
             self.transport.pause(now_us);
         } else {
-            self.transport.start(now_us);
+            self.play_at(now_us, 0);
         }
         self.now_us = now_us;
         self.sync();

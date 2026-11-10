@@ -227,3 +227,107 @@ fn shared_composition_renders_small_and_large_without_text_overflow() {
         }
     }
 }
+
+fn packet(opcode: u8, seq: u16, generation: u32, arg: u32) -> [u8; 20] {
+    let mut packet = [0u8; 20];
+    packet[0] = opcode;
+    packet[1..3].copy_from_slice(&seq.to_le_bytes());
+    packet[3..7].copy_from_slice(&generation.to_le_bytes());
+    packet[8..12].copy_from_slice(&arg.to_le_bytes());
+    packet
+}
+
+#[test]
+fn link_orders_commands_deduplicates_retries_and_checks_source_identity() {
+    use crate::prelude::*;
+    let mut app = App::headless(128, 128);
+    let session = app
+        .add_model(Session::new(
+            Score::parse(PRACTICE, ScoreLimits::DEVICE).unwrap(),
+        ))
+        .finish();
+    let mut link = DeviceLink::new(17);
+    let start = packet(1, 0, 17, 500);
+    let receipt = link.write(&session, start, 1_000_000);
+    assert_eq!(receipt[0], 0);
+    assert_eq!(
+        u32::from_le_bytes(receipt[12..16].try_into().unwrap()),
+        1500
+    );
+    assert_eq!(link.status(&session, 1_100_000)[1] & 4, 4);
+    assert_eq!(session.position(), 0);
+    assert_eq!(
+        link.write(&session, packet(1, 3, 17, 0), 1_100_000)[0],
+        LinkError::Sequence as u8
+    );
+    assert_eq!(link.write(&session, start, 1_200_000), receipt);
+    assert_eq!(session.starts_at_us(), 1_500_000);
+    assert_eq!(
+        link.write(&session, packet(3, 1, 16, 0), 1_300_000)[0],
+        LinkError::Generation as u8
+    );
+    assert!(session.playing());
+    assert_eq!(link.write(&session, packet(3, 2, 17, 0), 1_400_000)[0], 0);
+    assert!(!session.playing());
+    link.reconnect();
+    assert_eq!(link.write(&session, packet(1, 0, 17, 0), 2_000_000)[0], 0);
+}
+
+#[test]
+fn transfer_validates_bytes_before_atomic_score_replacement() {
+    use crate::prelude::*;
+    let mut app = App::headless(128, 128);
+    let session = app
+        .add_model(Session::new(
+            Score::parse(PRACTICE, ScoreLimits::DEVICE).unwrap(),
+        ))
+        .finish();
+    let mut link = DeviceLink::new(23);
+    let source = SONG.as_bytes();
+    let mut begin = packet(0x10, 0, 23, source.len() as u32);
+    begin[12..16].copy_from_slice(&checksum(source).to_le_bytes());
+    assert_eq!(link.write(&session, begin, 0)[0], 0);
+    assert_eq!(
+        link.write(&session, packet(0x12, 1, 23, 0), 0)[0],
+        LinkError::Transfer as u8
+    );
+    assert_eq!(session.title(), "Midnight Session");
+    let mut seq: u16 = 2;
+    for (offset, data) in source.chunks(14).enumerate() {
+        let mut chunk = [0u8; 20];
+        chunk[0] = 0x11;
+        chunk[1..3].copy_from_slice(&seq.to_le_bytes());
+        chunk[3..5].copy_from_slice(&((offset * 14) as u16).to_le_bytes());
+        chunk[5] = data.len() as u8;
+        chunk[6..6 + data.len()].copy_from_slice(data);
+        assert_eq!(link.write(&session, chunk, 0)[0], 0);
+        seq += 1;
+    }
+    assert_eq!(session.title(), "Midnight Session");
+    let receipt = link.write(&session, packet(0x12, seq, 23, 0), 0);
+    assert_eq!(receipt[0], 0);
+    assert_eq!(u32::from_le_bytes(receipt[4..8].try_into().unwrap()), 24);
+    assert_eq!(session.title(), "Practice");
+    assert_eq!(session.lyric(), "跟着");
+    assert_eq!(
+        link.write(&session, packet(1, seq + 1, 23, 0), 0)[0],
+        LinkError::Generation as u8
+    );
+}
+
+#[test]
+fn explicit_late_controls_are_rejected_and_rhythm_changes_share_the_bar_clock() {
+    let mut transport = Transport::new(120_000, 4).unwrap();
+    transport.start(0);
+    transport.advance(1_000_000);
+    assert_eq!(
+        transport.schedule_at(1_000_000, 960, Action::Tempo(60_000)),
+        Err(CommandError::Late)
+    );
+    transport
+        .schedule_at(1_000_000, 3840, Action::Rhythm(Some(Pattern::Rock)))
+        .unwrap();
+    transport.advance(2_500_000);
+    assert_eq!(transport.rhythm(), Some(Pattern::Rock));
+    assert_eq!(transport.position(), 4800);
+}
