@@ -1496,11 +1496,12 @@ html[data-mode="focus"] .device-grip { display: none; }
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transition: opacity 0.28s ease;
+  transition: opacity 0.22s ease;
   pointer-events: none;
 }
 
-.arcade-poster.show { opacity: 1; transition-duration: 0.08s; }
+/* Shown at once, so the picture under a landing card is already there. */
+.arcade-poster.show { opacity: 1; transition-duration: 0s; }
 
 .arcade-card {
   position: absolute;
@@ -1518,7 +1519,7 @@ html[data-mode="focus"] .device-grip { display: none; }
   cursor: pointer;
   opacity: 0.74;
   user-select: none;
-  transition: transform 0.56s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease, filter 0.3s ease;
+  transition: transform 0.56s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease, filter 0.3s ease, background-color 0.4s ease, border-color 0.4s ease;
 }
 
 .arcade-card:hover,
@@ -1532,26 +1533,47 @@ html[data-mode="focus"] .device-grip { display: none; }
   padding: 1px 4px 7px;
   color: var(--site-muted);
   font: 500 10.5px/1.2 var(--font-mono);
+  transition: color 0.4s ease;
 }
 
-.arcade-card-bar b { overflow: hidden; color: var(--site-ink-2); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.arcade-card-bar b { overflow: hidden; color: var(--site-ink-2); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; transition: color 0.4s ease; }
 
 /* Neighbouring cartridges peek out behind the top corners of the screen. */
 .arcade-prev { transform: translate(calc(-50% - var(--peek, var(--screen-w) * 0.44) + var(--drag)), calc(-50% - var(--lift-prev, var(--screen-h) * 0.34))) rotate(-8deg) scale(0.86); }
 .arcade-next { z-index: 2; transform: translate(calc(-50% + var(--peek, var(--screen-w) * 0.44) + var(--drag)), calc(-50% - var(--lift-next, var(--screen-h) * 0.26))) rotate(7deg) scale(0.86); }
 
-/* Card flight: the neighbour takes the centre while the screen slips away. */
+/* Card flight: the neighbour lands on the glass while the screen slips away. */
 .arcade-stage.switching .arcade-screen { opacity: 0; }
 .arcade-stage.to-next .arcade-screen { transform: translate(-108%, -42%) rotate(-7deg) scale(0.8); }
 .arcade-stage.to-prev .arcade-screen { transform: translate(8%, -58%) rotate(7deg) scale(0.8); }
-.arcade-stage.to-next .arcade-next,
-.arcade-stage.to-prev .arcade-prev {
+.arcade-stage.switching .arcade-card:not(.is-flying) { opacity: 0; }
+
+/* On the way in the card takes on the screen's bezel and full colour. */
+.arcade-card.is-flying {
   z-index: 4;
+  border-color: color-mix(in srgb, var(--site-blue) 22%, var(--site-rule-strong));
+  background-color: #16191f;
   opacity: 1;
-  transform: translate(-50%, -50%) rotate(0deg) scale(1.38);
+  filter: none;
+  outline: none;
+  transform: translate(-50%, -50%) translateY(var(--land-y, 0px)) scale(var(--land-s, 1.38));
 }
-.arcade-stage.landing .arcade-card { opacity: 0; transition: none; }
-.arcade-stage.landing .arcade-screen { transition: opacity 0.2s ease; }
+
+.arcade-card.is-flying img { filter: none; transition: filter 0.4s ease; }
+.arcade-card.is-flying .arcade-card-bar { color: #8d919a; }
+.arcade-card.is-flying .arcade-card-bar b { color: #eceef2; }
+
+/* Hand-off: the screen is back under the card with the same picture, so the
+   card dissolves into it instead of blinking out. */
+.arcade-stage.landing .arcade-screen { transition: none; }
+.arcade-stage.landing .arcade-card.is-flying { opacity: 0; transition: opacity 0.2s ease; }
+
+/* Neighbours take their new games out of sight, then fade back in. */
+.arcade-stage.settling .arcade-card,
+.arcade-stage.settling .arcade-card img,
+.arcade-stage.settling .arcade-card-bar,
+.arcade-stage.settling .arcade-card-bar b { transition: none; }
+.arcade-stage.settling .arcade-card { opacity: 0; }
 
 .sticker {
   position: absolute;
@@ -2964,6 +2986,7 @@ html[data-mode="focus"] .stage { view-transition-name: live-stage; }
   .pane-spine,
   .arcade-screen,
   .arcade-card,
+  .arcade-poster,
   .build-demo-card,
   .loupe-lens { transition-duration: 0.01ms; }
   .demo-card:hover,

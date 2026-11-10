@@ -37,7 +37,7 @@ MIRUI_SNAPSHOT_DIR=.local/screenshots cargo run -p gallery --example text_input_
 
 The tab snapshot accepts a selected index from 0 to 2. The list accepts `top`, `mid`, or `bottom`. The modal tool captures 30 frames for each of the inline (`inl-*.ppm`) and offscreen (`off-*.ppm`) rendering modes.
 
-The preview tool accepts an optional demo slug after the output directory; omit it to capture the catalog. It writes PNG directly without Pillow.
+The preview tool accepts an optional demo slug after the output directory; omit it to capture the catalog. It writes PNG directly without Pillow. Put `--site` before the output directory to write the homepage set instead: lossless WebP files under `dark/` and `light/`, rendered in each host appearance.
 
 Set `NEARBY_SCENE` when selecting `nearby` to capture a deterministic scene (640×480 by default): `NEARBY_SCENE=actions cargo run -p gallery --example demo_previews_snapshot --no-default-features --features snapshot -- .local/screenshots/nearby-actions nearby`. Available scenes are `favorites`, `actions`, `platforms`, `games`, `connection-games`, `empty-games`, `search`, `search-results`, `search-empty`, `settings`, `controls`, `tools`, `power`, `exit`, `network-menu`, `lobby`, `discovery-actions`, `discovery-current`, `discovery-empty`, `candidates`, `panel`, `panel-game`, `panel-host`, `mode`, `game-entry`, `choice`, `host`, `joined`, `joined-game`, `approval`, `ready`, `connection-failed`, `restore-failed`, `rooms`, `leaving`, `network` and `unavailable`. Set `NEARBY_VIEWPORT=320x240` or another nonzero logical size to inspect responsive geometry, and `NEARBY_PALETTE=0`, `1` or `2` for forest, sunset or night. `NEARBY_SETTLE_FRAMES=0` captures the first paint; the default advances 40 frames before capture.
 
@@ -55,7 +55,7 @@ Set `NEARBY_SCENE` when selecting `nearby` to capture a deterministic scene (640
 
 Wi-Fi character, delete and submit actions use the software input method and a bounded document; queued actions retain their order and submission reads the committed text. Search and Wi-Fi use the same key surfaces. Characters follow the selected key and the loading span's leading edge; static Wi-Fi fixtures sample the span at 800 ms.
 
-The Web pre-build hook invokes the same tool for all entries in `gallery::DEMOS` and caches the previews under `target/gallery-site/demo-previews`. A failed generation preserves the previous preview directory; a successful generation replaces it. Adding a demo does not require maintaining a separate image count.
+The Web pre-build hook invokes the same tool with `--site` for all entries in `gallery::DEMOS` and caches the previews under `target/gallery-site/demo-previews`. A failed generation preserves the previous preview directory; a successful generation replaces it. Adding a demo does not require maintaining a separate image count.
 
 For a regression check, capture before and after a change with identical arguments into separate directories. Compare corresponding files and inspect the images for clipping, layering, and animation artifacts. These snapshots support manual visual checks; they do not replace unit tests for layout, event, or lifecycle contracts. Keep generated images under `.local/screenshots/` or a temporary directory, outside version control.
 

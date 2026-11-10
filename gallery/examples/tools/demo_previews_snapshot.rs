@@ -1,7 +1,9 @@
 mod snapshot_render;
 
+use std::cell::Cell;
 use std::env;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mirui::gallery::DemoSize;
@@ -19,6 +21,17 @@ fn advance_reference(app: &mut snapshot_render::SnapshotApp, current: &mut u64, 
         app.tick();
         app.render_dirty().expect("configuration reference stage");
     }
+}
+
+/// Lossless, so pixel fonts and one-pixel rules stay exact; the set comes out
+/// at about half the size of the PNG one.
+fn write_webp(path: &Path, (width, height): (u16, u16), rgba: &[u8]) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create preview directory");
+    }
+    let encoded = webp::Encoder::from_rgba(rgba, width.into(), height.into()).encode_lossless();
+    fs::write(path, &*encoded).expect("write WebP preview");
+    println!("wrote {}", path.display());
 }
 
 fn clamp_axis(preferred: u16, minimum: Option<u16>, maximum: Option<u16>) -> u16 {
@@ -452,11 +465,14 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
 }
 
 fn main() {
-    let output = env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .expect("output directory");
-    let selected = env::args().nth(2);
+    let mut args: Vec<String> = env::args().skip(1).collect();
+    // `--site` writes the homepage set: dark/<slug>.webp and light/<slug>.webp.
+    let site = args.first().is_some_and(|arg| arg == "--site");
+    if site {
+        args.remove(0);
+    }
+    let output = args.first().map(PathBuf::from).expect("output directory");
+    let selected = args.get(1).cloned();
     if let Some(slug) = &selected {
         assert!(gallery::lookup_demo(slug).is_some(), "unknown demo: {slug}");
     }
@@ -465,37 +481,61 @@ fn main() {
         if selected.as_ref().is_some_and(|slug| slug != demo.slug) {
             continue;
         }
-        snapshot_render::render(
-            &output.join(format!("{}.png", demo.slug)),
-            if demo.slug == "nearby" && env::var_os("NEARBY_SCENE").is_some() {
-                let mut size: (u16, u16) =
-                    env::var("NEARBY_VIEWPORT").map_or((640, 480), |value| {
-                        let (width, height) =
-                            value.split_once('x').expect("Nearby viewport WIDTHxHEIGHT");
-                        let size = (
-                            width.parse().expect("viewport width"),
-                            height.parse().expect("viewport height"),
-                        );
-                        assert!(size.0 > 0 && size.1 > 0, "viewport must be nonzero");
-                        size
-                    });
-                if env::var("NEARBY_SCENE").as_deref() == Ok("simulation") {
-                    size.0 = size.0.checked_add(300).expect("expanded inspector width");
-                }
+        let viewport = if demo.slug == "nearby" && env::var_os("NEARBY_SCENE").is_some() {
+            let mut size: (u16, u16) = env::var("NEARBY_VIEWPORT").map_or((640, 480), |value| {
+                let (width, height) = value.split_once('x').expect("Nearby viewport WIDTHxHEIGHT");
+                let size = (
+                    width.parse().expect("viewport width"),
+                    height.parse().expect("viewport height"),
+                );
+                assert!(size.0 > 0 && size.1 > 0, "viewport must be nonzero");
                 size
+            });
+            if env::var("NEARBY_SCENE").as_deref() == Ok("simulation") {
+                size.0 = size.0.checked_add(300).expect("expanded inspector width");
+            }
+            size
+        } else {
+            preview_size(demo.size)
+        };
+        // Demos in a host appearance family follow the page theme, as on the
+        // Web canvas; custom palettes keep one look for both.
+        let follows_host = Cell::new(false);
+        let setup = |app: &mut snapshot_render::SnapshotApp, dark: Option<bool>| {
+            let root = if demo.slug == "nearby"
+                && let Ok(scene) = env::var("NEARBY_SCENE")
+            {
+                nearby_scene(app, &scene)
             } else {
-                preview_size(demo.size)
-            },
-            true,
-            |app| {
-                if demo.slug == "nearby"
-                    && let Ok(scene) = env::var("NEARBY_SCENE")
-                {
-                    nearby_scene(app, &scene)
-                } else {
-                    gallery::setup_demo(demo.slug, app).expect("registered demo")
+                gallery::setup_demo(demo.slug, app).expect("registered demo")
+            };
+            if let Some(dark) = dark {
+                follows_host
+                    .set(gallery::appearance_theme_id(app.theme().id().as_str(), false).is_some());
+                if let Some(id) = gallery::appearance_theme_id(app.theme().id().as_str(), dark) {
+                    app.set_theme(id).expect("appearance family is registered");
                 }
-            },
-        );
+            }
+            root
+        };
+        if site {
+            let dark =
+                snapshot_render::capture(viewport, true, |app| setup(app, Some(true)), demo.slug);
+            let light = if follows_host.get() {
+                snapshot_render::capture(viewport, true, |app| setup(app, Some(false)), demo.slug)
+            } else {
+                dark.clone()
+            };
+            let name = format!("{}.webp", demo.slug);
+            write_webp(&output.join("dark").join(&name), viewport, &dark);
+            write_webp(&output.join("light").join(&name), viewport, &light);
+        } else {
+            snapshot_render::render(
+                &output.join(format!("{}.png", demo.slug)),
+                viewport,
+                true,
+                |app| setup(app, None),
+            );
+        }
     }
 }

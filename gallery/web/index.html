@@ -1298,17 +1298,17 @@
               <div class="arcade" id="arcade">
                 <div class="arcade-stage" id="arcade-stage" tabindex="0" aria-label="Featured games; drag or use the arrow keys to change game">
                   <button class="arcade-card arcade-prev" id="arcade-prev" type="button" aria-label="Previous game">
-                    <span class="arcade-card-bar"><b></b><small></small></span>
-                    <img alt="" draggable="false" />
+                    <span class="arcade-card-bar"><b data-i18n="game.post">Pocket Post</b><small>13 / 13</small></span>
+                    <img data-preview="pocket_post" alt="" draggable="false" />
                   </button>
                   <button class="arcade-card arcade-next" id="arcade-next" type="button" aria-label="Next game">
-                    <span class="arcade-card-bar"><b></b><small></small></span>
-                    <img alt="" draggable="false" />
+                    <span class="arcade-card-bar"><b data-i18n="game.twin">Twin Beacons</b><small>02 / 13</small></span>
+                    <img data-preview="twin_beacons" alt="" draggable="false" />
                   </button>
                   <div class="arcade-screen" id="arcade-screen">
                     <div class="arcade-meta"><span class="arcade-led" aria-hidden="true"></span><strong id="arcade-name">Marble Playground</strong><small id="arcade-genre">Creative</small></div>
                     <div class="arcade-glass" id="arcade-glass">
-                      <img class="arcade-poster show" id="arcade-poster" src="demo-previews/marble_play.png" alt="" draggable="false" />
+                      <img class="arcade-poster show" id="arcade-poster" data-preview="marble_play" alt="" draggable="false" />
                       <canvas id="mirui-play" tabindex="0" aria-label="Live game"></canvas>
                     </div>
                   </div>
@@ -1323,7 +1323,7 @@
                   <button class="arcade-step" id="arcade-step-prev" type="button" aria-label="Previous game">←</button>
                   <span class="arcade-dots" id="arcade-dots"></span>
                   <button class="arcade-step" id="arcade-step-next" type="button" aria-label="Next game">→</button>
-                  <span class="arcade-count" id="arcade-count">01 / 05</span>
+                  <span class="arcade-count" id="arcade-count">01 / 13</span>
                   <button class="arcade-play" id="arcade-play" type="button"><span data-i18n="arcade.full">Play full screen</span><svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M3 2h5v5M8 2 2.5 7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
                 <div class="arcade-shelf" id="arcade-shelf" role="list" aria-label="All games"></div>
@@ -1387,91 +1387,91 @@
           <div class="demo-grid-viewport" id="play-tabpanel" role="tabpanel" aria-labelledby="play-tab-all">
             <div class="demo-grid" id="demo-grid">
               <article class="demo-card" data-category="creative" data-search="marble play playground audio gravity game 弹珠 音乐 重力 游乐场">
-                <button class="game-cover" type="button" data-open-demo="marble_play" aria-label="Open Marble Play"><img src="demo-previews/marble_play.png" loading="eager" draggable="false" alt="Marble Play preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="marble_play" aria-label="Open Marble Play"><img data-preview="marble_play" loading="eager" draggable="false" alt="Marble Play preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="marble_play"><strong data-i18n="game.marble">Marble Playground</strong><small><span data-i18n="genre.creative">Creative</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="marble_play" aria-label="Open Marble Play source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="puzzle" data-search="twin beacons puzzle 双子 信标 解谜">
-                <button class="game-cover" type="button" data-open-demo="twin_beacons" aria-label="Open Twin Beacons"><img src="demo-previews/twin_beacons.png" loading="eager" draggable="false" alt="Twin Beacons preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="twin_beacons" aria-label="Open Twin Beacons"><img data-preview="twin_beacons" loading="eager" draggable="false" alt="Twin Beacons preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="twin_beacons"><strong data-i18n="game.twin">Twin Beacons</strong><small><span data-i18n="genre.puzzle">Puzzle</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="twin_beacons" aria-label="Open Twin Beacons source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="strategy" data-search="tidal atlas strategy 潮汐 群岛 策略">
-                <button class="game-cover" type="button" data-open-demo="tidal_atlas" aria-label="Open Tidal Atlas"><img src="demo-previews/tidal_atlas.png" loading="eager" draggable="false" alt="Tidal Atlas preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="tidal_atlas" aria-label="Open Tidal Atlas"><img data-preview="tidal_atlas" loading="eager" draggable="false" alt="Tidal Atlas preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="tidal_atlas"><strong data-i18n="game.tidal">Tidal Atlas</strong><small><span data-i18n="genre.strategy">Strategy</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="tidal_atlas" aria-label="Open Tidal Atlas source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="puzzle" data-search="echo walker puzzle 回声 行者 解谜">
-                <button class="game-cover" type="button" data-open-demo="echo_walker" aria-label="Open Echo Walker"><img src="demo-previews/echo_walker.png" loading="eager" draggable="false" alt="Echo Walker preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="echo_walker" aria-label="Open Echo Walker"><img data-preview="echo_walker" loading="eager" draggable="false" alt="Echo Walker preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="echo_walker"><strong data-i18n="game.echo">Echo Walker</strong><small><span data-i18n="genre.puzzle">Puzzle</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="echo_walker" aria-label="Open Echo Walker source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="creative" data-search="pixel loom creative 像素 织机 创作">
-                <button class="game-cover" type="button" data-open-demo="pixel_loom" aria-label="Open Pixel Loom"><img src="demo-previews/pixel_loom.png" loading="lazy" draggable="false" alt="Pixel Loom preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="pixel_loom" aria-label="Open Pixel Loom"><img data-preview="pixel_loom" loading="lazy" draggable="false" alt="Pixel Loom preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="pixel_loom"><strong data-i18n="game.loom">Pixel Loom</strong><small><span data-i18n="genre.creative">Creative</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="pixel_loom" aria-label="Open Pixel Loom source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="puzzle" data-search="lumen light lab puzzle optics 光路 实验室 解谜">
-                <button class="game-cover" type="button" data-open-demo="lumen_lab" aria-label="Open Lumen Lab"><img src="demo-previews/lumen_lab.png" loading="lazy" draggable="false" alt="Lumen Lab preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="lumen_lab" aria-label="Open Lumen Lab"><img data-preview="lumen_lab" loading="lazy" draggable="false" alt="Lumen Lab preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="lumen_lab"><strong data-i18n="game.lumen">Lumen Lab</strong><small><span data-i18n="genre.puzzle">Puzzle</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="lumen_lab" aria-label="Open Lumen Lab source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="puzzle" data-search="folding ark puzzle 折叠 方舟 解谜">
-                <button class="game-cover" type="button" data-open-demo="folding_ark" aria-label="Open Folding Ark"><img src="demo-previews/folding_ark.png" loading="lazy" draggable="false" alt="Folding Ark preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="folding_ark" aria-label="Open Folding Ark"><img data-preview="folding_ark" loading="lazy" draggable="false" alt="Folding Ark preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="folding_ark"><strong data-i18n="game.ark">Folding Ark</strong><small><span data-i18n="genre.puzzle">Puzzle</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="folding_ark" aria-label="Open Folding Ark source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="puzzle" data-search="atlas restoration puzzle star map 星图 修复 解谜">
-                <button class="game-cover" type="button" data-open-demo="atlas_restoration" aria-label="Open Atlas Restoration"><img src="demo-previews/atlas_restoration.png" loading="lazy" draggable="false" alt="Atlas Restoration preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="atlas_restoration" aria-label="Open Atlas Restoration"><img data-preview="atlas_restoration" loading="lazy" draggable="false" alt="Atlas Restoration preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="atlas_restoration"><strong data-i18n="game.atlas">Atlas Restoration</strong><small><span data-i18n="genre.puzzle">Puzzle</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="atlas_restoration" aria-label="Open Atlas Restoration source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="strategy" data-search="module factory strategy 模块 工厂 策略">
-                <button class="game-cover" type="button" data-open-demo="module_factory" aria-label="Open Module Factory"><img src="demo-previews/module_factory.png" loading="lazy" draggable="false" alt="Module Factory preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="module_factory" aria-label="Open Module Factory"><img data-preview="module_factory" loading="lazy" draggable="false" alt="Module Factory preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="module_factory"><strong data-i18n="game.factory">Module Factory</strong><small><span data-i18n="genre.strategy">Strategy</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="module_factory" aria-label="Open Module Factory source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="creative" data-search="orbital mission creative orbit 轨道 任务 创作">
-                <button class="game-cover" type="button" data-open-demo="orbital_mission" aria-label="Open Orbital Mission"><img src="demo-previews/orbital_mission.png" loading="lazy" draggable="false" alt="Orbital Mission preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="orbital_mission" aria-label="Open Orbital Mission"><img data-preview="orbital_mission" loading="lazy" draggable="false" alt="Orbital Mission preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="orbital_mission"><strong data-i18n="game.orbit">Orbital Mission</strong><small><span data-i18n="genre.creative">Creative</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="orbital_mission" aria-label="Open Orbital Mission source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="creative" data-search="logic circuit creative 逻辑 电路 创作">
-                <button class="game-cover" type="button" data-open-demo="logic_circuit" aria-label="Open Logic Circuit"><img src="demo-previews/logic_circuit.png" loading="lazy" draggable="false" alt="Logic Circuit preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="logic_circuit" aria-label="Open Logic Circuit"><img data-preview="logic_circuit" loading="lazy" draggable="false" alt="Logic Circuit preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="logic_circuit"><strong data-i18n="game.circuit">Logic Circuit</strong><small><span data-i18n="genre.creative">Creative</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="logic_circuit" aria-label="Open Logic Circuit source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="creative" data-search="moss study lab ecosystem creative 苔藓 生态 创作">
-                <button class="game-cover" type="button" data-open-demo="moss_study" aria-label="Open Moss Study"><img src="demo-previews/moss_study.png" loading="lazy" draggable="false" alt="Moss Study preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="moss_study" aria-label="Open Moss Study"><img data-preview="moss_study" loading="lazy" draggable="false" alt="Moss Study preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="moss_study"><strong data-i18n="game.moss">Moss Study</strong><small><span data-i18n="genre.creative">Creative</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="moss_study" aria-label="Open Moss Study source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
               </article>
               <article class="demo-card" data-category="strategy" data-search="pocket post switchyard strategy 轨道 邮局 策略">
-                <button class="game-cover" type="button" data-open-demo="pocket_post" aria-label="Open Pocket Post"><img src="demo-previews/pocket_post.png" loading="lazy" draggable="false" alt="Pocket Post preview"/></button>
+                <button class="game-cover" type="button" data-open-demo="pocket_post" aria-label="Open Pocket Post"><img data-preview="pocket_post" loading="lazy" draggable="false" alt="Pocket Post preview"/></button>
                 <div class="card-footer">
                   <button class="card-title" type="button" data-open-demo="pocket_post"><strong data-i18n="game.post">Pocket Post</strong><small><span data-i18n="genre.strategy">Strategy</span><span class="size">480 × 320</span></small></button>
                   <button class="card-source" type="button" data-open-source-demo="pocket_post" aria-label="Open Pocket Post source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -2154,6 +2154,18 @@ fn counter_panel(counter: model!(Counter)) {
       for (const block of document.querySelectorAll("pre[data-rust]")) {
         block.innerHTML = highlightRust(block.textContent);
       }
+
+      // Previews come in a dark and a light set; img[data-preview] follows the page theme.
+      window.miruiPreview = (slug) =>
+        `demo-previews/${document.documentElement.dataset.theme === "light" ? "light" : "dark"}/${slug}.webp`;
+      function syncPreviews() {
+        for (const image of document.querySelectorAll("img[data-preview]")) {
+          const url = window.miruiPreview(image.dataset.preview);
+          if (image.getAttribute("src") !== url) image.src = url;
+        }
+      }
+      syncPreviews();
+      new MutationObserver(syncPreviews).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
       // Small screens | Big play: either half can open over the other for a while.
       (function () {
@@ -3850,20 +3862,30 @@ fn counter_panel(counter: model!(Counter)) {
         const gameAt = (index) => GAMES[(index + GAMES.length) % GAMES.length];
         const two = (value) => String(value).padStart(2, "0");
 
+        function showPreview(image, slug) {
+          image.dataset.preview = slug;
+          image.src = window.miruiPreview(slug);
+        }
+
         function fillCard(card, game, order) {
-          card.querySelector("img").src = `demo-previews/${game.slug}.png`;
-          card.querySelector(".arcade-card-bar b").textContent = t(game.key);
+          showPreview(card.querySelector("img"), game.slug);
+          const name = card.querySelector(".arcade-card-bar b");
+          name.dataset.i18n = game.key;
+          name.textContent = t(game.key);
           card.querySelector(".arcade-card-bar small").textContent = `${two(order + 1)} / ${two(GAMES.length)}`;
           card.dataset.slug = game.slug;
         }
 
-        function renderArcade() {
+        // Neighbours keep their cards while one is in flight.
+        function renderArcade(neighbours = !arcadeSwitching) {
           const game = gameAt(arcadeIndex);
           document.getElementById("arcade-name").textContent = t(game.key);
           document.getElementById("arcade-genre").textContent = t(`genre.${game.genre}`);
           document.getElementById("arcade-count").textContent = `${two(arcadeIndex + 1)} / ${two(GAMES.length)}`;
-          fillCard(arcadePrev, gameAt(arcadeIndex - 1), (arcadeIndex - 1 + GAMES.length) % GAMES.length);
-          fillCard(arcadeNext, gameAt(arcadeIndex + 1), (arcadeIndex + 1) % GAMES.length);
+          if (neighbours) {
+            fillCard(arcadePrev, gameAt(arcadeIndex - 1), (arcadeIndex - 1 + GAMES.length) % GAMES.length);
+            fillCard(arcadeNext, gameAt(arcadeIndex + 1), (arcadeIndex + 1) % GAMES.length);
+          }
           for (const item of arcadeShelf.children) {
             item.setAttribute("aria-current", String(item.dataset.slug === game.slug));
           }
@@ -3877,7 +3899,7 @@ fn counter_panel(counter: model!(Counter)) {
           item.setAttribute("role", "listitem");
           item.setAttribute("aria-label", game.slug);
           const image = document.createElement("img");
-          image.src = `demo-previews/${game.slug}.png`;
+          showPreview(image, game.slug);
           image.alt = "";
           image.loading = "lazy";
           image.draggable = false;
@@ -3917,15 +3939,24 @@ fn counter_panel(counter: model!(Counter)) {
         }
         new ResizeObserver(() => requestAnimationFrame(sizePlay)).observe(arcadeStage);
 
+        let posterPending = false;
+        const playLive = () =>
+          paneVisible && siteMode === "home" && !document.hidden && !playPane.classList.contains("is-collapsed");
+
         function syncPlayPause() {
           if (!playStarted) return;
-          const live = paneVisible && siteMode === "home" && !document.hidden && !playPane.classList.contains("is-collapsed");
+          const live = playLive();
           try { wasmBindings.play_set_paused(!live); } catch (_) {}
+          if (live && posterPending) revealPlay();
         }
 
+        // The poster leaves only after the game has drawn on the canvas. A
+        // parked game draws nothing, so it waits until the pane is live again.
         function revealPlay() {
+          posterPending = !playLive();
+          if (posterPending) return;
           requestAnimationFrame(() => requestAnimationFrame(() => {
-            window.setTimeout(() => arcadePoster.classList.remove("show"), 90);
+            window.setTimeout(() => arcadePoster.classList.remove("show"), 60);
           }));
         }
 
@@ -3946,7 +3977,7 @@ fn counter_panel(counter: model!(Counter)) {
         function switchPlay(index) {
           arcadeIndex = (index + GAMES.length) % GAMES.length;
           const game = gameAt(arcadeIndex);
-          arcadePoster.src = `demo-previews/${game.slug}.png`;
+          showPreview(arcadePoster, game.slug);
           arcadePoster.classList.add("show");
           renderArcade();
           if (playStarted) {
@@ -3958,25 +3989,55 @@ fn counter_panel(counter: model!(Counter)) {
           }
         }
 
+        // The flying card lands with its picture exactly on the glass.
+        function aimFlight(card) {
+          const image = card.querySelector("img");
+          if (!image.offsetWidth) return;
+          const scale = arcadeGlass.offsetWidth / image.offsetWidth;
+          const imageMid = card.clientTop + image.offsetTop + image.offsetHeight / 2 - card.offsetHeight / 2;
+          const glassMid = arcadeScreen.clientTop + arcadeGlass.offsetTop + arcadeGlass.offsetHeight / 2 - arcadeScreen.offsetHeight / 2;
+          card.style.setProperty("--land-s", scale.toFixed(4));
+          card.style.setProperty("--land-y", `${(glassMid - imageMid * scale).toFixed(2)}px`);
+        }
+
         function selectGame(index, direction = 1) {
-          if (arcadeSwitching || index === arcadeIndex) return;
+          const target = (index + GAMES.length) % GAMES.length;
+          if (arcadeSwitching || target === arcadeIndex) return;
+          arcadeSwitching = true;
+          const game = gameAt(target);
           if (!motionEnabled) {
-            switchPlay(index);
+            // No flight: swap in the decoded preview, then the live game.
+            showPreview(arcadePoster, game.slug);
+            arcadePoster.decode().catch(() => {}).then(() => {
+              arcadeSwitching = false;
+              switchPlay(target);
+            });
             return;
           }
-          arcadeSwitching = true;
           const incoming = direction < 0 ? arcadePrev : arcadeNext;
-          fillCard(incoming, gameAt(index), (index + GAMES.length) % GAMES.length);
+          fillCard(incoming, game, target);
+          aimFlight(incoming);
+          // The hidden poster decodes the same picture while the card flies.
+          showPreview(arcadePoster, game.slug);
+          const decoded = arcadePoster.decode().catch(() => {});
+          const flown = new Promise((resolve) => window.setTimeout(resolve, 580));
+          incoming.classList.add("is-flying");
           arcadeStage.classList.add("switching", direction < 0 ? "to-prev" : "to-next");
-          window.setTimeout(() => {
+          Promise.all([flown, decoded]).then(() => {
+            // The screen returns under the card showing that picture, and the
+            // card dissolves into it. Neighbours change only while hidden.
             arcadeStage.classList.add("landing");
-            switchPlay(index);
+            switchPlay(target);
             arcadeStage.classList.remove("switching", "to-prev", "to-next");
             window.setTimeout(() => {
-              arcadeStage.classList.remove("landing");
+              arcadeStage.classList.add("settling");
+              incoming.classList.remove("is-flying");
               arcadeSwitching = false;
-            }, 380);
-          }, 460);
+              renderArcade();
+              void arcadeStage.offsetWidth;
+              arcadeStage.classList.remove("settling", "landing");
+            }, 240);
+          });
         }
 
         const stepGame = (direction) => selectGame(arcadeIndex + direction, direction);
@@ -4044,7 +4105,7 @@ fn counter_panel(counter: model!(Counter)) {
             fitCode();
           }, 780);
         });
-        document.addEventListener("mirui-language-change", renderArcade);
+        document.addEventListener("mirui-language-change", () => renderArcade());
         document.addEventListener("mirui-site-mode", () => {
           syncPlayPause();
           requestAnimationFrame(sizePlay);
@@ -4189,7 +4250,8 @@ fn counter_panel(counter: model!(Counter)) {
             const cover = document.createElement("div");
             cover.className = "catalog-cover";
             const image = document.createElement("img");
-            image.src = `demo-previews/${demo.slug}.png`;
+            image.dataset.preview = demo.slug;
+            image.src = window.miruiPreview(demo.slug);
             image.loading = "lazy";
             image.draggable = false;
             image.alt = `${demo.label} preview`;

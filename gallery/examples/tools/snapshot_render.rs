@@ -28,6 +28,23 @@ pub fn render(
     allow_partial: bool,
     setup: impl FnOnce(&mut SnapshotApp) -> Entity,
 ) {
+    let pixels = capture(
+        viewport,
+        allow_partial,
+        setup,
+        &output.display().to_string(),
+    );
+    write_png(output, viewport.0, viewport.1, &pixels);
+    println!("wrote {}", output.display());
+}
+
+/// Renders one frame and returns its RGBA8888 rows.
+pub fn capture(
+    viewport: (u16, u16),
+    allow_partial: bool,
+    setup: impl FnOnce(&mut SnapshotApp) -> Entity,
+    label: &str,
+) -> Vec<u8> {
     let (width, height) = viewport;
     let flush: fn(&[u8], PhysicalRect) = |_, _| {};
     let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, flush);
@@ -43,13 +60,12 @@ pub fn render(
         if !allow_partial {
             panic!("snapshot render failed: {error:?}");
         }
-        eprintln!("partial snapshot {}: {error:?}", output.display());
+        eprintln!("partial snapshot {label}: {error:?}");
     }
 
     let texture = app.backend.framebuffer();
     let pixels = texture.read_pixels().expect("read snapshot pixels");
     assert_eq!(pixels.stride(), usize::from(width) * 4);
     assert_eq!(pixels.bytes().len(), pixels.stride() * usize::from(height));
-    write_png(output, width, height, pixels.bytes());
-    println!("wrote {}", output.display());
+    pixels.bytes().to_vec()
 }

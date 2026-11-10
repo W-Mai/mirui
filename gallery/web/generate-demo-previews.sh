@@ -33,7 +33,7 @@ cargo run \
     --features snapshot \
     --example demo_previews_snapshot \
     --release \
-    -- "$temporary_dir"
+    -- --site "$temporary_dir"
 
 rm -rf "$output_dir"
 mv "$temporary_dir" "$output_dir"
