@@ -102,6 +102,8 @@ pub(super) struct GlassModel {
     revision: u32,
     /// Whether the host theme was light when last read; `None` before the first frame.
     host_day: Option<bool>,
+    /// A side picked by hand that the host theme has not taken up yet.
+    request: Option<bool>,
 }
 impl Default for GlassModel {
     fn default() -> Self {
@@ -117,6 +119,7 @@ impl Default for GlassModel {
             drag_start: Fixed::ZERO,
             revision: 0,
             host_day: None,
+            request: None,
         }
     }
 }
@@ -162,30 +165,37 @@ impl GlassModel {
                 .iter()
                 .any(|p| !p.x.is_settled() || !p.y.is_settled())
     }
-    pub(super) fn toggle(&mut self) {
-        let target = if self.position.target > Fixed::HALF {
-            Fixed::ZERO
-        } else {
-            Fixed::ONE
-        };
-        self.position.retarget(target, None);
-        self.revision = self.revision.wrapping_add(1);
-    }
-    pub(super) fn choose(&mut self, day: bool) {
+    fn aim(&mut self, day: bool) {
         self.position
             .retarget(if day { Fixed::ONE } else { Fixed::ZERO }, None);
         self.revision = self.revision.wrapping_add(1);
+    }
+    pub(super) fn toggle(&mut self) {
+        let day = self.position.target <= Fixed::HALF;
+        self.choose(day);
+    }
+    /// A side picked by hand; the host theme is asked to follow.
+    pub(super) fn choose(&mut self, day: bool) {
+        self.aim(day);
+        self.request = Some(day);
+    }
+    pub(super) fn requested(&self) -> Option<bool> {
+        self.request
+    }
+    pub(super) fn clear_request(&mut self) {
+        self.request = None;
     }
     pub(super) fn host_day(&self) -> Option<bool> {
         self.host_day
     }
     /// Follows the host theme. The first reading puts an untouched switch on
-    /// that side at rest; a later change flips it the way a tap does.
+    /// that side at rest; a later change flips it the way a tap does, without
+    /// asking the host back.
     pub(super) fn follow_host(&mut self, day: bool) {
         let first = self.host_day.is_none();
         self.host_day = Some(day);
         if !first {
-            self.choose(day);
+            self.aim(day);
         } else if day && self.revision == 0 {
             self.position = Spring::preset(Fixed::ONE, Fixed::ONE, SETTLE);
             self.light = Spring::preset(Fixed::ONE, Fixed::ONE, LIGHT);
@@ -255,6 +265,9 @@ impl GlassModel {
         });
         self.position
             .retarget(if goal { Fixed::ONE } else { Fixed::ZERO }, None);
+        if !cancelled {
+            self.request = Some(goal);
+        }
         self.release_press();
         self.revision = self.revision.wrapping_add(1);
     }

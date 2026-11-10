@@ -16,6 +16,24 @@ use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_least(320, 320);
 pub const VIEWPORT: (u16, u16) = (760, 520);
 
+/// A flip by hand carries over to the app, which moves between the built-in
+/// dark and light themes; a host page can follow from there. Custom
+/// palettes stay under the host's control.
+#[crate::system(order=Animation)]
+fn lead_host(glasses: query!(GlassToggle), theme: res!(Theme), commands: commands!()) {
+    let id = theme.id().as_str();
+    let built_in = id == "dark" || id == "light";
+    for glass in glasses {
+        let Some(day) = glass.model.requested() else {
+            continue;
+        };
+        glass.model.clear_request();
+        if built_in && (id == "light") != day {
+            commands.set_theme(if day { "light" } else { "dark" });
+        }
+    }
+}
+
 /// The switch follows the host theme, judged by how bright its surface is.
 #[crate::system(order=Animation)]
 fn follow_host(glasses: query!(GlassToggle), theme: res!(Theme)) {

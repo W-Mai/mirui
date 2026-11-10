@@ -348,7 +348,7 @@ fn paint_scene(paint: &mut PaintCtx<'_>, scene: &Scene) {
 
 #[crate::view(component=GlassToggle,name="Glass Light Toggle",priority=60,
 input=(super::input::tap::callback(),super::input::drag_start::callback(),super::input::drag_move::callback(),super::input::drag_end::callback(),super::input::drag_cancel::callback(),super::input::key::callback()),
-systems=[super::follow_host::system(), super::animate::system()])]
+systems=[super::lead_host::system(), super::follow_host::system(), super::animate::system()])]
 pub(super) fn glass_render(
     model: model!(component.model, watch(visual_revision)),
     paint: paint!(),

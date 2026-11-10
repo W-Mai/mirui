@@ -3210,6 +3210,23 @@ fn counter_panel(counter: model!(Counter)) {
           else if (themeQuery.addListener) themeQuery.addListener(onScheme);
         }
 
+        // A demo can switch its own theme, as Glass Light Toggle does when
+        // flipped by hand. The page follows and keeps it as the visitor's choice.
+        function followCanvasTheme() {
+          let dark;
+          try { dark = wasmBindings.app_appearance_dark(); } catch (_) { return; }
+          if (typeof dark === "boolean" && dark !== isDark()) applyTheme(dark, true);
+        }
+        // Input lands on the canvas, then the app switches a frame or two later.
+        function followCanvasThemeSoon(frames = 4) {
+          followCanvasTheme();
+          if (frames > 0) requestAnimationFrame(() => followCanvasThemeSoon(frames - 1));
+        }
+        for (const type of ["pointerup", "keyup"]) {
+          canvas.addEventListener(type, () => followCanvasThemeSoon());
+        }
+        window.setInterval(followCanvasTheme, 200);
+
         // ── Code panel ─────────────────────────────────────────
         const codeBody = document.getElementById("code-body");
         const codeTitle = document.getElementById("code-title");

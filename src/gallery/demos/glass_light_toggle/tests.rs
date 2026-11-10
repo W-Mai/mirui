@@ -29,6 +29,9 @@ fn view_callbacks_resolve_their_own_model_without_global_widget_ids() {
     use crate::input::event::input::{InputEvent, PointerKind};
     let mut app = App::headless(760, 520);
     app.with_default_widgets().with_default_systems();
+    // A custom palette keeps the shared app theme out of this routing check;
+    // on the built-in themes one flip would move both switches.
+    crate::gallery::showcase_theme::install(&mut app);
     app.add_resource(crate::ecs::MonoClock::new(|| {
         static TIME: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
         TIME.fetch_add(16_000_000, core::sync::atomic::Ordering::Relaxed)
@@ -193,6 +196,67 @@ fn host_theme_sets_the_side_at_rest_and_later_changes_flip_it() {
     }
     assert_eq!(model.scene().progress, Fixed::ZERO);
     assert!(!model.active());
+}
+
+type HeadlessApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
+type Glass = <GlassModel as crate::core::model::Model>::Handle;
+
+fn glass_app(custom: bool) -> (HeadlessApp, Glass) {
+    let mut app = App::headless(640, 480);
+    app.with_default_widgets().with_default_systems();
+    app.add_resource(crate::ecs::MonoClock::new(|| {
+        static TIME: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+        TIME.fetch_add(16_000_000, core::sync::atomic::Ordering::Relaxed)
+    }));
+    if custom {
+        crate::gallery::showcase_theme::install(&mut app);
+    }
+    let root = app.spawn_root().id();
+    let model = app.add_model(GlassModel::default()).finish();
+    app.with_widget(super::glass_render::view());
+    app.compose(root, super::build_widgets(model.clone()));
+    app.prepare_text_layout().unwrap();
+    app.tick();
+    (app, model)
+}
+
+#[test]
+fn a_flip_by_hand_moves_the_app_between_dark_and_light() {
+    let (mut app, model) = glass_app(false);
+    assert_eq!(app.theme().id().as_str(), "dark");
+    model.toggle();
+    app.tick();
+    app.tick();
+    assert_eq!(app.theme().id().as_str(), "light");
+    assert_eq!(model.requested(), None);
+    for _ in 0..360 {
+        app.tick();
+    }
+    assert_eq!(model.scene().progress, Fixed::ONE);
+    assert_eq!(app.theme().id().as_str(), "light");
+    model.choose(false);
+    app.tick();
+    app.tick();
+    assert_eq!(app.theme().id().as_str(), "dark");
+}
+
+#[test]
+fn host_flips_and_custom_palettes_never_change_the_app_theme() {
+    let (mut app, model) = glass_app(false);
+    app.set_theme("light").unwrap();
+    app.tick();
+    app.tick();
+    assert_eq!(model.requested(), None);
+    assert_eq!(app.theme().id().as_str(), "light");
+
+    let (mut app, model) = glass_app(true);
+    model.toggle();
+    app.tick();
+    app.tick();
+    assert_eq!(
+        app.theme().id().as_str(),
+        crate::gallery::showcase_theme::DARK_ID
+    );
 }
 
 #[test]

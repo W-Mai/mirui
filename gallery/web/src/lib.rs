@@ -240,6 +240,19 @@ fn with_active_app<R>(f: impl FnOnce(&mut WebApp) -> R) -> Option<R> {
     Some(f(app))
 }
 
+/// The primary application's own appearance: `Some(true)` on the dark member
+/// of a host family, `Some(false)` on the light one, `None` on a custom
+/// palette. The page polls it to follow a demo that switches theme itself,
+/// such as Glass Light Toggle flipped by hand.
+#[wasm_bindgen]
+pub fn app_appearance_dark() -> Option<bool> {
+    with_active_app(|app| {
+        let id = app.theme().id().as_str();
+        gallery::appearance_theme_id(id, true).map(|dark| dark == id)
+    })
+    .flatten()
+}
+
 fn with_audio<R>(f: impl FnOnce(AudioHandle) -> R) -> Option<R> {
     with_active_app(|app| app.audio().map(f))?
 }
