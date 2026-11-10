@@ -46,6 +46,8 @@
     <link data-trunk rel="copy-file" href="favicon.svg" />
     <link data-trunk rel="copy-file" href="../../docs/assets/orbit-console.png" />
     <link data-trunk rel="copy-dir" href="../../target/gallery-site/demo-previews" />
+    <link data-trunk rel="copy-dir" href="fonts" />
+    <link rel="preload" href="/fonts/geist-latin-wght.woff2" as="font" type="font/woff2" crossorigin />
     <script>
       /* Resolve the theme BEFORE first paint so the page shell never flashes
          the wrong mode while the wasm canvas picks its own initial theme.
@@ -1104,9 +1106,10 @@
   </head>
   <body>
     <div class="site-home" id="site-home">
+      <div class="site-atmosphere" aria-hidden="true"><i class="spot spot-see"></i><i class="spot spot-ui"></i><i class="spot spot-haze"></i></div>
       <header class="site-header">
         <a class="site-logo" href="/" data-home-link aria-label="mirui home">
-          <svg class="site-logo-art" viewBox="298.36 144.42 878.39 295.16" width="83" height="28" aria-hidden="true">
+          <svg class="site-logo-art" viewBox="298.36 144.42 878.39 295.16" width="77" height="26" aria-hidden="true">
             <g transform="translate(420 292)">
               <path class="logo-ink" d="M-49.19 -147.58L88.55 -29.52L-29.52 -88.55L-72.45 -2.68L-121.64 -2.68Z"/>
               <path class="logo-ink" d="M49.19 147.58L-88.55 29.52L29.52 88.55L72.45 2.68L121.64 2.68Z"/>
@@ -1123,14 +1126,14 @@
             <circle class="logo-see" cx="856.75" cy="204" r="23"/>
             <circle class="logo-ui" cx="1153.75" cy="204" r="23"/>
           </svg>
-          <sup>rs</sup>
         </a>
         <nav class="site-nav" aria-label="Primary navigation">
-          <a class="active" href="#home"><span class="nav-disc" aria-hidden="true"></span><span data-i18n="nav.home">Home</span></a>
-          <a href="#play"><span aria-hidden="true">▶</span><span data-i18n="nav.play">Play</span></a>
-          <a href="#build"><span aria-hidden="true">&lt;/&gt;</span><span data-i18n="nav.build">Build</span></a>
-          <a href="#start"><span aria-hidden="true">↗</span><span data-i18n="nav.start">Start</span></a>
-          <a href="https://docs.rs/mirui" target="_blank" rel="noopener"><span aria-hidden="true">▤</span><span data-i18n="nav.docs">Docs</span></a>
+          <a href="#play" data-i18n="nav.play">Play</a>
+          <a href="#demos" data-i18n="nav.demos">Demos</a>
+          <a href="#how" data-i18n="nav.how">How it works</a>
+          <a href="#targets" data-i18n="nav.targets">Targets</a>
+          <a href="#start" data-i18n="nav.start">Get started</a>
+          <a class="ext" href="https://docs.rs/mirui" target="_blank" rel="noopener"><span data-i18n="nav.docs">Docs</span><svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M3 2h5v5M8 2 2.5 7.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
         </nav>
         <div class="site-actions">
           <button class="site-action language-toggle hide-tiny" type="button" aria-label="Switch language">中</button>
@@ -1142,10 +1145,13 @@
               <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
             </svg>
           </button>
-          <button class="site-action desktop-only" id="motion-toggle" type="button" aria-label="Pause page motion" aria-pressed="true"><span aria-hidden="true">∿</span></button>
+          <button class="site-action desktop-only" id="motion-toggle" type="button" aria-label="Pause page motion" aria-pressed="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1.5 8c1.6-3.4 3.2-3.4 4.8 0s3.2 3.4 4.8 0 2.4-3.4 3.4-1.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
           <button class="site-action desktop-only" id="site-search-trigger" type="button" aria-label="Search demos"><svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5"/><path d="m12 12 3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
-          <a class="site-action desktop-only" href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener" aria-label="GitHub repository">
+          <a class="site-action site-github desktop-only" href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener" aria-label="GitHub repository">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+            <span>GitHub</span>
           </a>
           <button class="site-action site-menu-toggle" id="site-menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false">
             <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 5h13M2.5 9h13M2.5 13h13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -1153,156 +1159,264 @@
         </div>
       </header>
       <nav class="site-mobile-menu" id="site-mobile-menu" aria-label="Mobile navigation">
-        <a href="#home" data-i18n="nav.home">Home</a>
         <a href="#play" data-i18n="nav.play">Play</a>
-        <a href="#build" data-i18n="nav.build">Build</a>
-        <a href="#start" data-i18n="nav.start">Start</a>
+        <a href="#demos" data-i18n="nav.demos">Demos</a>
+        <a href="#how" data-i18n="nav.how">How it works</a>
+        <a href="#targets" data-i18n="nav.targets">Targets</a>
+        <a href="#start" data-i18n="nav.start">Get started</a>
         <a href="https://docs.rs/mirui" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
         <a href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener">GitHub</a>
       </nav>
 
       <main class="site-main">
         <section class="home-hero" id="home">
-          <div class="hero-copy">
-            <div class="hero-kicker" data-i18n="hero.kicker">PLAY / GAMES &amp; INSTRUMENTS</div>
-            <h1 class="hero-title"><span data-i18n="hero.line1">Small screens.</span><span><span data-i18n="hero.line2">Big play</span><span class="signal">.</span></span></h1>
+          <div class="hero-head">
+            <h1 class="hero-lockup">
+              <span class="sr-only">mirui</span>
+              <svg class="hero-logo" id="hero-logo" viewBox="298.36 144.42 878.39 295.16" aria-hidden="true">
+                <g transform="translate(420 292)">
+                  <g class="eye-iris"><circle class="logo-see" cx="23.26" cy="-11.63" r="23"/></g>
+                  <g class="eye-glint"><circle cx="27.88" cy="-20.89" r="8" fill="#fff"/></g>
+                  <path class="logo-ink" d="M-49.19 -147.58L88.55 -29.52L-29.52 -88.55L-72.45 -2.68L-121.64 -2.68Z"/>
+                  <path class="logo-ink" d="M49.19 147.58L-88.55 29.52L29.52 88.55L72.45 2.68L121.64 2.68Z"/>
+                </g>
+                <g class="logo-ink">
+                  <path d="M597 385V298A62.5 62.5 0 0 1 703.75 253.86A62.5 62.5 0 0 1 810.5 298V385H774V298A26 26 0 0 0 722 298V366.75L685.5 385V298A26 26 0 0 0 633.5 298V366.75Z"/>
+                  <path d="M838.5 238H875V385H838.5Z"/>
+                  <path d="M903 385V298A62.5 62.5 0 0 1 965.5 235.5V272A26 26 0 0 0 939.5 298V366.75L903 385Z"/>
+                  <path d="M983.5 238H1020V325A26 26 0 0 0 1072 325V238L1108.5 219.75V325A62.5 62.5 0 0 1 983.5 325Z"/>
+                  <path d="M1135.5 238H1172V385H1135.5Z"/>
+                </g>
+                <circle class="logo-see" cx="856.75" cy="204" r="23"/>
+                <circle class="logo-ui" cx="1153.75" cy="204" r="23"/>
+              </svg>
+              <span class="hero-tagline" data-i18n-html="hero.tagline"><span class="t">Possibly the most elegant</span><span class="t"><em>declarative embedded</em></span><span class="t"><em>graphics library</em></span></span>
+            </h1>
             <div class="hero-actions">
-              <button class="site-cta primary" type="button" data-open-current><span aria-hidden="true">▶</span><span data-i18n="hero.play">Play now</span><span aria-hidden="true">↗</span></button>
-              <button class="site-cta" type="button" data-open-source><span aria-hidden="true">&lt;/&gt;</span><span data-i18n="hero.source">Read the source</span></button>
-              <a class="site-cta" href="#start"><span aria-hidden="true">＋</span><span data-i18n="hero.start">Start a project</span><span aria-hidden="true">↓</span></a>
-            </div>
-            <div class="hero-feature-nav" aria-label="Featured demos">
-              <button class="hero-step" id="feature-prev" type="button" aria-label="Previous featured demo">←</button>
-              <button class="feature-dot active" type="button" data-feature-demo="marble_play" aria-label="Marble Play"></button>
-              <button class="feature-dot" type="button" data-feature-demo="folding_ark" aria-label="Folding Ark"></button>
-              <button class="feature-dot" type="button" data-feature-demo="tidal_atlas" aria-label="Tidal Atlas"></button>
-              <button class="feature-dot" type="button" data-feature-demo="pixel_loom" aria-label="Pixel Loom"></button>
-              <button class="feature-dot" type="button" data-feature-demo="twin_beacons" aria-label="Twin Beacons"></button>
-              <button class="hero-step" id="feature-next" type="button" aria-label="Next featured demo">→</button>
-              <span class="feature-name" id="feature-name">Marble Play</span>
+              <div class="install-chip">
+                <span class="prompt" aria-hidden="true">$</span>
+                <code>cargo add mirui</code>
+                <button type="button" data-copy-command="cargo add mirui" aria-label="Copy cargo add mirui" data-i18n="common.copy">Copy</button>
+              </div>
+              <a class="site-cta primary" href="#play"><span data-i18n="hero.demos">Browse demos</span><svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M6 1.5v9M2.5 7 6 10.5 9.5 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+              <a class="site-cta" href="#start"><span data-i18n="hero.start">Get started</span></a>
             </div>
           </div>
-          <div class="hero-runtime" id="hero-runtime" data-stage-panel tabindex="0" aria-label="Featured demos; drag or use the arrow keys to change demo">
-            <button class="hero-preview hero-preview-prev" id="hero-preview-prev" type="button" aria-label="Previous featured demo">
-              <span class="hero-preview-bar"><span id="hero-preview-prev-name">TWIN BEACONS</span><span id="hero-preview-prev-index">05 / 05</span></span>
-              <img id="hero-preview-prev-image" src="demo-previews/twin_beacons.png" draggable="false" alt="Twin Beacons preview" />
-              <span class="hero-preview-open" aria-hidden="true">↙</span>
-            </button>
-            <button class="hero-preview hero-preview-next" id="hero-preview-next" type="button" aria-label="Next featured demo">
-              <span class="hero-preview-bar"><span id="hero-preview-next-name">FOLDING ARK</span><span id="hero-preview-next-index">02 / 05</span></span>
-              <img id="hero-preview-next-image" src="demo-previews/folding_ark.png" draggable="false" alt="Folding Ark preview" />
-              <span class="hero-preview-open" aria-hidden="true">↗</span>
-            </button>
-            <div class="hero-source-card" aria-hidden="true">
-              <strong>{ }</strong><i></i><i></i><span>□ SOURCE</span>
+
+          <div class="workbench" id="workbench">
+            <div class="wb-bar">
+              <div class="wb-title">
+                <svg class="wb-mark" viewBox="-160 -160 320 320" aria-hidden="true">
+                  <path class="logo-ink" d="M-49.19 -147.58L88.55 -29.52L-29.52 -88.55L-72.45 -2.68L-121.64 -2.68Z"/>
+                  <path class="logo-ink" d="M49.19 147.58L-88.55 29.52L29.52 88.55L72.45 2.68L121.64 2.68Z"/>
+                  <circle class="logo-see" cx="23.26" cy="-11.63" r="23"/>
+                  <circle cx="27.88" cy="-20.89" r="8" fill="#fff"/>
+                </svg>
+                <strong>Iris</strong>
+                <span class="wb-live" data-i18n="wb.live">Live</span>
+              </div>
+              <div class="wb-devices" id="wb-devices" role="radiogroup" aria-label="Screen">
+                <i class="wb-thumb" aria-hidden="true"></i>
+                <button type="button" role="radio" aria-checked="true" data-preset="board">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3.5" y="1.5" width="9" height="13" rx="1.4" stroke="currentColor" stroke-width="1.3"/><rect x="5.5" y="3.5" width="5" height="5.5" rx=".5" stroke="currentColor" stroke-width="1.1"/><path d="M1.5 4.5h2M1.5 7h2M1.5 9.5h2M12.5 4.5h2M12.5 7h2M12.5 9.5h2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+                  <span>ESP32-C3</span>
+                </button>
+                <button type="button" role="radio" aria-checked="false" data-preset="watch">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="4.6" stroke="currentColor" stroke-width="1.3"/><path d="M5.6 4 6.3 1.5h3.4L10.4 4M5.6 12l.7 2.5h3.4l.7-2.5" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M8 5.8V8l1.4 1" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+                  <span data-i18n="wb.watch">Watch</span>
+                </button>
+                <button type="button" role="radio" aria-checked="false" data-preset="phone">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M7 3.4h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+                  <span data-i18n="wb.phone">Phone</span>
+                </button>
+                <button type="button" role="radio" aria-checked="false" data-preset="browser">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 5.5h13" stroke="currentColor" stroke-width="1.2"/><circle cx="3.6" cy="4" r=".55" fill="currentColor"/><circle cx="5.3" cy="4" r=".55" fill="currentColor"/></svg>
+                  <span data-i18n="wb.browser">Browser</span>
+                </button>
+              </div>
+              <div class="wb-tools">
+                <button class="wb-tool" id="loupe-toggle" type="button" aria-pressed="false" data-i18n-label="wb.loupe" aria-label="Pixel loupe" title="Pixel loupe">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.6" stroke="currentColor" stroke-width="1.4"/><path d="m10.3 10.3 3.9 3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M5 6.8h3.6M6.8 5v3.6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+                </button>
+                <button class="wb-tool wb-open" id="workbench-open" type="button">
+                  <span data-i18n="wb.open">Open in gallery</span>
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M3 2h5v5M8 2 2.5 7.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
             </div>
-            <div class="hero-device-card" aria-hidden="true">
-              <span>▦</span><small>□ DEVICE</small>
+            <div class="wb-body">
+              <div class="wb-stage" id="wb-stage" data-stage-panel>
+                <div class="home-stage-host" id="home-stage-host">
+                  <div class="stage-placeholder" id="stage-placeholder" aria-hidden="true">
+                    <svg viewBox="-160 -160 320 320">
+                      <path class="logo-ink" d="M-49.19 -147.58L88.55 -29.52L-29.52 -88.55L-72.45 -2.68L-121.64 -2.68Z"/>
+                      <path class="logo-ink" d="M49.19 147.58L-88.55 29.52L29.52 88.55L72.45 2.68L121.64 2.68Z"/>
+                      <circle class="logo-see" cx="23.26" cy="-11.63" r="23"/>
+                    </svg>
+                    <span data-i18n="wb.loading">Loading WebAssembly</span>
+                  </div>
+                </div>
+                <div class="wb-caption" aria-live="polite"><strong id="wb-size">128 × 160</strong><span id="wb-device">ESP32-C3 · ST7735</span></div>
+              </div>
+              <div class="wb-code" id="wb-code" role="region" aria-label="Layout source">
+                <section class="wb-file">
+                  <header><span>iris/state.rs</span><small id="wb-classify-range">100–112</small></header>
+                  <div class="wb-src" id="wb-classify"><i class="wb-rod" aria-hidden="true"></i><pre class="wb-static">pub fn classify(width: Fixed, height: Fixed) -> Self {
+    let short = width.min(height);
+    let long = width.max(height);
+    if long * 10 &lt;= short * 12 &amp;&amp; long &lt;= Fixed::from_int(480) {
+        Self::Dial
+    } else if short &lt; Fixed::from_int(200) {
+        Self::Micro
+    } else if height * 10 &gt; width * 13 {
+        Self::Portrait
+    } else {
+        Self::Landscape
+    }
+}</pre></div>
+                </section>
+                <section class="wb-file">
+                  <header><span>iris/composition.rs</span><small id="wb-match-range">740–753</small></header>
+                  <div class="wb-src" id="wb-match"><i class="wb-rod" aria-hidden="true"></i><pre class="wb-static">match ${ model.layout() } {
+    IrisLayout :: Micro =&gt; {
+        compose_micro (model)
+    }
+    IrisLayout :: Dial =&gt; {
+        compose_dial (model)
+    }
+    IrisLayout :: Portrait =&gt; {
+        compose_portrait (model)
+    }
+    IrisLayout :: Landscape =&gt; {
+        compose_landscape (model)
+    }
+}</pre></div>
+                </section>
+              </div>
             </div>
-            <span class="hero-scene-plus hero-scene-plus-top" aria-hidden="true">＋</span>
-            <span class="hero-scene-plus hero-scene-plus-bottom" aria-hidden="true">＋</span>
-            <span class="hero-scene-drag" aria-hidden="true">← &nbsp; DRAG &nbsp; →</span>
-            <span class="hero-scene-burst" aria-hidden="true">✳</span>
-            <div class="home-stage-host" id="home-stage-host"></div>
+            <div class="wb-status">
+              <span class="wb-arm"><span data-i18n="wb.layout">Layout</span><code id="wb-layout">IrisLayout::Micro</code></span>
+              <span class="wb-scale"><span data-i18n="wb.scale">Scale</span><b id="wb-scale">—</b></span>
+              <span class="wb-backend">Web Canvas · wasm32</span>
+              <span class="wb-hint" data-i18n="wb.hint">Drag the screen corner to resize. Click a match arm to switch screens.</span>
+            </div>
           </div>
         </section>
-
-        <div class="signal-band" aria-hidden="true">
-          <div class="signal-track">
-            <div class="signal-loop">
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-            </div>
-            <div class="signal-loop">
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
-            </div>
-          </div>
-        </div>
 
         <section class="home-section" id="play">
           <div class="section-head">
             <div>
-              <div class="section-kicker" data-i18n="play.kicker">01 / Games</div>
-              <h2 class="section-title"><span data-i18n="play.title">Play</span><span class="signal">.</span></h2>
+              <h2 class="section-title" data-i18n="play.title">Play</h2>
+              <p class="section-intro" data-i18n="play.intro">Thirteen games at 480 × 320. Each one also builds as a native app.</p>
             </div>
-          </div>
-          <div class="play-toolbar">
-            <div class="play-filters" role="tablist" aria-label="Game categories">
-              <button class="play-filter active" id="play-tab-all" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="true" data-filter="all" data-i18n="filter.all">All</button>
-              <button class="play-filter" id="play-tab-puzzle" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="false" tabindex="-1" data-filter="puzzle" data-i18n="filter.puzzle">Puzzle</button>
-              <button class="play-filter" id="play-tab-strategy" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="false" tabindex="-1" data-filter="strategy" data-i18n="filter.strategy">Strategy</button>
-              <button class="play-filter" id="play-tab-creative" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="false" tabindex="-1" data-filter="creative" data-i18n="filter.creative">Creative</button>
+            <div class="play-toolbar">
+              <div class="play-filters" role="tablist" aria-label="Game categories">
+                <button class="play-filter active" id="play-tab-all" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="true" data-filter="all" data-i18n="filter.all">All</button>
+                <button class="play-filter" id="play-tab-puzzle" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="false" tabindex="-1" data-filter="puzzle" data-i18n="filter.puzzle">Puzzle</button>
+                <button class="play-filter" id="play-tab-strategy" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="false" tabindex="-1" data-filter="strategy" data-i18n="filter.strategy">Strategy</button>
+                <button class="play-filter" id="play-tab-creative" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="false" tabindex="-1" data-filter="creative" data-i18n="filter.creative">Creative</button>
+              </div>
+              <label class="play-search">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                <input id="play-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search demos" data-i18n-placeholder="play.search" aria-label="Search demos" />
+              </label>
+              <span class="play-count" id="play-count" aria-live="polite">13 / 13</span>
             </div>
-            <label class="play-search">
-              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-              <input id="play-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search games" data-i18n-placeholder="play.search" aria-label="Search games" />
-            </label>
-            <span class="play-count" id="play-count" aria-live="polite">13 / 13</span>
           </div>
           <div class="demo-grid-viewport" id="play-tabpanel" role="tabpanel" aria-labelledby="play-tab-all">
-          <div class="demo-grid" id="demo-grid">
-            <article class="demo-card" data-category="creative" data-search="marble play playground audio gravity game 弹珠 音乐 重力 游乐场">
-              <div class="game-cover"><img src="demo-previews/marble_play.png" loading="eager" draggable="false" alt="Marble Play preview"/><span class="cover-index">01 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="marble_play" aria-label="Open Marble Play"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="marble_play"><strong data-i18n="game.marble">Marble Playground</strong><small>MARBLE PLAY</small></button><button class="card-source" type="button" data-open-source-demo="marble_play" aria-label="Open Marble Play source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="puzzle" data-search="twin beacons puzzle 双子 信标 解谜">
-              <div class="game-cover"><img src="demo-previews/twin_beacons.png" loading="lazy" draggable="false" alt="Twin Beacons preview"/><span class="cover-index">02 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="twin_beacons" aria-label="Open Twin Beacons"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="twin_beacons"><strong data-i18n="game.twin">Twin Beacons</strong><small>TWIN BEACONS</small></button><button class="card-source" type="button" data-open-source-demo="twin_beacons" aria-label="Open Twin Beacons source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="strategy" data-search="tidal atlas strategy 潮汐 群岛 策略">
-              <div class="game-cover"><img src="demo-previews/tidal_atlas.png" loading="lazy" draggable="false" alt="Tidal Atlas preview"/><span class="cover-index">03 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="tidal_atlas" aria-label="Open Tidal Atlas"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="tidal_atlas"><strong data-i18n="game.tidal">Tidal Atlas</strong><small>TIDAL ATLAS</small></button><button class="card-source" type="button" data-open-source-demo="tidal_atlas" aria-label="Open Tidal Atlas source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.strategy">Strategy</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="puzzle" data-search="echo walker puzzle 回声 行者 解谜">
-              <div class="game-cover"><img src="demo-previews/echo_walker.png" loading="lazy" draggable="false" alt="Echo Walker preview"/><span class="cover-index">04 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="echo_walker" aria-label="Open Echo Walker"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="echo_walker"><strong data-i18n="game.echo">Echo Walker</strong><small>ECHO WALKER</small></button><button class="card-source" type="button" data-open-source-demo="echo_walker" aria-label="Open Echo Walker source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="creative" data-search="pixel loom creative 像素 织机 创作">
-              <div class="game-cover"><img src="demo-previews/pixel_loom.png" loading="lazy" draggable="false" alt="Pixel Loom preview"/><span class="cover-index">05 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="pixel_loom" aria-label="Open Pixel Loom"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="pixel_loom"><strong data-i18n="game.loom">Pixel Loom</strong><small>PIXEL LOOM</small></button><button class="card-source" type="button" data-open-source-demo="pixel_loom" aria-label="Open Pixel Loom source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="puzzle" data-search="lumen light lab puzzle optics 光路 实验室 解谜">
-              <div class="game-cover"><img src="demo-previews/lumen_lab.png" loading="lazy" draggable="false" alt="Lumen Lab preview"/><span class="cover-index">06 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="lumen_lab" aria-label="Open Lumen Lab"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="lumen_lab"><strong data-i18n="game.lumen">Lumen Lab</strong><small>LUMEN LAB</small></button><button class="card-source" type="button" data-open-source-demo="lumen_lab" aria-label="Open Lumen Lab source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="puzzle" data-search="folding ark puzzle 折叠 方舟 解谜">
-              <div class="game-cover"><img src="demo-previews/folding_ark.png" loading="lazy" draggable="false" alt="Folding Ark preview"/><span class="cover-index">07 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="folding_ark" aria-label="Open Folding Ark"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="folding_ark"><strong data-i18n="game.ark">Folding Ark</strong><small>FOLDING ARK</small></button><button class="card-source" type="button" data-open-source-demo="folding_ark" aria-label="Open Folding Ark source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="puzzle" data-search="atlas restoration puzzle star map 星图 修复 解谜">
-              <div class="game-cover"><img src="demo-previews/atlas_restoration.png" loading="lazy" draggable="false" alt="Atlas Restoration preview"/><span class="cover-index">08 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="atlas_restoration" aria-label="Open Atlas Restoration"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="atlas_restoration"><strong data-i18n="game.atlas">Atlas Restoration</strong><small>ATLAS RESTORATION</small></button><button class="card-source" type="button" data-open-source-demo="atlas_restoration" aria-label="Open Atlas Restoration source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="strategy" data-search="module factory strategy 模块 工厂 策略">
-              <div class="game-cover"><img src="demo-previews/module_factory.png" loading="lazy" draggable="false" alt="Module Factory preview"/><span class="cover-index">09 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="module_factory" aria-label="Open Module Factory"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="module_factory"><strong data-i18n="game.factory">Module Factory</strong><small>MODULE FACTORY</small></button><button class="card-source" type="button" data-open-source-demo="module_factory" aria-label="Open Module Factory source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.strategy">Strategy</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="creative" data-search="orbital mission creative orbit 轨道 任务 创作">
-              <div class="game-cover"><img src="demo-previews/orbital_mission.png" loading="lazy" draggable="false" alt="Orbital Mission preview"/><span class="cover-index">10 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="orbital_mission" aria-label="Open Orbital Mission"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="orbital_mission"><strong data-i18n="game.orbit">Orbital Mission</strong><small>ORBITAL MISSION</small></button><button class="card-source" type="button" data-open-source-demo="orbital_mission" aria-label="Open Orbital Mission source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="creative" data-search="logic circuit creative 逻辑 电路 创作">
-              <div class="game-cover"><img src="demo-previews/logic_circuit.png" loading="lazy" draggable="false" alt="Logic Circuit preview"/><span class="cover-index">11 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="logic_circuit" aria-label="Open Logic Circuit"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="logic_circuit"><strong data-i18n="game.circuit">Logic Circuit</strong><small>LOGIC CIRCUIT</small></button><button class="card-source" type="button" data-open-source-demo="logic_circuit" aria-label="Open Logic Circuit source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="creative" data-search="moss study lab ecosystem creative 苔藓 生态 创作">
-              <div class="game-cover"><img src="demo-previews/moss_study.png" loading="lazy" draggable="false" alt="Moss Study preview"/><span class="cover-index">12 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="moss_study" aria-label="Open Moss Study"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="moss_study"><strong data-i18n="game.moss">Moss Study</strong><small>MOSS STUDY</small></button><button class="card-source" type="button" data-open-source-demo="moss_study" aria-label="Open Moss Study source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
-            </article>
-            <article class="demo-card" data-category="strategy" data-search="pocket post switchyard strategy 轨道 邮局 策略">
-              <div class="game-cover"><img src="demo-previews/pocket_post.png" loading="lazy" draggable="false" alt="Pocket Post preview"/><span class="cover-index">13 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="pocket_post" aria-label="Open Pocket Post"><span aria-hidden="true">↗</span></button></div>
-              <div class="card-footer"><button class="card-title" type="button" data-open-demo="pocket_post"><strong data-i18n="game.post">Pocket Post</strong><small>POCKET POST</small></button><button class="card-source" type="button" data-open-source-demo="pocket_post" aria-label="Open Pocket Post source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.strategy">Strategy</span><span>480 × 320</span></div>
-            </article>
-          </div>
+            <div class="demo-grid" id="demo-grid">
+              <article class="demo-card" data-category="creative" data-search="marble play playground audio gravity game 弹珠 音乐 重力 游乐场">
+                <button class="game-cover" type="button" data-open-demo="marble_play" aria-label="Open Marble Play"><img src="demo-previews/marble_play.png" loading="eager" draggable="false" alt="Marble Play preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="marble_play"><strong data-i18n="game.marble">Marble Playground</strong><small><span data-i18n="genre.creative">Creative</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="marble_play" aria-label="Open Marble Play source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="puzzle" data-search="twin beacons puzzle 双子 信标 解谜">
+                <button class="game-cover" type="button" data-open-demo="twin_beacons" aria-label="Open Twin Beacons"><img src="demo-previews/twin_beacons.png" loading="eager" draggable="false" alt="Twin Beacons preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="twin_beacons"><strong data-i18n="game.twin">Twin Beacons</strong><small><span data-i18n="genre.puzzle">Puzzle</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="twin_beacons" aria-label="Open Twin Beacons source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="strategy" data-search="tidal atlas strategy 潮汐 群岛 策略">
+                <button class="game-cover" type="button" data-open-demo="tidal_atlas" aria-label="Open Tidal Atlas"><img src="demo-previews/tidal_atlas.png" loading="eager" draggable="false" alt="Tidal Atlas preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="tidal_atlas"><strong data-i18n="game.tidal">Tidal Atlas</strong><small><span data-i18n="genre.strategy">Strategy</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="tidal_atlas" aria-label="Open Tidal Atlas source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="puzzle" data-search="echo walker puzzle 回声 行者 解谜">
+                <button class="game-cover" type="button" data-open-demo="echo_walker" aria-label="Open Echo Walker"><img src="demo-previews/echo_walker.png" loading="eager" draggable="false" alt="Echo Walker preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="echo_walker"><strong data-i18n="game.echo">Echo Walker</strong><small><span data-i18n="genre.puzzle">Puzzle</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="echo_walker" aria-label="Open Echo Walker source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="creative" data-search="pixel loom creative 像素 织机 创作">
+                <button class="game-cover" type="button" data-open-demo="pixel_loom" aria-label="Open Pixel Loom"><img src="demo-previews/pixel_loom.png" loading="lazy" draggable="false" alt="Pixel Loom preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="pixel_loom"><strong data-i18n="game.loom">Pixel Loom</strong><small><span data-i18n="genre.creative">Creative</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="pixel_loom" aria-label="Open Pixel Loom source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="puzzle" data-search="lumen light lab puzzle optics 光路 实验室 解谜">
+                <button class="game-cover" type="button" data-open-demo="lumen_lab" aria-label="Open Lumen Lab"><img src="demo-previews/lumen_lab.png" loading="lazy" draggable="false" alt="Lumen Lab preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="lumen_lab"><strong data-i18n="game.lumen">Lumen Lab</strong><small><span data-i18n="genre.puzzle">Puzzle</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="lumen_lab" aria-label="Open Lumen Lab source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="puzzle" data-search="folding ark puzzle 折叠 方舟 解谜">
+                <button class="game-cover" type="button" data-open-demo="folding_ark" aria-label="Open Folding Ark"><img src="demo-previews/folding_ark.png" loading="lazy" draggable="false" alt="Folding Ark preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="folding_ark"><strong data-i18n="game.ark">Folding Ark</strong><small><span data-i18n="genre.puzzle">Puzzle</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="folding_ark" aria-label="Open Folding Ark source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="puzzle" data-search="atlas restoration puzzle star map 星图 修复 解谜">
+                <button class="game-cover" type="button" data-open-demo="atlas_restoration" aria-label="Open Atlas Restoration"><img src="demo-previews/atlas_restoration.png" loading="lazy" draggable="false" alt="Atlas Restoration preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="atlas_restoration"><strong data-i18n="game.atlas">Atlas Restoration</strong><small><span data-i18n="genre.puzzle">Puzzle</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="atlas_restoration" aria-label="Open Atlas Restoration source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="strategy" data-search="module factory strategy 模块 工厂 策略">
+                <button class="game-cover" type="button" data-open-demo="module_factory" aria-label="Open Module Factory"><img src="demo-previews/module_factory.png" loading="lazy" draggable="false" alt="Module Factory preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="module_factory"><strong data-i18n="game.factory">Module Factory</strong><small><span data-i18n="genre.strategy">Strategy</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="module_factory" aria-label="Open Module Factory source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="creative" data-search="orbital mission creative orbit 轨道 任务 创作">
+                <button class="game-cover" type="button" data-open-demo="orbital_mission" aria-label="Open Orbital Mission"><img src="demo-previews/orbital_mission.png" loading="lazy" draggable="false" alt="Orbital Mission preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="orbital_mission"><strong data-i18n="game.orbit">Orbital Mission</strong><small><span data-i18n="genre.creative">Creative</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="orbital_mission" aria-label="Open Orbital Mission source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="creative" data-search="logic circuit creative 逻辑 电路 创作">
+                <button class="game-cover" type="button" data-open-demo="logic_circuit" aria-label="Open Logic Circuit"><img src="demo-previews/logic_circuit.png" loading="lazy" draggable="false" alt="Logic Circuit preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="logic_circuit"><strong data-i18n="game.circuit">Logic Circuit</strong><small><span data-i18n="genre.creative">Creative</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="logic_circuit" aria-label="Open Logic Circuit source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="creative" data-search="moss study lab ecosystem creative 苔藓 生态 创作">
+                <button class="game-cover" type="button" data-open-demo="moss_study" aria-label="Open Moss Study"><img src="demo-previews/moss_study.png" loading="lazy" draggable="false" alt="Moss Study preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="moss_study"><strong data-i18n="game.moss">Moss Study</strong><small><span data-i18n="genre.creative">Creative</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="moss_study" aria-label="Open Moss Study source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+              <article class="demo-card" data-category="strategy" data-search="pocket post switchyard strategy 轨道 邮局 策略">
+                <button class="game-cover" type="button" data-open-demo="pocket_post" aria-label="Open Pocket Post"><img src="demo-previews/pocket_post.png" loading="lazy" draggable="false" alt="Pocket Post preview"/></button>
+                <div class="card-footer">
+                  <button class="card-title" type="button" data-open-demo="pocket_post"><strong data-i18n="game.post">Pocket Post</strong><small><span data-i18n="genre.strategy">Strategy</span><span class="size">480 × 320</span></small></button>
+                  <button class="card-source" type="button" data-open-source-demo="pocket_post" aria-label="Open Pocket Post source"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </article>
+            </div>
             <p class="home-empty" id="home-empty" hidden data-i18n="play.empty">No games match this search.</p>
           </div>
         </section>
@@ -1310,97 +1424,141 @@
         <section class="home-section catalog-section" id="demos">
           <div class="section-head">
             <div>
-              <div class="section-kicker" data-i18n="catalog.kicker">02 / Demos</div>
-              <h2 class="section-title"><span data-i18n="catalog.title">Explore</span><span class="signal">.</span></h2>
+              <h2 class="section-title" data-i18n="catalog.title">Demos</h2>
+              <p class="section-intro" data-i18n="catalog.intro">Components, rendering, motion, effects, state and scrolling, each with its Rust source.</p>
             </div>
-            <p class="section-intro" data-i18n="catalog.intro">Components, rendering, motion, effects, state, and scrolling.</p>
           </div>
           <nav class="catalog-nav" id="catalog-nav" role="tablist" aria-label="Demo categories"></nav>
           <div class="catalog-groups" id="catalog-groups"></div>
           <p class="home-empty" id="catalog-empty" hidden data-i18n="catalog.empty">No demos match this search.</p>
         </section>
 
-        <section class="build-section" id="build">
-          <div class="build-inner">
-            <div class="build-grid">
-              <div class="build-copy">
-                <div class="section-kicker" data-i18n="build.kicker">03 / Multiple targets</div>
-                <h2><span data-i18n="build.title1">Build once.</span><br/><span data-i18n="build.title2">Route precisely</span><span style="color:var(--site-blue)">.</span></h2>
-                <p data-i18n="build.body">Fixed-point geometry, typed components, reactive state, and backend composition carry the same UI model from memory-constrained devices to desktop GPU rendering.</p>
-                <div class="capability-list">
-                  <span data-i18n="build.cap1">Q24.8 layout + hit testing</span>
-                  <span data-i18n="build.cap2">no_std + alloc core</span>
-                  <span data-i18n="build.cap3">Shaped and path text</span>
-                  <span data-i18n="build.cap4">Software + GPU routes</span>
-                </div>
-              </div>
-              <div class="build-demo" id="build-demo" tabindex="0" aria-label="Interactive mirui composition walkthrough">
-                <div class="build-card-stack" id="build-card-stack">
-                  <article class="build-demo-card build-code-card is-active" data-build-panel="0" role="button" tabindex="0" aria-label="Show composition card">
-                    <div class="build-card-head"><span>01 / COMPOSE</span><span>ui! · RUST</span></div>
-                    <pre><code><span class="macro">ui!</span> {
-  <span class="type">Column</span>(container: <span class="kw">true</span>, grow: <span class="num">1.0</span>) {
-    <span class="type">Text</span>(
-      <span class="str">"Signal ready"</span>,
-      font_size: @width {
-        <span class="kw">if</span> width &lt; <span class="type">Fixed</span>::from_int(<span class="num">520</span>) {
-          <span class="num">18_u16</span>
-        } <span class="kw">else</span> { <span class="num">30_u16</span> }
-      }
-    )
-    <span class="type">Slider</span>(grow: <span class="num">1.0</span>)
-  }
-}</code></pre>
-                  </article>
+        <section class="home-section" id="how">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title" data-i18n="how.title">How it works</h2>
+              <p class="section-intro" data-i18n="how.intro">A retained component tree, laid out in Q24.8 fixed point, drawn by the backend the target has.</p>
+            </div>
+          </div>
+          <div class="how" id="how-explorer">
+            <ol class="how-steps" role="tablist" aria-label="Pipeline">
+              <li><button class="how-step" type="button" role="tab" id="how-tab-0" aria-controls="how-panel-0" aria-selected="true" data-how="0"><i class="node" aria-hidden="true"></i><strong><span data-i18n="how.s0">Declare</span><code>ui!</code></strong><small data-i18n="how.s0d">Widgets, attributes and children in one Rust macro.</small></button></li>
+              <li><button class="how-step" type="button" role="tab" id="how-tab-1" aria-controls="how-panel-1" aria-selected="false" tabindex="-1" data-how="1"><i class="node" aria-hidden="true"></i><strong><span data-i18n="how.s1">Bind</span><code>$</code></strong><small data-i18n="how.s1d">Observed model fields update only the bindings that read them.</small></button></li>
+              <li><button class="how-step" type="button" role="tab" id="how-tab-2" aria-controls="how-panel-2" aria-selected="false" tabindex="-1" data-how="2"><i class="node" aria-hidden="true"></i><strong><span data-i18n="how.s2">Lay out</span><code>@</code></strong><small data-i18n="how.s2d">Flexbox and absolute positioning in fixed point. @ attributes rerun when geometry changes.</small></button></li>
+              <li><button class="how-step" type="button" role="tab" id="how-tab-3" aria-controls="how-panel-3" aria-selected="false" tabindex="-1" data-how="3"><i class="node" aria-hidden="true"></i><strong><span data-i18n="how.s3">Draw</span><code>Dirty</code></strong><small data-i18n="how.s3d">Only changed regions are redrawn, with coverage antialiasing on every path.</small></button></li>
+              <li><button class="how-step" type="button" role="tab" id="how-tab-4" aria-controls="how-panel-4" aria-selected="false" tabindex="-1" data-how="4"><i class="node" aria-hidden="true"></i><strong><span data-i18n="how.s4">Present</span><code>Surface</code></strong><small data-i18n="how.s4d">Software framebuffer, SDL, WGPU, Web Canvas, Linux and NuttX surfaces.</small></button></li>
+            </ol>
+            <div class="how-panels">
+              <article class="how-panel active" id="how-panel-0" role="tabpanel" aria-labelledby="how-tab-0">
+                <header><span>main.rs</span><span>README.md</span></header>
+                <pre data-rust>#[compose]
+fn build_root() {
+    ui! {
+        Column (grow: 1.0) {
+            View (
+                bg_color: ColorToken::Primary,
+                text_color: ColorToken::OnPrimary,
+                height: 40,
+                border_radius: 8,
+                padding: Padding::all(10)
+            ) {
+                Text ("Hello mirui!")
+            }
+            View (bg_color: ColorToken::SurfaceVariant, grow: 1.0)
+            Text ("ECS + DSL", height: 30, paragraph: ParagraphStyle::label())
+        }
+    };
+}</pre>
+                <ul class="how-facts">
+                  <li data-i18n="how.f0a">#[compose] functions return reusable subtrees</li>
+                  <li data-i18n="how.f0b">walk loops and if / match branches inside the tree</li>
+                  <li data-i18n="how.f0c">Integer literals coerce to Fixed and Dimension</li>
+                </ul>
+              </article>
+              <article class="how-panel" id="how-panel-1" role="tabpanel" aria-labelledby="how-tab-1">
+                <header><span>counter.rs</span><span>README.md · value 41</span></header>
+                <pre data-rust>#[model]
+struct Counter {
+    #[observe]
+    value: i32,
+}
 
-                  <article class="build-demo-card build-responsive-card is-next" data-build-panel="1" role="button" tabindex="0" aria-label="Show responsive layout card">
-                    <div class="build-card-head"><span>02 / RESPOND</span><span>128 → 1024</span></div>
-                    <div class="build-responsive-body">
-                      <div class="build-screen build-screen-compact">
-                        <span class="build-screen-label">128</span>
-                        <strong>72</strong>
-                        <i></i><i></i><i></i><i></i>
-                      </div>
-                      <div class="build-screen build-screen-mobile">
-                        <span class="build-screen-label">390</span>
-                        <small>SIGNAL</small><strong>72.4</strong>
-                        <div class="build-wave"><i></i><i></i><i></i><i></i><i></i></div>
-                      </div>
-                      <div class="build-screen build-screen-wide">
-                        <span class="build-screen-label">1024</span>
-                        <div><small>SIGNAL READY</small><strong>72.4</strong></div>
-                        <div class="build-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-                      </div>
-                    </div>
-                    <p class="build-card-note">ONE TREE · THREE CONSTRAINT SETS</p>
-                  </article>
+#[compose]
+fn counter_label(counter: model!(Counter), prefix: &amp;'static str) -> Entity {
+    ui! { Text(text: ${ format!("{prefix}: {}", counter.value()) }) }
+}
 
-                  <article class="build-demo-card build-route-card is-prev" data-build-panel="2" role="button" tabindex="0" aria-label="Show renderer routing card">
-                    <div class="build-card-head"><span>03 / ROUTE</span><span>SCENE DISPATCH</span></div>
-                    <div class="build-route-map">
-                      <div class="build-route-source"><small>RETAINED</small><strong>UI TREE</strong></div>
-                      <span class="build-route-connector" aria-hidden="true"></span>
-                      <div class="build-route-scene"><small>NORMALIZED</small><strong>SCENE</strong><span>COMMANDS</span></div>
-                      <span class="build-route-branches" aria-hidden="true"><i></i><i></i><i></i></span>
-                      <div class="build-route-target"><small>BOUNDED</small><strong>SOFTWARE</strong><span>RGB565</span></div>
-                      <div class="build-route-target"><small>NATIVE</small><strong>GPU</strong><span>WGPU</span></div>
-                      <div class="build-route-target"><small>BROWSER</small><strong>WEB</strong><span>CANVAS</span></div>
-                    </div>
-                    <p class="build-card-note">ONE SCENE · CAPABILITY-BASED BACKEND ROUTING</p>
-                  </article>
-                </div>
+#[compose]
+fn counter_panel(counter: model!(Counter)) {
+    ui! {
+        Row {
+            Button(text: "+") on Tap { counter.increment(); }
+            counter_label(counter, "count")
+        }
+    };
+}
 
-                <div class="build-demo-controls">
-                  <button id="build-demo-prev" type="button" aria-label="Previous build card">←</button>
-                  <span class="build-demo-readout"><b id="build-demo-title">Compose</b><small id="build-demo-meta">typed UI · reactive values</small></span>
-                  <span class="build-demo-dots" role="tablist" aria-label="Build walkthrough cards">
-                    <button type="button" role="tab" data-build-dot="0" aria-label="Compose" aria-selected="true"></button>
-                    <button type="button" role="tab" data-build-dot="1" aria-label="Respond" aria-selected="false"></button>
-                    <button type="button" role="tab" data-build-dot="2" aria-label="Route" aria-selected="false"></button>
-                  </span>
-                  <button id="build-demo-next" type="button" aria-label="Next build card">→</button>
-                </div>
-              </div>
+// One tap on + and the label reads 42.
+let counter = app.add_model(Counter { value: 41 }).finish();</pre>
+                <ul class="how-facts">
+                  <li data-i18n="how.f1a">$ subscribes to the fields a binding reads</li>
+                  <li data-i18n="how.f1b">Errors from a method publish no updates</li>
+                  <li data-i18n="how.f1c">One model can feed many views</li>
+                </ul>
+              </article>
+              <article class="how-panel" id="how-panel-2" role="tabpanel" aria-labelledby="how-tab-2">
+                <header><span>title.rs</span><span>README.md</span></header>
+                <pre data-rust>ui! {
+    Column (container: true) {
+        Text(
+            "Adaptive title",
+            font_size: @width {
+                if width &lt; Fixed::from_int(520) { 18_u16 } else { 30_u16 }
+            },
+            padding: @(width, height) {
+                Padding::all(width.min(height) / 24)
+            }
+        )
+    }
+}</pre>
+                <ul class="how-facts">
+                  <li data-i18n="how.f2a">Q24.8 fixed point for layout, raster and hit tests</li>
+                  <li data-i18n="how.f2b">No FPU needed. The ESP32-C3 has none</li>
+                  <li data-i18n="how.f2c">Dependencies are declared and checked at compile time</li>
+                </ul>
+              </article>
+              <article class="how-panel" id="how-panel-3" role="tabpanel" aria-labelledby="how-tab-3">
+                <header><span>render</span><span>README.md</span></header>
+                <dl class="how-specs">
+                  <div><dt data-i18n="how.k3a">Geometry</dt><dd data-i18n="how.v3a">24.8 fixed point from layout to raster, hit testing and events</dd></div>
+                  <div><dt data-i18n="how.k3b">Antialiasing</dt><dd data-i18n="how.v3b">Scanline coverage on any Path. SDF and 2×2 supersample fast paths for quads</dd></div>
+                  <div><dt data-i18n="how.k3c">Refresh</dt><dd data-i18n="how.v3c">Per-entity Dirty and PrevRect markers. Unchanged regions are not redrawn</dd></div>
+                  <div><dt data-i18n="how.k3d">Text</dt><dd data-i18n="how.v3d">Shaped text with fallback fonts, bidirectional scripts and text on paths</dd></div>
+                  <div><dt data-i18n="how.k3e">Scale</dt><dd data-i18n="how.v3e">HiDPI scale factors propagate automatically. This page renders at your device pixel ratio</dd></div>
+                </dl>
+              </article>
+              <article class="how-panel" id="how-panel-4" role="tabpanel" aria-labelledby="how-tab-4">
+                <header><span>main.rs</span><span>README.md</span></header>
+                <pre data-rust>fn main() {
+    let backend = SdlSurface::new("hello mirui", 480, 320);
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_default_systems();
+
+    // Root fills the viewport with a Surface bg + Column layout by default.
+    let root = app.spawn_root().id();
+    app.compose(root, build_root());
+
+    app.run();
+}</pre>
+                <ul class="how-facts">
+                  <li>FramebufSurface · RGB565</li>
+                  <li>SDL2 CPU / GPU</li>
+                  <li>WGPU</li>
+                  <li>Web Canvas</li>
+                  <li>Linux fbdev / DRM</li>
+                  <li>NuttX</li>
+                </ul>
+              </article>
             </div>
           </div>
         </section>
@@ -1408,83 +1566,134 @@
         <section class="home-section" id="targets">
           <div class="section-head">
             <div>
-              <div class="section-kicker" data-i18n="targets.kicker">04 / Runtime targets</div>
-              <h2 class="section-title"><span data-i18n="targets.title">Everywhere</span><span class="signal">.</span></h2>
+              <h2 class="section-title" data-i18n="targets.title">Targets</h2>
+              <p class="section-intro" data-i18n="targets.intro">The same component tree on each host. Rows marked Show open that screen in the Iris workbench above.</p>
             </div>
-            <p class="section-intro" data-i18n="targets.intro">The same component tree reaches bounded software rasterization, native GPU paths, browser canvas, and direct display surfaces.</p>
           </div>
-          <div class="target-strip">
-            <article><small>01</small><h3 data-i18n="target.embedded">Embedded</h3><p>ESP32-C3 · STM32 · Cortex-M</p></article>
-            <article><small>02</small><h3 data-i18n="target.mobile">Mobile</h3><p>Android · iOS</p></article>
-            <article><small>03</small><h3 data-i18n="target.desktop">Desktop</h3><p>WGPU · SDL GPU · software</p></article>
-            <article><small>04</small><h3>Linux</h3><p>framebuffer · DRM · NuttX</p></article>
-            <article><small>05</small><h3 data-i18n="target.web">Web</h3><p>Web Canvas · WebAssembly</p></article>
+          <div class="target-table" role="table" aria-label="Supported targets">
+            <div class="target-row target-head" role="row">
+              <span role="columnheader"></span>
+              <span role="columnheader" data-i18n="targets.colTarget">Target</span>
+              <span role="columnheader" data-i18n="targets.colHost">Hardware or OS</span>
+              <span role="columnheader" data-i18n="targets.colBackend">mirui backend</span>
+              <span role="columnheader"></span>
+            </div>
+            <div class="target-row" role="row">
+              <span class="target-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="5.5" y="3.5" width="13" height="17" rx="1.6" stroke="currentColor" stroke-width="1.4"/><rect x="8" y="6" width="8" height="7" rx=".6" stroke="currentColor" stroke-width="1.2"/><path d="M2.5 7h3M2.5 10.5h3M2.5 14h3M18.5 7h3M18.5 10.5h3M18.5 14h3M10 17h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
+              <strong role="cell">ESP32-C3</strong>
+              <span class="spec" role="cell" data-i18n="targets.esp">RISC-V · 160 MHz · 400 KB SRAM · 1.8″ ST7735</span>
+              <code class="backend" role="cell">FramebufSurface · no_std</code>
+              <span class="target-actions" role="cell"><a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/esp32c3" target="_blank" rel="noopener" data-i18n="targets.template">Template</a><button type="button" data-show-preset="board" data-i18n="targets.show">Show</button></span>
+            </div>
+            <div class="target-row" role="row">
+              <span class="target-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="5" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="6" height="6" rx=".8" stroke="currentColor" stroke-width="1.2"/><path d="M9 2.5v2.5M12 2.5v2.5M15 2.5v2.5M9 19v2.5M12 19v2.5M15 19v2.5M2.5 9H5M2.5 12H5M2.5 15H5M19 9h2.5M19 12h2.5M19 15h2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
+              <strong role="cell">Cortex-M</strong>
+              <span class="spec" role="cell" data-i18n="targets.stm">STM32 and other ARM microcontrollers</span>
+              <code class="backend" role="cell">FramebufSurface · no_std + alloc</code>
+              <span class="target-actions" role="cell"></span>
+            </div>
+            <div class="target-row" role="row">
+              <span class="target-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="6.5" stroke="currentColor" stroke-width="1.4"/><path d="M8.6 6.4 9.4 2.5h5.2l.8 3.9M8.6 17.6l.8 3.9h5.2l.8-3.9" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M12 9v3l2 1.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
+              <strong role="cell">NuttX</strong>
+              <span class="spec" role="cell" data-i18n="targets.nuttx">Real-time OS · round 1.28″ 240 × 240</span>
+              <code class="backend" role="cell">NuttX surface</code>
+              <span class="target-actions" role="cell"><button type="button" data-show-preset="watch" data-i18n="targets.show">Show</button></span>
+            </div>
+            <div class="target-row" role="row">
+              <span class="target-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4.5" width="18" height="15" rx="1.8" stroke="currentColor" stroke-width="1.4"/><path d="m7 10 2.5 2L7 14M11.5 15h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <strong role="cell">Linux</strong>
+              <span class="spec" role="cell" data-i18n="targets.linux">Embedded Linux without a compositor</span>
+              <code class="backend" role="cell">fbdev · DRM</code>
+              <span class="target-actions" role="cell"></span>
+            </div>
+            <div class="target-row" role="row">
+              <span class="target-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="6.5" y="2.5" width="11" height="19" rx="2.6" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 5.2h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+              <strong role="cell" data-i18n="targets.mobile">Android · iOS</strong>
+              <span class="spec" role="cell" data-i18n="targets.mobileSpec">Phones and tablets</span>
+              <code class="backend" role="cell">WGPU · bounded software</code>
+              <span class="target-actions" role="cell"><a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/android" target="_blank" rel="noopener" data-i18n="targets.template">Template</a><button type="button" data-show-preset="phone" data-i18n="targets.show">Show</button></span>
+            </div>
+            <div class="target-row" role="row">
+              <span class="target-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="2.5" y="4" width="19" height="12.5" rx="1.8" stroke="currentColor" stroke-width="1.4"/><path d="M9 20h6M12 16.5V20" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+              <strong role="cell" data-i18n="targets.desktop">Desktop</strong>
+              <span class="spec" role="cell">Linux · macOS · Windows</span>
+              <code class="backend" role="cell">SDL2 CPU / GPU · WGPU</code>
+              <span class="target-actions" role="cell"><a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/desktop" target="_blank" rel="noopener" data-i18n="targets.template">Template</a></span>
+            </div>
+            <div class="target-row" role="row">
+              <span class="target-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="2.5" y="4" width="19" height="16" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 8.5h19" stroke="currentColor" stroke-width="1.3"/><circle cx="5.4" cy="6.3" r=".8" fill="currentColor"/><circle cx="7.9" cy="6.3" r=".8" fill="currentColor"/></svg></span>
+              <strong role="cell" data-i18n="targets.browser">Browser</strong>
+              <span class="spec" role="cell" data-i18n="targets.browserSpec">WebAssembly. This page is one</span>
+              <code class="backend" role="cell">Web Canvas</code>
+              <span class="target-actions" role="cell"><a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/wasm" target="_blank" rel="noopener" data-i18n="targets.template">Template</a><button type="button" data-show-preset="browser" data-i18n="targets.show">Show</button></span>
+            </div>
           </div>
         </section>
 
-        <section class="start-section" id="start">
-          <div class="start-inner">
-            <div class="start-head">
-              <div>
-                <div class="section-kicker" data-i18n="start.kicker">05 / Getting Started</div>
-                <h2><span data-i18n="start.title1">Open a terminal.</span><br/><span data-i18n="start.title2">Make it yours</span><span class="signal">.</span></h2>
+        <section class="home-section start-section" id="start">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title" data-i18n="start.title">Get started</h2>
+              <p class="section-intro" data-i18n="start.intro">Add mirui to an existing crate, or generate a project for desktop, browser, mobile or ESP32-C3.</p>
+            </div>
+          </div>
+          <div class="start-grid">
+            <article class="start-card">
+              <div class="start-card-head"><h3 data-i18n="start.crateTitle">Add to a crate</h3><span>crates.io</span></div>
+              <p data-i18n="start.crateBody">Use the library directly when the runtime and window integration already exist.</p>
+              <div class="start-command">
+                <code>cargo add mirui</code>
+                <button type="button" data-copy-command="cargo add mirui" aria-label="Copy cargo add command" data-i18n="common.copy">Copy</button>
               </div>
-              <p data-i18n="start.intro">Add mirui to an existing crate, or generate a ready-to-run project for desktop, browser, mobile, and embedded targets.</p>
-            </div>
-
-            <div class="start-grid">
-              <article class="start-card start-crate-card">
-                <div class="start-card-top"><span>01 / CRATE</span><span>crates.io</span></div>
-                <div class="start-card-body">
-                  <span class="start-card-mark" aria-hidden="true">＋</span>
-                  <div>
-                    <h3 data-i18n="start.crateTitle">Add mirui</h3>
-                    <p data-i18n="start.crateBody">Use the library directly when the runtime and window integration already exist.</p>
-                  </div>
-                </div>
-                <div class="start-command">
-                  <code>cargo add mirui</code>
-                  <button type="button" data-copy-command="cargo add mirui" aria-label="Copy cargo add command">COPY</button>
-                </div>
-                <a class="start-link" href="https://docs.rs/mirui" target="_blank" rel="noopener"><span data-i18n="start.docs">Read the API docs</span><span aria-hidden="true">↗</span></a>
-              </article>
-
-              <article class="start-card start-template-card">
-                <div class="start-card-top"><span>02 / SCAFFOLD</span><span>GitHub</span></div>
-                <div class="start-template-title">
-                  <div>
-                    <small>W-Mai /</small>
-                    <h3>mirui-templates</h3>
-                  </div>
-                  <a href="https://github.com/W-Mai/mirui-templates" target="_blank" rel="noopener" aria-label="Open mirui-templates repository">↗</a>
-                </div>
-                <p class="start-template-copy" data-i18n="start.templateBody">Generate a focused target or a shared workspace with desktop, WebAssembly, ESP32-C3, Android, and iOS applications.</p>
-                <div class="start-command start-command-stack">
-                  <code><span>cargo install cargo-generate</span><span>cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/workspace --name hello-mirui</span></code>
-                  <button type="button" data-copy-command="cargo install cargo-generate&#10;cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/workspace --name hello-mirui" aria-label="Copy template commands">COPY</button>
-                </div>
-                <nav class="template-targets" aria-label="Available mirui templates">
-                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/desktop" target="_blank" rel="noopener">DESKTOP</a>
-                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/wasm" target="_blank" rel="noopener">WASM</a>
-                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/workspace" target="_blank" rel="noopener">WORKSPACE</a>
-                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/android" target="_blank" rel="noopener">ANDROID</a>
-                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/ios" target="_blank" rel="noopener">iOS</a>
-                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/esp32c3" target="_blank" rel="noopener">ESP32-C3</a>
-                </nav>
-              </article>
-            </div>
+              <a class="start-link" href="https://docs.rs/mirui" target="_blank" rel="noopener"><span data-i18n="start.docs">Read the API docs</span><svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M3 2h5v5M8 2 2.5 7.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+            </article>
+            <article class="start-card">
+              <div class="start-card-head"><h3 data-i18n="start.templateTitle">Start from a template</h3><a href="https://github.com/W-Mai/mirui-templates" target="_blank" rel="noopener">W-Mai/mirui-templates</a></div>
+              <p data-i18n="start.templateBody">Generate one target, or a workspace with desktop, WebAssembly, ESP32-C3, Android and iOS apps.</p>
+              <div class="start-command start-command-stack">
+                <code><span>cargo install cargo-generate</span><span>cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/workspace --name hello-mirui</span></code>
+                <button type="button" data-copy-command="cargo install cargo-generate&#10;cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/workspace --name hello-mirui" aria-label="Copy template commands" data-i18n="common.copy">Copy</button>
+              </div>
+              <nav class="template-targets" aria-label="Available mirui templates">
+                <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/desktop" target="_blank" rel="noopener">desktop</a>
+                <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/wasm" target="_blank" rel="noopener">wasm</a>
+                <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/workspace" target="_blank" rel="noopener">workspace</a>
+                <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/android" target="_blank" rel="noopener">android</a>
+                <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/ios" target="_blank" rel="noopener">ios</a>
+                <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/esp32c3" target="_blank" rel="noopener">esp32c3</a>
+              </nav>
+            </article>
           </div>
         </section>
       </main>
 
       <footer class="site-footer">
-        <p class="footer-wordmark">mirui<span style="color:var(--site-blue)">.</span></p>
+        <a class="footer-logo" href="/" data-home-link aria-label="mirui home">
+          <svg viewBox="298.36 144.42 878.39 295.16" width="89" height="30" aria-hidden="true">
+            <g transform="translate(420 292)">
+              <path class="logo-ink" d="M-49.19 -147.58L88.55 -29.52L-29.52 -88.55L-72.45 -2.68L-121.64 -2.68Z"/>
+              <path class="logo-ink" d="M49.19 147.58L-88.55 29.52L29.52 88.55L72.45 2.68L121.64 2.68Z"/>
+              <circle class="logo-see" cx="23.26" cy="-11.63" r="23"/>
+              <circle cx="27.88" cy="-20.89" r="8" fill="#fff"/>
+            </g>
+            <g class="logo-ink">
+              <path d="M597 385V298A62.5 62.5 0 0 1 703.75 253.86A62.5 62.5 0 0 1 810.5 298V385H774V298A26 26 0 0 0 722 298V366.75L685.5 385V298A26 26 0 0 0 633.5 298V366.75Z"/>
+              <path d="M838.5 238H875V385H838.5Z"/>
+              <path d="M903 385V298A62.5 62.5 0 0 1 965.5 235.5V272A26 26 0 0 0 939.5 298V366.75L903 385Z"/>
+              <path d="M983.5 238H1020V325A26 26 0 0 0 1072 325V238L1108.5 219.75V325A62.5 62.5 0 0 1 983.5 325Z"/>
+              <path d="M1135.5 238H1172V385H1135.5Z"/>
+            </g>
+            <circle class="logo-see" cx="856.75" cy="204" r="23"/>
+            <circle class="logo-ui" cx="1153.75" cy="204" r="23"/>
+          </svg>
+        </a>
+        <p class="footer-note" data-i18n="footer.note">MIT licensed. Built with mirui in WebAssembly.</p>
         <nav class="footer-links" aria-label="Project links">
           <a href="https://crates.io/crates/mirui" target="_blank" rel="noopener">crates.io</a>
           <a href="https://docs.rs/mirui" target="_blank" rel="noopener">docs.rs</a>
           <a href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener">GitHub</a>
           <a href="https://github.com/W-Mai/mirui-templates" target="_blank" rel="noopener">Templates</a>
-          <a href="https://github.com/W-Mai/mirui/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+          <a href="https://github.com/W-Mai/mirui/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
         </nav>
       </footer>
     </div>
@@ -1560,6 +1769,17 @@
               </div>
               <canvas id="mirui" tabindex="0" data-mirui-size-host="true"></canvas>
               <div class="resize-ring" id="resize-ring" title="Drag to resize"></div>
+              <div class="device-deco" aria-hidden="true">
+                <i class="dv b bezel"></i><i class="dv b hole h1"></i><i class="dv b hole h2"></i><i class="dv b hole h3"></i><i class="dv b hole h4"></i>
+                <i class="dv b pins l"></i><i class="dv b pins r"></i><i class="dv b module">ESP32-C3</i><i class="dv b key k1"></i><i class="dv b key k2"></i><i class="dv b usb"></i>
+                <i class="dv w strap top"></i><i class="dv w strap bottom"></i><i class="dv w crown"></i><i class="dv w pusher"></i><i class="dv w case"></i>
+                <i class="dv p side l"></i><i class="dv p side r"></i><i class="dv p island"></i>
+                <i class="dv br dots"></i><i class="dv br address">mirui.rs/?demo=iris</i>
+                <i class="dv b w p glare"></i>
+              </div>
+              <button class="device-grip" id="device-grip" type="button" aria-label="Resize the screen" data-i18n-label="wb.grip">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M4.5 10.5h6v-6M10 10 2 2M1.5 7.5v-6h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
             </div>
           </div>
           <div class="code-panel" id="code-panel">
@@ -1604,28 +1824,55 @@
       (function () {
         const copy = {
           en: {
-            "nav.home": "Home", "nav.play": "Play", "nav.build": "Build", "nav.start": "Start", "nav.docs": "Docs",
-            "hero.kicker": "PLAY / GAMES & INSTRUMENTS", "hero.line1": "Small screens.", "hero.line2": "Big play",
-            "hero.play": "Play now", "hero.source": "Read the source", "hero.start": "Start a project",
-            "play.kicker": "01 / Games", "play.title": "Play",
+            "nav.play": "Play", "nav.demos": "Demos", "nav.how": "How it works", "nav.targets": "Targets", "nav.start": "Get started", "nav.docs": "Docs",
+            "hero.tagline": '<span class="t">Possibly the most elegant</span><span class="t"><em>declarative embedded</em></span><span class="t"><em>graphics library</em></span>',
+            "hero.demos": "Browse demos", "hero.start": "Get started",
+            "common.copy": "Copy", "common.copied": "Copied",
+            "wb.live": "Live", "wb.watch": "Watch", "wb.phone": "Phone", "wb.browser": "Browser",
+            "wb.loupe": "Pixel loupe", "wb.loupeOff": "Turn off the pixel loupe", "wb.open": "Open in gallery", "wb.loading": "Loading WebAssembly",
+            "wb.layout": "Layout", "wb.scale": "Scale", "wb.grip": "Resize the screen",
+            "wb.hint": "Drag the screen corner to resize. Click a match arm to switch screens.",
+            "wb.dev.board": "ESP32-C3 · ST7735", "wb.dev.watch": "NuttX · round 1.28″", "wb.dev.phone": "Android · WGPU",
+            "wb.dev.browser": "Browser · Web Canvas", "wb.dev.custom": "Resizable window · Web Canvas",
+            "wb.arm": "Show this layout",
+            "play.title": "Play", "play.intro": "Thirteen games at 480 × 320. Each one also builds as a native app.",
             "play.search": "Search demos", "play.empty": "No games match this search.",
-            "catalog.kicker": "02 / Demos", "catalog.title": "Explore", "catalog.intro": "Components, rendering, motion, effects, state, and scrolling.", "catalog.empty": "No demos match this search.",
+            "catalog.title": "Demos", "catalog.intro": "Components, rendering, motion, effects, state and scrolling, each with its Rust source.",
+            "catalog.empty": "No demos match this search.", "catalog.count": "{n} demos",
             "filter.all": "All", "filter.puzzle": "Puzzle", "filter.strategy": "Strategy", "filter.creative": "Creative",
             "genre.puzzle": "Puzzle", "genre.strategy": "Strategy", "genre.creative": "Creative",
             "game.marble": "Marble Playground", "game.twin": "Twin Beacons", "game.tidal": "Tidal Atlas", "game.echo": "Echo Walker",
             "game.loom": "Pixel Loom", "game.lumen": "Lumen Lab", "game.ark": "Folding Ark", "game.atlas": "Atlas Restoration",
             "game.factory": "Module Factory", "game.orbit": "Orbital Mission", "game.circuit": "Logic Circuit", "game.moss": "Moss Study", "game.post": "Pocket Post",
-            "card.showcase": "Showcase", "card.product": "Product", "card.play": "Play", "card.typography": "Typography", "card.interaction": "Interaction", "card.compact": "Compact",
-            "build.kicker": "03 / Multiple targets", "build.title1": "Build once.", "build.title2": "Route precisely",
-            "build.body": "Fixed-point geometry, typed components, reactive state, and backend composition carry the same UI model from memory-constrained devices to desktop GPU rendering.",
-            "build.cap1": "Q24.8 layout + hit testing", "build.cap2": "no_std + alloc core", "build.cap3": "Shaped and path text", "build.cap4": "Software + GPU routes",
-            "targets.kicker": "04 / Runtime targets", "targets.title": "Everywhere",
-            "targets.intro": "The same component tree reaches bounded software rasterization, native GPU paths, browser canvas, and direct display surfaces.",
-            "target.embedded": "Embedded", "target.mobile": "Mobile", "target.desktop": "Desktop", "target.web": "Web",
-            "start.kicker": "05 / Getting Started", "start.title1": "Open a terminal.", "start.title2": "Make it yours",
-            "start.intro": "Add mirui to an existing crate, or generate a ready-to-run project for desktop, browser, mobile, and embedded targets.",
-            "start.crateTitle": "Add mirui", "start.crateBody": "Use the library directly when the runtime and window integration already exist.",
-            "start.docs": "Read the API docs", "start.templateBody": "Generate a focused target or a shared workspace with desktop, WebAssembly, ESP32-C3, Android, and iOS applications.",
+            "how.title": "How it works",
+            "how.intro": "A retained component tree, laid out in Q24.8 fixed point, drawn by the backend the target has.",
+            "how.s0": "Declare", "how.s0d": "Widgets, attributes and children in one Rust macro.",
+            "how.s1": "Bind", "how.s1d": "Observed model fields update only the bindings that read them.",
+            "how.s2": "Lay out", "how.s2d": "Flexbox and absolute positioning in fixed point. @ attributes rerun when geometry changes.",
+            "how.s3": "Draw", "how.s3d": "Only changed regions are redrawn, with coverage antialiasing on every path.",
+            "how.s4": "Present", "how.s4d": "Software framebuffer, SDL, WGPU, Web Canvas, Linux and NuttX surfaces.",
+            "how.f0a": "#[compose] functions return reusable subtrees", "how.f0b": "walk loops and if / match branches inside the tree", "how.f0c": "Integer literals coerce to Fixed and Dimension",
+            "how.f1a": "$ subscribes to the fields a binding reads", "how.f1b": "A method that returns an error publishes nothing", "how.f1c": "One model can feed many views",
+            "how.f2a": "Q24.8 fixed point for layout, raster and hit tests", "how.f2b": "No FPU needed. The ESP32-C3 has none", "how.f2c": "Dependencies are declared and checked at compile time",
+            "how.k3a": "Geometry", "how.v3a": "24.8 fixed point from layout to raster, hit testing and events",
+            "how.k3b": "Antialiasing", "how.v3b": "Scanline coverage on any Path. SDF and 2×2 supersample fast paths for quads",
+            "how.k3c": "Refresh", "how.v3c": "Per-entity Dirty and PrevRect markers. Unchanged regions are not redrawn",
+            "how.k3d": "Text", "how.v3d": "Shaped text with fallback fonts, bidirectional scripts and text on paths",
+            "how.k3e": "Scale", "how.v3e": "HiDPI scale factors propagate automatically. This page renders at your device pixel ratio",
+            "targets.title": "Targets",
+            "targets.intro": "The same component tree on each host. Rows marked Show open that screen in the Iris workbench above.",
+            "targets.colTarget": "Target", "targets.colHost": "Hardware or OS", "targets.colBackend": "mirui backend",
+            "targets.esp": "RISC-V · 160 MHz · 400 KB SRAM · 1.8″ ST7735", "targets.stm": "STM32 and other ARM microcontrollers",
+            "targets.nuttx": "Real-time OS · round 1.28″ 240 × 240", "targets.linux": "Embedded Linux without a compositor",
+            "targets.mobile": "Android · iOS", "targets.mobileSpec": "Phones and tablets", "targets.desktop": "Desktop",
+            "targets.browser": "Browser", "targets.browserSpec": "WebAssembly. This page is one",
+            "targets.template": "Template", "targets.show": "Show",
+            "start.title": "Get started",
+            "start.intro": "Add mirui to an existing crate, or generate a project for desktop, browser, mobile or ESP32-C3.",
+            "start.crateTitle": "Add to a crate", "start.crateBody": "Use the library directly when the runtime and window integration already exist.",
+            "start.docs": "Read the API docs", "start.templateTitle": "Start from a template",
+            "start.templateBody": "Generate one target, or a workspace with desktop, WebAssembly, ESP32-C3, Android and iOS apps.",
+            "footer.note": "MIT licensed. The live demos on this page are mirui compiled to WebAssembly.",
             "gallery.title": "mirui · gallery", "gallery.tag": "subpixel UI · no_std · wasm",
             "gallery.filter": "Filter demos…", "gallery.noMatch": "No demos match that filter.", "gallery.rendering": "rendering",
             "gallery.source": "Source", "gallery.copy": "Copy", "gallery.copied": "Copied!",
@@ -1635,28 +1882,55 @@
             "gallery.noSource": "No source available for"
           },
           zh: {
-            "nav.home": "首页", "nav.play": "体验", "nav.build": "构建", "nav.start": "开始", "nav.docs": "文档",
-            "hero.kicker": "PLAY / 游戏与仪器", "hero.line1": "小屏幕。", "hero.line2": "大游戏",
-            "hero.play": "开始玩", "hero.source": "查看源码", "hero.start": "创建项目",
-            "play.kicker": "01 / 游戏", "play.title": "开玩",
+            "nav.play": "游戏", "nav.demos": "示例", "nav.how": "工作原理", "nav.targets": "平台", "nav.start": "开始使用", "nav.docs": "文档",
+            "hero.tagline": '<span class="t">这可能是最优雅的</span><span class="t"><em>声明式嵌入式图形库</em></span>',
+            "hero.demos": "浏览 Demo", "hero.start": "开始使用",
+            "common.copy": "复制", "common.copied": "已复制",
+            "wb.live": "实时", "wb.watch": "手表", "wb.phone": "手机", "wb.browser": "浏览器",
+            "wb.loupe": "像素放大镜", "wb.loupeOff": "关闭像素放大镜", "wb.open": "在 Gallery 中打开", "wb.loading": "正在加载 WebAssembly",
+            "wb.layout": "布局", "wb.scale": "缩放", "wb.grip": "调整屏幕尺寸",
+            "wb.hint": "拖动屏幕右下角改变尺寸，点 match 分支切换屏幕。",
+            "wb.dev.board": "ESP32-C3 · ST7735", "wb.dev.watch": "NuttX · 1.28″ 圆屏", "wb.dev.phone": "Android · WGPU",
+            "wb.dev.browser": "浏览器 · Web Canvas", "wb.dev.custom": "可调窗口 · Web Canvas",
+            "wb.arm": "切换到这个布局",
+            "play.title": "游戏", "play.intro": "13 个 480 × 320 的小游戏，每一个也能编译成原生应用。",
             "play.search": "搜索 Demo", "play.empty": "没有匹配的游戏。",
-            "catalog.kicker": "02 / Demo", "catalog.title": "继续看", "catalog.intro": "组件、渲染、动画、特效、状态与滚动。", "catalog.empty": "没有匹配的 Demo。",
+            "catalog.title": "示例", "catalog.intro": "组件、渲染、动效、特效、状态与滚动，每个都附带 Rust 源码。",
+            "catalog.empty": "没有匹配的 Demo。", "catalog.count": "{n} 个",
             "filter.all": "全部", "filter.puzzle": "解谜", "filter.strategy": "策略", "filter.creative": "创作",
             "genre.puzzle": "解谜", "genre.strategy": "策略", "genre.creative": "创作",
             "game.marble": "弹珠游乐场", "game.twin": "双子信标", "game.tidal": "潮汐群岛", "game.echo": "回声行者",
             "game.loom": "像素织机", "game.lumen": "光路实验室", "game.ark": "折叠方舟", "game.atlas": "星图修复局",
             "game.factory": "模块工厂", "game.orbit": "轨道任务台", "game.circuit": "逻辑电路台", "game.moss": "微型生态瓶", "game.post": "轨道邮局",
-            "card.showcase": "展示", "card.product": "产品", "card.play": "游戏", "card.typography": "文字排版", "card.interaction": "交互", "card.compact": "紧凑",
-            "build.kicker": "03 / 多端运行", "build.title1": "构建一次。", "build.title2": "精确分流",
-            "build.body": "定点几何、类型化组件、响应式状态与后端组合，让同一套 UI 模型从受限内存设备延伸到桌面 GPU 渲染。",
-            "build.cap1": "Q24.8 布局与命中测试", "build.cap2": "no_std + alloc 核心", "build.cap3": "塑形与路径文本", "build.cap4": "软件与 GPU 路由",
-            "targets.kicker": "04 / 运行目标", "targets.title": "全平台",
-            "targets.intro": "同一份组件树可由软件光栅、原生 GPU、浏览器 Canvas 或直接显示设备渲染。",
-            "target.embedded": "嵌入式", "target.mobile": "移动端", "target.desktop": "桌面", "target.web": "Web",
-            "start.kicker": "05 / GETTING STARTED", "start.title1": "打开终端。", "start.title2": "开始构建",
-            "start.intro": "把 mirui 加入现有 crate，或者直接生成可运行的桌面、浏览器、移动端与嵌入式工程。",
-            "start.crateTitle": "加入 mirui", "start.crateBody": "已经有运行时和窗口集成时，直接把 mirui 作为依赖接入。",
-            "start.docs": "查看 API 文档", "start.templateBody": "生成单一目标工程，或创建同时包含桌面、WebAssembly、ESP32-C3、Android 与 iOS 的共享 workspace。",
+            "how.title": "工作原理",
+            "how.intro": "一棵常驻的组件树，用 Q24.8 定点数排版，再交给目标平台上的后端绘制。",
+            "how.s0": "声明", "how.s0d": "组件、属性和子节点写在一个 Rust 宏里。",
+            "how.s1": "绑定", "how.s1d": "被观察的模型字段，只更新读到它的那些绑定。",
+            "how.s2": "排版", "how.s2d": "定点数实现的 Flexbox 与绝对定位，几何变化后重新计算 @ 属性。",
+            "how.s3": "绘制", "how.s3d": "只重绘变化的区域，每条路径都有覆盖率抗锯齿。",
+            "how.s4": "输出", "how.s4d": "软件帧缓冲、SDL、WGPU、Web Canvas、Linux 与 NuttX。",
+            "how.f0a": "#[compose] 函数返回可复用的子树", "how.f0b": "树里可以写 walk 循环和 if / match 分支", "how.f0c": "整数字面量自动转成 Fixed 和 Dimension",
+            "how.f1a": "$ 只订阅绑定读到的字段", "how.f1b": "方法返回错误时不发布任何更新", "how.f1c": "一个模型可以驱动多个视图",
+            "how.f2a": "布局、光栅化和命中测试都用 Q24.8 定点数", "how.f2b": "不需要 FPU，ESP32-C3 就没有", "how.f2c": "依赖在编译期声明并检查",
+            "how.k3a": "几何", "how.v3a": "从布局到光栅化、命中测试和事件，全程 24.8 定点数",
+            "how.k3b": "抗锯齿", "how.v3b": "任意 Path 的扫描线覆盖率抗锯齿，矩形有 SDF 与 2×2 超采样快速路径",
+            "how.k3c": "刷新", "how.v3c": "每个实体带 Dirty 与 PrevRect 标记，没变的区域不重绘",
+            "how.k3d": "文本", "how.v3d": "带回退字体、双向文字和路径排布的塑形文本",
+            "how.k3e": "缩放", "how.v3e": "HiDPI 缩放系数自动传递，本页按你的设备像素比渲染",
+            "targets.title": "运行平台",
+            "targets.intro": "同一棵组件树跑在不同的宿主上。带「查看」的行，会在上方的 Iris 工作台里打开对应屏幕。",
+            "targets.colTarget": "目标", "targets.colHost": "硬件或系统", "targets.colBackend": "mirui 后端",
+            "targets.esp": "RISC-V · 160 MHz · 400 KB SRAM · 1.8″ ST7735", "targets.stm": "STM32 等 ARM 微控制器",
+            "targets.nuttx": "实时操作系统 · 1.28″ 圆屏 240 × 240", "targets.linux": "没有合成器的嵌入式 Linux",
+            "targets.mobile": "Android · iOS", "targets.mobileSpec": "手机与平板", "targets.desktop": "桌面",
+            "targets.browser": "浏览器", "targets.browserSpec": "WebAssembly，本页就是",
+            "targets.template": "模板", "targets.show": "查看",
+            "start.title": "开始使用",
+            "start.intro": "把 mirui 加入现有 crate，或者生成桌面、浏览器、移动端与 ESP32-C3 工程。",
+            "start.crateTitle": "加入现有 crate", "start.crateBody": "已经有运行时和窗口集成时，直接把 mirui 作为依赖接入。",
+            "start.docs": "查看 API 文档", "start.templateTitle": "从模板开始",
+            "start.templateBody": "生成单一目标工程，或同时包含桌面、WebAssembly、ESP32-C3、Android 与 iOS 的 workspace。",
+            "footer.note": "MIT 许可。本页的实时 Demo 是编译成 WebAssembly 的 mirui。",
             "gallery.title": "mirui · Gallery", "gallery.tag": "亚像素 UI · no_std · wasm",
             "gallery.filter": "筛选 Demo…", "gallery.noMatch": "没有匹配的 Demo。", "gallery.rendering": "渲染中",
             "gallery.source": "源码", "gallery.copy": "复制", "gallery.copied": "已复制",
@@ -1675,6 +1949,18 @@
           for (const node of document.querySelectorAll("[data-i18n]")) {
             const value = copy[next][node.dataset.i18n];
             if (value) node.textContent = value;
+          }
+          // Markup from this dictionary only; never from page input.
+          for (const node of document.querySelectorAll("[data-i18n-html]")) {
+            const value = copy[next][node.dataset.i18nHtml];
+            if (value) node.innerHTML = value;
+          }
+          for (const node of document.querySelectorAll("[data-i18n-label]")) {
+            const value = copy[next][node.dataset.i18nLabel];
+            if (value) {
+              node.title = value;
+              node.setAttribute("aria-label", value);
+            }
           }
           for (const node of document.querySelectorAll("[data-i18n-placeholder]")) {
             const value = copy[next][node.dataset.i18nPlaceholder];
@@ -1704,6 +1990,239 @@
       })();
     </script>
     <script>
+      const RUST_KEYWORDS = new Set([
+        "as", "async", "await", "break", "const", "continue", "crate", "dyn",
+        "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in",
+        "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
+        "self", "Self", "static", "struct", "super", "trait", "true", "type",
+        "union", "unsafe", "use", "where", "while",
+      ]);
+
+      function escapeHtml(s) {
+        return s.replace(/[&<>]/g, (c) => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"));
+      }
+
+      // Tiny single-pass Rust highlighter. Walks the source char by char,
+      // peeling off comments / strings / chars / attributes / numbers /
+      // macros / identifiers, and wraps each token in a span. Working on
+      // raw text (not HTML) keeps the matcher simple; we escape only the
+      // captured slice when emitting.
+      function highlightRust(src) {
+        let out = "";
+        let i = 0;
+        const n = src.length;
+        const isIdentStart = (c) => /[A-Za-z_]/.test(c);
+        const isIdent = (c) => /[A-Za-z0-9_]/.test(c);
+
+        while (i < n) {
+          const c = src[i];
+          const c2 = src[i + 1];
+
+          // line comment
+          if (c === "/" && c2 === "/") {
+            let j = i + 2;
+            while (j < n && src[j] !== "\n") j++;
+            out += `<span class="tok-com">${escapeHtml(src.slice(i, j))}</span>`;
+            i = j;
+            continue;
+          }
+          // block comment (nested-aware)
+          if (c === "/" && c2 === "*") {
+            let j = i + 2;
+            let depth = 1;
+            while (j < n && depth > 0) {
+              if (src[j] === "/" && src[j + 1] === "*") { depth++; j += 2; }
+              else if (src[j] === "*" && src[j + 1] === "/") { depth--; j += 2; }
+              else j++;
+            }
+            out += `<span class="tok-com">${escapeHtml(src.slice(i, j))}</span>`;
+            i = j;
+            continue;
+          }
+          // string literal (with escapes)
+          if (c === '"') {
+            let j = i + 1;
+            while (j < n) {
+              if (src[j] === "\\") { j += 2; continue; }
+              if (src[j] === '"') { j++; break; }
+              j++;
+            }
+            out += `<span class="tok-str">${escapeHtml(src.slice(i, j))}</span>`;
+            i = j;
+            continue;
+          }
+          // char literal or lifetime — disambiguate by closing quote
+          if (c === "'") {
+            let j = i + 1;
+            if (src[j] === "\\") j += 2;
+            else j += 1;
+            if (src[j] === "'") {
+              // char literal
+              out += `<span class="tok-str">${escapeHtml(src.slice(i, j + 1))}</span>`;
+              i = j + 1;
+            } else {
+              // lifetime — emit the apostrophe, let ident run handle the rest
+              out += escapeHtml(c);
+              i += 1;
+            }
+            continue;
+          }
+          // attribute  #[...]  or  #![...]
+          if (c === "#" && (c2 === "[" || c2 === "!")) {
+            let j = i + 1;
+            if (src[j] === "!") j++;
+            if (src[j] === "[") {
+              let depth = 0;
+              while (j < n) {
+                if (src[j] === "[") depth++;
+                else if (src[j] === "]") { depth--; j++; if (depth === 0) break; continue; }
+                j++;
+              }
+              out += `<span class="tok-attr">${escapeHtml(src.slice(i, j))}</span>`;
+              i = j;
+              continue;
+            }
+          }
+          // number
+          if (/[0-9]/.test(c)) {
+            let j = i + 1;
+            while (j < n && /[0-9a-fA-FxXoObB_.eE]/.test(src[j])) j++;
+            out += `<span class="tok-num">${escapeHtml(src.slice(i, j))}</span>`;
+            i = j;
+            continue;
+          }
+          // identifier / keyword / macro / type
+          if (isIdentStart(c)) {
+            let j = i + 1;
+            while (j < n && isIdent(src[j])) j++;
+            const word = src.slice(i, j);
+            if (src[j] === "!") {
+              // macro invocation:  ui!  vec!  println!
+              out += `<span class="tok-mac">${escapeHtml(word)}!</span>`;
+              i = j + 1;
+            } else if (RUST_KEYWORDS.has(word)) {
+              out += `<span class="tok-kw">${escapeHtml(word)}</span>`;
+              i = j;
+            } else if (/^[A-Z]/.test(word)) {
+              // PascalCase → treat as type / variant
+              out += `<span class="tok-type">${escapeHtml(word)}</span>`;
+              i = j;
+            } else {
+              out += escapeHtml(word);
+              i = j;
+            }
+            continue;
+          }
+          // plain char
+          out += escapeHtml(c);
+          i += 1;
+        }
+        return out;
+      }
+
+      for (const block of document.querySelectorAll("pre[data-rust]")) {
+        block.innerHTML = highlightRust(block.textContent);
+      }
+
+      // The hero mark is an eye. Its iris follows the pointer with a low-pass
+      // lag; the highlight is a reflection, so it travels a little less.
+      (function () {
+        const logo = document.getElementById("hero-logo");
+        if (!logo) return;
+        const iris = logo.querySelector(".eye-iris");
+        const glint = logo.querySelector(".eye-glint");
+        const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+        const REACH = 18;
+        let target = { x: 0, y: 0 };
+        const current = { x: 0, y: 0 };
+        let frame = 0;
+        const allowed = () => !reduced.matches
+          && !document.documentElement.classList.contains("site-motion-off")
+          && document.documentElement.dataset.mode === "home";
+        function render() {
+          frame = 0;
+          current.x += (target.x - current.x) * 0.12;
+          current.y += (target.y - current.y) * 0.12;
+          iris.setAttribute("transform", `translate(${current.x.toFixed(2)} ${current.y.toFixed(2)})`);
+          glint.setAttribute("transform", `translate(${(current.x * 0.6).toFixed(2)} ${(current.y * 0.6).toFixed(2)})`);
+          if (Math.abs(target.x - current.x) > 0.02 || Math.abs(target.y - current.y) > 0.02) {
+            frame = requestAnimationFrame(render);
+          }
+        }
+        function settle(next) {
+          target = next;
+          if (!frame) frame = requestAnimationFrame(render);
+        }
+        function lookAt(x, y) {
+          const box = logo.getBoundingClientRect();
+          if (!box.width) return;
+          // Iris centre: viewBox (443.26, 280.37) inside 298.36 144.42 878.39 295.16.
+          const unit = box.width / 878.39;
+          const dx = x - (box.left + 144.9 * unit);
+          const dy = y - (box.top + 135.95 * unit);
+          const distance = Math.hypot(dx, dy) || 1;
+          const pull = Math.tanh(distance / 240) * REACH;
+          settle({ x: (dx / distance) * pull, y: (dy / distance) * pull * 0.8 });
+        }
+        // At rest the eye watches the live screen below it.
+        function watchStage() {
+          const screen = document.querySelector("#home-stage-host canvas, #home-stage-host .stage-placeholder");
+          if (!screen || !allowed()) return settle({ x: 0, y: 0 });
+          const box = screen.getBoundingClientRect();
+          lookAt(box.left + box.width / 2, box.top + box.height / 2);
+        }
+        window.addEventListener("pointermove", (event) => {
+          if (allowed()) lookAt(event.clientX, event.clientY);
+        }, { passive: true });
+        document.documentElement.addEventListener("pointerleave", watchStage);
+        window.addEventListener("blur", watchStage);
+        window.addEventListener("TrunkApplicationStarted", () => window.setTimeout(watchStage, 600));
+      })();
+
+      // How it works: tabs over real snippets. No wasm needed.
+      (function () {
+        const tabs = Array.from(document.querySelectorAll("[data-how]"));
+        if (!tabs.length) return;
+        const panels = tabs.map((tab) => document.getElementById(tab.getAttribute("aria-controls")));
+        const frame = panels[0].parentElement;
+        function select(index, focus) {
+          const from = frame.offsetHeight;
+          tabs.forEach((tab, order) => {
+            const on = order === index;
+            tab.setAttribute("aria-selected", String(on));
+            tab.tabIndex = on ? 0 : -1;
+            panels[order].classList.toggle("active", on);
+            panels[order].inert = !on;
+            panels[order].setAttribute("aria-hidden", String(!on));
+          });
+          const to = frame.offsetHeight;
+          const still = document.documentElement.classList.contains("site-motion-off")
+            || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          if (from && from !== to && !still) {
+            frame.animate([{ height: `${from}px` }, { height: `${to}px` }], {
+              duration: 380,
+              easing: "cubic-bezier(.2,.8,.2,1)",
+            });
+          }
+          if (focus) tabs[index].focus();
+        }
+        tabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => select(index, false));
+          tab.addEventListener("keydown", (event) => {
+            const delta = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
+            if (!delta) return;
+            event.preventDefault();
+            select((index + delta + tabs.length) % tabs.length, true);
+          });
+        });
+        select(0, false);
+      })();
+
+      document.addEventListener("scroll", () => {
+        document.documentElement.classList.toggle("scrolled", window.scrollY > 8);
+      }, { passive: true });
+    </script>
+    <script>
       window.addEventListener("TrunkApplicationStarted", () => {
         const params = new URLSearchParams(location.search);
         const defaultDemo = wasmBindings.default_demo_slug();
@@ -1731,6 +2250,432 @@
         function activeStagePanel() {
           return stage.closest("[data-stage-panel]") || focusStagePanel;
         }
+
+        // ── Iris workbench: state and device geometry ──────────
+        // On the homepage Iris runs inside a device frame. A preset sets the
+        // logical viewport; the frame, display scale and readouts follow it.
+        const workbench = document.getElementById("workbench");
+        const wbDevices = document.getElementById("wb-devices");
+        const wbThumb = wbDevices.querySelector(".wb-thumb");
+        const presetButtons = Array.from(wbDevices.querySelectorAll("[data-preset]"));
+        const wbSize = document.getElementById("wb-size");
+        const wbDevice = document.getElementById("wb-device");
+        const wbLayout = document.getElementById("wb-layout");
+        const wbScale = document.getElementById("wb-scale");
+        const deviceGrip = document.getElementById("device-grip");
+        document.getElementById("stage-placeholder")?.remove();
+
+        const PRESETS = {
+          board: { frame: "board", w: 128, h: 160, max: 3 },
+          watch: { frame: "watch", w: 240, h: 240, max: 2 },
+          phone: { frame: "phone", w: 390, h: 844, max: 1.25 },
+          browser: { frame: "browser", w: 1280, h: 800, max: 1 },
+        };
+        const CUSTOM_MAX_SCALE = 1.5;
+        const LAYOUT_ORDER = ["Dial", "Micro", "Portrait", "Landscape"];
+        const LAYOUT_PRESET = { Micro: "board", Dial: "watch", Portrait: "phone", Landscape: "browser" };
+        const homeView = { frame: "board", w: 128, h: 160, preset: "board" };
+        let frameMix = null;
+        let sizeTween = null;
+        let tweenFrame = 0;
+        let gripDrag = null;
+        stage.dataset.device = homeView.frame;
+
+        const lerp = (a, b, t) => a + (b - a) * t;
+        const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+        const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+
+        function homeSizingActive() {
+          return siteMode === "home" && activeSlug === homeDemo && stage.parentElement === homeStageHost;
+        }
+
+        function irisContract() {
+          const contract = sizeContract(demosBySlug.get(homeDemo));
+          return {
+            minWidth: contract.minWidth ?? 1,
+            minHeight: contract.minHeight ?? 1,
+            maxWidth: contract.maxWidth ?? 4096,
+            maxHeight: contract.maxHeight ?? 4096,
+          };
+        }
+
+        // Frame geometry in CSS px around a screen of sw × sh. Proportions
+        // follow the README device line-up in gallery/examples/tools/readme_assets.py.
+        function frameMetrics(frame, sw, sh) {
+          if (frame === "board") {
+            const k = sw / 128;
+            return { pad: [18 * k, 14 * k, 58 * k, 14 * k], radius: 9 * k, screen: [0, 0], ring: 0, floor: 4 * k, outer: [sw + 30 * k, sh + 80 * k] };
+          }
+          if (frame === "watch") {
+            const k = Math.min(sw, sh) / 177.6;
+            const d = Math.min(sw, sh);
+            // The straps fade out, so only their first part counts towards fit.
+            return { pad: [16 * k, 16 * k, 16 * k, 16 * k], radius: d / 2 + 16 * k, screen: [d / 2, d / 2], ring: 3.5 * k, floor: 22 * k, outer: [sw + 44 * k, sh + 60 * k] };
+          }
+          if (frame === "phone") {
+            const k = sw / 163.8;
+            return { pad: [7.25 * k, 7 * k, 7.25 * k, 7 * k], radius: 29 * k, screen: [22 * k, 22 * k], ring: k, floor: 0, outer: [sw + 20 * k, sh + 16 * k] };
+          }
+          return { pad: [32, 0, 0, 0], radius: 12, screen: [0, 11], ring: 0, floor: 0, outer: [sw + 2, sh + 34] };
+        }
+
+        function frameBlend(now = performance.now()) {
+          if (!frameMix) return { from: homeView.frame, to: homeView.frame, t: 1 };
+          const t = Math.min(1, (now - frameMix.start) / frameMix.duration);
+          return { from: frameMix.from, to: frameMix.to, t: easeInOut(t) };
+        }
+
+        function blendedMetrics(sw, sh, blend) {
+          const to = frameMetrics(blend.to, sw, sh);
+          if (blend.t >= 1 || blend.from === blend.to) return to;
+          const from = frameMetrics(blend.from, sw, sh);
+          const t = blend.t;
+          const mix = (a, b) => a.map((value, index) => lerp(value, b[index], t));
+          return {
+            pad: mix(from.pad, to.pad),
+            radius: lerp(from.radius, to.radius, t),
+            screen: mix(from.screen, to.screen),
+            ring: lerp(from.ring, to.ring, t),
+            floor: lerp(from.floor, to.floor, t),
+            outer: mix(from.outer, to.outer),
+          };
+        }
+
+        function homeBounds() {
+          const style = getComputedStyle(homeStageHost);
+          return {
+            width: Math.max(48, homeStageHost.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)),
+            height: Math.max(48, homeStageHost.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)),
+          };
+        }
+
+        // Largest display scale whose frame still fits the stage; frame
+        // outsets are linear in the scale, so two samples solve it exactly.
+        function fitScale(frame, w, h, max, bounds = homeBounds()) {
+          const at0 = frameMetrics(frame, 0, 0).outer;
+          const at1 = frameMetrics(frame, w, h).outer;
+          const sx = (bounds.width - at0[0]) / Math.max(1e-6, at1[0] - at0[0]);
+          const sy = (bounds.height - at0[1]) / Math.max(1e-6, at1[1] - at0[1]);
+          return Math.max(0.05, Math.min(sx, sy, max));
+        }
+
+        // Fit for the frame as currently drawn, halfway between two devices.
+        function fitBlend(blend, w, h, bounds) {
+          const t = blend.from === blend.to ? 1 : blend.t;
+          const outer = (s) => {
+            const a = frameMetrics(blend.from, w * s, h * s).outer;
+            const b = frameMetrics(blend.to, w * s, h * s).outer;
+            return [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
+          };
+          const at0 = outer(0);
+          const at1 = outer(1);
+          const sx = (bounds.width - at0[0]) / Math.max(1e-6, at1[0] - at0[0]);
+          const sy = (bounds.height - at0[1]) / Math.max(1e-6, at1[1] - at0[1]);
+          return Math.max(0.05, Math.min(sx, sy));
+        }
+
+        function viewMaxScale() {
+          return homeView.preset ? PRESETS[homeView.preset].max : CUSTOM_MAX_SCALE;
+        }
+
+        function homeSize(now = performance.now()) {
+          let w = homeView.w;
+          let h = homeView.h;
+          let s;
+          if (gripDrag) {
+            ({ w, h, s } = gripDrag);
+          } else if (sizeTween) {
+            const t = sizeTween.duration > 0 ? Math.min(1, (now - sizeTween.start) / sizeTween.duration) : 1;
+            const e = sizeTween.ease(t);
+            const bounds = homeBounds();
+            // Logical sizes span 128 to 1280, so step them geometrically.
+            w = Math.exp(lerp(Math.log(sizeTween.from.w), Math.log(sizeTween.to.w), e));
+            h = Math.exp(lerp(Math.log(sizeTween.from.h), Math.log(sizeTween.to.h), e));
+            const target = fitScale(homeView.frame, sizeTween.to.w, sizeTween.to.h, viewMaxScale(), bounds);
+            s = Math.exp(lerp(Math.log(sizeTween.from.s), Math.log(target), e));
+            s = Math.min(s, fitBlend(frameBlend(now), w, h, bounds));
+          } else {
+            s = fitScale(homeView.frame, w, h, viewMaxScale());
+          }
+          const logicalWidth = Math.max(1, Math.round(w));
+          const logicalHeight = Math.max(1, Math.round(h));
+          return {
+            fixed: true,
+            logicalWidth,
+            logicalHeight,
+            displayWidth: logicalWidth * s,
+            displayHeight: logicalHeight * s,
+            scale: s,
+          };
+        }
+
+        // Same rule as IrisLayout::classify in src/gallery/demos/iris/state.rs,
+        // with each evaluated condition kept for the source hints.
+        function classifyTrace(width, height) {
+          const short = Math.min(width, height);
+          const long = Math.max(width, height);
+          const conds = [];
+          let layout = "Landscape";
+          conds.push(long * 10 <= short * 12 && long <= 480);
+          if (conds[0]) layout = "Dial";
+          else {
+            conds.push(short < 200);
+            if (conds[1]) layout = "Micro";
+            else {
+              conds.push(height * 10 > width * 13);
+              if (conds[2]) layout = "Portrait";
+            }
+          }
+          return { layout, short, long, conds };
+        }
+
+        function syncDeviceFrame(size) {
+          const sw = size.displayWidth;
+          const sh = size.displayHeight;
+          const m = blendedMetrics(sw, sh, frameBlend());
+          const css = stage.style;
+          css.setProperty("--pt", `${m.pad[0]}px`);
+          css.setProperty("--pr", `${m.pad[1]}px`);
+          css.setProperty("--pb", `${m.pad[2]}px`);
+          css.setProperty("--pl", `${m.pad[3]}px`);
+          css.setProperty("--frame-r", `${m.radius}px`);
+          css.setProperty("--srt", `${m.screen[0]}px`);
+          css.setProperty("--srb", `${m.screen[1]}px`);
+          css.setProperty("--ring", `${m.ring}px`);
+          css.setProperty("--floor", `${m.floor}px`);
+          css.setProperty("--sw", `${sw}px`);
+          css.setProperty("--sh", `${sh}px`);
+          css.setProperty("--kb", String(sw / 128));
+          css.setProperty("--kw", String(Math.min(sw, sh) / 177.6));
+          css.setProperty("--kp", String(sw / 163.8));
+          // The grip sits on the screen edge, 45° into the bottom-right corner.
+          const inset = m.screen[1] * (1 - Math.SQRT1_2);
+          css.setProperty("--gx", `${m.pad[3] + sw - inset}px`);
+          css.setProperty("--gy", `${m.pad[0] + sh - inset}px`);
+
+          const trace = classifyTrace(size.logicalWidth, size.logicalHeight);
+          wbSize.textContent = `${size.logicalWidth} × ${size.logicalHeight}`;
+          wbDevice.textContent = window.miruiLanguage.t(`wb.dev.${homeView.preset || "custom"}`);
+          wbScale.textContent = `${size.scale.toFixed(2)}×`;
+          wbLayout.textContent = `IrisLayout::${trace.layout}`;
+          workbench.dataset.layout = trace.layout;
+          renderLayoutHints(size.logicalWidth, size.logicalHeight, trace);
+        }
+
+        // ── Iris workbench: live source ────────────────────────
+        // The two excerpts come from the embedded Iris source when it is
+        // available, so line numbers and text track the Rust files.
+        const layoutCode = { classify: null, match: null, layout: null };
+
+        function dedent(lines) {
+          const indent = Math.min(...lines.filter((line) => line.trim()).map((line) => line.length - line.trimStart().length));
+          return lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0));
+        }
+
+        function takeBlock(text, start) {
+          const lines = text.split("\n");
+          const first = lines.findIndex((line) => start.test(line));
+          if (first < 0) return null;
+          let depth = 0;
+          for (let index = first; index < lines.length; index++) {
+            for (const ch of lines[index]) {
+              if (ch === "{") depth++;
+              else if (ch === "}") depth--;
+            }
+            if (depth === 0 && index > first) {
+              return { first: first + 1, lines: dedent(lines.slice(first, index + 1)) };
+            }
+          }
+          return null;
+        }
+
+        function irisSourceBlocks() {
+          let source = "";
+          try { source = wasmBindings.demo_source(homeDemo) || ""; } catch (_) {}
+          if (!source) return null;
+          const files = new Map();
+          const marker = /\n\n\/\/ (iris\/[\w./-]+\.rs)\n/g;
+          let name = "iris.rs";
+          let last = 0;
+          let found;
+          while ((found = marker.exec(source))) {
+            files.set(name, source.slice(last, found.index));
+            name = found[1];
+            last = found.index + found[0].length;
+          }
+          files.set(name, source.slice(last));
+          const state = files.get("iris/state.rs");
+          const composition = files.get("iris/composition.rs");
+          if (!state || !composition) return null;
+          const classify = takeBlock(state, /pub fn classify\(/);
+          const arms = takeBlock(composition, /match \$\{ model\.layout\(\) \} \{/);
+          return classify && arms ? { classify, arms } : null;
+        }
+
+        function renderCodeBlock(container, rangeLabel, block) {
+          container.querySelector(".wb-static")?.remove();
+          for (const row of container.querySelectorAll(".cl")) row.remove();
+          rangeLabel.textContent = `${block.first}–${block.first + block.lines.length - 1}`;
+          const rows = block.lines.map((text, index) => {
+            const row = document.createElement("div");
+            row.className = "cl";
+            const number = document.createElement("span");
+            number.className = "ln";
+            number.textContent = String(block.first + index);
+            const code = document.createElement("code");
+            code.innerHTML = highlightRust(text) || " ";
+            const hint = document.createElement("span");
+            hint.className = "hint";
+            row.append(number, code, hint);
+            container.appendChild(row);
+            return { row, hint, text };
+          });
+          return { container, rod: container.querySelector(".wb-rod"), rows, placed: false };
+        }
+
+        function staticBlock(container, first) {
+          const pre = container.querySelector(".wb-static");
+          return { first, lines: pre ? pre.textContent.split("\n") : [] };
+        }
+
+        function makeArmRow(entry, variant) {
+          if (!entry) return;
+          entry.row.classList.add("arm");
+          entry.row.tabIndex = 0;
+          entry.row.setAttribute("role", "button");
+          entry.row.dataset.variant = variant;
+          entry.row.title = window.miruiLanguage.t("wb.arm");
+          const go = () => selectPreset(LAYOUT_PRESET[variant]);
+          entry.row.addEventListener("click", go);
+          entry.row.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            go();
+          });
+        }
+
+        function buildLayoutCode() {
+          const classifyBox = document.getElementById("wb-classify");
+          const matchBox = document.getElementById("wb-match");
+          const blocks = irisSourceBlocks() || {
+            classify: staticBlock(classifyBox, 100),
+            arms: staticBlock(matchBox, 740),
+          };
+          const classify = renderCodeBlock(classifyBox, document.getElementById("wb-classify-range"), blocks.classify);
+          const match = renderCodeBlock(matchBox, document.getElementById("wb-match-range"), blocks.arms);
+          const find = (block, pattern) => block.rows.findIndex((entry) => pattern.test(entry.text));
+          classify.fn = find(classify, /fn classify\(/);
+          classify.short = find(classify, /let short\b/);
+          classify.long = find(classify, /let long\b/);
+          classify.conds = [find(classify, /^\s*if long/), find(classify, /else if short/), find(classify, /else if height/)];
+          classify.elseRow = find(classify, /^\s*\} else \{/);
+          classify.results = {};
+          match.arms = {};
+          for (const variant of LAYOUT_ORDER) {
+            classify.results[variant] = find(classify, new RegExp(`Self::${variant}\\b`));
+            match.arms[variant] = find(match, new RegExp(`IrisLayout\\s*::\\s*${variant}\\s*=>`));
+            makeArmRow(classify.rows[classify.results[variant]], variant);
+            makeArmRow(match.rows[match.arms[variant]], variant);
+          }
+          layoutCode.classify = classify;
+          layoutCode.match = match;
+          layoutCode.layout = null;
+        }
+
+        function setHint(block, index, value, state = "") {
+          const entry = block.rows[index];
+          if (!entry) return;
+          if (entry.hint.textContent !== value) entry.hint.textContent = value;
+          entry.hint.className = state ? `hint ${state}` : "hint";
+        }
+
+        function placeRod(block, index) {
+          const entry = block.rows[index];
+          if (!entry || !block.rod) return;
+          if (!entry.row.offsetHeight) return;
+          if (!block.placed) block.rod.style.transition = "none";
+          block.rod.style.height = `${entry.row.offsetHeight}px`;
+          block.rod.style.transform = `translateY(${entry.row.offsetTop}px)`;
+          block.rod.classList.add("on");
+          if (!block.placed) {
+            void block.rod.offsetHeight;
+            block.rod.style.removeProperty("transition");
+            block.placed = true;
+          }
+        }
+
+        // Evaluated conditions get a gutter mark: filled when true, hollow
+        // when false, none when short-circuited.
+        function setCondition(block, index, value) {
+          const entry = block.rows[index];
+          if (!entry) return;
+          const number = entry.row.querySelector(".ln");
+          number.classList.toggle("cond-true", value === true);
+          number.classList.toggle("cond-false", value === false);
+          entry.row.dataset.result = value === undefined ? "" : String(value);
+        }
+
+        // Keep both glass rods in view, like a debugger following execution.
+        function followRods(classifyIndex, matchIndex, instant) {
+          const code = document.getElementById("wb-code");
+          const first = layoutCode.classify.rows[classifyIndex]?.row;
+          const last = layoutCode.match.rows[matchIndex]?.row;
+          if (!code || !first || !last || code.scrollHeight <= code.clientHeight + 1) return;
+          const box = code.getBoundingClientRect();
+          const top = first.getBoundingClientRect().top - box.top + code.scrollTop;
+          const bottom = last.getBoundingClientRect().bottom - box.top + code.scrollTop;
+          // Scroll as little as possible; when both cannot fit, the match arm wins.
+          const showBottom = bottom + 14 - code.clientHeight;
+          const showTop = top - 36 - 14;
+          const target = showBottom <= showTop
+            ? Math.min(Math.max(code.scrollTop, showBottom), showTop)
+            : showBottom;
+          const limit = code.scrollHeight - code.clientHeight;
+          const next = Math.max(0, Math.min(limit, target));
+          if (Math.abs(next - code.scrollTop) < 2) return;
+          const still = instant
+            || document.documentElement.classList.contains("site-motion-off")
+            || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          code.scrollTo({ top: next, behavior: still ? "instant" : "smooth" });
+        }
+
+        function renderLayoutHints(width, height, trace) {
+          const classify = layoutCode.classify;
+          const match = layoutCode.match;
+          if (!classify || !match) return;
+          const call = `classify(${width}, ${height})`;
+          if (layoutCode.call !== call) {
+            layoutCode.call = call;
+            document.getElementById("wb-classify-range").textContent = call;
+          }
+          setHint(classify, classify.short, String(trace.short));
+          setHint(classify, classify.long, String(trace.long));
+          classify.conds.forEach((index, order) => setCondition(classify, index, trace.conds[order]));
+          if (layoutCode.layout === trace.layout && classify.placed) return;
+          const firstPlacement = !classify.placed;
+          layoutCode.layout = trace.layout;
+          const taken = LAYOUT_ORDER.indexOf(trace.layout);
+          const dim = new Set();
+          LAYOUT_ORDER.forEach((variant, order) => {
+            if (order !== taken) dim.add(classify.results[variant]);
+            if (order > taken && order < 3) dim.add(classify.conds[order]);
+          });
+          if (taken < 3) dim.add(classify.elseRow);
+          classify.rows.forEach((entry, index) => entry.row.classList.toggle("dim", dim.has(index)));
+          const arm = match.arms[trace.layout];
+          match.rows.forEach((entry, index) => {
+            const inArm = LAYOUT_ORDER.some((variant) => {
+              const start = match.arms[variant];
+              return start >= 0 && index >= start && index <= start + 2;
+            });
+            entry.row.classList.toggle("dim", inArm && !(index >= arm && index <= arm + 2));
+          });
+          placeRod(classify, classify.results[trace.layout]);
+          placeRod(match, arm);
+          if (classify.placed) followRods(classify.results[trace.layout], arm, firstPlacement);
+        }
+
+        buildLayoutCode();
         const stageName = document.getElementById("stage-name");
         const focusTitle = document.getElementById("focus-title");
         const stageSize = document.getElementById("stage-size");
@@ -1865,6 +2810,7 @@
         }
 
         function resolveCanvasSize(requested = null) {
+          if (homeSizingActive()) return homeSize();
           const contract = orientedContract();
           const fixed = fixedLogicalSize(contract);
           if (fixed) {
@@ -1936,6 +2882,7 @@
           resetBtn.title = window.miruiLanguage.t("gallery.reset");
           stage.classList.toggle("narrow", displayWidth < 240);
           currentSize = { ...size, displayWidth, displayHeight };
+          if (homeSizingActive()) syncDeviceFrame(currentSize);
         }
 
         function storedAudioMuted() {
@@ -2123,6 +3070,7 @@
           fitFrame = requestAnimationFrame(() => {
             fitFrame = null;
             applyCanvasSize(resolveCanvasSize());
+            updatePresetButtons();
           });
         });
         fitObserver.observe(focusStageHost);
@@ -2193,136 +3141,6 @@
         const codeTitle = document.getElementById("code-title");
         const copyBtn = document.getElementById("copy-btn");
         const copyLabel = copyBtn.querySelector(".label");
-
-        const RUST_KEYWORDS = new Set([
-          "as", "async", "await", "break", "const", "continue", "crate", "dyn",
-          "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in",
-          "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
-          "self", "Self", "static", "struct", "super", "trait", "true", "type",
-          "union", "unsafe", "use", "where", "while",
-        ]);
-
-        function escapeHtml(s) {
-          return s.replace(/[&<>]/g, (c) => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"));
-        }
-
-        // Tiny single-pass Rust highlighter. Walks the source char by char,
-        // peeling off comments / strings / chars / attributes / numbers /
-        // macros / identifiers, and wraps each token in a span. Working on
-        // raw text (not HTML) keeps the matcher simple; we escape only the
-        // captured slice when emitting.
-        function highlightRust(src) {
-          let out = "";
-          let i = 0;
-          const n = src.length;
-          const isIdentStart = (c) => /[A-Za-z_]/.test(c);
-          const isIdent = (c) => /[A-Za-z0-9_]/.test(c);
-
-          while (i < n) {
-            const c = src[i];
-            const c2 = src[i + 1];
-
-            // line comment
-            if (c === "/" && c2 === "/") {
-              let j = i + 2;
-              while (j < n && src[j] !== "\n") j++;
-              out += `<span class="tok-com">${escapeHtml(src.slice(i, j))}</span>`;
-              i = j;
-              continue;
-            }
-            // block comment (nested-aware)
-            if (c === "/" && c2 === "*") {
-              let j = i + 2;
-              let depth = 1;
-              while (j < n && depth > 0) {
-                if (src[j] === "/" && src[j + 1] === "*") { depth++; j += 2; }
-                else if (src[j] === "*" && src[j + 1] === "/") { depth--; j += 2; }
-                else j++;
-              }
-              out += `<span class="tok-com">${escapeHtml(src.slice(i, j))}</span>`;
-              i = j;
-              continue;
-            }
-            // string literal (with escapes)
-            if (c === '"') {
-              let j = i + 1;
-              while (j < n) {
-                if (src[j] === "\\") { j += 2; continue; }
-                if (src[j] === '"') { j++; break; }
-                j++;
-              }
-              out += `<span class="tok-str">${escapeHtml(src.slice(i, j))}</span>`;
-              i = j;
-              continue;
-            }
-            // char literal or lifetime — disambiguate by closing quote
-            if (c === "'") {
-              let j = i + 1;
-              if (src[j] === "\\") j += 2;
-              else j += 1;
-              if (src[j] === "'") {
-                // char literal
-                out += `<span class="tok-str">${escapeHtml(src.slice(i, j + 1))}</span>`;
-                i = j + 1;
-              } else {
-                // lifetime — emit the apostrophe, let ident run handle the rest
-                out += escapeHtml(c);
-                i += 1;
-              }
-              continue;
-            }
-            // attribute  #[...]  or  #![...]
-            if (c === "#" && (c2 === "[" || c2 === "!")) {
-              let j = i + 1;
-              if (src[j] === "!") j++;
-              if (src[j] === "[") {
-                let depth = 0;
-                while (j < n) {
-                  if (src[j] === "[") depth++;
-                  else if (src[j] === "]") { depth--; j++; if (depth === 0) break; continue; }
-                  j++;
-                }
-                out += `<span class="tok-attr">${escapeHtml(src.slice(i, j))}</span>`;
-                i = j;
-                continue;
-              }
-            }
-            // number
-            if (/[0-9]/.test(c)) {
-              let j = i + 1;
-              while (j < n && /[0-9a-fA-FxXoObB_.eE]/.test(src[j])) j++;
-              out += `<span class="tok-num">${escapeHtml(src.slice(i, j))}</span>`;
-              i = j;
-              continue;
-            }
-            // identifier / keyword / macro / type
-            if (isIdentStart(c)) {
-              let j = i + 1;
-              while (j < n && isIdent(src[j])) j++;
-              const word = src.slice(i, j);
-              if (src[j] === "!") {
-                // macro invocation:  ui!  vec!  println!
-                out += `<span class="tok-mac">${escapeHtml(word)}!</span>`;
-                i = j + 1;
-              } else if (RUST_KEYWORDS.has(word)) {
-                out += `<span class="tok-kw">${escapeHtml(word)}</span>`;
-                i = j;
-              } else if (/^[A-Z]/.test(word)) {
-                // PascalCase → treat as type / variant
-                out += `<span class="tok-type">${escapeHtml(word)}</span>`;
-                i = j;
-              } else {
-                out += escapeHtml(word);
-                i = j;
-              }
-              continue;
-            }
-            // plain char
-            out += escapeHtml(c);
-            i += 1;
-          }
-          return out;
-        }
 
         // Per-demo source state. loadSource() refreshes these from the
         // wasm bindings on each switch; applyFocusState() repaints the panel.
@@ -2475,7 +3293,6 @@
 
           loadSource(slug);
           applyFocusState();
-          updateFeatureSelection();
           return true;
         }
 
@@ -2493,7 +3310,7 @@
           siteMode = next;
           document.documentElement.dataset.mode = next;
           document.title = next === "home"
-            ? "mirui — fixed-point UI from embedded to WebAssembly"
+            ? "mirui — no_std UI framework for embedded, desktop, and WebAssembly"
             : `${stageName.textContent} — mirui`;
           if (next === "home" && restoreScroll) {
             window.scrollTo({ top: homeScrollY, behavior: "instant" });
@@ -2598,219 +3415,312 @@
           }
         }
 
-        const featureName = document.getElementById("feature-name");
-        const featureButtons = Array.from(document.querySelectorAll("[data-feature-demo]"));
-        const heroRuntime = document.getElementById("hero-runtime");
-        const heroPreviewPrev = document.getElementById("hero-preview-prev");
-        const heroPreviewNext = document.getElementById("hero-preview-next");
-        const featureSlugs = featureButtons.map((button) => button.dataset.featureDemo);
-        let featureSwitchTimer = 0;
-        let featureSwitching = false;
-        let featureHandoff = false;
-        let featureDrag = null;
-        let featureFlight = null;
+        // ── Iris workbench: presets, morphs, resizing ──────────
+        function updatePresetButtons() {
+          let active = null;
+          for (const button of presetButtons) {
+            const on = button.dataset.preset === homeView.preset;
+            button.setAttribute("aria-checked", String(on));
+            button.tabIndex = on || (!homeView.preset && button === presetButtons[0]) ? 0 : -1;
+            if (on) active = button;
+          }
+          wbDevices.classList.toggle("custom", !active);
+          if (active && active.offsetWidth) {
+            wbThumb.style.width = `${active.offsetWidth}px`;
+            wbThumb.style.transform = `translateX(${active.offsetLeft}px)`;
+          }
+        }
 
-        function featureAt(index) {
-          const normalized = (index + featureSlugs.length) % featureSlugs.length;
-          const slug = featureSlugs[normalized];
-          const demo = demosBySlug.get(slug);
+        function runHomeTween() {
+          if (tweenFrame) return;
+          const step = (now) => {
+            tweenFrame = 0;
+            if (sizeTween && now - sizeTween.start >= sizeTween.duration) {
+              sizeTween = null;
+            }
+            if (frameMix && now - frameMix.start >= frameMix.duration) frameMix = null;
+            if (homeSizingActive()) applyCanvasSize(homeSize(now));
+            if (sizeTween || frameMix) tweenFrame = requestAnimationFrame(step);
+          };
+          tweenFrame = requestAnimationFrame(step);
+        }
+
+        function morphFrame(to, duration) {
+          const from = frameBlend().to;
+          homeView.frame = to;
+          stage.dataset.device = to;
+          frameMix = from !== to && duration > 0
+            ? { from, to, start: performance.now(), duration }
+            : null;
+        }
+
+        function selectPreset(id, { fromTour = false } = {}) {
+          const preset = PRESETS[id];
+          if (!preset) return;
+          if (!fromTour) stopTour();
+          const size = currentSize && homeSizingActive() ? currentSize : null;
+          const from = size
+            ? { w: size.logicalWidth, h: size.logicalHeight, s: size.scale }
+            : null;
+          const animate = motionEnabled && from && homeView.preset !== id;
+          const duration = animate ? 780 : 0;
+          morphFrame(preset.frame, duration);
+          homeView.w = preset.w;
+          homeView.h = preset.h;
+          homeView.preset = id;
+          updatePresetButtons();
+          if (!homeSizingActive()) return;
+          sizeTween = animate
+            ? { from, to: { w: preset.w, h: preset.h }, start: performance.now(), duration, ease: easeInOut }
+            : null;
+          if (animate) runHomeTween();
+          else applyCanvasSize(homeSize());
+        }
+
+        for (const button of presetButtons) {
+          button.addEventListener("click", () => selectPreset(button.dataset.preset));
+          button.addEventListener("keydown", (event) => {
+            const delta = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+            if (!delta) return;
+            event.preventDefault();
+            const index = presetButtons.indexOf(button);
+            const next = presetButtons[(index + delta + presetButtons.length) % presetButtons.length];
+            next.focus();
+            selectPreset(next.dataset.preset);
+          });
+        }
+
+        function clampToContract(w, h) {
+          const contract = irisContract();
           return {
-            index: normalized,
-            slug,
-            name: demo ? demo.label : slug,
+            w: Math.min(contract.maxWidth, Math.max(contract.minWidth, w)),
+            h: Math.min(contract.maxHeight, Math.max(contract.minHeight, h)),
           };
         }
 
-        function updateHeroPreview(element, feature, side) {
-          element.dataset.featureDemo = feature.slug;
-          element.setAttribute("aria-label", `${side} featured demo: ${feature.name}`);
-          element.querySelector("img").src = `demo-previews/${feature.slug}.png`;
-          element.querySelector("img").alt = `${feature.name} preview`;
-          element.querySelector(".hero-preview-bar span:first-child").textContent = feature.name.toUpperCase();
-          element.querySelector(".hero-preview-bar span:last-child").textContent = `${String(feature.index + 1).padStart(2, "0")} / ${String(featureSlugs.length).padStart(2, "0")}`;
-        }
-
-        function updateHeroSides(index) {
-          updateHeroPreview(heroPreviewPrev, featureAt(index - 1), "Previous");
-          updateHeroPreview(heroPreviewNext, featureAt(index + 1), "Next");
-        }
-
-        function createFeatureFlight(direction) {
-          const source = direction < 0 ? heroPreviewPrev : heroPreviewNext;
-          const flight = source.cloneNode(true);
-          flight.removeAttribute("id");
-          for (const node of flight.querySelectorAll("[id]")) node.removeAttribute("id");
-          flight.removeAttribute("data-feature-demo");
-          flight.setAttribute("aria-hidden", "true");
-          flight.tabIndex = -1;
-          flight.classList.add(
-            "hero-preview-flight",
-            direction < 0 ? "hero-preview-flight-prev" : "hero-preview-flight-next",
-          );
-          heroRuntime.appendChild(flight);
-          void flight.offsetWidth;
-          return flight;
-        }
-
-        function clearFeatureFlight() {
-          if (featureFlight) featureFlight.remove();
-          featureFlight = null;
-        }
-
-        function prepareFeatureRotationGeometry(direction) {
-          if (!featureFlight) return;
-          const runtimeRect = heroRuntime.getBoundingClientRect();
-          const stageRect = stage.getBoundingClientRect();
-          const sideRect = (direction < 0 ? heroPreviewNext : heroPreviewPrev).getBoundingClientRect();
-          if (!runtimeRect.width || !runtimeRect.height || !stageRect.width || !stageRect.height) return;
-          const stageCenterX = stageRect.left + stageRect.width / 2;
-          const stageCenterY = stageRect.top + stageRect.height / 2;
-          const runtimeCenterX = runtimeRect.left + runtimeRect.width / 2;
-          const runtimeCenterY = runtimeRect.top + runtimeRect.height / 2;
-          featureFlight.style.setProperty("--hero-flight-x", `${stageCenterX - runtimeCenterX}px`);
-          featureFlight.style.setProperty("--hero-flight-y", `${stageCenterY - runtimeCenterY}px`);
-          featureFlight.style.setProperty("--hero-flight-scale-x", stageRect.width / featureFlight.offsetWidth);
-          featureFlight.style.setProperty("--hero-flight-scale-y", stageRect.height / featureFlight.offsetHeight);
-
-          const sideCenterX = sideRect.left + sideRect.width / 2;
-          const sideCenterY = sideRect.top + sideRect.height / 2;
-          homeStageHost.style.setProperty("--hero-stage-x", `${sideCenterX - stageCenterX}px`);
-          homeStageHost.style.setProperty("--hero-stage-y", `${sideCenterY - stageCenterY}px`);
-          homeStageHost.style.setProperty("--hero-stage-scale-x", sideRect.width / stageRect.width);
-          homeStageHost.style.setProperty("--hero-stage-scale-y", sideRect.height / stageRect.height);
-        }
-
-        function updateFeatureSelection() {
-          for (const button of featureButtons) {
-            const active = button.dataset.featureDemo === activeSlug;
-            button.classList.toggle("active", active);
-            button.setAttribute("aria-pressed", String(active));
+        function beginCustomSize() {
+          stopTour();
+          sizeTween = null;
+          if (homeView.preset || homeView.frame !== "browser") {
+            homeView.preset = null;
+            morphFrame("browser", motionEnabled ? 320 : 0);
+            updatePresetButtons();
+            if (frameMix) runHomeTween();
           }
-          featureName.textContent = activeDemo ? activeDemo.label : activeSlug;
-          if (featureHandoff) return;
-          const current = featureSlugs.indexOf(activeSlug);
-          const index = current < 0 ? 0 : current;
-          updateHeroSides(index);
         }
 
-        function selectFeature(slug, direction = 0) {
-          if (!slug || slug === activeSlug || featureSwitching) return;
-          const current = featureSlugs.indexOf(activeSlug);
-          const target = featureSlugs.indexOf(slug);
-          if (!direction && current >= 0 && target >= 0) direction = target > current ? 1 : -1;
-
-          if (!motionEnabled) {
-            switchDemo(slug);
-            history.replaceState({ mode: "home", demo: activeSlug }, "", location.pathname);
-            return;
-          }
-
-          featureSwitching = true;
-          window.clearTimeout(featureSwitchTimer);
-          clearFeatureFlight();
-          featureFlight = createFeatureFlight(direction);
-          updateHeroPreview(featureFlight, featureAt(target < 0 ? 0 : target), "Selected");
-          prepareFeatureRotationGeometry(direction);
-          const targetIndex = target < 0 ? 0 : target;
-          const oldFeature = current >= 0
-            ? featureAt(current)
-            : { index: targetIndex, slug: activeSlug, name: activeDemo ? activeDemo.label : activeSlug };
-          const incoming = direction < 0 ? heroPreviewPrev : heroPreviewNext;
-          incoming.classList.add(
-            direction < 0 ? "hero-preview-incoming-prev" : "hero-preview-incoming-next",
-          );
-          updateHeroPreview(
-            incoming,
-            featureAt(targetIndex + (direction < 0 ? -1 : 1)),
-            direction < 0 ? "Previous" : "Next",
-          );
-          void incoming.offsetWidth;
-          heroRuntime.classList.remove("switch-next", "switch-prev");
-          heroRuntime.classList.add("switching", direction < 0 ? "switch-prev" : "switch-next");
-          featureSwitchTimer = window.setTimeout(() => {
-            updateHeroPreview(
-              direction < 0 ? heroPreviewNext : heroPreviewPrev,
-              oldFeature,
-              direction < 0 ? "Next" : "Previous",
-            );
-            heroRuntime.classList.add("handoff");
-            featureHandoff = true;
-            switchDemo(slug);
-            featureHandoff = false;
-            history.replaceState({ mode: "home", demo: activeSlug }, "", location.pathname);
-            heroRuntime.classList.remove("switching");
-            requestAnimationFrame(() => {
-              heroRuntime.classList.add("stage-ready");
-              featureSwitchTimer = window.setTimeout(() => {
-                clearFeatureFlight();
-                heroPreviewPrev.classList.remove("hero-preview-incoming-prev");
-                heroPreviewNext.classList.remove("hero-preview-incoming-next");
-                heroRuntime.classList.remove(
-                  "handoff",
-                  "stage-ready",
-                  "switch-next",
-                  "switch-prev",
-                );
-                updateFeatureSelection();
-                featureSwitching = false;
-              }, 180);
-            });
-          }, 520);
-        }
-
-        function stepFeature(direction) {
-          const current = featureButtons.findIndex((button) => button.dataset.featureDemo === activeSlug);
-          const index = current < 0 ? 0 : current;
-          const next = (index + direction + featureButtons.length) % featureButtons.length;
-          selectFeature(featureButtons[next].dataset.featureDemo, direction);
-        }
-
-        for (const button of featureButtons) {
-          button.addEventListener("click", () => selectFeature(button.dataset.featureDemo));
-        }
-        document.getElementById("feature-prev").addEventListener("click", () => stepFeature(-1));
-        document.getElementById("feature-next").addEventListener("click", () => stepFeature(1));
-        heroPreviewPrev.addEventListener("click", () => selectFeature(heroPreviewPrev.dataset.featureDemo, -1));
-        heroPreviewNext.addEventListener("click", () => selectFeature(heroPreviewNext.dataset.featureDemo, 1));
-        heroRuntime.addEventListener("keydown", (event) => {
-          if (event.key === "ArrowLeft") { event.preventDefault(); stepFeature(-1); }
-          if (event.key === "ArrowRight") { event.preventDefault(); stepFeature(1); }
+        deviceGrip.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || !homeSizingActive() || !currentSize) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const size = currentSize;
+          beginCustomSize();
+          gripDrag = {
+            id: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            dw: size.displayWidth,
+            dh: size.displayHeight,
+            s0: size.scale,
+            w: size.logicalWidth,
+            h: size.logicalHeight,
+            s: size.scale,
+          };
+          workbench.classList.add("resizing");
+          deviceGrip.setPointerCapture(event.pointerId);
         });
-        heroRuntime.addEventListener("pointerdown", (event) => {
-          if (event.button !== 0 || event.target.closest("button") || event.target.closest("canvas")) return;
-          featureDrag = { id: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, captured: false };
+
+        deviceGrip.addEventListener("pointermove", (event) => {
+          if (!gripDrag || gripDrag.id !== event.pointerId) return;
+          const bounds = homeBounds();
+          const limitW = Math.max(1, bounds.width - 2);
+          const limitH = Math.max(1, bounds.height - 34);
+          // The stage stays centred, so the corner moves at half the size change.
+          const wantW = gripDrag.dw + (event.clientX - gripDrag.x) * 2;
+          const wantH = gripDrag.dh + (event.clientY - gripDrag.y) * 2;
+          // Inside the stage the corner tracks the pointer. Past the edge the
+          // viewport keeps growing and the view zooms out to keep it in frame.
+          const logical = (want, limit) => (want <= limit
+            ? want / gripDrag.s0
+            : (limit / gripDrag.s0) * Math.exp((want - limit) / limit));
+          const next = clampToContract(logical(wantW, limitW), logical(wantH, limitH));
+          gripDrag.w = next.w;
+          gripDrag.h = next.h;
+          gripDrag.s = Math.min(gripDrag.s0, fitScale("browser", next.w, next.h, Infinity, bounds));
+          applyCanvasSize(homeSize());
         });
-        heroRuntime.addEventListener("pointermove", (event) => {
-          if (!featureDrag || featureDrag.id !== event.pointerId) return;
-          const dx = event.clientX - featureDrag.x;
-          const dy = event.clientY - featureDrag.y;
-          if (!featureDrag.captured && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 12) {
-            featureDrag = null;
-            return;
-          }
-          if (!featureDrag.captured && Math.abs(dx) > 9) {
-            heroRuntime.setPointerCapture(event.pointerId);
-            heroRuntime.classList.add("dragging");
-            featureDrag.captured = true;
-          }
-          if (featureDrag.captured) {
-            featureDrag.dx = dx;
-            heroRuntime.style.setProperty("--hero-drag", `${Math.max(-72, Math.min(72, dx * 0.34))}px`);
-          }
-        });
-        function finishFeatureDrag(event, cancelled = false) {
-          if (!featureDrag || featureDrag.id !== event.pointerId) return;
-          const { captured, dx } = featureDrag;
-          featureDrag = null;
-          heroRuntime.classList.remove("dragging");
-          heroRuntime.style.removeProperty("--hero-drag");
-          if (!captured) return;
-          try { heroRuntime.releasePointerCapture(event.pointerId); } catch (_) {}
-          if (!cancelled && Math.abs(dx) > 46) stepFeature(dx < 0 ? 1 : -1);
+
+        function endGripDrag(event) {
+          if (!gripDrag || (event && gripDrag.id !== event.pointerId)) return;
+          const { w, h, s } = gripDrag;
+          gripDrag = null;
+          workbench.classList.remove("resizing");
+          if (event && deviceGrip.hasPointerCapture(event.pointerId)) deviceGrip.releasePointerCapture(event.pointerId);
+          homeView.w = Math.round(w);
+          homeView.h = Math.round(h);
+          sizeTween = {
+            from: { w, h, s },
+            to: { w: homeView.w, h: homeView.h },
+            start: performance.now(),
+            duration: motionEnabled ? 420 : 0,
+            ease: easeOut,
+          };
+          runHomeTween();
         }
-        heroRuntime.addEventListener("pointerup", (event) => finishFeatureDrag(event));
-        heroRuntime.addEventListener("pointercancel", (event) => finishFeatureDrag(event, true));
-        updateFeatureSelection();
+        deviceGrip.addEventListener("pointerup", endGripDrag);
+        deviceGrip.addEventListener("pointercancel", endGripDrag);
+        deviceGrip.addEventListener("keydown", (event) => {
+          const step = event.shiftKey ? 40 : 8;
+          const delta = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[event.key];
+          if (!delta || !homeSizingActive()) return;
+          event.preventDefault();
+          beginCustomSize();
+          const next = clampToContract(homeView.w + delta[0], homeView.h + delta[1]);
+          homeView.w = next.w;
+          homeView.h = next.h;
+          applyCanvasSize(homeSize());
+        });
+
+        // ── Iris workbench: first-visit tour ───────────────────
+        // One pass from the dev board to the browser, then it stops for good.
+        const TOUR = ["board", "watch", "phone", "browser"];
+        let tourTimer = 0;
+        let tourDone = false;
+        try { tourDone = sessionStorage.getItem("mirui-tour") === "done"; } catch (_) {}
+        function stopTour() {
+          window.clearTimeout(tourTimer);
+          tourDone = true;
+          try { sessionStorage.setItem("mirui-tour", "done"); } catch (_) {}
+        }
+        function workbenchInView() {
+          const rect = workbench.getBoundingClientRect();
+          return rect.top < innerHeight * 0.72 && rect.bottom > innerHeight * 0.32;
+        }
+        function scheduleTour(delay) {
+          window.clearTimeout(tourTimer);
+          tourTimer = window.setTimeout(() => {
+            if (tourDone) return;
+            if (!motionEnabled || document.hidden || !homeSizingActive() || !workbenchInView()) {
+              scheduleTour(1400);
+              return;
+            }
+            const next = TOUR[TOUR.indexOf(homeView.preset) + 1];
+            if (!next) {
+              stopTour();
+              return;
+            }
+            selectPreset(next, { fromTour: true });
+            scheduleTour(3400);
+          }, delay);
+        }
+        if (!tourDone) scheduleTour(2800);
+        workbench.addEventListener("pointerdown", stopTour, { capture: true });
+        workbench.addEventListener("keydown", stopTour, { capture: true });
+
+        document.getElementById("workbench-open").addEventListener("click", (event) => {
+          stopTour();
+          openDemo(homeDemo, true, true, event.currentTarget);
+        });
+        for (const button of document.querySelectorAll("[data-show-preset]")) {
+          button.addEventListener("click", () => {
+            stopTour();
+            workbench.scrollIntoView({ behavior: motionEnabled ? "smooth" : "instant", block: "center" });
+            window.setTimeout(() => selectPreset(button.dataset.showPreset), motionEnabled ? 450 : 0);
+          });
+        }
+
+        // ── Iris workbench: pixel loupe ────────────────────────
+        // Reads the canvas the renderer just drew and magnifies device
+        // pixels; the readout is the logical position in Q24.8 steps.
+        const loupeToggle = document.getElementById("loupe-toggle");
+        const loupe = document.createElement("div");
+        loupe.className = "loupe";
+        loupe.setAttribute("aria-hidden", "true");
+        loupe.innerHTML = '<div class="loupe-lens"><canvas></canvas></div><div class="loupe-read"><b></b><span><i></i><em></em></span></div>';
+        document.body.appendChild(loupe);
+        const loupeCanvas = loupe.querySelector("canvas");
+        const loupeContext = loupeCanvas.getContext("2d", { willReadFrequently: true });
+        const loupePosition = loupe.querySelector(".loupe-read b");
+        const loupeSwatch = loupe.querySelector(".loupe-read i");
+        const loupeHex = loupe.querySelector(".loupe-read em");
+        const LOUPE_SIZE = 168;
+        const LOUPE_CELLS = 15;
+        let loupeOn = false;
+        let loupePoint = null;
+        let loupeFrame = 0;
+
+        function setLoupe(on) {
+          loupeOn = on;
+          loupeToggle.setAttribute("aria-pressed", String(on));
+          workbench.classList.toggle("loupe-on", on);
+          const label = window.miruiLanguage.t(on ? "wb.loupeOff" : "wb.loupe");
+          loupeToggle.title = label;
+          loupeToggle.setAttribute("aria-label", label);
+          if (!on) {
+            loupePoint = null;
+            loupe.classList.remove("visible");
+          }
+        }
+        loupeToggle.addEventListener("click", () => setLoupe(!loupeOn));
+
+        function drawLoupe() {
+          loupeFrame = 0;
+          if (!loupeOn || !loupePoint || !homeSizingActive() || !currentSize) return;
+          const rect = canvas.getBoundingClientRect();
+          if (!rect.width || !rect.height || !canvas.width || !canvas.height) return;
+          const ratio = window.devicePixelRatio || 1;
+          const size = Math.round(LOUPE_SIZE * ratio);
+          if (loupeCanvas.width !== size) {
+            loupeCanvas.width = size;
+            loupeCanvas.height = size;
+          }
+          const half = Math.floor(LOUPE_CELLS / 2);
+          const px = Math.floor((loupePoint.x - rect.left) * (canvas.width / rect.width));
+          const py = Math.floor((loupePoint.y - rect.top) * (canvas.height / rect.height));
+          const cell = size / LOUPE_CELLS;
+          loupeContext.imageSmoothingEnabled = false;
+          loupeContext.fillStyle = "#000";
+          loupeContext.fillRect(0, 0, size, size);
+          loupeContext.drawImage(canvas, px - half, py - half, LOUPE_CELLS, LOUPE_CELLS, 0, 0, size, size);
+          const centre = Math.floor(half * cell + cell / 2);
+          const [r, g, b] = loupeContext.getImageData(centre, centre, 1, 1).data;
+          loupeContext.strokeStyle = "rgba(255, 255, 255, 0.07)";
+          loupeContext.lineWidth = 1;
+          loupeContext.beginPath();
+          for (let i = 1; i < LOUPE_CELLS; i++) {
+            const at = Math.round(i * cell) + 0.5;
+            loupeContext.moveTo(at, 0);
+            loupeContext.lineTo(at, size);
+            loupeContext.moveTo(0, at);
+            loupeContext.lineTo(size, at);
+          }
+          loupeContext.stroke();
+          const edge = Math.round(half * cell);
+          loupeContext.lineWidth = Math.max(1, Math.round(ratio));
+          loupeContext.strokeStyle = (r * 0.3 + g * 0.59 + b * 0.11) > 140 ? "#0b0c0e" : "#ffffff";
+          loupeContext.strokeRect(edge + 0.5, edge + 0.5, Math.round(cell) - 1, Math.round(cell) - 1);
+          const q = (value) => (Math.round(value * 256) / 256).toFixed(2);
+          const lx = (loupePoint.x - rect.left) * (currentSize.logicalWidth / rect.width);
+          const ly = (loupePoint.y - rect.top) * (currentSize.logicalHeight / rect.height);
+          loupePosition.textContent = `${q(lx)}, ${q(ly)}`;
+          const hex = `#${[r, g, b].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+          loupeHex.textContent = hex.toUpperCase();
+          loupeSwatch.style.background = hex;
+          loupe.style.transform = `translate(${loupePoint.x}px, ${loupePoint.y}px)`;
+          loupeFrame = requestAnimationFrame(drawLoupe);
+        }
+
+        canvas.addEventListener("pointermove", (event) => {
+          if (!loupeOn || event.pointerType === "touch" || !homeSizingActive()) return;
+          loupePoint = { x: event.clientX, y: event.clientY };
+          loupe.classList.add("visible");
+          if (!loupeFrame) loupeFrame = requestAnimationFrame(drawLoupe);
+        });
+        canvas.addEventListener("pointerleave", () => {
+          loupePoint = null;
+          loupe.classList.remove("visible");
+        });
+        updatePresetButtons();
 
         for (const button of document.querySelectorAll("[data-open-demo]")) {
           button.addEventListener("click", () => openDemo(button.dataset.openDemo, true, false, button));
@@ -2824,78 +3734,6 @@
         for (const button of document.querySelectorAll("[data-open-source-demo]")) {
           button.addEventListener("click", () => openDemo(button.dataset.openSourceDemo, true, true, button));
         }
-
-        const buildDemo = document.getElementById("build-demo");
-        const buildCardStack = document.getElementById("build-card-stack");
-        const buildCards = Array.from(document.querySelectorAll("[data-build-panel]"));
-        const buildDots = Array.from(document.querySelectorAll("[data-build-dot]"));
-        const buildDemoTitle = document.getElementById("build-demo-title");
-        const buildDemoMeta = document.getElementById("build-demo-meta");
-        const buildPanelCopy = [
-          ["Compose", "typed UI · reactive values"],
-          ["Respond", "one tree · changing constraints"],
-          ["Route", "software · GPU · Web"],
-        ];
-        let activeBuildPanel = 0;
-        let buildSwipeStart = null;
-        let suppressBuildClick = false;
-
-        function selectBuildPanel(index) {
-          activeBuildPanel = (index + buildCards.length) % buildCards.length;
-          for (const card of buildCards) {
-            const cardIndex = Number(card.dataset.buildPanel);
-            const distance = (cardIndex - activeBuildPanel + buildCards.length) % buildCards.length;
-            card.classList.toggle("is-active", distance === 0);
-            card.classList.toggle("is-next", distance === 1);
-            card.classList.toggle("is-prev", distance === buildCards.length - 1);
-            card.setAttribute("aria-pressed", String(distance === 0));
-          }
-          for (const dot of buildDots) {
-            dot.setAttribute("aria-selected", String(Number(dot.dataset.buildDot) === activeBuildPanel));
-          }
-          buildDemoTitle.textContent = buildPanelCopy[activeBuildPanel][0];
-          buildDemoMeta.textContent = buildPanelCopy[activeBuildPanel][1];
-        }
-
-        function stepBuildPanel(direction) {
-          selectBuildPanel(activeBuildPanel + direction);
-        }
-
-        for (const card of buildCards) {
-          card.addEventListener("click", () => {
-            if (suppressBuildClick) return;
-            selectBuildPanel(Number(card.dataset.buildPanel));
-          });
-          card.addEventListener("keydown", (event) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            selectBuildPanel(Number(card.dataset.buildPanel));
-          });
-        }
-        for (const dot of buildDots) {
-          dot.addEventListener("click", () => selectBuildPanel(Number(dot.dataset.buildDot)));
-        }
-        document.getElementById("build-demo-prev").addEventListener("click", () => stepBuildPanel(-1));
-        document.getElementById("build-demo-next").addEventListener("click", () => stepBuildPanel(1));
-        buildDemo.addEventListener("keydown", (event) => {
-          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-          event.preventDefault();
-          stepBuildPanel(event.key === "ArrowRight" ? 1 : -1);
-        });
-        buildCardStack.addEventListener("pointerdown", (event) => {
-          buildSwipeStart = event.clientX;
-        });
-        buildCardStack.addEventListener("pointerup", (event) => {
-          if (buildSwipeStart === null) return;
-          const distance = event.clientX - buildSwipeStart;
-          buildSwipeStart = null;
-          if (Math.abs(distance) < 42) return;
-          suppressBuildClick = true;
-          stepBuildPanel(distance < 0 ? 1 : -1);
-          window.setTimeout(() => { suppressBuildClick = false; }, 0);
-        });
-        buildCardStack.addEventListener("pointercancel", () => { buildSwipeStart = null; });
-        selectBuildPanel(0);
 
         for (const button of document.querySelectorAll("[data-copy-command]")) {
           button.addEventListener("click", async () => {
@@ -2913,10 +3751,11 @@
               textarea.remove();
             }
             button.classList.add("is-copied");
-            button.textContent = "COPIED";
-            window.setTimeout(() => {
+            button.textContent = window.miruiLanguage.t("common.copied");
+            window.clearTimeout(button.copyTimer);
+            button.copyTimer = window.setTimeout(() => {
               button.classList.remove("is-copied");
-              button.textContent = "COPY";
+              button.textContent = window.miruiLanguage.t("common.copy");
             }, 1400);
           });
         }
@@ -2943,12 +3782,16 @@
           const fixed = demo.minWidth !== null && demo.minHeight !== null
             && demo.minWidth === demo.maxWidth && demo.minHeight === demo.maxHeight;
           if (fixed) return `${demo.minWidth} × ${demo.minHeight}`;
-          const width = demo.minWidth === null && demo.maxWidth === null
-            ? "auto"
-            : `${demo.minWidth ?? "…"}–${demo.maxWidth ?? "…"}`;
-          const height = demo.minHeight === null && demo.maxHeight === null
-            ? "auto"
-            : `${demo.minHeight ?? "…"}–${demo.maxHeight ?? "…"}`;
+          const axis = (min, max) => {
+            if (min !== null && max !== null) return `${min}–${max}`;
+            if (min !== null) return `≥ ${min}`;
+            if (max !== null) return `≤ ${max}`;
+            return "auto";
+          };
+          const width = axis(demo.minWidth, demo.maxWidth);
+          const height = axis(demo.minHeight, demo.maxHeight);
+          // "≥ 320 × ≥ 320" reads better as "≥ 320 × 320".
+          if (width.startsWith("≥ ") && height.startsWith("≥ ")) return `${width} × ${height.slice(2)}`;
           return `${width} × ${height}`;
         }
 
@@ -2969,7 +3812,9 @@
           navButton.setAttribute("aria-controls", anchor);
           navButton.setAttribute("aria-selected", String(categoryIndex === 0));
           navButton.tabIndex = categoryIndex === 0 ? 0 : -1;
-          navButton.textContent = `${category} ${demos.length}`;
+          const navCount = document.createElement("span");
+          navCount.textContent = String(demos.length);
+          navButton.append(category, navCount);
           navButton.addEventListener("click", () => selectCatalog(categoryIndex));
           navButton.addEventListener("keydown", (event) => {
             let nextIndex = null;
@@ -2994,7 +3839,8 @@
           const title = document.createElement("h3");
           title.textContent = category;
           const count = document.createElement("span");
-          count.textContent = `${String(demos.length).padStart(2, "0")} DEMOS`;
+          count.dataset.count = String(demos.length);
+          count.textContent = window.miruiLanguage.t("catalog.count").replace("{n}", demos.length);
           head.append(title, count);
           const grid = document.createElement("div");
           grid.className = "catalog-grid";
@@ -3351,7 +4197,7 @@
           }
         });
 
-        const revealTargets = document.querySelectorAll(".section-head, .demo-card, .build-grid, .target-strip, .start-head, .start-card");
+        const revealTargets = document.querySelectorAll(".home-section .section-head, .demo-card, .how, .target-table, .start-card");
         document.documentElement.classList.add("site-motion-ready");
         for (const target of revealTargets) target.classList.add("reveal");
         if ("IntersectionObserver" in window) {
@@ -3374,7 +4220,7 @@
               else link.removeAttribute("aria-current");
             }
           }, { rootMargin: "-25% 0px -60%", threshold: [0, 0.2, 0.6] });
-          for (const section of document.querySelectorAll("#home, #play, #build, #start")) sectionObserver.observe(section);
+          for (const section of document.querySelectorAll("#home, #play, #demos, #how, #targets, #start")) sectionObserver.observe(section);
         } else {
           for (const target of revealTargets) target.classList.add("in-view");
         }
@@ -3442,13 +4288,21 @@
           syncSimulationControl();
           renderSource();
           applyTheme(isDark(), false);
+          for (const count of document.querySelectorAll(".catalog-group-head [data-count]")) {
+            count.textContent = window.miruiLanguage.t("catalog.count").replace("{n}", count.dataset.count);
+          }
+          for (const row of document.querySelectorAll(".wb-src .cl.arm")) {
+            row.title = window.miruiLanguage.t("wb.arm");
+          }
+          setLoupe(loupeOn);
+          updatePresetButtons();
         }
         document.addEventListener("mirui-language-change", refreshLocalizedControls);
         refreshLocalizedControls();
 
         // Seed history without rewriting the canonical landing URL.
         if (siteMode === "home") {
-          const sectionHash = ["#home", "#play", "#demos", "#build", "#targets", "#start"].includes(location.hash) ? location.hash : "";
+          const sectionHash = ["#home", "#play", "#demos", "#how", "#targets", "#start"].includes(location.hash) ? location.hash : "";
           history.replaceState({ mode: "home", demo: activeSlug, scrollY: 0 }, "", location.pathname + sectionHash);
           applySiteMode("home", false);
           if (sectionHash) {

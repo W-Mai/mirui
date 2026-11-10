@@ -11,7 +11,7 @@ use gallery::mirui::audio::{AudioHandle, AudioOutputState};
 
 type WebApp = gallery::mirui::app::App<gallery::ActiveSurface, gallery::ActiveFactory>;
 const DEFAULT_DEMO: &str = "orbit_console";
-const HOME_DEMO: &str = "marble_play";
+const HOME_DEMO: &str = "iris";
 
 thread_local! {
     static APP: RefCell<Option<Rc<RefCell<Option<WebApp>>>>> = const { RefCell::new(None) };

@@ -1,6 +1,6 @@
 # mirui.rs — Web Canvas site
 
-The root route presents the mirui.rs homepage with one live `<canvas>`, featured Play applications, generated preview cards, source inspection, and links to the complete demo registry. `?demo=<slug>` opens the selected demo workspace directly. Both routes share the same `web-canvas` backend, `requestAnimationFrame` driver, and application instance. Demo routes are generated from the `register_demos!` table in `src/lib.rs`.
+The root route presents the mirui.rs homepage with one live `<canvas>` running Iris in a device workbench, the Play applications, generated preview cards for the demo registry, a pipeline walkthrough, targets and setup. `?demo=<slug>` opens the selected demo workspace directly. Both routes share the same `web-canvas` backend, `requestAnimationFrame` driver, and application instance. Demo routes are generated from the `register_demos!` table in `src/lib.rs`.
 
 ## Prerequisites
 
@@ -18,15 +18,17 @@ cd gallery/web
 trunk serve
 ```
 
-This opens <http://127.0.0.1:8080/> and starts Marble Play in the live stage. Use `?demo=orbit_console` or another registered slug to open a demo directly.
+This opens <http://127.0.0.1:8080/> and starts Iris in the homepage workbench. Use `?demo=orbit_console` or another registered slug to open a demo directly.
 
 The watcher includes the gallery, mirui, mirx, and macro sources outside this directory, so backend and demo edits rebuild the running WebAssembly bundle.
 
 ## Site structure
 
-The homepage keeps one application live while neighboring featured cards use generated previews. Selecting a card reuses the live canvas instead of creating another renderer or application instance.
+The homepage keeps one application live. The workbench frames the Iris canvas as an ESP32-C3 board with a 128×160 ST7735 panel, a 240×240 round watch, a 390×844 phone or a 1280×800 browser window, and morphs between them by animating the logical viewport, so the layout reflows through the intermediate sizes. Dragging the screen corner switches to a resizable window; arrow keys on the grip resize in 8 px steps. Next to the stage, the `IrisLayout::classify` and `match ${ model.layout() }` excerpts are taken from the embedded Iris source at runtime: a glass rod marks the branch and arm that run, the gutter marks evaluated conditions, and clicking an arm selects the matching screen. The pixel loupe magnifies canvas pixels under the pointer and reads the logical position in Q24.8 steps. First visits in a session tour the four screens once; any input stops the tour. The hero mark's iris follows the pointer. With reduced motion, the tour, morphs and eye movement are off.
 
-Opening a demo from the homepage preserves the homepage's selected featured demo and scroll position in browser history. Returning restores that selection; returning from a direct demo URL opens the default featured demo.
+Game and demo cards use generated previews. Opening one reuses the live canvas instead of creating another renderer or application instance. Opening a demo from the homepage preserves the scroll position in browser history, and returning restores the workbench screen.
+
+Page text uses the bundled Geist and Geist Mono Latin subsets in `fonts/`; Chinese falls back to the platform CJK face.
 
 The Play section contains thirteen fixed 480×320 applications. Each application has a standalone native launcher, and the same setup function drives its Web Canvas route and generated card image.
 
