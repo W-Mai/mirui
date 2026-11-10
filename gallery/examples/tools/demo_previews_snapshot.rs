@@ -481,7 +481,14 @@ fn main() {
         if selected.as_ref().is_some_and(|slug| slug != demo.slug) {
             continue;
         }
-        let viewport = if demo.slug == "nearby" && env::var_os("NEARBY_SCENE").is_some() {
+        let viewport = if demo.slug == "chord_prompter" && env::var_os("CHORD_VIEWPORT").is_some() {
+            let value = env::var("CHORD_VIEWPORT").unwrap();
+            let (width, height) = value.split_once('x').expect("Chord viewport WIDTHxHEIGHT");
+            (
+                width.parse().expect("viewport width"),
+                height.parse().expect("viewport height"),
+            )
+        } else if demo.slug == "nearby" && env::var_os("NEARBY_SCENE").is_some() {
             let mut size: (u16, u16) = env::var("NEARBY_VIEWPORT").map_or((640, 480), |value| {
                 let (width, height) = value.split_once('x').expect("Nearby viewport WIDTHxHEIGHT");
                 let size = (
@@ -502,7 +509,21 @@ fn main() {
         // Web canvas; custom palettes keep one look for both.
         let follows_host = Cell::new(false);
         let setup = |app: &mut snapshot_render::SnapshotApp, dark: Option<bool>| {
-            let root = if demo.slug == "nearby"
+            let root = if demo.slug == "chord_prompter" && env::var_os("CHORD_TIME_MS").is_some() {
+                use mirui::prelude::*;
+                let millis: u64 = env::var("CHORD_TIME_MS")
+                    .unwrap()
+                    .parse()
+                    .expect("Chord time in milliseconds");
+                REFERENCE_TIME_NS.store(millis * 1_000_000, Ordering::Relaxed);
+                app.add_resource(MonoClock::new(reference_clock));
+                let root = app.spawn_root().id();
+                let session = mirui::gallery::demos::chord_prompter::install(app, root);
+                session.set_connected(true);
+                session.toggle(0);
+                session.advance(millis * 1000);
+                root
+            } else if demo.slug == "nearby"
                 && let Ok(scene) = env::var("NEARBY_SCENE")
             {
                 nearby_scene(app, &scene)

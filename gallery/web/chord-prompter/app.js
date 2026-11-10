@@ -42,8 +42,8 @@ const errorText = error => String(error?.message ?? error);
 let bindings, patterns = [], preview, previewData, draftData, deviceData, deviceGeneration;
 let engineReady = false;
 let sample = null, connecting = false, polling = false, uploading = false, previewMode = true;
-let beatCount = 0, rhythmIndex = -1, lyricKey = '', revision = 0, editTimer, scrubbing = false;
-let lyricAnimation, chordAnimation;
+let beatCount = 0, rhythmIndex = -1, lyricKey = '', activeSlot = -1, revision = 0, editTimer, scrubbing = false;
+const barCards = [...document.querySelectorAll('.bar-card')];
 const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
 const link = new ChordLink(() => {
     sample = null; previewMode = true; deviceData = null; refreshConnection();
@@ -276,22 +276,52 @@ function updateWords(data, tick, identity) {
         if (lyricKey !== 'unknown') {
             lyricKey = 'unknown'; $('chord').textContent = '—'; $('lyric').textContent = 'Song not synced';
             $('next-chord').textContent = $('next-lyric').textContent = $('section-name').textContent = '';
+            for (const card of barCards) {
+                card.hidden = Number(card.dataset.offset) !== 0;
+                card.querySelector('.bar-number').textContent = '';
+            }
             $('song-title').textContent = 'Chord Prompter';
         }
         return;
     }
-    const index = slotAt(data, tick), key = `${identity}:${index}`;
-    if (key === lyricKey) return;
-    const current = data.slots[index], next = data.slots[index + 1];
-    const chordChanged = $('chord').textContent !== current.chord;
+    const index = slotAt(data, tick), bar = Math.floor(tick / (data.beats * 960)), key = `${identity}:${bar}`;
+    if (key === lyricKey) { markActiveSlot(index); return; }
+    const current = data.slots[index];
     lyricKey = key;
-    $('chord').textContent = current.chord; $('lyric').textContent = current.lyric;
-    $('next-chord').textContent = next?.chord ?? ''; $('next-lyric').textContent = next?.lyric ?? '';
+    for (const card of barCards) {
+        const content = barContent(data, bar + Number(card.dataset.offset));
+        card.hidden = !content;
+        card.querySelector('.bar-number').textContent = content ? String(content.number).padStart(2, '0') : '';
+        card.querySelector('.chord').textContent = content?.chords ?? '';
+        card.querySelector('.lyric').textContent = content?.lyric || (content ? 'Instrumental' : '');
+    }
+    const chords = [], lyrics = [];
+    for (const [slotIndex, slot] of data.slots.entries()) {
+        if (Math.floor(slot.tick / (data.beats * 960)) !== bar) continue;
+        const chord = document.createElement('span'), lyric = document.createElement('span');
+        chord.dataset.slot = lyric.dataset.slot = String(slotIndex);
+        chord.textContent = slot.chord; lyric.textContent = slot.lyric;
+        if (chords.length) chords.push(document.createTextNode(' · '));
+        chords.push(chord); lyrics.push(lyric);
+    }
+    $('chord').replaceChildren(...chords);
+    if (lyrics.some(span => span.textContent)) $('lyric').replaceChildren(...lyrics);
+    activeSlot = -1; markActiveSlot(index);
     $('section-name').textContent = current.section; $('song-title').textContent = data.title;
     document.title = `${data.title} · Chord Prompter`;
-    if (!reducedMotion.matches) {
-        lyricAnimation?.cancel(); lyricAnimation = $('lyric').animate([{opacity:.25, transform:'translateY(8px)'},{opacity:1, transform:'translateY(0)'}], {duration:260, easing:'cubic-bezier(.2,.8,.2,1)'});
-        if (chordChanged) { chordAnimation?.cancel(); chordAnimation = $('chord').animate([{opacity:.4, transform:'translateY(5px)'},{opacity:1, transform:'translateY(0)'}], {duration:210,easing:'ease-out'}); }
+}
+function markActiveSlot(index) {
+    if (activeSlot === index) return;
+    activeSlot = index;
+    for (const span of $('current-card').querySelectorAll('[data-slot]')) span.classList.toggle('active-slot', Number(span.dataset.slot) === index);
+}
+function moveCards(phase, hasNext) {
+    const travel = reducedMotion.matches || !hasNext ? 0 : phase;
+    for (const card of barCards) {
+        const relative = Number(card.dataset.offset) - travel;
+        const emphasis = bindings.chord_center_emphasis(Math.round(relative * 256)) / 256;
+        card.style.transform = `translate(calc(${relative} * var(--bar-step) - 50%), -50%) scale(${1 + emphasis * .42})`;
+        card.style.opacity = String((relative < -.5 ? .45 : .75) + emphasis * .25);
     }
 }
 function frame() {
@@ -302,7 +332,7 @@ function frame() {
     let state;
     if (remote && sample) {
         const age = now - sample.hostMillis;
-        const tick = sample.tick + (sample.playing && !sample.armed && age < 1500 ? Math.max(0, age) * sample.bpm * 960 / 60000000 : 0);
+        const tick = sample.tick + (sample.playing && !sample.armed ? Math.min(1500, Math.max(0, age)) * sample.bpm * 960 / 60000000 : 0);
         state = {...sample, tick, stale: age >= 1500};
     } else if (preview) {
         state = { tick: preview.tick(now), bpm: preview.bpm, playing: preview.playing, beats: previewData.beats, unit: previewData.unit, pattern: preview.pattern, pending: preview.pending, armed: false, stale: false };
@@ -331,6 +361,7 @@ function frame() {
             }));
         }
         const phase = tick % (state.beats * 960) / (state.beats * 960);
+        moveCards(phase, !!data && bar + 1 < data.bars);
         $('strum-track').style.setProperty('--phase', phase);
         for (const [index, mark] of [...$('attacks').children].entries()) mark.classList.toggle('active', !state.stale && Math.abs(patterns[rhythmIndex][index].offset / 400 - phase) < .035);
         $('telemetry').textContent = remote ? `Generation ${sample.generation} · status read ${Math.round(sample.roundTrip)} ms. Beat interpolation uses device samples.` : 'Browser preview uses the shared musical transport.';

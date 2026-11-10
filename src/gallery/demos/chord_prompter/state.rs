@@ -18,9 +18,13 @@ pub struct Session {
     #[observe]
     pub next_lyric: String,
     #[observe]
+    pub previous_lyric: String,
+    #[observe]
     pub chord: &'static str,
     #[observe]
     pub next_chord: &'static str,
+    #[observe]
+    pub previous_chord: &'static str,
     #[observe]
     pub tempo: String,
     #[observe]
@@ -35,6 +39,10 @@ pub struct Session {
     pub beat: u8,
     #[observe]
     pub pattern: Pattern,
+    #[observe]
+    pub stage_width: crate::types::Fixed,
+    #[observe]
+    pub large: bool,
 }
 
 impl Session {
@@ -51,15 +59,19 @@ impl Session {
             title: String::from(score.title()),
             lyric: String::with_capacity(capacity),
             next_lyric: String::with_capacity(capacity),
+            previous_lyric: String::with_capacity(capacity),
             tempo: String::with_capacity(16),
             chord: "",
             next_chord: "",
+            previous_chord: "",
             playing: false,
             connected: false,
             bar_phase: 0,
             beats: score.meter.beats,
             beat: 0,
             pattern: score.sections()[0].pattern,
+            stage_width: crate::types::Fixed::ZERO,
+            large: false,
             score,
             current: usize::MAX,
             now_us: 0,
@@ -87,7 +99,23 @@ impl Session {
             self.lyric.push_str(self.score.text(current.lyric.clone()));
             self.chord = self.score.chord_name(current.degree);
             self.next_lyric.clear();
-            if let Some(next) = self.score.chords().get(next + 1) {
+            self.previous_lyric.clear();
+            let first = self.score.chords().partition_point(|chord| chord.bar < bar);
+            if let Some(previous) = first
+                .checked_sub(1)
+                .map(|index| &self.score.chords()[index])
+            {
+                self.previous_lyric
+                    .push_str(self.score.text(previous.lyric.clone()));
+                self.previous_chord = self.score.chord_name(previous.degree);
+            } else {
+                self.previous_chord = "";
+            }
+            let following = self
+                .score
+                .chords()
+                .partition_point(|chord| chord.bar <= bar);
+            if let Some(next) = self.score.chords().get(following) {
                 self.next_lyric
                     .push_str(self.score.text(next.lyric.clone()));
                 self.next_chord = self.score.chord_name(next.degree);
@@ -106,6 +134,11 @@ impl Session {
 
 #[crate::model]
 impl Session {
+    pub fn resize(&mut self, width: crate::types::Fixed, height: crate::types::Fixed) {
+        use crate::types::Fixed;
+        self.stage_width = (width - Fixed::from_int(8)).max(Fixed::ZERO);
+        self.large = width >= Fixed::from_int(256) && height >= Fixed::from_int(200);
+    }
     pub fn set_connected(&mut self, connected: bool) {
         self.connected = connected;
     }
@@ -217,8 +250,12 @@ impl Session {
         let score = Score::parse(source, ScoreLimits::DEVICE)?;
         super::font::validate(&score)?;
         let connected = self.connected;
+        let stage_width = self.stage_width;
+        let large = self.large;
         *self = Self::new(score);
         self.connected = connected;
+        self.stage_width = stage_width;
+        self.large = large;
         Ok(())
     }
 }

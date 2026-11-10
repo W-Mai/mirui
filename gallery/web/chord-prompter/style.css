@@ -50,16 +50,20 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 0; min-height: 0; flex: 1; transition: grid-template-columns 320ms cubic-bezier(.2,.8,.2,1); }
 .editor-open .workspace { grid-template-columns: minmax(0, 1fr) 380px; }
 .stage { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; min-height: 0; padding: 8px 28px 165px; }
-.music { width: min(100%, 900px); text-align: center; }
+.music { width: 100%; text-align: center; }
 .section-heading { display: flex; justify-content: center; gap: 15px; color: var(--ink-dim); font-size: 12px; min-height: 18px; }
 .beats { display: flex; justify-content: center; align-items: center; gap: clamp(14px, 3vw, 34px); height: 48px; margin: 8px 0 0; }
 .beats i { font-style: normal; font-family: var(--font-mono); font-size: clamp(16px, 2.4vw, 28px); color: var(--ink-faint); min-width: 20px; transform: scale(.9); transition: color 80ms, transform 140ms; font-variant-numeric: tabular-nums; }
 .beats i.active { color: var(--signal); transform: scale(1.1); }
-.chord { font-size: clamp(80px, min(12vw, 16vh), 160px); line-height: 1.05; font-weight: 650; letter-spacing: -.055em; margin: 4px 0 10px; color: var(--ink); }
-.device .chord { color: var(--signal); }
-.lyric { font-size: clamp(22px, min(3.6vw, 5vh), 48px); line-height: 1.4; font-weight: 450; min-height: 1.4em; overflow-wrap: anywhere; max-height: 2.8em; overflow: hidden; }
-.upcoming { margin-top: 12px; min-height: 1.5em; display: flex; justify-content: center; gap: 16px; align-items: baseline; color: var(--ink-dim); font-size: clamp(14px, 2vw, 21px); }
-#next-chord { color: var(--ink-dim); font-weight: 600; }
+.chord { font-size: clamp(30px, min(4.8vw, 9vh), 64px); line-height: 1.1; font-weight: 650; letter-spacing: -.045em; margin: 12px 0; color: var(--ink); overflow-wrap: anywhere; }
+.lyric { font-size: clamp(16px, min(1.8vw, 3vh), 24px); line-height: 1.5; font-weight: 450; min-height: 3em; overflow-wrap: anywhere; max-height: 4.5em; overflow: hidden; }
+.bar-window { --bar-step: clamp(160px, 22vw, 260px); position: relative; height: clamp(240px, 42vh, 370px); overflow: hidden; }
+.bar-window::after { content: ''; position: absolute; left: calc(50% - 1px); bottom: 12px; height: 16px; width: 2px; border-radius: 1px; background: var(--signal); }
+.bar-card { position: absolute; top: 50%; left: 50%; width: calc(var(--bar-step) - 32px); padding: 0 16px; display: flex; flex-direction: column; justify-content: center; will-change: transform; transform-origin: center; }
+.bar-number { color: var(--ink-faint); font: 11px var(--font-mono); }
+.bar-card[aria-current] .bar-number { color: var(--signal); }
+.chord .active-slot { color: var(--signal); }
+.lyric .active-slot { text-decoration: underline; text-decoration-color: var(--signal-edge); text-underline-offset: .2em; }
 .strum-track { position: relative; height: 42px; max-width: 480px; margin: 20px auto 0; border-top: 1px solid var(--line-soft); }
 #attacks { position: relative; height: 100%; margin: 0 10px; }
 .attack { position: absolute; top: 9px; transform: translateX(-50%); color: var(--ink-faint); font-size: 25px; line-height: 1; transition: color 70ms, transform 90ms; }
@@ -98,8 +102,8 @@ input[type="range"] { width: 100%; accent-color: var(--signal); cursor: pointer;
 .transfer progress { accent-color: var(--signal); width: 150px; height: 7px; }
 .transfer[data-state="error"] { color: var(--error); }
 .transfer[data-state="error"] progress { accent-color: var(--error); }
-.editor { min-width: 0; opacity: 0; overflow-x: hidden; overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; padding: 0; transition: opacity 200ms; pointer-events: none; }
-.editor-open .editor { opacity: 1; padding: 10px 20px 20px; pointer-events: auto; }
+.editor { min-width: 0; opacity: 0; overflow-x: hidden; overflow-y: auto; background: var(--panel); border-left: 0; display: flex; flex-direction: column; padding: 0; transition: opacity 200ms; pointer-events: none; }
+.editor-open .editor { opacity: 1; padding: 10px 20px 20px; pointer-events: auto; border-left: 1px solid var(--line); }
 .editor-heading { display: flex; justify-content: space-between; align-items: center; flex: none; }
 h2 { font-size: 14px; font-weight: 500; }
 .editor-heading button { border: none; }
@@ -141,10 +145,10 @@ code { color: var(--signal-bright); }
 }
 @media (max-height: 650px) {
     .stage { padding-bottom: 130px; }
-    .chord { font-size: 88px; margin: 0 0 8px; }
-    .lyric { font-size: 26px; }
+    .bar-window { height: clamp(140px, 35vh, 210px); }
+    .chord { font-size: clamp(24px, 4.5vw, 32px); margin: 6px 0; }
+    .lyric { font-size: 14px; line-height: 1.4; min-height: 2.8em; max-height: 4.2em; }
     .beats { height: 38px; margin: 0; }
-    .upcoming { margin-top: 9px; }
     .strum-track { margin-top: 14px; height: 36px; }
     .controller-wrap { bottom: 12px; }
 }

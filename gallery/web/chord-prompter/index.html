@@ -30,9 +30,15 @@
             <div class="music">
                 <div class="section-heading"><span id="section-name"></span><span id="meter">4 / 4</span></div>
                 <div id="beats" class="beats" aria-label="Counted beats"></div>
-                <div id="chord" class="chord">—</div>
-                <div id="lyric" class="lyric" aria-live="off">Loading song…</div>
-                <div class="upcoming"><span id="next-chord"></span><span id="next-lyric"></span></div>
+                <div class="bar-window">
+                    <div class="bar-card" data-offset="-3" aria-hidden="true"><span class="bar-number"></span><div class="chord"></div><div class="lyric"></div></div>
+                    <div class="bar-card" data-offset="-2" aria-hidden="true"><span class="bar-number"></span><div class="chord"></div><div class="lyric"></div></div>
+                    <div class="bar-card" data-offset="-1" aria-hidden="true"><span class="bar-number"></span><div class="chord"></div><div class="lyric"></div></div>
+                    <div id="current-card" class="bar-card" data-offset="0" aria-current="true"><span class="bar-number"></span><div id="chord" class="chord">—</div><div id="lyric" class="lyric" aria-live="off">Loading song…</div></div>
+                    <div id="upcoming-card" class="bar-card" data-offset="1" aria-hidden="true"><span class="bar-number"></span><div id="next-chord" class="chord"></div><div id="next-lyric" class="lyric"></div></div>
+                    <div class="bar-card" data-offset="2" aria-hidden="true"><span class="bar-number"></span><div class="chord"></div><div class="lyric"></div></div>
+                    <div class="bar-card" data-offset="3" aria-hidden="true"><span class="bar-number"></span><div class="chord"></div><div class="lyric"></div></div>
+                </div>
                 <div id="strum-track" class="strum-track" aria-label="Strumming rhythm"><i id="strum-cursor"></i><div id="attacks"></div></div>
             </div>
             <div class="controller-wrap">

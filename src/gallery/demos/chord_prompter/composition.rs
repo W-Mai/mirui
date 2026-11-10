@@ -23,50 +23,99 @@ pub(super) fn build_widgets(session: model!(Session)) {
             row_gap: 2,
             align: AlignItems::Stretch,
             bg_color: ColorToken::Surface
-        ) {
-            Column (
-                height: @(width, height) { if compact(width, height) { 40 } else { 56 } },
-                align: AlignItems::Stretch,
-                bg_color: ${ if session.connected() { ColorToken::Success } else { ColorToken::SurfaceVariant } }
-            ) {
-                Text (
-                    id: "prompter_chord",
-                    text: ${ session.chord() },
-                    width: Dimension::percent(100),
-                    grow: 1.0,
-                    font: super::font::CHORD,
-                    font_size: @(width, height) { if compact(width, height) { 36_u16 } else { 48_u16 } },
-                    text_color: ${ if session.connected() { ColorToken::Surface } else { ColorToken::OnSurface } },
-                    paragraph: ParagraphStyle::label()
-                )
-            } on Tap { super::runtime::report(session.next_section()); }
-            Text (
-                id: "prompter_lyric",
-                text: ${ session.lyric() },
-                width: Dimension::percent(100),
-                grow: 1.0,
-                min_height: 24,
-                font_size: @(width, height) { if compact(width, height) { 12_u16 } else { 24_u16 } },
-                text_color: ColorToken::OnSurface,
-                paragraph: lyrics()
-            )
-            Row (height: 12) {
-                Text (
-                    text: ${ session.next_chord() },
-                    width: 24,
-                    height: 12,
-                    font_size: 12,
-                    text_color: ColorToken::Primary,
-                    paragraph: ParagraphStyle::label()
-                )
-                Text (
-                    text: ${ session.next_lyric() },
-                    grow: 1.0,
-                    height: 12,
-                    font_size: 12,
-                    text_color: ColorToken::OnSurfaceVariant,
-                    paragraph: ParagraphStyle::label()
-                )
+        ) on SizeChanged { session.resize(event.new.width, event.new.height); } {
+            View (
+                id: "prompter_connection", position: Position::Absolute,
+                left: 1, top: 1, width: 3, height: 3,
+                bg_color: ${ if session.connected() { ColorToken::Success } else { ColorToken::OnSurfaceVariant } }
+            ) [ IgnoreHitTest ]
+            Column (grow: 1.0, min_height: 66, clip_children: true) {
+                Column (
+                    id: "prompter_current_card",
+                    position: Position::Absolute, top: 0,
+                    left: ${ (session.stage_width() - super::motion::card_width(session.stage_width())) / 2 },
+                    width: ${ super::motion::card_width(session.stage_width()) }, height: Dimension::percent(100),
+                    align: AlignItems::Stretch,
+                    transform: ${ super::motion::card_transform(session.bar_phase(), session.next_chord() != "END", session.stage_width(), 0) }
+                ) {
+                    Column (
+                        height: @(width, height) { if compact(width, height) { 40 } else { 56 } },
+                        align: AlignItems::Stretch
+                    ) {
+                        Text (
+                            id: "prompter_chord", text: ${ session.chord() },
+                            width: Dimension::percent(100), grow: 1.0,
+                            font: super::font::CHORD,
+                            font_size: ${ super::motion::chord_size(session.bar_phase(), session.next_chord() != "END", session.large(), 0) },
+                            text_color: ColorToken::OnSurface,
+                            paragraph: ParagraphStyle::label()
+                        )
+                    } on Tap { super::runtime::report(session.next_section()); }
+                    Text (
+                        id: "prompter_lyric", text: ${ session.lyric() },
+                        width: Dimension::percent(100), grow: 1.0, min_height: 24,
+                        font_size: @(width, height) { if compact(width, height) { 12_u16 } else { 24_u16 } },
+                        text_color: ColorToken::OnSurface, paragraph: lyrics()
+                    )
+                }
+                Column (
+                    id: "prompter_previous_card",
+                    position: Position::Absolute, top: 0,
+                    left: ${ (session.stage_width() - super::motion::card_width(session.stage_width())) / 2 },
+                    width: ${ super::motion::card_width(session.stage_width()) }, height: Dimension::percent(100),
+                    align: AlignItems::Stretch,
+                    visible: ${ !session.previous_chord().is_empty() },
+                    transform: ${ super::motion::card_transform(session.bar_phase(), session.next_chord() != "END", session.stage_width(), -1) }
+                ) {
+                    Column (
+                        height: @(width, height) { if compact(width, height) { 40 } else { 56 } },
+                        align: AlignItems::Stretch
+                    ) {
+                        Text (
+                            id: "prompter_previous_chord", text: ${ session.previous_chord() },
+                            width: Dimension::percent(100), grow: 1.0,
+                            font: super::font::CHORD,
+                            font_size: ${ super::motion::chord_size(session.bar_phase(), session.next_chord() != "END", session.large(), -1) },
+                            text_color: ColorToken::OnSurface,
+                            paragraph: ParagraphStyle::label()
+                        )
+                    }
+                    Text (
+                        id: "prompter_previous_lyric", text: ${ session.previous_lyric() },
+                        width: Dimension::percent(100), grow: 1.0, min_height: 24,
+                        font_size: @(width, height) { if compact(width, height) { 12_u16 } else { 24_u16 } },
+                        text_color: ColorToken::OnSurfaceVariant, paragraph: lyrics()
+                    )
+                }
+                Column (
+                    id: "prompter_next_card",
+                    position: Position::Absolute, top: 0,
+                    left: ${ (session.stage_width() - super::motion::card_width(session.stage_width())) / 2 },
+                    width: ${ super::motion::card_width(session.stage_width()) }, height: Dimension::percent(100),
+                    align: AlignItems::Stretch,
+                    visible: ${ session.next_chord() != "END" },
+                    transform: ${ super::motion::card_transform(session.bar_phase(), session.next_chord() != "END", session.stage_width(), 1) }
+                ) {
+                    Column (
+                        height: @(width, height) { if compact(width, height) { 40 } else { 56 } },
+                        align: AlignItems::Stretch
+                    ) {
+                        Text (
+                            id: "prompter_next_chord", text: ${ session.next_chord() },
+                            width: Dimension::percent(100), grow: 1.0,
+                            font: super::font::CHORD,
+                            font_size: ${ super::motion::chord_size(session.bar_phase(), session.next_chord() != "END", session.large(), 1) },
+                            text_color: ColorToken::OnSurface,
+                            paragraph: ParagraphStyle::label()
+                        )
+                    }
+                    Text (
+                        id: "prompter_next_lyric", text: ${ session.next_lyric() },
+                        width: Dimension::percent(100), grow: 1.0, min_height: 24,
+                        font_size: @(width, height) { if compact(width, height) { 12_u16 } else { 24_u16 } },
+                        text_color: ColorToken::OnSurface, paragraph: lyrics()
+                    )
+                }
             }
             View (height: 4) [
                 RhythmStrip {

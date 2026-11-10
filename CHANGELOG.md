@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Scroll past, current and upcoming prompter bars at a uniform horizontal speed with center enlargement, active chord fragments and native bitmap emphasis; separate embedded connection feedback from chord content.
+
 - Preview the pointed bar and its successor from the prompter timeline with pointer and keyboard input.
 
 - Resize Chord Prompter from 128×128 upward using retained widgets, native MIRX font strikes and layout-responsive visibility; default to 320×240.

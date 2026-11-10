@@ -378,6 +378,7 @@ fn prompter_fonts_use_native_one_bit_strikes_at_every_requested_size() {
     for (font, size, text) in [
         (super::font::body(), 12, "跟着节拍"),
         (super::font::body(), 24, "跟着节拍"),
+        (super::font::chord(), 24, "C#Dmb"),
         (super::font::chord(), 36, "C#Dmb"),
         (super::font::chord(), 48, "C#Dmb"),
     ] {
@@ -391,6 +392,66 @@ fn prompter_fonts_use_native_one_bit_strikes_at_every_requested_size() {
 }
 
 #[test]
+fn bar_motion_is_monotonic_pixel_snapped_and_continuous_at_the_handoff() {
+    use crate::types::Fixed;
+    let width = Fixed::from_int(120);
+    let mut previous = 0;
+    for phase in 0..=256 {
+        let motion = BarMotion::at(phase, true);
+        assert!(motion.travel >= previous && motion.travel <= 256);
+        assert_eq!(motion.travel, phase, "horizontal speed must remain uniform");
+        if phase > 2 {
+            assert!(motion.travel > 0);
+        }
+        for offset in [-1, 0, 1] {
+            let transform = motion.transform(width, offset);
+            assert_eq!(transform.tx, transform.tx.round());
+            assert_eq!(transform.m00, Fixed::ONE);
+            assert_eq!(transform.m11, Fixed::ONE);
+            assert!([24, 36, 48].contains(&super::motion::chord_size(phase, true, false, offset)));
+        }
+        assert_eq!(BarMotion::at(phase, false).travel, 0);
+        previous = motion.travel;
+    }
+    assert_eq!(
+        BarMotion::at(256, true).transform(width, 1),
+        BarMotion::at(0, true).transform(width, 0)
+    );
+    assert_eq!(BarMotion::at(0, true).impact, 256);
+    assert_eq!(BarMotion::at(192, true).impact, 0);
+    assert_eq!(BarMotion::emphasis(0), 256);
+    assert_eq!(BarMotion::emphasis(128), 0);
+}
+
+#[test]
+fn upcoming_card_uses_the_next_bar_while_split_chords_keep_their_actual_timing() {
+    let mut session = Session::new(Score::parse(SONG, ScoreLimits::DEVICE).unwrap());
+    session.resize(
+        crate::types::Fixed::from_int(320),
+        crate::types::Fixed::from_int(240),
+    );
+    assert_eq!(session.chord, "C");
+    assert_eq!(session.next_chord, "Am");
+    assert_eq!(session.next_lyric, "");
+    session.toggle(0);
+    session.advance(1_500_000);
+    assert_eq!(session.chord, "G");
+    assert_eq!(session.lyric, "节拍");
+    assert_eq!(session.next_chord, "Am");
+    session.advance(2_350_000);
+    assert!(BarMotion::at(session.bar_phase, true).travel > 0);
+    session.pause(2_350_000);
+    let phase = session.bar_phase;
+    session.advance(20_000_000);
+    assert_eq!(session.bar_phase, phase);
+    session.stop();
+    assert_eq!(session.bar_phase, 0);
+    session.load(PRACTICE).unwrap();
+    assert_eq!(session.stage_width, crate::types::Fixed::from_int(312));
+    assert!(session.large);
+}
+
+#[test]
 fn connection_feedback_survives_score_replacement_and_uses_binary_pixels() {
     use crate::prelude::*;
     use crate::surface::FramebufferAccess;
@@ -399,7 +460,7 @@ fn connection_feedback_survives_score_replacement_and_uses_binary_pixels() {
     app.add_resource(MonoClock::new(|| 0));
     let root = app.spawn_root().id();
     let session = install(&mut app, root);
-    let mut backgrounds = alloc::vec::Vec::new();
+    let mut frames = alloc::vec::Vec::new();
     for connected in [false, true] {
         session.set_connected(connected);
         session.load(PRACTICE).unwrap();
@@ -408,8 +469,8 @@ fn connection_feedback_survives_score_replacement_and_uses_binary_pixels() {
         for name in ["prompter_chord", "prompter_lyric"] {
             let entity = app.world.find_by_id(name).unwrap();
             let rect = app.world.get::<crate::ui::ComputedRect>(entity).unwrap().0;
-            assert_eq!(rect.x, Fixed::from_int(4));
-            assert_eq!(rect.w, Fixed::from_int(120));
+            assert_eq!(rect.x, Fixed::from_int(19));
+            assert_eq!(rect.w, Fixed::from_int(90));
             assert_eq!(
                 app.world
                     .get::<crate::ui::widgets::Text>(entity)
@@ -423,15 +484,23 @@ fn connection_feedback_survives_score_replacement_and_uses_binary_pixels() {
         let pixels = texture.read_pixels().unwrap();
         let mut colors = alloc::collections::BTreeSet::new();
         for y in 4..44 {
-            for x in 4..124 {
+            for x in 19..109 {
                 let offset = y * pixels.stride() + x * 4;
                 colors.insert(<[u8; 4]>::try_from(&pixels.bytes()[offset..offset + 4]).unwrap());
             }
         }
         assert_eq!(colors.len(), 2, "chord pixels must not be interpolated");
-        backgrounds.push(pixels.bytes()[4 * pixels.stride() + 4 * 4..][..4].to_vec());
+        frames.push(pixels.bytes().to_vec());
     }
-    assert_ne!(backgrounds[0], backgrounds[1]);
+    let changed = frames[0]
+        .chunks_exact(4)
+        .zip(frames[1].chunks_exact(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    assert_eq!(
+        changed, 9,
+        "connection state only changes the 3x3 indicator"
+    );
 }
 
 #[test]
