@@ -4,6 +4,7 @@ pub mod blur_filter;
 pub mod book_flip;
 pub mod builder_form;
 pub mod butterfly;
+pub mod chord_prompter;
 pub mod clip_path;
 #[cfg(feature = "std")]
 mod clock;
