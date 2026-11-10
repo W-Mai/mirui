@@ -37,6 +37,25 @@ pub(super) fn rhythm_strip(
             let color = if active { bright } else { muted };
             let top = rect.y + Fixed::from_int(3);
             let bottom = rect.y + rect.h - Fixed::from_int(5);
+            let string_y = |string| top + (bottom - top) * Fixed::from_ratio(i32::from(string), 5);
+            if attack.stroke == super::Stroke::Pick {
+                paint.draw(&DrawCommand::Fill {
+                    area: Rect::new(
+                        x - Fixed::ONE,
+                        string_y(attack.strings[0]) - Fixed::ONE,
+                        Fixed::from_int(3),
+                        Fixed::from_int(3),
+                    ),
+                    transform,
+                    quad: None,
+                    color,
+                    radius: Fixed::ZERO,
+                    opa: 100 + attack.velocity,
+                });
+                continue;
+            }
+            let top = string_y(attack.strings[0]);
+            let bottom = string_y(attack.strings[1]);
             let (a, b) = if attack.stroke == super::Stroke::Up {
                 (bottom, top)
             } else {

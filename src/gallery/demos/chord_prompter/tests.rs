@@ -346,3 +346,28 @@ fn bundled_charset_is_complete_and_missing_glyphs_preserve_the_active_score() {
     ));
     assert_eq!(session.lyric, "跟着");
 }
+
+#[test]
+fn all_rhythm_presentations_use_the_shared_timeline_on_the_small_display() {
+    use crate::prelude::*;
+    let mut app = App::headless(128, 128);
+    app.with_default_widgets().with_default_systems();
+    app.add_resource(MonoClock::new(|| 0));
+    let root = app.spawn_root().id();
+    let session = install(&mut app, root);
+    for (index, pattern) in Pattern::ALL.iter().enumerate() {
+        session
+            .load(&PRACTICE.replace("strum: pop", &alloc::format!("strum: {}", pattern.name())))
+            .unwrap();
+        session.toggle(0);
+        session.advance(100_000 + index as u64 * 60_000);
+        app.render_dirty().unwrap();
+        crate::gallery::demos::assert_text_layouts_fit(&app.world);
+        for attack in pattern.attacks() {
+            assert!(attack.strings[0] <= attack.strings[1]);
+            if attack.stroke == Stroke::Pick {
+                assert_eq!(attack.strings[0], attack.strings[1]);
+            }
+        }
+    }
+}

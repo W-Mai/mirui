@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Distinguish picked strings from strumming arrows and show each attack's string range.
+
 - Add a browser BLE console for bounded song-sheet uploads and beat-aligned chord prompter controls.
 
 - Bundle a pixel font for chord prompting and reject unsupported uploaded lyrics before replacing the active score.
