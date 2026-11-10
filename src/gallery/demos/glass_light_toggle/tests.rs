@@ -158,6 +158,57 @@ fn responsive_geometry_preserves_the_hit_area_and_knob_identity() {
 }
 
 #[test]
+fn host_theme_sets_the_side_at_rest_and_later_changes_flip_it() {
+    let mut app = App::headless(640, 480);
+    app.with_default_widgets().with_default_systems();
+    app.add_resource(crate::ecs::MonoClock::new(|| {
+        static TIME: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+        TIME.fetch_add(16_000_000, core::sync::atomic::Ordering::Relaxed)
+    }));
+    app.set_theme("light").unwrap();
+    let root = app.spawn_root().id();
+    let model = app.add_model(GlassModel::default()).finish();
+    app.with_widget(super::glass_render::view());
+    app.compose(root, super::build_widgets(model.clone()));
+    app.prepare_text_layout().unwrap();
+    app.tick();
+    assert_eq!(model.scene().progress, Fixed::ONE);
+    assert_eq!(model.scene().light, Fixed::ONE);
+    assert!(!model.active());
+
+    let mut flipped = GlassModel::default();
+    flipped.choose(true);
+    settle(&mut flipped);
+    for (at_rest, animated) in model.scene().pixels.iter().zip(flipped.scene().pixels) {
+        assert_eq!(at_rest.alpha, animated.alpha);
+        assert!((at_rest.position.x - animated.position.x).abs() < Fixed::HALF);
+        assert!((at_rest.position.y - animated.position.y).abs() < Fixed::HALF);
+    }
+
+    app.set_theme("dark").unwrap();
+    app.tick();
+    assert!(model.active());
+    for _ in 0..360 {
+        app.tick();
+    }
+    assert_eq!(model.scene().progress, Fixed::ZERO);
+    assert!(!model.active());
+}
+
+#[test]
+fn a_touched_switch_keeps_its_side_on_the_first_host_reading() {
+    let mut model = GlassModel::default();
+    model.toggle();
+    model.follow_host(false);
+    settle(&mut model);
+    assert_eq!(model.scene().progress, Fixed::ONE);
+    let mut dark = GlassModel::default();
+    dark.follow_host(false);
+    assert_eq!(dark.visual_revision(), 0);
+    assert!(!dark.active());
+}
+
+#[test]
 fn particle_animation_reuses_its_fixed_storage() {
     let mut model = GlassModel::default();
     let allocations = crate::test_support::tracked_allocations(|| {

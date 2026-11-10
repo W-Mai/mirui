@@ -16,6 +16,19 @@ use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_least(320, 320);
 pub const VIEWPORT: (u16, u16) = (760, 520);
 
+/// The switch follows the host theme, judged by how bright its surface is.
+#[crate::system(order=Animation)]
+fn follow_host(glasses: query!(GlassToggle), theme: res!(Theme)) {
+    let surface = theme.resolve(ColorToken::Surface);
+    let luma = u32::from(surface.r) * 299 + u32::from(surface.g) * 587 + u32::from(surface.b) * 114;
+    let day = luma > 128_000;
+    for glass in glasses {
+        if glass.model.host_day() != Some(day) {
+            glass.model.follow_host(day);
+        }
+    }
+}
+
 #[crate::system(order=Animation)]
 fn animate(glasses: query!(GlassToggle), delta: res!(DeltaTimeMs)) {
     for glass in glasses {

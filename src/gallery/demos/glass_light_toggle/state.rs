@@ -40,6 +40,54 @@ struct Particle {
     size: Fixed,
 }
 
+impl Particle {
+    /// At rest where switch progress `p` puts it.
+    fn at(i: usize, p: Fixed) -> Self {
+        let goal = particle_goal(i, p);
+        let stiffness = Fixed::from_int(280 + (i as i32 * 37) % 160);
+        let damping = Fixed::from_int(29);
+        Self {
+            x: Spring::with_params(goal.position.x, goal.position.x, stiffness, damping),
+            y: Spring::with_params(goal.position.y, goal.position.y, stiffness, damping),
+            alpha: goal.alpha,
+            size: goal.size,
+        }
+    }
+}
+
+/// Where particle `i` heads for switch progress `p`: its moon cell at 0,
+/// its sun cell at 1, along a staggered arc in between.
+fn particle_goal(i: usize, p: Fixed) -> Pixel {
+    let pair = PAIRS[i];
+    let delay = Fixed::from_ratio(4, 100)
+        + Fixed::from_ratio(8 - i32::from(pair.moon.x), 16) * Fixed::from_ratio(26, 100)
+        + Fixed::from_ratio((i as i32 * 17) % 6, 100);
+    let t = smooth((p - delay) / Fixed::from_ratio(62, 100));
+    let arc = Fixed::sin_deg(t * Fixed::from_int(180));
+    let a = Point::new(
+        Fixed::from_ratio(i32::from(pair.moon.x) * 57, 10),
+        Fixed::from_ratio(i32::from(pair.moon.y) * 57, 10),
+    );
+    let b = Point::new(
+        Fixed::from_ratio(i32::from(pair.sun.x) * 57, 10),
+        Fixed::from_ratio(i32::from(pair.sun.y) * 57, 10),
+    );
+    let curl = Fixed::from_int((i as i32 * 29) % 33 - 16);
+    Pixel {
+        position: Point::new(
+            a.x + (b.x - a.x) * t + arc * curl * Fixed::from_ratio(9, 10),
+            a.y + (b.y - a.y) * t - arc * (Fixed::from_int(4) + curl.abs() / 2),
+        ),
+        alpha: (Fixed::from_int(i32::from(pair.moon.alpha))
+            + (Fixed::from_int(i32::from(pair.sun.alpha))
+                - Fixed::from_int(i32::from(pair.moon.alpha)))
+                * t)
+            .to_int()
+            .clamp(0, 255) as u8,
+        size: Fixed::from_ratio(46, 10) * (Fixed::ONE - arc * Fixed::from_ratio(45, 100)),
+    }
+}
+
 #[crate::model]
 pub(super) struct GlassModel {
     position: Spring,
@@ -52,6 +100,8 @@ pub(super) struct GlassModel {
     drag_origin: Fixed,
     drag_start: Fixed,
     revision: u32,
+    /// Whether the host theme was light when last read; `None` before the first frame.
+    host_day: Option<bool>,
 }
 impl Default for GlassModel {
     fn default() -> Self {
@@ -60,23 +110,13 @@ impl Default for GlassModel {
             light: Spring::preset(Fixed::ZERO, Fixed::ZERO, LIGHT),
             light_direction: 1,
             press: Spring::preset(Fixed::ZERO, Fixed::ZERO, LIGHT),
-            particles: core::array::from_fn(|i| {
-                let cell = PAIRS[i].moon;
-                let x = Fixed::from_ratio(i32::from(cell.x) * 57, 10);
-                let y = Fixed::from_ratio(i32::from(cell.y) * 57, 10);
-                let stiffness = Fixed::from_int(280 + (i as i32 * 37) % 160);
-                Particle {
-                    x: Spring::with_params(x, x, stiffness, Fixed::from_int(29)),
-                    y: Spring::with_params(y, y, stiffness, Fixed::from_int(29)),
-                    alpha: cell.alpha,
-                    size: Fixed::from_ratio(46, 10),
-                }
-            }),
+            particles: core::array::from_fn(|i| Particle::at(i, Fixed::ZERO)),
             dragging: false,
             accepted: false,
             drag_origin: Fixed::ZERO,
             drag_start: Fixed::ZERO,
             revision: 0,
+            host_day: None,
         }
     }
 }
@@ -135,6 +175,24 @@ impl GlassModel {
         self.position
             .retarget(if day { Fixed::ONE } else { Fixed::ZERO }, None);
         self.revision = self.revision.wrapping_add(1);
+    }
+    pub(super) fn host_day(&self) -> Option<bool> {
+        self.host_day
+    }
+    /// Follows the host theme. The first reading puts an untouched switch on
+    /// that side at rest; a later change flips it the way a tap does.
+    pub(super) fn follow_host(&mut self, day: bool) {
+        let first = self.host_day.is_none();
+        self.host_day = Some(day);
+        if !first {
+            self.choose(day);
+        } else if day && self.revision == 0 {
+            self.position = Spring::preset(Fixed::ONE, Fixed::ONE, SETTLE);
+            self.light = Spring::preset(Fixed::ONE, Fixed::ONE, LIGHT);
+            self.light_direction = -1;
+            self.particles = core::array::from_fn(|i| Particle::at(i, Fixed::ONE));
+            self.revision = 1;
+        }
     }
     pub(super) fn knob_contains(&self, point: Point) -> bool {
         let x = (self.position.position.clamp(Fixed::ZERO, Fixed::ONE) - Fixed::HALF)
@@ -217,35 +275,13 @@ impl GlassModel {
         }
         self.press.tick(delta);
         for (i, particle) in self.particles.iter_mut().enumerate() {
-            let pair = PAIRS[i];
-            let delay = Fixed::from_ratio(4, 100)
-                + Fixed::from_ratio(8 - i32::from(pair.moon.x), 16) * Fixed::from_ratio(26, 100)
-                + Fixed::from_ratio((i as i32 * 17) % 6, 100);
-            let t = smooth((p - delay) / Fixed::from_ratio(62, 100));
-            let arc = Fixed::sin_deg(t * Fixed::from_int(180));
-            let a = Point::new(
-                Fixed::from_ratio(i32::from(pair.moon.x) * 57, 10),
-                Fixed::from_ratio(i32::from(pair.moon.y) * 57, 10),
-            );
-            let b = Point::new(
-                Fixed::from_ratio(i32::from(pair.sun.x) * 57, 10),
-                Fixed::from_ratio(i32::from(pair.sun.y) * 57, 10),
-            );
-            let curl = Fixed::from_int((i as i32 * 29) % 33 - 16);
-            let x = a.x + (b.x - a.x) * t + arc * curl * Fixed::from_ratio(9, 10);
-            let y = a.y + (b.y - a.y) * t - arc * (Fixed::from_int(4) + curl.abs() / 2);
-            particle.x.retarget(x, None);
-            particle.y.retarget(y, None);
+            let goal = particle_goal(i, p);
+            particle.x.retarget(goal.position.x, None);
+            particle.y.retarget(goal.position.y, None);
             particle.x.tick(delta);
             particle.y.tick(delta);
-            particle.alpha = (Fixed::from_int(i32::from(pair.moon.alpha))
-                + (Fixed::from_int(i32::from(pair.sun.alpha))
-                    - Fixed::from_int(i32::from(pair.moon.alpha)))
-                    * t)
-                .to_int()
-                .clamp(0, 255) as u8;
-            particle.size =
-                Fixed::from_ratio(46, 10) * (Fixed::ONE - arc * Fixed::from_ratio(45, 100));
+            particle.alpha = goal.alpha;
+            particle.size = goal.size;
         }
         self.revision = self.revision.wrapping_add(1);
     }
