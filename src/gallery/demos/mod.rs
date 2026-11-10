@@ -28,6 +28,7 @@ pub mod image_flip;
 #[cfg(feature = "std")]
 mod instruments;
 pub mod interaction_lab;
+pub mod iris;
 pub mod kinetic_console;
 pub mod layout_lab;
 pub mod lazy_list;

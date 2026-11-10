@@ -256,6 +256,7 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     }
 
     responsive!(orbit_console);
+    responsive!(iris);
     responsive!(layout_lab);
     responsive!(typography_lab);
     responsive!(curve_text);

@@ -2,7 +2,9 @@
 
 ## README artwork
 
-The README uses self-contained light and dark SVGs with landscape and portrait captures of Orbit Console, a six-second animation, and a static presentation for reduced-motion preferences. Captured glyph positions, vector contours and shared gradients do not require external images, fonts or scripts. Glyphs use distance-field contours when available and retain coverage samples otherwise.
+The README uses self-contained light and dark SVGs of the Iris demo captured at 128×160, 240×240, 390×844 and 1280×800: an eight-second loop recorded at 20 frames per second with a stepped clock, and a static presentation for reduced-motion preferences. Each capture runs one silent loop first so eased values start where they end. Captured glyph positions, vector contours, path clips and shared gradients do not require external images, fonts or scripts. Glyphs use distance-field contours when available and retain coverage samples otherwise; text that changes between frames swaps between pre-built runs.
+
+`cargo run -p gallery --example iris_snapshot --no-default-features --features snapshot -- <output-directory> [milliseconds]` renders the same sizes through the software rasterizer for comparison.
 
 Regenerate the artwork from the repository root:
 

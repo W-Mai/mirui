@@ -3,7 +3,8 @@ use crate::app::{App, RendererFactory};
 use crate::render::font::{Font, FontManager, FontToken};
 use crate::surface::Surface;
 
-const FONT_BYTES: &[u8] = include_bytes!("../demos/assets/play_ui.mirx");
+/// Shared with demos that need full ASCII punctuation, such as Iris readouts.
+pub(in crate::gallery) const FONT_BYTES: &[u8] = include_bytes!("../demos/assets/play_ui.mirx");
 #[cfg(test)]
 const FONT_CHARSET: &str = include_str!("../demos/assets/play_charset.txt");
 

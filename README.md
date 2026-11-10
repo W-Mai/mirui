@@ -1,6 +1,6 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme-hero-dark.svg" />
-  <img src="docs/assets/readme-hero-light.svg" alt="mirui — animated Orbit Console in landscape and portrait layouts" width="1200" />
+  <img src="docs/assets/readme-hero-light.svg" alt="mirui — the Iris lens demo running at 128×160, 240×240, 390×844 and 1280×800" width="1280" />
 </picture>
 
 [![Crates.io](https://img.shields.io/crates/v/mirui.svg)](https://crates.io/crates/mirui)
@@ -10,6 +10,8 @@
 A `no_std`, ECS-driven UI framework for embedded, mobile, desktop, Linux, and WebAssembly targets. Layout, hit testing, and draw geometry use Q24.8 fixed point before submission to the software rasterizer, SDL GPU, WGPU, Web Canvas, framebuffer, DRM, and NuttX backends.
 
 [Open mirui.rs](https://mirui.rs/) to run the browser demos, inspect their Rust source, and browse the Play applications. Run a native example with `cargo run -p gallery --example orbit_console_demo --release --features wgpu`.
+
+The artwork above is the Iris demo, one component tree recorded from the scene renderer at four viewport sizes. Run it with `cargo run -p gallery --example iris_demo --release --features wgpu`.
 
 The Glass Light Toggle demo supports clicking, dragging, Space/Enter and arrow keys. Run `cargo run -p gallery --example glass_light_toggle_demo --release --no-default-features --features sdl-gpu` or select Glass Light Toggle in the browser gallery.
 

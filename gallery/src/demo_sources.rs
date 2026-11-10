@@ -59,6 +59,19 @@ split_demo_sources! {
         marker: "fn search_attach",
         parts: ["model.rs", "editors.rs", "keyboard.rs", "composition.rs", "tests.rs"]
     },
+    IRIS => {
+        demo: "iris",
+        marker: "fn blade_swing",
+        parts: [
+            "style.rs",
+            "state.rs",
+            "lens.rs",
+            "meters.rs",
+            "composition.rs",
+            "runtime.rs",
+            "tests.rs",
+        ]
+    },
     ORBIT_CONSOLE => {
         demo: "orbit_console",
         marker: "fn radial_paint",

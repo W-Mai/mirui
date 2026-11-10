@@ -1,12 +1,13 @@
-//! Capture the responsive showcase through the existing scene renderer.
+//! Capture Iris at four real resolutions through the scene renderer.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use mirui::app::App;
-use mirui::ecs::DeltaTimeMs;
-use mirui::gallery::demos::orbit_console::{self, DemoRunMode};
+use mirui::ecs::MonoClock;
+use mirui::gallery::demos::iris::{self, IrisRun};
 use mirui::prelude::*;
 use mirui::render::PreparedDraw;
 use mirui::render::backends::scene::SceneRenderer;
@@ -114,6 +115,16 @@ fn path_data(path: &Path) -> String {
     data
 }
 
+/// Transformed widget backgrounds carry their corners as a quad as well as the
+/// affine transform; the transform alone reproduces them in SVG. A quad without
+/// an affine transform would be projective, which SVG cannot express.
+fn affine_quad(quad: &Option<[Point; 4]>, transform: &Transform) {
+    assert!(
+        quad.is_none() || !transform.is_identity(),
+        "projective widget quads are not supported in the vector showcase"
+    );
+}
+
 fn hex(r: u8, g: u8, b: u8) -> String {
     format!("#{r:02x}{g:02x}{b:02x}")
 }
@@ -196,7 +207,7 @@ impl Export {
                 opa,
                 quad,
             } => {
-                assert!(quad.is_none());
+                affine_quad(quad, transform);
                 (
                     json!({"tag":"rect", "x":area.x.to_f32(), "y":area.y.to_f32(), "width":area.w.to_f32(), "height":area.h.to_f32(), "rx":radius.to_f32()}),
                     *transform,
@@ -213,7 +224,7 @@ impl Export {
                 opa,
                 quad,
             } => {
-                assert!(quad.is_none());
+                affine_quad(quad, transform);
                 let half = *width / Fixed::from_int(2);
                 (
                     json!({"tag":"rect", "x":(area.x+half).to_f32(), "y":(area.y+half).to_f32(), "width":(area.w-*width).to_f32(), "height":(area.h-*width).to_f32(), "rx":(*radius-half).max(Fixed::ZERO).to_f32(), "stroke-width":width.to_f32(), "fill":"none"}),
@@ -342,6 +353,14 @@ impl Export {
                     f32::from(*opa) / 255.0 * f32::from(color.a) / 255.0,
                 )
             }
+            SceneOp::PushClip {
+                path,
+                transform,
+                fill_rule,
+            } => {
+                return json!({"tag":"clip-push", "d":path_data(path), "fill-rule":if *fill_rule==FillRule::EvenOdd {"evenodd"}else{"nonzero"}, "transform":matrix(*transform)});
+            }
+            SceneOp::PopClip => return json!({"tag":"clip-pop"}),
             other => panic!("Unsupported showcase operation: {other:?}"),
         };
         attrs["transform"] = matrix(transform);
@@ -403,41 +422,70 @@ fn spread(spread: SpreadMode) -> &'static str {
     }
 }
 
+/// Real targets for the same component tree, smallest first.
+const SCREENS: [(&str, u16, u16); 4] = [
+    ("panel", 128, 160),
+    ("dial", 240, 240),
+    ("phone", 390, 844),
+    ("desktop", 1280, 800),
+];
+const STEP_MS: u64 = 50;
+
+/// The frame-time system reads this stepped clock, so every frame is exactly
+/// `STEP_MS` long and the captured loop is deterministic.
+static NOW_NS: AtomicU64 = AtomicU64::new(0);
+
+fn stepped_clock() -> u64 {
+    NOW_NS.load(Ordering::Relaxed)
+}
+
+fn step<B: Surface, F: mirui::app::RendererFactory<B>>(app: &mut App<B, F>) {
+    NOW_NS.fetch_add(STEP_MS * 1_000_000, Ordering::Relaxed);
+    app.systems.run_all(&mut app.world).expect("animation");
+    mirui::core::reactive::flush_signal_dirty(&mut app.world);
+}
+
 fn main() {
     let output = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
         .expect("output JSON path");
+    let frames_per_loop = u64::from(iris::LOOP_MS) / STEP_MS;
     let mut export = Export::default();
     let mut screens = Vec::new();
-    for theme in ["light", "dark"] {
-        for (orientation, width, height) in [("wide", 1024, 640), ("tall", 360, 640)] {
+    for (theme, id) in [("light", iris::LIGHT_ID), ("dark", iris::DARK_ID)] {
+        for (name, width, height) in SCREENS {
             let mut app = App::headless(width, height);
             app.with_default_widgets().with_default_systems();
             let root = app.spawn_root().id();
-            orbit_console::setup(&mut app, root, DemoRunMode::Capture);
-            app.set_theme(if theme == "light" {
-                "showcase-light"
-            } else {
-                "showcase-dark"
-            })
-            .expect("theme");
-            app.world.insert_resource(DeltaTimeMs(100));
+            iris::setup(&mut app, root, IrisRun::Capture);
+            app.set_theme(id).expect("theme");
+            app.world.insert_resource(MonoClock::new(stepped_clock));
+            app.render().expect("settle layout");
+            // One silent loop first, so eased values start where they end.
+            for _ in 0..frames_per_loop {
+                step(&mut app);
+            }
             let mut frames = Vec::new();
-            for frame in 0..60 {
-                if frame != 0 {
-                    app.systems.run_all(&mut app.world).expect("animation");
-                    mirui::core::reactive::flush_signal_dirty(&mut app.world);
-                }
+            for _ in 0..frames_per_loop {
+                step(&mut app);
                 app.render().expect("render showcase");
                 frames.push(export.capture(&app));
             }
-            screens.push(json!({"theme":theme,"orientation":orientation,"width":width,"height":height,"frames":frames}));
+            let shutter = iris::shutter_bounds(&app.world).map(rect);
+            screens.push(json!({"theme":theme,"name":name,"width":width,"height":height,"shutter":shutter,"frames":frames}));
+            println!("captured {theme} {name} {width}x{height}");
         }
     }
     std::fs::create_dir_all(output.parent().expect("output directory"))
         .expect("create output directory");
-    let value = json!({"fps":10,"definitions":export.definitions,"screens":screens});
+    let value = json!({
+        "fps": 1000 / STEP_MS,
+        "loop_ms": iris::LOOP_MS,
+        "capture_ms": 3_400,
+        "definitions": export.definitions,
+        "screens": screens,
+    });
     std::fs::write(output, serde_json::to_vec(&value).expect("encode capture"))
         .expect("save capture");
 }

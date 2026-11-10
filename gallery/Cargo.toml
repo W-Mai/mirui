@@ -210,6 +210,11 @@ name = "orbit_console_snapshot"
 path = "examples/tools/orbit_console_snapshot.rs"
 
 [[example]]
+name = "iris_snapshot"
+path = "examples/tools/iris_snapshot.rs"
+required-features = ["snapshot"]
+
+[[example]]
 name = "readme_capture"
 path = "examples/tools/readme_capture.rs"
 required-features = ["snapshot"]
