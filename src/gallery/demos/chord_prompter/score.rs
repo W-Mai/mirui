@@ -249,7 +249,6 @@ impl Pattern {
 #[derive(Clone, Copy, Debug)]
 pub struct ScoreLimits {
     pub bytes: usize,
-    pub lyric_bytes: usize,
     pub label_bytes: usize,
     pub bars: usize,
     pub chords: usize,
@@ -259,7 +258,6 @@ pub struct ScoreLimits {
 impl ScoreLimits {
     pub const DEVICE: Self = Self {
         bytes: 8192,
-        lyric_bytes: 128,
         label_bytes: 64,
         bars: 128,
         chords: 256,
@@ -525,9 +523,6 @@ impl Score {
                         next.next().unwrap_or(bar.len())
                     };
                     let text_start = score.text.len();
-                    if end - start > limits.lyric_bytes {
-                        return Err(ScoreError::Capacity);
-                    }
                     score.text.push_str(&bar[start..end]);
                     score.chords.push(Chord {
                         degree,

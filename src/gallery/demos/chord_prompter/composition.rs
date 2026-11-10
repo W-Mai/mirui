@@ -1,13 +1,7 @@
 use super::{Session, strips::RhythmStrip};
 use crate::prelude::*;
 use crate::ui::IgnoreHitTest;
-use crate::ui::widgets::{Button, ParagraphStyle, Text, TextAlign, TextVerticalAlign};
-
-fn lyrics() -> ParagraphStyle {
-    ParagraphStyle::default()
-        .with_align(TextAlign::Center)
-        .with_vertical_align(TextVerticalAlign::Center)
-}
+use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
 fn compact(width: Fixed, height: Fixed) -> bool {
     width < Fixed::from_int(256) || height < Fixed::from_int(200)
@@ -29,95 +23,33 @@ pub(super) fn build_widgets(session: model!(Session)) {
                 left: 1, top: 1, width: 3, height: 3,
                 bg_color: ${ if session.connected() { ColorToken::Success } else { ColorToken::OnSurfaceVariant } }
             ) [ IgnoreHitTest ]
-            Column (grow: 1.0, min_height: 66, clip_children: true) {
-                Column (
-                    id: "prompter_current_card",
-                    position: Position::Absolute, top: 0,
-                    left: ${ (session.stage_width() - super::motion::card_width(session.stage_width())) / 2 },
-                    width: ${ super::motion::card_width(session.stage_width()) }, height: Dimension::percent(100),
-                    align: AlignItems::Stretch,
-                    transform: ${ super::motion::card_transform(session.bar_phase(), session.next_chord() != "END", session.stage_width(), 0) }
-                ) {
-                    Column (
-                        height: @(width, height) { if compact(width, height) { 40 } else { 56 } },
-                        align: AlignItems::Stretch
-                    ) {
-                        Text (
-                            id: "prompter_chord", text: ${ session.chord() },
-                            width: Dimension::percent(100), grow: 1.0,
-                            font: super::font::CHORD,
-                            font_size: ${ super::motion::chord_size(session.bar_phase(), session.next_chord() != "END", session.large(), 0) },
-                            text_color: ColorToken::OnSurface,
-                            paragraph: ParagraphStyle::label()
-                        )
-                    } on Tap { super::runtime::report(session.next_section()); }
-                    Text (
-                        id: "prompter_lyric", text: ${ session.lyric() },
-                        width: Dimension::percent(100), grow: 1.0, min_height: 24,
-                        font_size: @(width, height) { if compact(width, height) { 12_u16 } else { 24_u16 } },
-                        text_color: ColorToken::OnSurface, paragraph: lyrics()
-                    )
-                }
-                Column (
-                    id: "prompter_previous_card",
-                    position: Position::Absolute, top: 0,
-                    left: ${ (session.stage_width() - super::motion::card_width(session.stage_width())) / 2 },
-                    width: ${ super::motion::card_width(session.stage_width()) }, height: Dimension::percent(100),
-                    align: AlignItems::Stretch,
-                    visible: ${ !session.previous_chord().is_empty() },
-                    transform: ${ super::motion::card_transform(session.bar_phase(), session.next_chord() != "END", session.stage_width(), -1) }
-                ) {
-                    Column (
-                        height: @(width, height) { if compact(width, height) { 40 } else { 56 } },
-                        align: AlignItems::Stretch
-                    ) {
-                        Text (
-                            id: "prompter_previous_chord", text: ${ session.previous_chord() },
-                            width: Dimension::percent(100), grow: 1.0,
-                            font: super::font::CHORD,
-                            font_size: ${ super::motion::chord_size(session.bar_phase(), session.next_chord() != "END", session.large(), -1) },
-                            text_color: ColorToken::OnSurface,
-                            paragraph: ParagraphStyle::label()
-                        )
-                    }
-                    Text (
-                        id: "prompter_previous_lyric", text: ${ session.previous_lyric() },
-                        width: Dimension::percent(100), grow: 1.0, min_height: 24,
-                        font_size: @(width, height) { if compact(width, height) { 12_u16 } else { 24_u16 } },
-                        text_color: ColorToken::OnSurfaceVariant, paragraph: lyrics()
-                    )
-                }
-                Column (
-                    id: "prompter_next_card",
-                    position: Position::Absolute, top: 0,
-                    left: ${ (session.stage_width() - super::motion::card_width(session.stage_width())) / 2 },
-                    width: ${ super::motion::card_width(session.stage_width()) }, height: Dimension::percent(100),
-                    align: AlignItems::Stretch,
-                    visible: ${ session.next_chord() != "END" },
-                    transform: ${ super::motion::card_transform(session.bar_phase(), session.next_chord() != "END", session.stage_width(), 1) }
-                ) {
-                    Column (
-                        height: @(width, height) { if compact(width, height) { 40 } else { 56 } },
-                        align: AlignItems::Stretch
-                    ) {
-                        Text (
-                            id: "prompter_next_chord", text: ${ session.next_chord() },
-                            width: Dimension::percent(100), grow: 1.0,
-                            font: super::font::CHORD,
-                            font_size: ${ super::motion::chord_size(session.bar_phase(), session.next_chord() != "END", session.large(), 1) },
-                            text_color: ColorToken::OnSurface,
-                            paragraph: ParagraphStyle::label()
-                        )
-                    }
-                    Text (
-                        id: "prompter_next_lyric", text: ${ session.next_lyric() },
-                        width: Dimension::percent(100), grow: 1.0, min_height: 24,
-                        font_size: @(width, height) { if compact(width, height) { 12_u16 } else { 24_u16 } },
-                        text_color: ColorToken::OnSurface, paragraph: lyrics()
-                    )
-                }
+            Row(height:12,column_gap:2) {
+                Text(text:${session.next_hint()},capacity:32,grow:1.0,font_size:12,text_color:ColorToken::OnSurfaceVariant,
+                    paragraph:ParagraphStyle::label().with_align(crate::ui::widgets::TextAlign::Start))
+                Text(id:"prompter_bar",text:${session.bar_label()},width:42,height:12,font_size:12,
+                    text_color:ColorToken::OnSurfaceVariant,paragraph:ParagraphStyle::label().with_align(crate::ui::widgets::TextAlign::End))
             }
-            View (height: 4) [
+            Column(grow:1.0,min_height:62,min_width:0,clip_children:true) {
+                Column (
+                    id: "prompter_sheet_viewport", grow: 1.0, min_height: 62,
+                    min_width: 0, clip_children: true,
+                    scroll_offset: ${ crate::input::event::scroll::ScrollOffset {x:session.page_scroll(),y:Fixed::ZERO} }
+                ) [
+                    crate::input::event::scroll::ScrollOffset::default(),
+                    crate::input::event::scroll::ScrollConfig {direction:crate::input::event::scroll::ScrollAxis::Horizontal,elastic:false,..Default::default()},
+                ] on SizeChanged { session.sheet_viewport(event.new.width,(event.new.height-Fixed::from_int(22)).max(Fixed::ONE)); } {
+                    Column(id:"prompter_sheet",width:${session.stage_width()*3},height:Dimension::percent(100),shrink:0.0,min_height:0) {
+                        View(height:22,width:Dimension::percent(100),shrink:0.0) [super::strips::ChordTimeline{model:session.clone()},IgnoreHitTest]
+                        Row(width:Dimension::percent(100),grow:1.0,min_height:0,shrink:0.0) {
+                            sheet_page(session.clone(),0)
+                            sheet_page(session.clone(),1)
+                            sheet_page(session.clone(),2)
+                        }
+                    }
+                }
+                View(position:Position::Absolute,left:${session.stage_width()/2-Fixed::from_int(3)},top:0,width:6,height:Dimension::percent(100)) [super::strips::TimeNeedle{},IgnoreHitTest]
+            }
+            View (height: 6) [
                 RhythmStrip {
                     model: session.clone(),
                     strums: false,
@@ -208,4 +140,57 @@ pub(super) fn build_widgets(session: model!(Session)) {
             }
         }
     };
+}
+
+#[compose]
+fn sheet_page(session: model!(Session), page: u8) -> Entity {
+    ui! {
+        Column (
+            width: ${ session.stage_width() },
+            height: Dimension::percent(100),
+            shrink: 0.0,
+            min_height: 0,
+            min_width: 0,
+            clip_children: true,
+            visible: ${ page != 2 || session.has_next() },
+            scroll_offset: ${
+                crate::input::event::scroll::ScrollOffset {
+                    x: Fixed::ZERO,
+                    y: if page == 0 {
+                        session.previous_scroll()
+                    } else if page == 1 {
+                        session.sheet_scroll()
+                    } else {
+                        Fixed::ZERO
+                    },
+                }
+            }
+        ) [
+            crate::input::event::scroll::ScrollOffset::default(),
+            crate::input::event::scroll::ScrollConfig {
+                elastic: false,
+                ..Default::default()
+            },
+        ] {
+            View (
+                width: Dimension::percent(100),
+                height: ${
+                    if page == 0 {
+                        session.previous_content_height()
+                    } else if page == 1 {
+                        session.content_height()
+                    } else {
+                        session.next_content_height()
+                    }
+                },
+                shrink: 0.0
+            ) [
+                super::sheet::SheetView {
+                    model: session.clone(),
+                    page,
+                },
+                IgnoreHitTest,
+            ]
+        }
+    }
 }

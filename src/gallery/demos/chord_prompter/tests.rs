@@ -48,6 +48,223 @@ fn source_accents_are_borrowed_with_plain_utf8_offsets_without_losing_bar_conten
 }
 
 #[test]
+fn whole_bar_wrapping_retains_every_character_accent_and_timed_column() {
+    let score = Score::parse(SONG, ScoreLimits::DEVICE).unwrap();
+    let mut sheet = super::sheet::Sheet::new();
+    sheet.rebuild(&score, 0, 120, 80, false);
+    assert_eq!(sheet.text, "跟着节拍");
+    assert_eq!(sheet.current_count, 2);
+    assert_eq!(sheet.size, 18);
+    assert_eq!(sheet.slots[0].width, sheet.slots[1].width);
+    assert!(sheet.accented(0));
+    assert!(!sheet.accented(3));
+    assert!(sheet.accented(6));
+    let plain_cap = sheet.text.capacity();
+    let line_cap = sheet.lines.capacity();
+    for bar in 0..score.bars() {
+        sheet.rebuild(&score, bar, 120, 80, false);
+    }
+    assert_eq!(sheet.text.capacity(), plain_cap);
+    assert_eq!(sheet.lines.capacity(), line_cap);
+}
+
+#[test]
+fn long_bars_remain_accepted_and_vertical_follow_reaches_the_final_line() {
+    use crate::types::Fixed;
+    let source = PRACTICE.replace(
+        "[Keep] the rhythm",
+        &alloc::format!("[A]{}Z", "x".repeat(120)),
+    );
+    let mut session = Session::new(Score::parse(PRACTICE, ScoreLimits::DEVICE).unwrap());
+    session.sheet_viewport(Fixed::from_int(120), Fixed::from_int(76));
+    session.load(&source).unwrap();
+    assert_eq!(session.sheet.current_text().len(), 122);
+    assert!(session.sheet.current_text().ends_with('Z'));
+    assert!(session.content_height > Fixed::from_int(76));
+    let lines = &session.sheet.lines;
+    let last =
+        &lines[usize::from(session.sheet.slots[session.sheet.current_count - 1].end_line) - 1];
+    assert_eq!(usize::from(last[1]), session.sheet.current_text().len());
+    session.toggle(0);
+    session.advance(2_490_000);
+    assert!(session.sheet_scroll > Fixed::ZERO);
+    let max = session.content_height - Fixed::from_int(76);
+    assert!(max - session.sheet_scroll <= Fixed::from_int(2));
+    session.pause(2_490_000);
+    let offset = session.sheet_scroll;
+    let revision = session.sheet_revision;
+    session.advance(20_000_000);
+    assert_eq!(session.sheet_scroll, offset);
+    assert_eq!(session.sheet_revision, revision);
+}
+
+#[test]
+fn horizontal_pre_reading_and_vertical_follow_remain_independent() {
+    use crate::types::Fixed;
+    let source = PRACTICE.replace(
+        "[Keep] the rhythm",
+        &alloc::format!("[A]{}Z", "x".repeat(120)),
+    );
+    let mut session = Session::new(Score::parse(source.as_str(), ScoreLimits::DEVICE).unwrap());
+    session.sheet_viewport(Fixed::from_int(120), Fixed::from_int(72));
+    assert!(session.next_hint.contains("Let"));
+    assert!(session.next_content_height < Fixed::from_int(72));
+    assert_eq!(session.sheet.slots[session.sheet.current_count].y, 0);
+    session.toggle(0);
+    session.advance(625_000);
+    assert_eq!(session.page_scroll, Fixed::from_int(90));
+    assert!(session.sheet_scroll > Fixed::ZERO);
+    assert_eq!(session.sheet.slots[session.sheet.current_count].y, 0);
+    session.pause(625_000);
+    let horizontal = session.page_scroll;
+    let vertical = session.sheet_scroll;
+    session.advance(20_000_000);
+    assert_eq!(session.page_scroll, horizontal);
+    assert_eq!(session.sheet_scroll, vertical);
+    session.stop();
+    assert_eq!(session.page_scroll, Fixed::from_int(60));
+    assert_eq!(session.sheet_scroll, Fixed::ZERO);
+}
+
+#[test]
+fn chord_onsets_and_the_fixed_needle_share_the_viewport_center() {
+    use crate::prelude::*;
+    use crate::surface::FramebufferAccess;
+    let mut app = App::headless(128, 128);
+    app.with_default_widgets().with_default_systems();
+    app.add_resource(MonoClock::new(|| 0));
+    let root = app.spawn_root().id();
+    let session = install(&mut app, root);
+    session.toggle(0);
+    session.advance(11_250_000);
+    app.render().unwrap();
+    assert_eq!(session.chord(), "G");
+    let label = app.world.find_by_id("prompter_bar").unwrap();
+    let rect = app.world.get::<crate::ui::ComputedRect>(label).unwrap().0;
+    assert_eq!(rect.x + rect.w, Fixed::from_int(124));
+    let color = app
+        .world
+        .resource::<crate::ui::Theme>()
+        .unwrap()
+        .resolve(ColorToken::Primary);
+    let texture = app.backend.framebuffer();
+    let pixels = texture.read_pixels().unwrap();
+    let mut bounds = None::<(usize, usize)>;
+    let mut chord_ink = 0;
+    for y in 22..36 {
+        for x in 4..124 {
+            let at = y * pixels.stride() + x * 4;
+            if pixels.bytes()[at..at + 3] == [color.r, color.g, color.b] {
+                if x.abs_diff(64) > 2 {
+                    chord_ink += 1;
+                }
+                bounds = Some(bounds.map_or((x, x), |(left, right)| (left.min(x), right.max(x))));
+            }
+        }
+    }
+    let (left, right) = bounds.expect("active rolling chord ink");
+    assert!(chord_ink > 4, "the fixed needle alone is not chord ink");
+    assert!(
+        (left + right).abs_diff(128) <= 4,
+        "rolling chord must trigger around x=64, got {left}..{right}"
+    );
+}
+
+#[test]
+fn incremental_musical_scroll_matches_full_redraw_at_onsets_and_overflow() {
+    use crate::prelude::*;
+    use crate::surface::FramebufferAccess;
+    let mut app = App::headless(128, 128);
+    app.with_default_widgets().with_default_systems();
+    app.add_resource(MonoClock::new(|| 0));
+    let root = app.spawn_root().id();
+    let session = install(&mut app, root);
+    for source in [
+        PRACTICE.to_string(),
+        PRACTICE.replace("[Keep] the rhythm", &"x".repeat(120)),
+    ] {
+        session.load(&source).unwrap();
+        session.toggle(0);
+        app.render().unwrap();
+        for time in [
+            1, 625_000, 1_249_999, 1_250_000, 2_499_999, 2_500_000, 11_250_000,
+        ] {
+            session.advance(time);
+            app.render_dirty().unwrap();
+            let expected = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
+            app.render().unwrap();
+            assert!(
+                expected == app.backend.framebuffer().read_pixels().unwrap().bytes(),
+                "scroll damage differs at {time}"
+            );
+        }
+        session.pause(11_250_000);
+        app.render_dirty().unwrap();
+        let viewport = app.world.find_by_id("prompter_sheet_viewport").unwrap();
+        for x in [100, 120, 180] {
+            app.world
+                .get_mut::<crate::input::event::scroll::ScrollOffset>(viewport)
+                .unwrap()
+                .x = Fixed::from_int(x);
+            app.world.invalidate_visual(viewport);
+            app.render_dirty().unwrap();
+            let expected = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
+            app.render().unwrap();
+            assert!(
+                expected == app.backend.framebuffer().read_pixels().unwrap().bytes(),
+                "paused manual scroll differs at {x}"
+            );
+        }
+    }
+}
+
+#[test]
+fn scheduled_start_does_not_trigger_marks_until_the_music_clock_starts() {
+    let mut session = Session::new(Score::parse(PRACTICE, ScoreLimits::DEVICE).unwrap());
+    session.play_at(0, 500);
+    assert!(!session.clock_active);
+    session.advance(499_000);
+    assert!(!session.clock_active);
+    session.advance(500_000);
+    assert!(session.clock_active);
+    session.pause(500_000);
+    assert!(!session.clock_active);
+}
+
+#[test]
+fn thousands_of_characters_in_one_bar_scroll_without_fragment_limits_or_hot_growth() {
+    use crate::types::Fixed;
+    let source = PRACTICE.replace(
+        "[Keep] the rhythm",
+        &alloc::format!("[A]{}Z", "x".repeat(7000)),
+    );
+    let mut session = Session::new(Score::parse(PRACTICE, ScoreLimits::DEVICE).unwrap());
+    session.sheet_viewport(Fixed::from_int(120), Fixed::from_int(76));
+    session.load(&source).unwrap();
+    assert_eq!(session.sheet.current_text().len(), 7002);
+    let text_capacity = session.sheet.text.capacity();
+    let line_capacity = session.sheet.lines.capacity();
+    session.toggle(0);
+    for time in [500_000, 1_000_000, 2_499_999, 2_500_000, 15_000_000] {
+        session.advance(time);
+        assert_eq!(session.sheet.text.capacity(), text_capacity);
+        assert_eq!(session.sheet.lines.capacity(), line_capacity);
+    }
+}
+
+#[test]
 fn song_preserves_musical_bars_unicode_and_section_overrides() {
     let score = Score::parse(SONG, ScoreLimits::DEVICE).unwrap();
     assert_eq!(score.title(), "Practice");
@@ -353,7 +570,13 @@ fn transfer_validates_bytes_before_atomic_score_replacement() {
     assert_eq!(receipt[0], 0);
     assert_eq!(u32::from_le_bytes(receipt[4..8].try_into().unwrap()), 24);
     assert_eq!(session.title(), "Practice");
-    assert_eq!(session.lyric(), "跟着");
+    assert_eq!(
+        crate::core::model::ModelHandle::read(&session, |data| data
+            .sheet
+            .current_text()
+            .to_string()),
+        "跟着节拍"
+    );
     assert_eq!(
         link.write(&session, packet(1, seq + 1, 23, 0), 0)[0],
         LinkError::Generation as u8
@@ -379,7 +602,7 @@ fn explicit_late_controls_are_rejected_and_rhythm_changes_share_the_bar_clock() 
 
 #[test]
 fn bundled_charset_is_complete_and_missing_glyphs_preserve_the_active_score() {
-    let font = super::font::open();
+    let font = super::font::body();
     for ch in include_str!("../assets/prompter-charset.txt").chars() {
         assert!(font.map_char(ch).is_some(), "missing {ch}");
     }
@@ -389,7 +612,7 @@ fn bundled_charset_is_complete_and_missing_glyphs_preserve_the_active_score() {
         session.load(&SONG.replace("跟", "🦀")),
         Err(ScoreError::UnsupportedCharacter('🦀'))
     ));
-    assert_eq!(session.lyric, "跟着");
+    assert_eq!(session.sheet.current_text(), "跟着节拍");
 }
 
 #[test]
@@ -422,10 +645,9 @@ fn prompter_fonts_use_native_one_bit_strikes_at_every_requested_size() {
     use mirx::image::SampleLayout;
     for (font, size, text) in [
         (super::font::body(), 12, "跟着节拍"),
+        (super::font::body(), 18, "跟着节拍"),
         (super::font::body(), 24, "跟着节拍"),
-        (super::font::chord(), 24, "C#Dmb"),
-        (super::font::chord(), 36, "C#Dmb"),
-        (super::font::chord(), 48, "C#Dmb"),
+        (super::font::body(), 12, "C#Dmb"),
     ] {
         for ch in text.chars() {
             let glyph = font.map_char(ch).unwrap();
@@ -437,35 +659,15 @@ fn prompter_fonts_use_native_one_bit_strikes_at_every_requested_size() {
 }
 
 #[test]
-fn bar_motion_is_monotonic_pixel_snapped_and_continuous_at_the_handoff() {
-    use crate::types::Fixed;
-    let width = Fixed::from_int(120);
-    let mut previous = 0;
-    for phase in 0..=256 {
-        let motion = BarMotion::at(phase, true);
-        assert!(motion.travel >= previous && motion.travel <= 256);
-        assert_eq!(motion.travel, phase, "horizontal speed must remain uniform");
-        if phase > 2 {
-            assert!(motion.travel > 0);
-        }
-        for offset in [-1, 0, 1] {
-            let transform = motion.transform(width, offset);
-            assert_eq!(transform.tx, transform.tx.round());
-            assert_eq!(transform.m00, Fixed::ONE);
-            assert_eq!(transform.m11, Fixed::ONE);
-            assert!([24, 36, 48].contains(&super::motion::chord_size(phase, true, false, offset)));
-        }
-        assert_eq!(BarMotion::at(phase, false).travel, 0);
-        previous = motion.travel;
+fn center_emphasis_is_bounded_symmetric_and_largest_at_the_center() {
+    assert_eq!(center_emphasis(0), 256);
+    let mut last = 256;
+    for offset in 0..512 {
+        let value = center_emphasis(offset);
+        assert_eq!(value, center_emphasis(-offset));
+        assert!(value <= last);
+        last = value;
     }
-    assert_eq!(
-        BarMotion::at(256, true).transform(width, 1),
-        BarMotion::at(0, true).transform(width, 0)
-    );
-    assert_eq!(BarMotion::at(0, true).impact, 256);
-    assert_eq!(BarMotion::at(192, true).impact, 0);
-    assert_eq!(BarMotion::emphasis(0), 256);
-    assert_eq!(BarMotion::emphasis(128), 0);
 }
 
 #[test]
@@ -477,14 +679,13 @@ fn upcoming_card_uses_the_next_bar_while_split_chords_keep_their_actual_timing()
     );
     assert_eq!(session.chord, "C");
     assert_eq!(session.next_chord, "Am");
-    assert_eq!(session.next_lyric, "");
     session.toggle(0);
     session.advance(1_500_000);
     assert_eq!(session.chord, "G");
-    assert_eq!(session.lyric, "节拍");
+    assert_eq!(session.sheet.current_text(), "跟着节拍");
     assert_eq!(session.next_chord, "Am");
     session.advance(2_350_000);
-    assert!(BarMotion::at(session.bar_phase, true).travel > 0);
+    assert!(session.bar_phase > 0);
     session.pause(2_350_000);
     let phase = session.bar_phase;
     session.advance(20_000_000);
@@ -511,30 +712,8 @@ fn connection_feedback_survives_score_replacement_and_uses_binary_pixels() {
         session.load(PRACTICE).unwrap();
         assert_eq!(session.connected(), connected);
         app.render_dirty().unwrap();
-        for name in ["prompter_chord", "prompter_lyric"] {
-            let entity = app.world.find_by_id(name).unwrap();
-            let rect = app.world.get::<crate::ui::ComputedRect>(entity).unwrap().0;
-            assert_eq!(rect.x, Fixed::from_int(19));
-            assert_eq!(rect.w, Fixed::from_int(90));
-            assert_eq!(
-                app.world
-                    .get::<crate::ui::widgets::Text>(entity)
-                    .unwrap()
-                    .paragraph()
-                    .align,
-                crate::ui::widgets::TextAlign::Center
-            );
-        }
         let texture = app.backend.framebuffer();
         let pixels = texture.read_pixels().unwrap();
-        let mut colors = alloc::collections::BTreeSet::new();
-        for y in 4..44 {
-            for x in 19..109 {
-                let offset = y * pixels.stride() + x * 4;
-                colors.insert(<[u8; 4]>::try_from(&pixels.bytes()[offset..offset + 4]).unwrap());
-            }
-        }
-        assert_eq!(colors.len(), 2, "chord pixels must not be interpolated");
         frames.push(pixels.bytes().to_vec());
     }
     let changed = frames[0]
@@ -559,8 +738,7 @@ fn resizing_reuses_entities_and_matches_direct_creation_at_every_size() {
     let session = install(&mut app, root);
     session.load(SONG).unwrap();
     app.render().unwrap();
-    let chord = app.world.find_by_id("prompter_chord").unwrap();
-    let lyric = app.world.find_by_id("prompter_lyric").unwrap();
+    let sheet = app.world.find_by_id("prompter_sheet").unwrap();
     for (width, height) in [
         (128, 128),
         (320, 240),
@@ -574,19 +752,10 @@ fn resizing_reuses_entities_and_matches_direct_creation_at_every_size() {
         app.backend = FramebufSurface::new(width, height, flush);
         app.render().unwrap();
         crate::gallery::demos::assert_text_layouts_fit(&app.world);
-        assert_eq!(app.world.find_by_id("prompter_chord"), Some(chord));
-        assert_eq!(app.world.find_by_id("prompter_lyric"), Some(lyric));
+        assert_eq!(app.world.find_by_id("prompter_sheet"), Some(sheet));
         let compact = width < 256 || height < 200;
         let controls = app.world.find_by_id("prompter_controls").unwrap();
         assert_eq!(app.world.has::<crate::ui::Hidden>(controls), compact);
-        assert_eq!(
-            app.world.get::<Style>(chord).unwrap().font_size,
-            Some(if compact { 36 } else { 48 })
-        );
-        assert_eq!(
-            app.world.get::<Style>(lyric).unwrap().font_size,
-            Some(if compact { 12 } else { 24 })
-        );
         let actual = app.backend.framebuffer();
         let actual = actual.read_pixels().unwrap();
 

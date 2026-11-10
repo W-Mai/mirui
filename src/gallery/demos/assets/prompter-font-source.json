@@ -21,23 +21,12 @@
       "output": "prompter-pixel.mirx",
       "sizes": [
         12,
+        18,
         24
       ],
       "charset": "prompter-charset.txt",
-      "output_sha256": "18084bf9cd29a2c00d1d2c2f32b71a72cf62ed1ec1d43765f085d2a01c57348a",
-      "output_size": 69284
-    },
-    {
-      "output": "prompter-chord.mirx",
-      "sizes": [
-        12,
-        24,
-        36,
-        48
-      ],
-      "charset": " #ABCDEFGbm",
-      "output_sha256": "3950daa2825ac74a844c6e78fe3230023a89c7a3f9536bbb29a927c36a2dee27",
-      "output_size": 7052
+      "output_sha256": "115b94a4f48a796ed48ee2a15181c74633056e6bba14feae8c900899686cea6d",
+      "output_size": 87412
     }
   ],
   "merge_tool": "gallery/examples/tools/merge_font_strikes.rs"

@@ -519,6 +519,11 @@ fn main() {
                 app.add_resource(MonoClock::new(reference_clock));
                 let root = app.spawn_root().id();
                 let session = mirui::gallery::demos::chord_prompter::install(app, root);
+                if let Ok(path) = env::var("CHORD_SOURCE") {
+                    session
+                        .load(&std::fs::read_to_string(path).expect("Chord source file"))
+                        .expect("Chord score");
+                }
                 session.set_connected(true);
                 session.toggle(0);
                 session.advance(millis * 1000);

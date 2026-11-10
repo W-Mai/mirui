@@ -6,12 +6,13 @@ mod link;
 mod motion;
 mod runtime;
 mod score;
+mod sheet;
 mod state;
 mod strips;
 mod transport;
 
 pub use link::{DeviceLink, LinkError, checksum};
-pub use motion::BarMotion;
+pub use motion::center_emphasis;
 pub use runtime::install;
 #[cfg(feature = "std")]
 pub use runtime::setup_app;

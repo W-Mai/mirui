@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub fn chord_center_emphasis(distance: i32) -> u16 {
-    gallery::mirui::gallery::demos::chord_prompter::BarMotion::emphasis(distance)
+    gallery::mirui::gallery::demos::chord_prompter::center_emphasis(distance)
 }
 
 fn micros(millis: f64) -> u64 {

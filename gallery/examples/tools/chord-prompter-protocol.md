@@ -36,7 +36,7 @@ Rhythm indices are whole, quarter, pop, poprock, ballad, folk, rock, punk, regga
 
 Upload chunks use opcode 17, sequence at bytes 1–2, exact byte offset at 3–4, payload length at 5 and up to 14 payload bytes at 6–19. Offsets refer to UTF-8 bytes, so a chunk may split a code point. UTF-8 and the song sheet are validated only after the complete byte stream and checksum are verified. The checksum is 32-bit FNV-1a. A new score becomes active only after successful validation; an incomplete, corrupt or invalid upload preserves the existing score. Successful activation increments the generation and resets playback.
 
-The device accepts up to 8192 source bytes, 128 bars, 256 chord slots and 16 sections. Each lyric fragment is limited to 128 source bytes and each title or section label to 64 bytes, bounding text-layout preparation as well as source storage. Temporary upload storage is prepared once. The old score, upload bytes and parsed replacement coexist during validation, so peak load memory exceeds steady playback memory. No claim of unbounded score storage or a whole-device memory limit follows from these bounds.
+The device accepts up to 8192 source bytes, 128 bars, 256 chord slots and 16 sections. Titles and section labels are limited to 64 bytes. Lyric fragments share the source-byte allowance; their rendered size does not reject a score. Complete bars wrap into additional rows and vertically scroll when needed. Temporary upload storage is prepared once. The old score, upload bytes and parsed replacement coexist during validation, so peak load memory exceeds steady playback memory. No claim of unbounded score storage or a whole-device memory limit follows from these bounds.
 
 ## Receipts and connection lifecycle
 

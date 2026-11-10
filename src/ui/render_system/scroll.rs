@@ -143,6 +143,56 @@ mod damage_tests {
     use super::*;
 
     #[test]
+    fn later_fixed_siblings_restore_pixels_displaced_by_scroll_transfers() {
+        use crate::prelude::*;
+        use crate::surface::FramebufferAccess;
+        let mut app = App::headless(100, 80);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        app.compose(root, |cx| {
+            ui! {
+                Column (grow: 1.0) {
+                    Column (id: "scroller", width: 100, height: 80, clip_children: true) [
+                        ScrollOffset::default(),
+                    ] {
+                        Row (width: 300, height: 160, shrink: 0.0) {
+                            View (width: 100, height: 160, shrink: 0.0, bg_color: Color::rgb(180, 20, 40))
+                            View (width: 100, height: 160, shrink: 0.0, bg_color: Color::rgb(20, 160, 50))
+                            View (width: 100, height: 160, shrink: 0.0, bg_color: Color::rgb(40, 60, 200))
+                        }
+                    }
+                    View (position: Position::Absolute, left: 48, top: 0, width: 4, height: 80, bg_color: Color::rgba(200, 220, 240, 100))
+                }
+            }
+        });
+        app.render().unwrap();
+        let scroller = app.world.find_by_id("scroller").unwrap();
+        for (x, y) in [(20, 0), (40, 12), (80, 40), (120, 0), (60, 16), (0, 0)] {
+            app.world.insert(
+                scroller,
+                ScrollOffset {
+                    x: x.into(),
+                    y: y.into(),
+                },
+            );
+            app.world.invalidate_visual(scroller);
+            app.render_dirty().unwrap();
+            let actual = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
+            app.render().unwrap();
+            assert!(
+                actual == app.backend.framebuffer().read_pixels().unwrap().bytes(),
+                "fixed sibling differs at ({x}, {y})"
+            );
+        }
+    }
+
+    #[test]
     fn scroll_tracking_reopens_for_new_offsets_and_retires_painted_baselines() {
         use crate::prelude::*;
         use crate::surface::FramebufferAccess;

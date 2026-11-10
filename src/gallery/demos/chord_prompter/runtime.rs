@@ -25,7 +25,6 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
         crate::core::cache::MaxSize::Unbound,
         super::font::body(),
     );
-    fonts.add_static(super::font::CHORD.cache_key(), super::font::chord());
     app.with_fonts(fonts);
     let session = app
         .add_model(Session::new(
@@ -33,6 +32,9 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
         ))
         .finish();
     app.with_widget(strips::rhythm_strip::view());
+    app.with_widget(super::sheet::sheet_view::view());
+    app.with_widget(super::strips::time_needle::view());
+    app.with_widget(super::strips::chord_timeline::view());
     app.add_system(advance::system(session.clone()));
     app.compose(parent, composition::build_widgets(session.clone()));
     session

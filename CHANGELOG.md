@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Display complete prompter bars with native 18px lyrics and chords, source accents, a right-aligned bar counter and beat-group markers; retain horizontal pre-reading and wrap and vertically scroll long content without a fragment-length display limit. Align chord, beat and strum onsets with a fixed central needle.
+
+- Restore fixed sibling paint displaced by framebuffer scroll transfers, including translucent overlays.
+
 - Retain lyric accent spans and expose borrowed complete-bar chord groups without duplicating score text.
 
-- Scroll past, current and upcoming prompter bars at a uniform horizontal speed with center enlargement, active chord fragments and native bitmap emphasis; separate embedded connection feedback from chord content.
+- Scroll past, current and upcoming prompter bars at a uniform horizontal speed with active chord fragments and browser center enlargement; separate embedded connection feedback from chord content.
 
 - Preview the pointed bar and its successor from the prompter timeline with pointer and keyboard input.
 
@@ -19,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Link the chord Demo and fullscreen prompter, share Gallery theme tokens, and preserve editor drafts during navigation.
 
-- Add fullscreen chord playback with a bottom glass controller, a right editor and acknowledged upload progress; use centered native bitmap strikes and BLE connection colors on small displays.
+- Add fullscreen chord playback with a bottom glass controller, a right editor and acknowledged upload progress; use native bitmap strikes and an independent BLE connection indicator on small displays.
 
 - Distinguish picked strings from strumming arrows and show each attack's string range.
 

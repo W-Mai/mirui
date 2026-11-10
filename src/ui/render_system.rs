@@ -3976,6 +3976,19 @@ fn collect_dirty_walk(
 
     let pending = VisualDirty::prepare(world, entity);
     let moved = ancestor_moved || pending.is_some_and(VisualDirty::transforms_subtree);
+    // Completed earlier subtrees can transfer pixels underneath a later sibling.
+    // Restore both its fixed paint and any pixels displaced by those transfers.
+    let overpaint_shifted = visible
+        && !plan.shifts.is_empty()
+        && world
+            .get::<super::dirty::PaintedCoverage>(entity)
+            .is_some_and(|painted| {
+                painted.0.regions().any(|rect| {
+                    plan.shifts
+                        .iter()
+                        .any(|shift| rect.intersect(&shift.area).is_some())
+                })
+            });
     let is_offscreen = prepared_paint::offscreen(world, entity, *idx, Some(preparation)).is_some();
     if is_offscreen {
         let mut sub_idx = *idx + 1;
@@ -3986,7 +3999,7 @@ fn collect_dirty_walk(
                 scan_subtree_dirty(child, world, entities, &mut sub_idx),
             );
         }
-        if pending.is_some() || moved {
+        if pending.is_some() || moved || overpaint_shifted {
             push_entity_dirty(
                 world,
                 entity,
@@ -4053,7 +4066,7 @@ fn collect_dirty_walk(
         (None, _, _) => carrier,
     };
 
-    if (pending.is_some() || moved) && my_scroll_op.is_none() {
+    if overpaint_shifted || ((pending.is_some() || moved) && my_scroll_op.is_none()) {
         push_entity_dirty(
             world,
             entity,
