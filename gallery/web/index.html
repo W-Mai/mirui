@@ -897,6 +897,7 @@
         margin-left: auto;
       }
       .code-head .actions .icon-btn { padding: 6px 7px; color: var(--ink-dim); text-decoration: none; }
+      .code-head .actions .icon-btn.on { color: var(--signal-bright); }
       /* A strip wider than the head scrolls sideways; an edge fades only
          while more tabs sit past it. */
       @property --fade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
@@ -939,8 +940,17 @@
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
       }
       .code-tab:focus-visible { outline: 2px solid var(--signal-edge); outline-offset: 1px; }
-      .code-tab.ui { font-family: var(--font-ui); }
-      .code-tab.ui b { color: var(--syn-mac); font: 600 12px/1 "Geist Mono", var(--font-mono); }
+      /* The files the ui! tree comes from carry a dot. */
+      .code-tab.has-ui::before {
+        content: "";
+        display: inline-block;
+        width: 5px;
+        height: 5px;
+        margin: 0 6px 1px 0;
+        border-radius: 50%;
+        background: var(--syn-mac);
+        vertical-align: middle;
+      }
 
       /* Where the shown lines live in the repository. */
       .code-path {
@@ -959,6 +969,7 @@
       .code-path .count { flex: 0 0 auto; margin-left: auto; font-variant-numeric: tabular-nums; }
 
       .code-body {
+        position: relative;
         margin: 0;
         overflow: auto;
         background: var(--well);
@@ -994,7 +1005,7 @@
       .code-rows .row:hover .ln { color: var(--ink-dim); }
       /* In a file, the lines of its ui! tree carry a mark in the gutter. */
       .code-rows .row.mark .ln { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--syn-mac) 70%, transparent); color: var(--ink-dim); }
-      .code-rows .row.gap { margin: 6px 0; }
+      .code-rows .row.gap { margin: 6px 0; user-select: none; }
       .code-rows .row.gap .tx {
         color: var(--ink-faint);
         font-size: 11px;
@@ -1002,6 +1013,13 @@
       }
       .code-rows .row.gap .gap-label { margin-left: 10px; padding: 0 8px; background: var(--well); }
       .code-rows .row.gap .ln { color: var(--ink-faint); }
+      /* The eye: the line being read stays put while the scaffolding fades
+         in around it, or the file labels fade in when it goes. */
+      @keyframes code-row-in { from { opacity: 0; } }
+      @media (prefers-reduced-motion: no-preference) {
+        .code-rows.grow .row:not(.mark),
+        .code-rows.settle .row.gap { animation: code-row-in 0.24s ease-out both; }
+      }
       .code-empty {
         padding: var(--s7) var(--s4);
         color: var(--ink-dim);
@@ -1909,6 +1927,16 @@ fn counter_panel(counter: model!(Counter)) {
               <div class="code-head" id="code-head">
                 <div class="code-tabs" id="code-tabs" role="tablist" aria-label="Source files"></div>
                 <span class="actions">
+                  <button class="icon-btn on" id="focus-btn" type="button" aria-pressed="true" aria-label="Focus the core ui! tree" title="Showing core ui! tree — click to show full source">
+                    <svg class="eye-open" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" stroke="currentColor" stroke-width="1.3"/>
+                      <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/>
+                    </svg>
+                    <svg class="eye-off" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="display:none">
+                      <path d="M1.5 8s2.5-4.5 6.5-4.5c1.06 0 2.02.32 2.86.81M14.5 8s-.86 1.55-2.5 2.86M9.9 9.9A2 2 0 0 1 6.1 6.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                      <path d="M2.5 2.5l11 11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    </svg>
+                  </button>
                   <a class="icon-btn" id="code-github" href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener" data-i18n-label="gallery.onGithub" aria-label="Open on GitHub" title="Open on GitHub">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
                   </a>
@@ -1983,7 +2011,9 @@ fn counter_panel(counter: model!(Counter)) {
             "gallery.title": "mirui · gallery", "gallery.tag": "subpixel UI · no_std · wasm",
             "gallery.filter": "Filter demos…", "gallery.noMatch": "No demos match that filter.", "gallery.rendering": "rendering",
             "gallery.source": "Source", "gallery.copy": "Copy", "gallery.copied": "Copied!",
-            "gallery.uiTreeTab": "tree", "gallery.lines": "{n} lines", "gallery.onGithub": "Open on GitHub",
+            "gallery.lines": "{n} lines", "gallery.onGithub": "Open on GitHub",
+            "gallery.focus": "Focus the core ui! tree", "gallery.focusOn": "Showing core ui! tree — click to show full source",
+            "gallery.focusOff": "Showing full source — click to focus the core ui! tree", "gallery.focusNone": "This demo marks no core ui! tree",
             "gallery.backHome": "Back to home", "gallery.choose": "Choose demo", "gallery.themeLight": "Switch to light theme", "gallery.themeDark": "Switch to dark theme",
             "gallery.rotate": "Swap portrait and landscape", "gallery.fixed": "This demo has a fixed logical canvas", "gallery.reset": "Reset canvas size", "gallery.audioOn": "Mute sound", "gallery.audioOff": "Enable sound", "gallery.audioUnlock": "Click to enable sound",
             "gallery.simulation": "Simulate", "gallery.simulationHint": "Toggle network simulation (F2)",
@@ -2039,7 +2069,9 @@ fn counter_panel(counter: model!(Counter)) {
             "gallery.title": "mirui · Gallery", "gallery.tag": "亚像素 UI · no_std · wasm",
             "gallery.filter": "筛选 Demo…", "gallery.noMatch": "没有匹配的 Demo。", "gallery.rendering": "渲染中",
             "gallery.source": "源码", "gallery.copy": "复制", "gallery.copied": "已复制",
-            "gallery.uiTreeTab": "组件树", "gallery.lines": "{n} 行", "gallery.onGithub": "在 GitHub 查看",
+            "gallery.lines": "{n} 行", "gallery.onGithub": "在 GitHub 查看",
+            "gallery.focus": "只看核心 ui! 树", "gallery.focusOn": "正在只看核心 ui! 树，点击显示完整源码",
+            "gallery.focusOff": "正在显示完整源码，点击只看核心 ui! 树", "gallery.focusNone": "这个 Demo 没有标出核心 ui! 树",
             "gallery.backHome": "返回首页", "gallery.choose": "选择 Demo", "gallery.themeLight": "切换到亮色主题", "gallery.themeDark": "切换到暗色主题",
             "gallery.rotate": "交换横屏与竖屏", "gallery.fixed": "此 Demo 使用固定逻辑画布", "gallery.reset": "重置画布尺寸", "gallery.audioOn": "关闭声音", "gallery.audioOff": "打开声音", "gallery.audioUnlock": "点击启用声音",
             "gallery.simulation": "模拟联机", "gallery.simulationHint": "打开或关闭联机模拟面板（F2）",
@@ -3305,9 +3337,9 @@ fn counter_panel(counter: model!(Counter)) {
         // ── Code panel ─────────────────────────────────────────
         // The embedded source is the demo's root module followed by its child
         // modules, each after a "// <module>/<part>.rs" line. The panel splits
-        // it back into the real files, with their own line numbers, and leads
-        // with the ui! tree the demo marks between //~focus-start and
-        // //~focus-end.
+        // it back into the real files, with their own line numbers. The eye
+        // shows only the ui! tree the demo marks between //~focus-start and
+        // //~focus-end, without the scaffolding around it.
         const REPO_BLOB = "https://github.com/W-Mai/mirui/blob/main/";
         const codeBody = document.getElementById("code-body");
         const codeTabs = document.getElementById("code-tabs");
@@ -3316,9 +3348,16 @@ fn counter_panel(counter: model!(Counter)) {
         const codeGithub = document.getElementById("code-github");
         const copyBtn = document.getElementById("copy-btn");
         const copyLabel = copyBtn.querySelector(".label");
+        const focusBtn = document.getElementById("focus-btn");
+        const eyeOpen = focusBtn.querySelector(".eye-open");
+        const eyeOff = focusBtn.querySelector(".eye-off");
         let sourceFiles = [];
         let sourceFocus = null;
         let sourceTab = 0;
+        // A click on the eye sets the view for every demo; a click on a file
+        // tab opens that file for the current demo only.
+        let focusPreferred = true;
+        let focusMode = false;
 
         function splitSourceFiles(slug, text) {
           const lines = text.replace(/\r\n/g, "\n").split("\n");
@@ -3402,49 +3441,58 @@ fn counter_panel(counter: model!(Counter)) {
           let text = "";
           try { text = wasmBindings.demo_source(slug) || ""; } catch (_) {}
           sourceFiles = splitSourceFiles(slug, text);
+          sourceFiles.forEach((file, index) => { file.index = index; });
           sourceFocus = focusRows(sourceFiles);
-          sourceTab = 0;
+          // With the eye off, a demo opens on the file its tree starts in.
+          const first = sourceFocus && sourceFocus.find((row) => !row.gap);
+          sourceTab = first ? first.file.index : 0;
+          focusMode = focusPreferred && Boolean(sourceFocus);
           codeBody.scrollTop = 0;
-        }
-
-        // Tabs: the ui! tree first when the demo marks one, then each file.
-        function sourceViews() {
-          const files = sourceFiles.map((file) => ({ file }));
-          return sourceFocus ? [{ focus: true }, ...files] : files;
+          codeBody.scrollLeft = 0;
+          codeTabs.scrollLeft = 0;
         }
 
         function shownSource() {
-          const view = sourceViews()[sourceTab];
-          if (!view) return "";
-          if (view.focus) {
+          if (focusMode) {
             const rows = sourceFocus[0].gap ? sourceFocus.slice(1) : sourceFocus;
             return rows.map((row) => (row.gap ? "" : row.text)).join("\n") + "\n";
           }
-          return view.file.lines.join("\n") + "\n";
+          const file = sourceFiles[sourceTab];
+          return file ? file.lines.join("\n") + "\n" : "";
         }
 
+        // One tab per file. With the eye on no file is selected, and a dot
+        // marks the files the tree comes from.
         function renderTabs() {
-          const t = window.miruiLanguage.t;
-          codeTabs.innerHTML = sourceViews().map((view, index) => {
-            const selected = index === sourceTab;
-            const label = view.focus
-              ? `<b>ui!</b> ${escapeHtml(t("gallery.uiTreeTab"))}`
-              : escapeHtml(view.file.name);
-            return `<button class="code-tab${view.focus ? " ui" : ""}" type="button" role="tab" data-tab="${index}" aria-selected="${selected}" tabindex="${selected ? 0 : -1}">${label}</button>`;
+          const tree = new Set(sourceFocus ? sourceFocus.map((row) => row.file) : []);
+          codeTabs.innerHTML = sourceFiles.map((file, index) => {
+            const selected = !focusMode && index === sourceTab;
+            return `<button class="code-tab${tree.has(file) ? " has-ui" : ""}" type="button" role="tab" data-tab="${index}" aria-selected="${selected}" tabindex="${index === sourceTab ? 0 : -1}">${escapeHtml(file.name)}</button>`;
           }).join("");
           revealTab();
         }
 
-        // Scrolls only the strip, never the page, so the selected tab clears
-        // the faded edges.
-        function revealTab() {
-          const tab = codeTabs.querySelector('[aria-selected="true"]');
-          if (tab && codeTabs.clientWidth) {
-            const edge = 26;
-            const left = tab.offsetLeft - edge;
-            const right = tab.offsetLeft + tab.offsetWidth + edge - codeTabs.clientWidth;
-            if (codeTabs.scrollLeft > left) codeTabs.scrollLeft = Math.max(0, left);
-            else if (codeTabs.scrollLeft < right) codeTabs.scrollLeft = right;
+        function syncEye() {
+          const t = window.miruiLanguage.t;
+          focusBtn.disabled = !sourceFocus;
+          focusBtn.classList.toggle("on", focusMode);
+          focusBtn.setAttribute("aria-pressed", String(focusMode));
+          eyeOpen.style.display = focusMode ? "block" : "none";
+          eyeOff.style.display = focusMode ? "none" : "block";
+          focusBtn.title = t(!sourceFocus ? "gallery.focusNone" : focusMode ? "gallery.focusOn" : "gallery.focusOff");
+          focusBtn.setAttribute("aria-label", t("gallery.focus"));
+        }
+
+        // Scrolls only the strip, never the page, so the current tab clears
+        // the faded edges. A resize, such as the drawer opening, uses the
+        // least scroll that shows the tab.
+        function revealTab(fit = false) {
+          const tab = codeTabs.querySelector('[tabindex="0"]');
+          const edge = 26;
+          if (tab && codeTabs.clientWidth > edge * 2) {
+            const least = Math.max(0, tab.offsetLeft + tab.offsetWidth + edge - codeTabs.clientWidth);
+            const most = Math.max(least, tab.offsetLeft - edge);
+            codeTabs.scrollLeft = fit ? least : Math.min(Math.max(codeTabs.scrollLeft, least), most);
           }
           syncTabFade();
         }
@@ -3464,7 +3512,7 @@ fn counter_panel(counter: model!(Counter)) {
               return `<div class="row gap"><span class="ln">⋯</span><span class="tx"><span class="gap-label">${escapeHtml(row.file.name)}:${row.line}</span></span></div>`;
             }
             const mark = marks && marks.has(row.line) ? " mark" : "";
-            return `<div class="row${mark}"><span class="ln">${row.line}</span><span class="tx">${html[next++] || ""}</span></div>`;
+            return `<div class="row${mark}" data-file="${row.file.index}" data-line="${row.line}"><span class="ln">${row.line}</span><span class="tx">${html[next++] || ""}</span></div>`;
           });
           codeBody.innerHTML = `<div class="code-rows" id="code" style="--ln-w: ${width}ch">${out.join("")}</div>`;
         }
@@ -3472,8 +3520,9 @@ fn counter_panel(counter: model!(Counter)) {
         function renderSource() {
           const t = window.miruiLanguage.t;
           renderTabs();
-          const view = sourceViews()[sourceTab];
-          if (!view) {
+          syncEye();
+          const file = sourceFiles[sourceTab];
+          if (!file) {
             codeBody.innerHTML = `<div class="code-empty">${escapeHtml(t("gallery.noSource"))} <code>${escapeHtml(activeSlug)}</code>.</div>`;
             codeFile.textContent = "";
             codeFile.title = "";
@@ -3487,18 +3536,18 @@ fn counter_panel(counter: model!(Counter)) {
           let marks = null;
           let paths;
           let anchor = "";
-          if (view.focus) {
+          if (focusMode) {
             rows = sourceFocus;
             const lines = rows.filter((row) => !row.gap);
             paths = [...new Set(lines.map((row) => row.file.path))];
             if (paths.length === 1) anchor = `#L${lines[0].line}-L${lines[lines.length - 1].line}`;
             codeCount.textContent = t("gallery.lines").replace("{n}", lines.length);
           } else {
-            rows = view.file.lines.map((text, index) => ({ line: index + 1, text }));
+            rows = file.lines.map((text, index) => ({ file, line: index + 1, text }));
             if (sourceFocus) {
-              marks = new Set(sourceFocus.filter((row) => !row.gap && row.file === view.file).map((row) => row.line));
+              marks = new Set(sourceFocus.filter((row) => !row.gap && row.file === file).map((row) => row.line));
             }
-            paths = [view.file.path];
+            paths = [file.path];
             codeCount.textContent = t("gallery.lines").replace("{n}", rows.length);
           }
           codeGithub.href = REPO_BLOB + paths[0] + anchor;
@@ -3510,18 +3559,82 @@ fn counter_panel(counter: model!(Counter)) {
         }
 
         function selectSourceTab(index, focus = false) {
-          const count = sourceViews().length;
+          const count = sourceFiles.length;
           if (!count) return;
           sourceTab = (index + count) % count;
+          focusMode = false;
           codeBody.scrollTop = 0;
           codeBody.scrollLeft = 0;
           renderSource();
-          if (focus) codeTabs.querySelector('[aria-selected="true"]')?.focus();
+          if (focus) codeTabs.querySelector('[tabindex="0"]')?.focus();
         }
 
+        // The code rows on screen, each with how far it sits below the top.
+        function visibleRows() {
+          const top = codeBody.scrollTop;
+          const rows = [];
+          for (const row of codeBody.querySelectorAll(".row[data-line]")) {
+            if (row.offsetTop >= top + codeBody.clientHeight) break;
+            if (row.offsetTop + row.offsetHeight > top) {
+              rows.push({ file: Number(row.dataset.file), line: Number(row.dataset.line), offset: row.offsetTop - top });
+            }
+          }
+          return rows;
+        }
+
+        function keepRow(spot) {
+          const row = spot && codeBody.querySelector(`.row[data-file="${spot.file}"][data-line="${spot.line}"]`);
+          codeBody.scrollTop = row ? row.offsetTop - spot.offset : 0;
+        }
+
+        // Turns the eye on or off, or opens one file from the tree. The tree
+        // line being read stays where it is on screen while the scaffolding
+        // appears around it or goes.
+        function setFocus(on, file = null) {
+          if (!sourceFocus || on === focusMode) return;
+          let spot = null;
+          const seen = visibleRows();
+          if (on) {
+            // From a file: its first tree line from the top of the screen on.
+            const own = sourceFocus.filter((row) => !row.gap && row.file.index === sourceTab);
+            const next = seen.length && (own.find((row) => row.line >= seen[0].line) || own[own.length - 1]);
+            const row = next && codeBody.querySelector(`.row[data-line="${next.line}"]`);
+            if (row) {
+              const offset = Math.min(Math.max(row.offsetTop - codeBody.scrollTop, -row.offsetHeight), codeBody.clientHeight / 2);
+              spot = { file: sourceTab, line: next.line, offset };
+            }
+          } else {
+            // From the tree: the file filling most of the screen, unless a
+            // tab picked one.
+            let target = file;
+            if (target === null) {
+              const count = new Map();
+              for (const row of seen) count.set(row.file, (count.get(row.file) || 0) + 1);
+              target = seen.length ? [...count].sort((a, b) => b[1] - a[1])[0][0] : sourceTab;
+            }
+            spot = seen.find((row) => row.file === target) || null;
+            if (!spot) {
+              const first = sourceFocus.find((row) => !row.gap && row.file.index === target);
+              if (first) spot = { file: target, line: first.line, offset: 64 };
+            }
+            sourceTab = target;
+          }
+          focusMode = on;
+          renderSource();
+          keepRow(spot);
+          codeBody.scrollLeft = 0;
+          document.getElementById("code")?.classList.add(on ? "settle" : "grow");
+        }
+
+        focusBtn.addEventListener("click", () => {
+          focusPreferred = !focusMode;
+          setFocus(focusPreferred);
+        });
         codeTabs.addEventListener("click", (event) => {
           const tab = event.target.closest("[data-tab]");
-          if (tab) selectSourceTab(Number(tab.dataset.tab));
+          if (!tab) return;
+          if (focusMode) setFocus(false, Number(tab.dataset.tab));
+          else selectSourceTab(Number(tab.dataset.tab));
         });
         codeTabs.addEventListener("keydown", (event) => {
           const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
@@ -3536,7 +3649,7 @@ fn counter_panel(counter: model!(Counter)) {
           codeTabs.scrollLeft += event.deltaY;
         }, { passive: false });
         codeTabs.addEventListener("scroll", syncTabFade, { passive: true });
-        if ("ResizeObserver" in window) new ResizeObserver(revealTab).observe(codeTabs);
+        if ("ResizeObserver" in window) new ResizeObserver(() => revealTab(true)).observe(codeTabs);
 
         loadSource(activeSlug);
         renderSource();
