@@ -1297,13 +1297,25 @@
               </button>
               <div class="arcade" id="arcade">
                 <div class="arcade-stage" id="arcade-stage" tabindex="0" aria-label="Featured games; drag or use the arrow keys to change game">
-                  <button class="arcade-card arcade-prev" id="arcade-prev" type="button" aria-label="Previous game">
-                    <span class="arcade-card-bar"><b data-i18n="game.post">Pocket Post</b><small>13 / 13</small></span>
+                  <button class="arcade-card" type="button" data-slot="prev" data-slug="pocket_post" aria-label="Previous game">
+                    <span class="arcade-card-bar"><i class="arcade-card-led" aria-hidden="true"></i><b data-i18n="game.post">Pocket Post</b><small>13 / 13</small></span>
                     <img data-preview="pocket_post" alt="" draggable="false" />
                   </button>
-                  <button class="arcade-card arcade-next" id="arcade-next" type="button" aria-label="Next game">
-                    <span class="arcade-card-bar"><b data-i18n="game.twin">Twin Beacons</b><small>02 / 13</small></span>
+                  <button class="arcade-card" type="button" data-slot="next" data-slug="twin_beacons" aria-label="Next game">
+                    <span class="arcade-card-bar"><i class="arcade-card-led" aria-hidden="true"></i><b data-i18n="game.twin">Twin Beacons</b><small>02 / 13</small></span>
                     <img data-preview="twin_beacons" alt="" draggable="false" />
+                  </button>
+                  <button class="arcade-card" type="button" data-slot="spare" tabindex="-1" aria-hidden="true">
+                    <span class="arcade-card-bar"><i class="arcade-card-led" aria-hidden="true"></i><b></b><small></small></span>
+                    <img alt="" draggable="false" />
+                  </button>
+                  <button class="arcade-card" type="button" data-slot="spare" tabindex="-1" aria-hidden="true">
+                    <span class="arcade-card-bar"><i class="arcade-card-led" aria-hidden="true"></i><b></b><small></small></span>
+                    <img alt="" draggable="false" />
+                  </button>
+                  <button class="arcade-card" type="button" data-slot="spare" tabindex="-1" aria-hidden="true">
+                    <span class="arcade-card-bar"><i class="arcade-card-led" aria-hidden="true"></i><b></b><small></small></span>
+                    <img alt="" draggable="false" />
                   </button>
                   <div class="arcade-screen" id="arcade-screen">
                     <div class="arcade-meta"><span class="arcade-led" aria-hidden="true"></span><strong id="arcade-name">Marble Playground</strong><small id="arcade-genre">Creative</small></div>
@@ -3861,8 +3873,9 @@ fn counter_panel(counter: model!(Counter)) {
         const arcadeGlass = document.getElementById("arcade-glass");
         const arcadePoster = document.getElementById("arcade-poster");
         const playCanvas = document.getElementById("mirui-play");
-        const arcadePrev = document.getElementById("arcade-prev");
-        const arcadeNext = document.getElementById("arcade-next");
+        // Five cartridges share the deck: two in view, the rest staged out of sight.
+        const deck = Array.from(arcadeStage.querySelectorAll(".arcade-card"));
+        const inSlot = (slot) => deck.find((card) => card.dataset.slot === slot);
         const arcadeShelf = document.getElementById("arcade-shelf");
         const split = document.getElementById("split");
         const GAMES = Array.from(document.querySelectorAll("#demo-grid .demo-card")).map((card) => {
@@ -3876,12 +3889,30 @@ fn counter_panel(counter: model!(Counter)) {
         let paneVisible = true;
         let arcadeDrag = null;
         const t = (key) => window.miruiLanguage.t(key);
-        const gameAt = (index) => GAMES[(index + GAMES.length) % GAMES.length];
+        const wrap = (index) => (index + GAMES.length) % GAMES.length;
+        const gameAt = (index) => GAMES[wrap(index)];
         const two = (value) => String(value).padStart(2, "0");
 
         function showPreview(image, slug) {
           image.dataset.preview = slug;
-          image.src = window.miruiPreview(slug);
+          const url = window.miruiPreview(slug);
+          if (image.getAttribute("src") !== url) image.src = url;
+        }
+
+        // Moves a card without animating, to stage it out of sight.
+        function place(card, slot) {
+          card.classList.add("instant");
+          card.dataset.slot = slot;
+          void card.offsetWidth;
+          card.classList.remove("instant");
+        }
+
+        // The next jumps in either direction are decoded before they are needed.
+        function warmPreviews() {
+          for (const step of [-2, 2]) {
+            const image = new Image();
+            image.src = window.miruiPreview(gameAt(arcadeIndex + step).slug);
+          }
         }
 
         function fillCard(card, game, order) {
@@ -3900,8 +3931,8 @@ fn counter_panel(counter: model!(Counter)) {
           document.getElementById("arcade-genre").textContent = t(`genre.${game.genre}`);
           document.getElementById("arcade-count").textContent = `${two(arcadeIndex + 1)} / ${two(GAMES.length)}`;
           if (neighbours) {
-            fillCard(arcadePrev, gameAt(arcadeIndex - 1), (arcadeIndex - 1 + GAMES.length) % GAMES.length);
-            fillCard(arcadeNext, gameAt(arcadeIndex + 1), (arcadeIndex + 1) % GAMES.length);
+            fillCard(inSlot("prev"), gameAt(arcadeIndex - 1), wrap(arcadeIndex - 1));
+            fillCard(inSlot("next"), gameAt(arcadeIndex + 1), wrap(arcadeIndex + 1));
           }
           for (const item of arcadeShelf.children) {
             item.setAttribute("aria-current", String(item.dataset.slug === game.slug));
@@ -3941,10 +3972,24 @@ fn counter_panel(counter: model!(Counter)) {
           playCanvas.style.height = `${320 * scale}px`;
           arcadeStage.style.setProperty("--screen-w", `${screenW}px`);
           arcadeStage.style.setProperty("--screen-h", `${screenH}px`);
+          const screenOuter = arcadeScreen.offsetWidth;
+          arcadeStage.style.setProperty("--screen-outer", `${screenOuter}px`);
+          // A card's picture lands exactly on the glass, and the screen steps
+          // back to exactly a card's size.
+          const card = deck[0];
+          const cardW = card.offsetWidth;
+          const cardH = card.offsetHeight;
+          const image = card.querySelector("img");
+          if (image.offsetWidth) {
+            const land = arcadeGlass.offsetWidth / image.offsetWidth;
+            const imageMid = card.clientTop + image.offsetTop + image.offsetHeight / 2 - cardH / 2;
+            const glassMid = arcadeScreen.clientTop + arcadeGlass.offsetTop + arcadeGlass.offsetHeight / 2 - arcadeScreen.offsetHeight / 2;
+            arcadeStage.style.setProperty("--land-s", land.toFixed(4));
+            arcadeStage.style.setProperty("--land-y", `${(glassMid - imageMid * land).toFixed(2)}px`);
+          }
+          arcadeStage.style.setProperty("--screen-as-card", ((0.86 * cardW) / screenOuter).toFixed(4));
           // Neighbours peek out from behind the screen, but their tilted outline
           // stays 10px inside the stage, so their titles are never clipped.
-          const cardW = screenW * 0.72;
-          const cardH = arcadePrev.offsetHeight || cardW * 0.75;
           const tilt = Math.sin((8 * Math.PI) / 180);
           const halfW = 0.86 * (cardW / 2 + (cardH / 2) * tilt);
           const halfH = 0.86 * (cardH / 2 + (cardW / 2) * tilt);
@@ -4006,60 +4051,84 @@ fn counter_panel(counter: model!(Counter)) {
           }
         }
 
-        // The flying card lands with its picture exactly on the glass.
-        function aimFlight(card) {
-          const image = card.querySelector("img");
-          if (!image.offsetWidth) return;
-          const scale = arcadeGlass.offsetWidth / image.offsetWidth;
-          const imageMid = card.clientTop + image.offsetTop + image.offsetHeight / 2 - card.offsetHeight / 2;
-          const glassMid = arcadeScreen.clientTop + arcadeGlass.offsetTop + arcadeGlass.offsetHeight / 2 - arcadeScreen.offsetHeight / 2;
-          card.style.setProperty("--land-s", scale.toFixed(4));
-          card.style.setProperty("--land-y", `${(glassMid - imageMid * scale).toFixed(2)}px`);
-        }
+        const decoded = (images) => Promise.all(images.map((image) => image.decode().catch(() => {})));
+        const delay = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
+        // Every card moves one slot on: the neighbour lands on the glass, the
+        // screen steps back into the slot behind, the far neighbour leaves and
+        // a new one slides in. Nothing in view changes game.
         function selectGame(index, direction = 1) {
-          const target = (index + GAMES.length) % GAMES.length;
+          const target = wrap(index);
           if (arcadeSwitching || target === arcadeIndex) return;
           arcadeSwitching = true;
           const game = gameAt(target);
           if (!motionEnabled) {
             // No flight: swap in the decoded preview, then the live game.
             showPreview(arcadePoster, game.slug);
-            arcadePoster.decode().catch(() => {}).then(() => {
+            decoded([arcadePoster]).then(() => {
               arcadeSwitching = false;
               switchPlay(target);
             });
             return;
           }
-          const incoming = direction < 0 ? arcadePrev : arcadeNext;
-          fillCard(incoming, game, target);
-          aimFlight(incoming);
-          // The hidden poster decodes the same picture while the card flies.
+          const ahead = direction > 0 ? "next" : "prev";
+          const behind = direction > 0 ? "prev" : "next";
+          const spares = deck.filter((card) => card.dataset.slot === "spare");
+          const oldAhead = inSlot(ahead);
+          const oldBehind = inSlot(behind);
+          // A jump from the shelf brings its game in from beyond the deck.
+          let incoming = oldAhead;
+          if (oldAhead.dataset.slug !== game.slug) {
+            incoming = spares.pop();
+            fillCard(incoming, game, target);
+            place(incoming, `far-${ahead}`);
+          }
+          // The card under the screen steps back with it. On a plain step it
+          // carries the game the screen shows; after a jump, the new neighbour.
+          const carrier = spares.pop();
+          fillCard(carrier, gameAt(target - direction), wrap(target - direction));
+          place(carrier, "lift");
+          const arriving = spares.pop();
+          fillCard(arriving, gameAt(target + direction), wrap(target + direction));
+          place(arriving, `far-${ahead}`);
+          // The hidden poster decodes the landing picture during the flight.
           showPreview(arcadePoster, game.slug);
-          const decoded = arcadePoster.decode().catch(() => {});
-          const flown = new Promise((resolve) => window.setTimeout(resolve, 580));
-          incoming.classList.add("is-flying");
-          arcadeStage.classList.add("switching", direction < 0 ? "to-prev" : "to-next");
-          Promise.all([flown, decoded]).then(() => {
-            // The screen returns under the card showing that picture, and the
-            // card dissolves into it. Neighbours change only while hidden.
+          const pictures = [incoming, carrier, arriving].map((card) => card.querySelector("img"));
+          Promise.race([decoded(pictures), delay(160)]).then(() => {
+            oldBehind.dataset.slot = `far-${behind}`;
+            if (oldAhead !== incoming) oldAhead.dataset.slot = `far-${ahead}`;
+            carrier.dataset.slot = behind;
+            arriving.dataset.slot = ahead;
+            incoming.dataset.slot = "center";
+            arcadeStage.classList.add("switching", direction > 0 ? "to-next" : "to-prev");
+            return Promise.all([delay(580), decoded([arcadePoster])]);
+          }).then(() => {
+            // The screen returns under the landed card with the same picture,
+            // and the card dissolves into it.
             arcadeStage.classList.add("landing");
             switchPlay(target);
-            arcadeStage.classList.remove("switching", "to-prev", "to-next");
-            window.setTimeout(() => {
-              arcadeStage.classList.add("settling");
-              incoming.classList.remove("is-flying");
-              arcadeSwitching = false;
-              renderArcade();
-              void arcadeStage.offsetWidth;
-              arcadeStage.classList.remove("settling", "landing");
-            }, 240);
+            arcadeStage.classList.remove("switching", "to-next", "to-prev");
+            incoming.classList.add("dissolve");
+            return delay(220);
+          }).then(() => {
+            for (const card of deck) {
+              if (card.dataset.slot !== "prev" && card.dataset.slot !== "next") place(card, "spare");
+            }
+            incoming.classList.remove("dissolve");
+            arcadeStage.classList.remove("landing");
+            arcadeSwitching = false;
+            renderArcade();
+            warmPreviews();
           });
         }
 
         const stepGame = (direction) => selectGame(arcadeIndex + direction, direction);
-        arcadePrev.addEventListener("click", () => stepGame(-1));
-        arcadeNext.addEventListener("click", () => stepGame(1));
+        for (const card of deck) {
+          card.addEventListener("click", () => {
+            if (card.dataset.slot === "prev") stepGame(-1);
+            else if (card.dataset.slot === "next") stepGame(1);
+          });
+        }
         document.getElementById("arcade-step-prev").addEventListener("click", () => stepGame(-1));
         document.getElementById("arcade-step-next").addEventListener("click", () => stepGame(1));
         document.getElementById("arcade-play").addEventListener("click", (event) => {
@@ -4128,6 +4197,7 @@ fn counter_panel(counter: model!(Counter)) {
           requestAnimationFrame(sizePlay);
         });
         renderArcade();
+        warmPreviews();
         window.setTimeout(startPlay, 350);
 
         for (const button of document.querySelectorAll("[data-open-demo]")) {

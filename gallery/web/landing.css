@@ -1404,6 +1404,7 @@ html[data-mode="focus"] .device-grip { display: none; }
 }
 
 .arcade-stage {
+  --deck-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --drag: 0px;
   --screen-w: 480px;
   --screen-h: 360px;
@@ -1458,7 +1459,7 @@ html[data-mode="focus"] .device-grip { display: none; }
   background: linear-gradient(180deg, #1a1d25, #121419);
   box-shadow: 0 40px 80px -40px rgba(8, 12, 40, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
   transform: translate(calc(-50% + var(--drag)), -50%);
-  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
+  transition: transform 0.56s var(--deck-ease), opacity 0.36s ease;
 }
 
 .arcade-meta {
@@ -1468,6 +1469,7 @@ html[data-mode="focus"] .device-grip { display: none; }
   padding: 3px 6px 9px;
   color: #eceef2;
   font-size: 13.5px;
+  line-height: 1.6;
 }
 
 .arcade-meta strong { font-weight: 600; }
@@ -1503,77 +1505,86 @@ html[data-mode="focus"] .device-grip { display: none; }
 /* Shown at once, so the picture under a landing card is already there. */
 .arcade-poster.show { opacity: 1; transition-duration: 0s; }
 
+/* A cartridge is the screen at 72%: bezel, bar and glass keep its
+   proportions, so a card that lands on the glass, or the screen that steps
+   back into a card, lines up edge for edge in either theme. */
 .arcade-card {
+  --k: 0.72;
   position: absolute;
   z-index: 1;
   left: 50%;
   top: 48%;
-  width: calc(var(--screen-w) * 0.72);
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--site-blue) 26%, var(--site-rule));
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--site-panel) 90%, var(--site-blue-wash));
-  box-shadow: 0 30px 60px -38px rgba(11, 17, 54, 0.75);
-  color: inherit;
+  width: calc(var(--screen-outer, 498px) * var(--k));
+  padding: calc(9px * var(--k));
+  border: 1px solid color-mix(in srgb, var(--site-blue) 22%, var(--site-rule-strong));
+  border-radius: calc(22px * var(--k));
+  background: linear-gradient(180deg, #1a1d25, #121419);
+  box-shadow: 0 30px 60px -38px rgba(8, 12, 40, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  color: #eceef2;
   text-align: left;
   cursor: pointer;
-  opacity: 0.74;
+  filter: brightness(0.9) saturate(0.85);
   user-select: none;
-  transition: transform 0.56s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease, filter 0.3s ease, background-color 0.4s ease, border-color 0.4s ease;
+  transition: transform 0.56s var(--deck-ease), opacity 0.32s ease, filter 0.4s ease;
 }
 
 .arcade-card:hover,
-.arcade-card:focus-visible { opacity: 1; filter: brightness(1.06); outline: 2px solid color-mix(in srgb, var(--site-blue) 55%, transparent); outline-offset: 3px; }
-.arcade-card img { display: block; width: 100%; aspect-ratio: 3 / 2; border-radius: 11px; object-fit: cover; filter: saturate(0.8); -webkit-user-drag: none; }
+.arcade-card:focus-visible { filter: none; outline: 2px solid color-mix(in srgb, var(--site-blue) 55%, transparent); outline-offset: 3px; }
+.arcade-card img { display: block; width: 100%; aspect-ratio: 3 / 2; border-radius: calc(13px * var(--k)); object-fit: cover; -webkit-user-drag: none; }
 
 .arcade-card-bar {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 1px 4px 7px;
-  color: var(--site-muted);
-  font: 500 10.5px/1.2 var(--font-mono);
-  transition: color 0.4s ease;
+  align-items: center;
+  gap: calc(9px * var(--k));
+  padding: calc(3px * var(--k)) calc(6px * var(--k)) calc(9px * var(--k));
+  font-size: calc(13.5px * var(--k));
+  line-height: 1.6;
 }
 
-.arcade-card-bar b { overflow: hidden; color: var(--site-ink-2); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; transition: color 0.4s ease; }
+.arcade-card-bar b { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.arcade-card-bar small { margin-left: auto; color: #8d919a; font: 500 calc(11px * var(--k))/1 var(--font-mono); }
 
-/* Neighbouring cartridges peek out behind the top corners of the screen. */
-.arcade-prev { transform: translate(calc(-50% - var(--peek, var(--screen-w) * 0.44) + var(--drag)), calc(-50% - var(--lift-prev, var(--screen-h) * 0.34))) rotate(-8deg) scale(0.86); }
-.arcade-next { z-index: 2; transform: translate(calc(-50% + var(--peek, var(--screen-w) * 0.44) + var(--drag)), calc(-50% - var(--lift-next, var(--screen-h) * 0.26))) rotate(7deg) scale(0.86); }
+.arcade-card-led {
+  flex: 0 0 auto;
+  width: calc(7px * var(--k));
+  height: calc(7px * var(--k));
+  border-radius: 50%;
+  background: #4a4f59;
+  transition: background-color 0.4s ease, box-shadow 0.4s ease;
+}
 
-/* Card flight: the neighbour lands on the glass while the screen slips away. */
-.arcade-stage.switching .arcade-screen { opacity: 0; }
-.arcade-stage.to-next .arcade-screen { transform: translate(-108%, -42%) rotate(-7deg) scale(0.8); }
-.arcade-stage.to-prev .arcade-screen { transform: translate(8%, -58%) rotate(7deg) scale(0.8); }
-.arcade-stage.switching .arcade-card:not(.is-flying) { opacity: 0; }
+/* Deck slots. A switch moves every card one slot on; a card only changes
+   game while it is out of sight. */
+.arcade-card[data-slot="prev"] { transform: translate(calc(-50% - var(--peek, var(--screen-w) * 0.44) + var(--drag)), calc(-50% - var(--lift-prev, var(--screen-h) * 0.34))) rotate(-8deg) scale(0.86); }
+.arcade-card[data-slot="next"] { z-index: 2; transform: translate(calc(-50% + var(--peek, var(--screen-w) * 0.44) + var(--drag)), calc(-50% - var(--lift-next, var(--screen-h) * 0.26))) rotate(7deg) scale(0.86); }
+.arcade-card[data-slot="far-prev"] { transform: translate(calc(-50% - var(--peek, var(--screen-w) * 0.44) * 1.9), calc(-50% - var(--lift-prev, var(--screen-h) * 0.34) * 0.55)) rotate(-15deg) scale(0.7); }
+.arcade-card[data-slot="far-next"] { z-index: 2; transform: translate(calc(-50% + var(--peek, var(--screen-w) * 0.44) * 1.9), calc(-50% - var(--lift-next, var(--screen-h) * 0.26) * 0.55)) rotate(14deg) scale(0.7); }
 
-/* On the way in the card takes on the screen's bezel and full colour. */
-.arcade-card.is-flying {
-  z-index: 4;
-  border-color: color-mix(in srgb, var(--site-blue) 22%, var(--site-rule-strong));
-  background-color: #16191f;
-  opacity: 1;
+/* Over the screen: "center" is a card landing on the glass, "lift" a card
+   under the screen that steps back with it. */
+.arcade-card[data-slot="center"],
+.arcade-card[data-slot="lift"] {
   filter: none;
-  outline: none;
-  transform: translate(-50%, -50%) translateY(var(--land-y, 0px)) scale(var(--land-s, 1.38));
+  pointer-events: none;
+  transform: translate(-50%, -50%) translateY(var(--land-y, 0px)) scale(var(--land-s, 1.389));
 }
 
-.arcade-card.is-flying img { filter: none; transition: filter 0.4s ease; }
-.arcade-card.is-flying .arcade-card-bar { color: #8d919a; }
-.arcade-card.is-flying .arcade-card-bar b { color: #eceef2; }
+.arcade-card[data-slot="center"] { z-index: 4; outline: none; }
+.arcade-card[data-slot="center"] .arcade-card-led { background: var(--site-lime); box-shadow: 0 0 calc(10px * var(--k)) color-mix(in srgb, var(--site-lime) 70%, transparent); }
+.arcade-card[data-slot="far-prev"],
+.arcade-card[data-slot="far-next"],
+.arcade-card[data-slot="spare"] { opacity: 0; pointer-events: none; }
+.arcade-card[data-slot="spare"] { visibility: hidden; }
+.arcade-card.dissolve { opacity: 0; transition: opacity 0.2s ease; }
+.arcade-card.instant,
+.arcade-card.instant * { transition: none !important; }
 
-/* Hand-off: the screen is back under the card with the same picture, so the
-   card dissolves into it instead of blinking out. */
+/* The screen shrinks into the slot behind and fades; the card under it is
+   already that slot's cartridge, so it seems to become one. */
+.arcade-stage.switching .arcade-screen { opacity: 0; }
+.arcade-stage.to-next .arcade-screen { transform: translate(calc(-50% - var(--peek, 0px)), calc(-50% - var(--lift-prev, 0px))) rotate(-8deg) scale(var(--screen-as-card, 0.62)); }
+.arcade-stage.to-prev .arcade-screen { transform: translate(calc(-50% + var(--peek, 0px)), calc(-50% - var(--lift-next, 0px))) rotate(7deg) scale(var(--screen-as-card, 0.62)); }
 .arcade-stage.landing .arcade-screen { transition: none; }
-.arcade-stage.landing .arcade-card.is-flying { opacity: 0; transition: opacity 0.2s ease; }
-
-/* Neighbours take their new games out of sight, then fade back in. */
-.arcade-stage.settling .arcade-card,
-.arcade-stage.settling .arcade-card img,
-.arcade-stage.settling .arcade-card-bar,
-.arcade-stage.settling .arcade-card-bar b { transition: none; }
-.arcade-stage.settling .arcade-card { opacity: 0; }
 
 .sticker {
   position: absolute;
