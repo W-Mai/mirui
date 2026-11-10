@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Remove duplicate header lyric previews from the embedded prompter; retain the right-aligned bar counter and scrolling lyric context.
+
 - Display complete prompter bars with native 18px lyrics and chords, source accents, a right-aligned bar counter and beat-group markers; retain horizontal pre-reading and wrap and vertically scroll long content without a fragment-length display limit. Align chord, beat and strum onsets with a fixed central needle.
 
 - Restore fixed sibling paint displaced by framebuffer scroll transfers, including translucent overlays.

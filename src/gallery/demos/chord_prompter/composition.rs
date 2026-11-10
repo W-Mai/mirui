@@ -23,12 +23,8 @@ pub(super) fn build_widgets(session: model!(Session)) {
                 left: 1, top: 1, width: 3, height: 3,
                 bg_color: ${ if session.connected() { ColorToken::Success } else { ColorToken::OnSurfaceVariant } }
             ) [ IgnoreHitTest ]
-            Row(height:12,column_gap:2) {
-                Text(text:${session.next_hint()},capacity:32,grow:1.0,font_size:12,text_color:ColorToken::OnSurfaceVariant,
-                    paragraph:ParagraphStyle::label().with_align(crate::ui::widgets::TextAlign::Start))
-                Text(id:"prompter_bar",text:${session.bar_label()},width:42,height:12,font_size:12,
-                    text_color:ColorToken::OnSurfaceVariant,paragraph:ParagraphStyle::label().with_align(crate::ui::widgets::TextAlign::End))
-            }
+            Text(id:"prompter_bar",text:${session.bar_label()},width:Dimension::percent(100),height:12,font_size:12,
+                text_color:ColorToken::OnSurfaceVariant,paragraph:ParagraphStyle::label().with_align(crate::ui::widgets::TextAlign::End))
             Column(grow:1.0,min_height:62,min_width:0,clip_children:true) {
                 Column (
                     id: "prompter_sheet_viewport", grow: 1.0, min_height: 62,

@@ -59,8 +59,6 @@ pub struct Session {
     #[observe]
     pub page_scroll: Fixed,
     #[observe]
-    pub next_hint: String,
-    #[observe]
     pub has_next: bool,
     #[observe]
     pub sheet_scroll: Fixed,
@@ -100,7 +98,6 @@ impl Session {
             previous_content_height: Fixed::ONE,
             previous_scroll: Fixed::ZERO,
             page_scroll: Fixed::ZERO,
-            next_hint: String::with_capacity(32),
             has_next: false,
             sheet_scroll: Fixed::ZERO,
             bar_label: String::with_capacity(16),
@@ -201,20 +198,6 @@ impl Session {
         self.previous_scroll = (self.previous_content_height
             - Fixed::from_int(i32::from(self.sheet_view_height)))
         .max(Fixed::ZERO);
-        self.next_hint.clear();
-        if let Some(chord) = self.score.bar_chords(bar + 1).first() {
-            self.next_hint.push_str("> ");
-            let mut units = (self.stage_width.to_int().max(120) as usize / 6).saturating_sub(11);
-            for ch in self.score.lyric(chord).chars() {
-                let width = if ch.is_ascii() { 1 } else { 2 };
-                if width > units || self.next_hint.len() + ch.len_utf8() > 29 {
-                    self.next_hint.push_str("...");
-                    break;
-                }
-                self.next_hint.push(ch);
-                units -= width;
-            }
-        }
         self.sheet_revision = self.sheet_revision.wrapping_add(1);
         self.bar_label.clear();
         write!(

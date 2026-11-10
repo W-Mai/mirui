@@ -107,7 +107,6 @@ fn horizontal_pre_reading_and_vertical_follow_remain_independent() {
     );
     let mut session = Session::new(Score::parse(source.as_str(), ScoreLimits::DEVICE).unwrap());
     session.sheet_viewport(Fixed::from_int(120), Fixed::from_int(72));
-    assert!(session.next_hint.contains("Let"));
     assert!(session.next_content_height < Fixed::from_int(72));
     assert_eq!(session.sheet.slots[session.sheet.current_count].y, 0);
     session.toggle(0);
