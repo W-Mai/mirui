@@ -1,7 +1,7 @@
 export const SERVICE = '7e4b0001-8c20-4b6d-a52b-9f7021cf4420';
 const uuid = n => SERVICE.replace('0001', n);
 export const PATTERNS = ['whole', 'quarter', 'pop', 'poprock', 'ballad', 'folk', 'rock', 'punk', 'reggae', 'shuffle', 'country', 'arpeggio'];
-const errors = ['OK', 'Request out of order; reconnect', 'Score changed; read device state', 'Invalid control packet', 'Device capacity exceeded', 'Incomplete or out-of-order upload', 'Upload checksum mismatch', 'Invalid song sheet', 'Control rejected or queue full', 'Text contains characters outside the bundled font'];
+const errors = ['OK', 'Request out of order; reconnect', 'Score changed; reconnect the display', 'Invalid control packet', 'Device capacity exceeded', 'Incomplete or out-of-order upload', 'Upload checksum mismatch', 'Invalid song sheet', 'Control rejected or queue full', 'Text contains characters outside the bundled font'];
 
 export function checksum(bytes) {
     let hash = 0x811c9dc5;
@@ -151,21 +151,38 @@ export class ChordLink {
         return reply;
     }
     command(opcode, arg = 0, boundary = 0, target = 0) {
-        return this.enqueue(() => this.exchange(this.packet(opcode, arg, boundary, target)));
+        const generation = this.generation;
+        return this.enqueue(() => {
+            const packet = this.packet(opcode, arg, boundary, target);
+            new DataView(packet.buffer).setUint32(3, generation, true);
+            return this.exchange(packet);
+        });
     }
-    upload(source, progress = () => {}) {
+    async upload(source, progress = () => {}) {
+        const epoch = this.epoch;
+        if (this.transferEpoch === epoch) throw new Error('A song upload is already running');
         const bytes = new TextEncoder().encode(source);
-        if (!bytes.length || bytes.length > 8192) return Promise.reject(new Error('Song sheet must contain 1–8192 UTF-8 bytes'));
-        return this.enqueue(async () => {
-            await this.exchange(this.packet(16, bytes.length, 0, checksum(bytes)));
+        if (!bytes.length || bytes.length > 8192) throw new Error('Song sheet must contain 1–8192 UTF-8 bytes');
+        this.transferEpoch = epoch;
+        const ordered = operation => this.enqueue(() => {
+            if (epoch !== this.epoch) throw new Error('Connection closed');
+            return operation();
+        });
+        try {
+            await ordered(() => this.exchange(this.packet(16, bytes.length, 0, checksum(bytes))));
             for (let offset = 0; offset < bytes.length; offset += 14) {
-                const chunk = bytes.subarray(offset, offset + 14), packet = new Uint8Array(20), v = new DataView(packet.buffer);
-                packet[0] = 17; v.setUint16(1, this.seq, true); v.setUint16(3, offset, true);
-                packet[5] = chunk.length; packet.set(chunk, 6);
-                await this.exchange(packet, this.uploadChar);
+                const chunk = bytes.subarray(offset, offset + 14);
+                await ordered(() => {
+                    const packet = new Uint8Array(20), v = new DataView(packet.buffer);
+                    packet[0] = 17; v.setUint16(1, this.seq, true); v.setUint16(3, offset, true);
+                    packet[5] = chunk.length; packet.set(chunk, 6);
+                    return this.exchange(packet, this.uploadChar);
+                });
                 progress((offset + chunk.length) / bytes.length);
             }
-            return this.exchange(this.packet(18));
-        });
+            return await ordered(() => this.exchange(this.packet(18)));
+        } finally {
+            if (this.transferEpoch === epoch) this.transferEpoch = undefined;
+        }
     }
 }

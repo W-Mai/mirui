@@ -371,3 +371,65 @@ fn all_rhythm_presentations_use_the_shared_timeline_on_the_small_display() {
         }
     }
 }
+
+#[test]
+fn prompter_fonts_use_native_one_bit_strikes_at_every_requested_size() {
+    use mirx::image::SampleLayout;
+    for (font, size, text) in [
+        (super::font::body(12), 12, "跟着节拍"),
+        (super::font::body(24), 24, "跟着节拍"),
+        (super::font::chord(36), 36, "C#Dmb"),
+        (super::font::chord(48), 48, "C#Dmb"),
+    ] {
+        for ch in text.chars() {
+            let glyph = font.map_char(ch).unwrap();
+            let raster = font.raster(glyph, size).unwrap();
+            assert_eq!(raster.representation.design_ppem(), size);
+            assert_eq!(raster.surface.sample_layout(), SampleLayout::A1);
+        }
+    }
+}
+
+#[test]
+fn connection_feedback_survives_score_replacement_and_uses_binary_pixels() {
+    use crate::prelude::*;
+    use crate::surface::FramebufferAccess;
+    let mut app = App::headless(128, 128);
+    app.with_default_widgets().with_default_systems();
+    app.add_resource(MonoClock::new(|| 0));
+    let root = app.spawn_root().id();
+    let session = install(&mut app, root);
+    let mut backgrounds = alloc::vec::Vec::new();
+    for connected in [false, true] {
+        session.set_connected(connected);
+        session.load(PRACTICE).unwrap();
+        assert_eq!(session.connected(), connected);
+        app.render_dirty().unwrap();
+        for name in ["prompter_chord", "prompter_lyric"] {
+            let entity = app.world.find_by_id(name).unwrap();
+            let rect = app.world.get::<crate::ui::ComputedRect>(entity).unwrap().0;
+            assert_eq!(rect.x, Fixed::from_int(4));
+            assert_eq!(rect.w, Fixed::from_int(120));
+            assert_eq!(
+                app.world
+                    .get::<crate::ui::widgets::Text>(entity)
+                    .unwrap()
+                    .paragraph()
+                    .align,
+                crate::ui::widgets::TextAlign::Center
+            );
+        }
+        let texture = app.backend.framebuffer();
+        let pixels = texture.read_pixels().unwrap();
+        let mut colors = alloc::collections::BTreeSet::new();
+        for y in 4..44 {
+            for x in 4..124 {
+                let offset = y * pixels.stride() + x * 4;
+                colors.insert(<[u8; 4]>::try_from(&pixels.bytes()[offset..offset + 4]).unwrap());
+            }
+        }
+        assert_eq!(colors.len(), 2, "chord pixels must not be interpolated");
+        backgrounds.push(pixels.bytes()[4 * pixels.stride() + 4 * 4..][..4].to_vec());
+    }
+    assert_ne!(backgrounds[0], backgrounds[1]);
+}

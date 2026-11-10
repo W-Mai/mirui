@@ -3,36 +3,49 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#10151b">
-    <title>Chord / Live — MIRUI</title>
+    <meta name="theme-color" content="#0e141b">
+    <title>Chord Prompter</title>
     <link rel="icon" href="../favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main>
-    <header><a href="../?demo=chord_prompter">MIRUI / EXPERIMENTS</a><span>01 — CHORD PROMPTER</span></header>
-    <section class="intro"><div><p class="eyebrow">A SMALL DISPLAY. A SHARED BEAT.</p><h1>Keep the<br><em>rhythm.</em></h1><p>Send a song sheet to your display.<br>Chords, lyrics and strums stay on its clock.</p></div>
-        <div class="connection"><span class="lamp" id="lamp"></span><p id="connection">DISPLAY OFFLINE</p><button id="connect" class="primary">Connect display ↗</button><p class="hint">Chrome or Arc on desktop / Android.<br>Bluetooth requires HTTPS or localhost.</p></div>
-    </section>
-    <section class="live" aria-label="Device playback">
-        <div class="live-heading"><span id="run-state">WAITING FOR DISPLAY</span><span id="meter">— / —</span></div>
-        <div id="beats" class="beats" aria-label="Counted beats"></div>
-        <div class="readout"><strong id="position">01<span> / 01</span></strong><div><b id="tempo-live">—</b><small>BPM · DEVICE CLOCK</small></div></div>
-        <div class="transport"><button id="play" data-device class="primary" disabled>Play →</button><button id="pause" data-device disabled>Pause</button><button id="stop" data-device disabled>Stop</button></div>
-        <div class="settings"><form id="tempo-form"><label for="tempo">TEMPO · NEXT BEAT</label><div><input id="tempo" type="number" min="20" max="300" step="0.001" value="96" required><button data-device disabled>Set</button></div></form>
-            <form id="seek-form"><label for="bar">JUMP · NEXT BAR</label><div><input id="bar" type="number" min="1" max="128" value="1" required><button data-device disabled>Go</button></div></form>
-            <form id="rhythm-form"><label for="rhythm">STRUM · NEXT BAR</label><div><select id="rhythm"><option value="255">From song sheet</option></select><button data-device disabled>Set</button></div></form></div>
-        <p id="telemetry" class="hint">Playback continues on the display when this page disconnects.</p>
-    </section>
-    <section class="sheet"><div class="sheet-heading"><div><p class="eyebrow">THE SONG SHEET</p><h2>Your next session.</h2></div><label class="file-button">Open .md<input id="file" type="file" accept=".md,.txt,text/plain,text/markdown"></label></div>
-        <textarea id="source" spellcheck="false" aria-label="Song sheet source" placeholder="Loading practice song sheet…"></textarea>
-        <div class="sheet-footer"><span id="bytes">0 / 8192 BYTES</span><button id="upload" data-device disabled>Send to display ↗</button></div><progress id="progress" max="1" value="0" aria-label="Song upload"></progress>
-        <p class="hint">The device validates the whole score before replacing the current song. An invalid upload keeps the old song. The bundled display font supports ASCII and a limited Chinese repertoire.</p>
-        <details><summary>Song sheet format</summary><p><code>|</code> separates bars. The groups after <code>@</code> assign scale degrees to bars; <code>1/5</code> divides a bar between two chords. Each <code>[word]</code> marks a chord's lyric anchor. Anchors do not encode per-character timing. Counted beat duration is 60/BPM, including in 6/8.</p></details>
-    </section>
-    <p id="message" role="status" aria-live="polite">No display connected.</p>
-    <footer>CHORD / LIVE <span>Powered by MIRUI</span></footer>
-</main>
+<div id="workbench" class="workbench">
+    <header class="topbar">
+        <div class="song-heading"><h1 id="song-title">Chord Prompter</h1><span id="mode">Browser preview</span></div>
+        <div class="tools"><span id="lamp" class="lamp" aria-hidden="true"></span><span id="connection">Not connected</span><button id="connect">Connect display</button><button id="fullscreen" class="icon-button" aria-label="Toggle fullscreen" title="Fullscreen"><svg viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button><button id="editor-toggle" class="icon-button" aria-label="Toggle editor" aria-expanded="false" aria-controls="editor" title="Editor"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16m3-11h1m-1 4h1"/></svg></button></div>
+    </header>
+    <div class="workspace">
+        <main class="stage" aria-label="Chord and lyric prompter">
+            <div class="music">
+                <div class="section-heading"><span id="section-name"></span><span id="meter">4 / 4</span></div>
+                <div id="beats" class="beats" aria-label="Counted beats"></div>
+                <div id="chord" class="chord">—</div>
+                <div id="lyric" class="lyric" aria-live="off">Loading song…</div>
+                <div class="upcoming"><span id="next-chord"></span><span id="next-lyric"></span></div>
+                <div id="strum-track" class="strum-track" aria-label="Strumming rhythm"><i id="strum-cursor"></i><div id="attacks"></div></div>
+            </div>
+            <div class="controller-wrap">
+                <p id="message" role="status" aria-live="polite"></p>
+                <div class="controller glass">
+                    <div id="transfer" class="transfer" hidden><span id="transfer-label"></span><progress id="progress" max="1" value="0" aria-label="Song upload"></progress><span id="transfer-announcement" class="sr-only" role="status" aria-live="polite"></span></div>
+                    <div class="controller-row">
+                        <div class="transport"><button id="stop" class="icon-button" data-ready aria-label="Stop" title="Stop" disabled><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1" class="solid"/></svg></button><button id="play" class="play-button" data-ready aria-label="Play" disabled><svg id="play-icon" viewBox="0 0 24 24"><path class="solid" d="m9 5 11 7-11 7z"/></svg><svg id="pause-icon" viewBox="0 0 24 24" hidden><path d="M9 6v12m6-12v12"/></svg></button></div>
+                        <div class="scrubber"><label id="position" for="position-range">Bar 1 / 1</label><input id="position-range" type="range" min="1" max="1" value="1" step="1" aria-label="Seek to bar" data-ready disabled></div>
+                        <form id="tempo-form" class="tempo-control"><label for="tempo">BPM</label><input id="tempo" type="number" min="20" max="300" step="0.001" value="96" required aria-label="Tempo"><button class="sr-only" data-ready disabled>Set tempo</button></form>
+                    </div>
+                </div>
+            </div>
+        </main>
+        <aside id="editor" class="editor" aria-label="Song editor" inert>
+            <div class="editor-heading"><h2>Song sheet</h2><button id="editor-close" class="icon-button" aria-label="Close editor"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+            <div class="file-actions"><label class="file-button">Open file<input id="file" type="file" accept=".md,.txt,text/plain,text/markdown"></label><button id="preview" data-ready disabled>Preview</button><button id="upload" class="primary" data-device disabled>Send to display</button></div>
+            <textarea id="source" spellcheck="false" aria-label="Song sheet source"></textarea>
+            <div class="editor-meta"><span id="bytes">0 / 8192 bytes</span><span id="validation" role="status"></span></div>
+            <div class="editor-settings"><form id="seek-form"><label for="bar">Jump to bar</label><div><input id="bar" type="number" min="1" max="128" value="1" required><button data-ready disabled>Go</button></div></form><form id="rhythm-form"><label for="rhythm">Strumming</label><div><select id="rhythm"><option value="255">From song</option></select><button data-ready disabled>Set</button></div></form></div>
+            <details><summary>Format and connection</summary><p><code>|</code> separates bars. Groups after <code>@</code> assign chord degrees; <code>1/5</code> divides one bar. <code>[word]</code> marks each chord's lyric anchor. Tempo changes apply on the next beat; jumps and strum changes apply on the next bar.</p><p>Connect to <strong>MIRUI Chord</strong> in Chrome or Arc on desktop, or Chrome on Android. Web Bluetooth requires HTTPS or localhost. Unsupported display-font characters are rejected when uploading.</p><p id="telemetry">Browser preview uses the shared musical transport.</p></details>
+        </aside>
+    </div>
+</div>
 <script type="module" src="app.js"></script>
 </body>
 </html>

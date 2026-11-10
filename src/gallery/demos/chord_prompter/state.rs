@@ -24,9 +24,9 @@ pub struct Session {
     #[observe]
     pub tempo: String,
     #[observe]
-    pub progress: String,
-    #[observe]
     pub playing: bool,
+    #[observe]
+    pub connected: bool,
     #[observe]
     pub bar_phase: u16,
     #[observe]
@@ -52,10 +52,10 @@ impl Session {
             lyric: String::with_capacity(capacity),
             next_lyric: String::with_capacity(capacity),
             tempo: String::with_capacity(16),
-            progress: String::with_capacity(24),
             chord: "",
             next_chord: "",
             playing: false,
+            connected: false,
             bar_phase: 0,
             beats: score.meter.beats,
             beat: 0,
@@ -95,14 +95,6 @@ impl Session {
                 self.next_chord = "END";
             }
         }
-        self.progress.clear();
-        write!(
-            &mut self.progress,
-            "BAR {:02}/{:02}",
-            bar + 1,
-            self.score.bars()
-        )
-        .expect("prepared label");
         self.tempo.clear();
         write!(&mut self.tempo, "{} BPM", self.transport.milli_bpm() / 1000)
             .expect("prepared label");
@@ -114,6 +106,9 @@ impl Session {
 
 #[crate::model]
 impl Session {
+    pub fn set_connected(&mut self, connected: bool) {
+        self.connected = connected;
+    }
     pub fn position(&self) -> u64 {
         self.transport.position()
     }
@@ -221,7 +216,9 @@ impl Session {
     pub fn load(&mut self, source: &str) -> Result<(), ScoreError> {
         let score = Score::parse(source, ScoreLimits::DEVICE)?;
         super::font::validate(&score)?;
+        let connected = self.connected;
         *self = Self::new(score);
+        self.connected = connected;
         Ok(())
     }
 }

@@ -91,6 +91,27 @@ describe('bounded device protocol', () => {
         expect(link.connected).toBe(true);
         await link.command(3);
     });
+    test('uploads yield the same ordered stream to playback controls and status', async () => {
+        const m = mock(), link = new ChordLink(); await link.open(m.device);
+        const upload = link.upload('x'.repeat(200));
+        await expect(link.upload('another song')).rejects.toThrow('already running');
+        await Promise.all([upload, link.command(3), link.sample()]);
+        const opcodes = m.writes.map(packet => packet[0]);
+        expect(opcodes[0]).toBe(16);
+        expect(opcodes.indexOf(3)).toBeGreaterThan(0);
+        expect(opcodes.indexOf(3)).toBeLessThan(opcodes.indexOf(18));
+        expect(m.peak).toBe(1);
+    });
+    test('queued controls keep the score generation selected by their caller', async () => {
+        const m = mock(), link = new ChordLink(); await link.open(m.device);
+        let release;
+        const gate = new Promise(resolve => { release = resolve; });
+        const earlier = link.enqueue(async () => { await gate; link.generation = 45; });
+        const control = link.command(5, 1, 2);
+        release();
+        await Promise.all([earlier, control]);
+        expect(new DataView(m.writes[0].buffer).getUint32(3, true)).toBe(31);
+    });
     test('queued work is bounded and retired at disconnect', async () => {
         const m = mock(), link = new ChordLink(); await link.open(m.device);
         const queued = Array.from({ length: 8 }, () => link.command(3));

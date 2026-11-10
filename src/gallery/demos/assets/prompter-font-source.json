@@ -19,5 +19,28 @@
   "charset_file": "prompter-charset.txt",
   "output": "prompter-pixel.mirx",
   "output_sha256": "719d5e52dd88761fbe33da332fe77ab869757912ab88058e7299c6bae1f86fa3",
-  "output_size": 43540
+  "output_size": 43540,
+  "native_strikes": [
+    {
+      "output": "prompter-pixel-24.mirx",
+      "size": 24,
+      "charset": "prompter-charset.txt",
+      "output_sha256": "56a4f8aade0102df6611527021bb168010789ea03969dbe97cf84077d3f99776",
+      "output_size": 56884
+    },
+    {
+      "output": "prompter-chord-36.mirx",
+      "size": 36,
+      "charset": " #ABCDEFGbm",
+      "output_sha256": "68870da2036a3a737e21a4db821bc41467bef4226999592ccd4285efc03fa364",
+      "output_size": 3388
+    },
+    {
+      "output": "prompter-chord-48.mirx",
+      "size": 48,
+      "charset": " #ABCDEFGbm",
+      "output_sha256": "6ce48fec33116317b0b851f90b4b8e62d5d9313b7bb1ce86af8c8f82d966006d",
+      "output_size": 4268
+    }
+  ]
 }

@@ -5,6 +5,8 @@ use wasm_bindgen::prelude::*;
 
 extern crate alloc;
 
+mod chord;
+
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use gallery::mirui::audio::{AudioHandle, AudioOutputState};
@@ -72,6 +74,13 @@ fn prefers_dark() -> bool {
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
+
+    if web_sys::window()
+        .and_then(|window| window.location().pathname().ok())
+        .is_some_and(|path| path.trim_end_matches('/').ends_with("/chord-prompter"))
+    {
+        return;
+    }
 
     DARK.with(|d| d.set(prefers_dark()));
     let slug = read_demo_query().unwrap_or_else(|| HOME_DEMO.to_string());

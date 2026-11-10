@@ -60,3 +60,5 @@ Browser audio should schedule future events against calibrated device/audio cloc
 ## Display font
 
 The display uses a bundled 12px one-bit MIRX font with 271 mapped characters. ASCII and a fixed Chinese subset are supported; the exact repertoire is in `src/gallery/demos/assets/prompter-charset.txt`, and font provenance and license references are in `prompter-font-source.json`. Uploads containing unsupported visible title or lyric characters return result 9 and preserve the active score. The atlas is borrowed from static storage rather than expanded into a second bitmap buffer.
+
+The browser serializes each packet and receipt pair. Long uploads yield this same bounded stream to status reads and playback commands between chunks, so the active song remains controllable during transfer. Controls retain the generation selected when requested; an operation queued across score replacement cannot silently target a different song. Only one upload runs per browser connection.

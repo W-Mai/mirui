@@ -35,8 +35,8 @@ pub(super) fn rhythm_strip(
             let x = rect.x + inset + width * Fixed::from_ratio(i32::from(attack.offset), 400);
             let active = (x - cursor).abs() < rect.w / Fixed::from_int(24);
             let color = if active { bright } else { muted };
-            let top = rect.y + Fixed::from_int(3);
-            let bottom = rect.y + rect.h - Fixed::from_int(5);
+            let top = rect.y + Fixed::ONE;
+            let bottom = rect.y + rect.h - Fixed::from_int(2);
             let string_y = |string| top + (bottom - top) * Fixed::from_ratio(i32::from(string), 5);
             if attack.stroke == super::Stroke::Pick {
                 paint.draw(&DrawCommand::Fill {
@@ -62,19 +62,19 @@ pub(super) fn rhythm_strip(
                 (top, bottom)
             };
             let tip = Fixed::from_int(if attack.stroke == super::Stroke::Up {
-                3
+                2
             } else {
-                -3
+                -2
             });
             for (p1, p2) in [
                 (Point::new(x, a), Point::new(x, b)),
                 (
                     Point::new(x, b),
-                    Point::new(x - Fixed::from_int(3), b + tip),
+                    Point::new(x - Fixed::from_int(2), b + tip),
                 ),
                 (
                     Point::new(x, b),
-                    Point::new(x + Fixed::from_int(3), b + tip),
+                    Point::new(x + Fixed::from_int(2), b + tip),
                 ),
             ] {
                 paint.draw(&DrawCommand::Line {
@@ -101,9 +101,9 @@ pub(super) fn rhythm_strip(
             let w = rect.w / Fixed::from_int(beats);
             let area = Rect::new(
                 rect.x + w * Fixed::from_int(beat) + Fixed::ONE,
-                rect.y + Fixed::from_int(3),
+                rect.y + Fixed::ONE,
                 (w - Fixed::from_int(3)).max(Fixed::ONE),
-                rect.h - Fixed::from_int(6),
+                (rect.h - Fixed::from_int(2)).max(Fixed::ONE),
             );
             paint.draw(&DrawCommand::Fill {
                 area,

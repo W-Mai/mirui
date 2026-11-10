@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add fullscreen chord playback with a bottom glass controller, a right editor and acknowledged upload progress; use centered native bitmap strikes and BLE connection colors on small displays.
+
 - Distinguish picked strings from strumming arrows and show each attack's string range.
 
 - Add a browser BLE console for bounded song-sheet uploads and beat-aligned chord prompter controls.

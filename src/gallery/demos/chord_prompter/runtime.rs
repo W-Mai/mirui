@@ -21,16 +21,22 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
     app: &mut App<B, F>,
     parent: Entity,
 ) -> SessionHandle {
-    app.with_fonts(crate::render::font::FontManager::new(
+    let width = app.backend.viewport().logical_size().0;
+    let small = width < 240;
+    let fonts = crate::render::font::FontManager::new(
         crate::core::cache::MaxSize::Unbound,
-        super::font::open(),
-    ));
+        super::font::body(if small { 12 } else { 24 }),
+    );
+    fonts.add_static(
+        super::font::CHORD.cache_key(),
+        super::font::chord(if small { 36 } else { 48 }),
+    );
+    app.with_fonts(fonts);
     let session = app
         .add_model(Session::new(
             Score::parse(super::PRACTICE, ScoreLimits::DEVICE).expect("bundled practice score"),
         ))
         .finish();
-    let width = app.backend.viewport().logical_size().0;
     app.with_widget(strips::rhythm_strip::view());
     app.add_system(advance::system(session.clone()));
     app.compose(

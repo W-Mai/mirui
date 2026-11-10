@@ -19,6 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Check chord control protocol
+        run: bun test gallery/web/tests/chord-prompter.test.js
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -52,6 +57,11 @@ jobs:
           test -s gallery/web/dist/sitemap.xml
           test -s gallery/web/dist/site.webmanifest
           test -s gallery/web/dist/favicon.svg
+          test -s gallery/web/dist/chord-prompter/index.html
+          test -s gallery/web/dist/chord-prompter/app.js
+          test -s gallery/web/dist/chord-prompter/protocol.js
+          test -s gallery/web/dist/chord-prompter/style.css
+          test -s gallery/web/dist/chord-practice.md
           test -s gallery/web/dist/orbit-console.png
           grep --fixed-strings --quiet '<link rel="canonical" href="https://mirui.rs/"' gallery/web/dist/index.html
           grep --fixed-strings --quiet 'property="og:image" content="https://mirui.rs/orbit-console.png"' gallery/web/dist/index.html
