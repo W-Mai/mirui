@@ -1,4 +1,5 @@
 import { ChordLink, SERVICE, PATTERNS } from './protocol.js';
+import { barContent } from './presentation.js';
 
 const $ = id => document.getElementById(id);
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -159,7 +160,45 @@ $('tempo-form').onsubmit = event => { event.preventDefault(); $('tempo').blur();
 $('tempo').onchange = () => { if ($('tempo').validity.valid) run(() => control(4, Math.round(Number($('tempo').value) * 1000), 1)); };
 $('seek-form').onsubmit = event => { event.preventDefault(); run(() => control(5, Number($('bar').value) - 1, 2)); };
 $('rhythm-form').onsubmit = event => { event.preventDefault(); run(() => control(6, Number($('rhythm').value), 2)); };
-$('position-range').oninput = () => { scrubbing = true; $('position').textContent = `Bar ${$('position-range').value}`; };
+let inspectedBar = null, inspectedIdentity = '';
+function showBarPreview(bar) {
+    inspectedBar = bar;
+    inspectedIdentity = '';
+    refreshBarPreview();
+}
+function hideBarPreview() {
+    inspectedBar = null;
+    $('bar-preview').hidden = true;
+}
+function refreshBarPreview() {
+    if (inspectedBar === null) return;
+    const data = usingDevice() ? deviceData : previewData;
+    const identity = `${usingDevice() ? `device-${deviceGeneration}` : `preview-${revision}`}:${inspectedBar}:${!!data}`;
+    if (identity === inspectedIdentity) return;
+    inspectedIdentity = identity;
+    $('bar-preview').hidden = false;
+    for (const [offset, name] of [[0, 'hover-current'], [1, 'hover-next']]) {
+        const content = barContent(data, inspectedBar + offset);
+        $(`${name}-label`).textContent = `Bar ${inspectedBar + offset + 1}`;
+        $(`${name}-chord`).textContent = content?.chords ?? '';
+        $(`${name}-lyric`).textContent = content ? content.lyric || 'Instrumental' : data ? 'End of song' : 'Song source not synced';
+    }
+}
+const positionRange = $('position-range');
+positionRange.setAttribute('aria-describedby', 'bar-preview');
+positionRange.onpointermove = event => {
+    const rect = positionRange.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left - 8) / Math.max(1, rect.width - 16)));
+    showBarPreview(Math.round(ratio * (Number(positionRange.max) - 1)));
+};
+positionRange.onpointerleave = () => {
+    if (document.activeElement === positionRange) showBarPreview(Number(positionRange.value) - 1);
+    else hideBarPreview();
+};
+positionRange.onfocus = () => showBarPreview(Number(positionRange.value) - 1);
+positionRange.onblur = hideBarPreview;
+positionRange.onkeydown = event => { if (event.key === 'Escape') hideBarPreview(); };
+$('position-range').oninput = () => { scrubbing = true; $('position').textContent = `Bar ${$('position-range').value}`; showBarPreview(Number(positionRange.value) - 1); };
 $('position-range').onchange = () => { run(() => control(5, Number($('position-range').value) - 1, 2)); scrubbing = false; };
 for (const [index, name] of PATTERNS.entries()) {
     const option = document.createElement('option'); option.value = String(index); option.textContent = name; $('rhythm').append(option);
@@ -256,6 +295,7 @@ function updateWords(data, tick, identity) {
     }
 }
 function frame() {
+    refreshBarPreview();
     const now = performance.now();
     const remote = usingDevice();
     const data = remote ? deviceData : previewData;

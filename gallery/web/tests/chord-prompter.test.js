@@ -1,5 +1,20 @@
 import { describe, expect, test } from 'bun:test';
 import { ChordLink, DeviceError, checksum, statusPacket } from '../chord-prompter/protocol.js';
+import { barContent } from '../chord-prompter/presentation.js';
+
+test('bar inspection respects canonical half-open bar intervals and unknown sources', () => {
+    const data = {bars: 3, beats: 4, slots: [
+        {tick: 0, chord: 'C', lyric: 'one '},
+        {tick: 1920, chord: 'G', lyric: 'two'},
+        {tick: 3840, chord: 'Am', lyric: 'next'},
+        {tick: 7680, chord: '', lyric: ''},
+    ]};
+    expect(barContent(data, 0)).toEqual({number: 1, chords: 'C · G', lyric: 'one two'});
+    expect(barContent(data, 1)).toEqual({number: 2, chords: 'Am', lyric: 'next'});
+    expect(barContent(data, 2)).toEqual({number: 3, chords: '', lyric: ''});
+    for (const bar of [-1, 3]) expect(barContent(data, bar)).toBeNull();
+    expect(barContent(null, 0)).toBeNull();
+});
 
 function mock() {
     const writes = [], received = new Map();

@@ -81,7 +81,12 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .play-button[aria-pressed="true"] #play-icon, #fullscreen[aria-pressed="true"] .fullscreen-enter { display: none; }
 .play-button[aria-pressed="true"] #pause-icon, #fullscreen[aria-pressed="true"] .fullscreen-exit { display: block; }
 .icon-button[aria-expanded="true"], .icon-button[aria-pressed="true"], #preview[aria-pressed="true"] { border-color: var(--signal-edge); background: var(--signal-wash); color: var(--signal-bright); }
-.scrubber { flex: 1; min-width: 40px; }
+.scrubber { flex: 1; min-width: 40px; position: relative; }
+.bar-preview { position: absolute; bottom: calc(100% + 20px); left: 50%; transform: translateX(-50%); width: min(440px, calc(100vw - 40px)); display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; pointer-events: none; text-align: left; }
+.bar-preview > div { min-width: 0; }
+.bar-preview span { display: block; color: var(--ink-dim); font-size: 11px; margin-bottom: 6px; }
+.bar-preview strong { display: block; color: var(--signal); font-size: 18px; overflow-wrap: anywhere; }
+.bar-preview p { margin: 8px 0 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; max-height: 9em; overflow-y: hidden; }
 .scrubber label { font-size: 11px; color: var(--ink-dim); display: block; margin-bottom: 9px; font-variant-numeric: tabular-nums; }
 input[type="range"] { width: 100%; accent-color: var(--signal); cursor: pointer; height: 4px; margin: 0; display: block; }
 .tempo-control { display: flex; flex-direction: column; align-items: center; width: 58px; }
