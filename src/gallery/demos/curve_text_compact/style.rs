@@ -8,7 +8,6 @@ pub(super) const PANEL: ColorToken = ColorToken::SurfaceVariant;
 pub(super) const BORDER: ColorToken = ColorToken::Outline;
 pub(super) const TEXT: ColorToken = ColorToken::OnSurface;
 pub(super) const MUTED: ColorToken = ColorToken::OnSurfaceVariant;
-pub(super) const CYAN: ColorToken = ColorToken::Primary;
 
 pub(super) fn bitmap_line(align: TextAlign) -> ParagraphStyle {
     ParagraphStyle {

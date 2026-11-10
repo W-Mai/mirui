@@ -1,6 +1,7 @@
 use super::render::{KineticOrbit, KineticWave};
 use super::state::{ConsoleMode, ConsoleModel, ConsoleMotion};
-use super::style::{AMBER, BACKGROUND, BORDER, CYAN, MUTED, PANEL, TEXT, VIOLET, header_label};
+use super::style::{ACCENT, BACKGROUND, BORDER, HELD, LIVE, PANEL, RAISED, TEXT, header_label};
+use crate::gallery::brand::MiruiLogo;
 use crate::prelude::*;
 use crate::ui::IgnoreHitTest;
 use crate::ui::widgets::{Button, ParagraphStyle, Slider, Text};
@@ -18,39 +19,42 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
             IgnoreHitTest,
         ] {
             Row (height: 18, align: AlignItems::Center, column_gap: 4) {
-                View (width: 4, height: 4, bg_color: CYAN, border_radius: 2) [
+                View (width: 44, height: 15) [
+                    MiruiLogo,
                     IgnoreHitTest,
                 ]
-                Text (
-                    "MIRUI",
-                    grow: 1.0,
-                    height: 18,
-                    font_size: 8,
-                    text_color: TEXT,
-                    paragraph: header_label()
-                ) [
+                View (grow: 1.0, height: 18) [
                     IgnoreHitTest,
                 ]
                 Button (
                     id: "kinetic_console_status",
-                    width: 38,
-                    height: 18,
+                    width: 42,
+                    height: 16,
                     padding: Padding::all(2),
-                    normal_color: ${ if model.paused() { ColorToken::Error } else { ColorToken::Success } },
-                    pressed_color: PANEL,
-                    border_color: CYAN,
+                    normal_color: PANEL,
+                    pressed_color: RAISED,
+                    border_color: BORDER,
                     border_width: 1,
-                    border_radius: 6,
+                    border_radius: 8,
                     justify: JustifyContent::Center,
-                    align: AlignItems::Center
+                    align: AlignItems::Center,
+                    column_gap: 3
                 ) {
+                    View (
+                        width: 4,
+                        height: 4,
+                        bg_color: ${ if model.paused() { HELD } else { LIVE } },
+                        border_radius: 2
+                    ) [
+                        IgnoreHitTest,
+                    ]
                     Text (
-                        text: ${ if model.paused() { "HOLD" } else { "LIVE" } },
-                        grow: 1.0,
+                        text: ${ if model.paused() { "Hold" } else { "Live" } },
+                        width: 27,
                         height: Dimension::percent(100),
                         font_size: 7,
-                        text_color: ColorToken::OnPrimary,
-                        paragraph: ParagraphStyle::label()
+                        text_color: TEXT,
+                        paragraph: header_label()
                     ) [
                         IgnoreHitTest,
                     ]
@@ -61,6 +65,7 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                 grow: 1.0,
                 min_height: 58,
                 bg_color: PANEL,
+                border_radius: 4,
                 clip_children: true
             ) [
                 IgnoreHitTest,
@@ -95,26 +100,31 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                     IgnoreHitTest,
                 ]
             }
-            Row (height: 16, column_gap: 3) {
+            Row (
+                height: 16,
+                padding: Padding::all(1),
+                column_gap: 1,
+                bg_color: PANEL,
+                border_radius: 5
+            ) {
                 Button (
                     id: "kinetic_console_orbit",
                     grow: 1.0,
-                    height: 16,
-                    padding: Padding::all(2),
-                    normal_color: ${ if model.mode() == ConsoleMode::Orbit { CYAN } else { PANEL } },
-                    pressed_color: CYAN,
-                    border_color: BORDER,
-                    border_width: 1,
-                    border_radius: 6,
+                    height: 14,
+                    padding: Padding::all(1),
+                    normal_color: ${ ConsoleMode::Orbit.segment_fill(model.mode()) },
+                    pressed_color: RAISED,
+                    border_width: 0,
+                    border_radius: 4,
                     justify: JustifyContent::Center,
                     align: AlignItems::Center
                 ) {
                     Text (
-                        "ORB",
+                        "Orbit",
                         grow: 1.0,
                         height: Dimension::percent(100),
                         font_size: 7,
-                        text_color: ${ if model.mode() == ConsoleMode::Orbit { ColorToken::OnPrimary } else { MUTED } },
+                        text_color: ${ ConsoleMode::Orbit.segment_text(model.mode()) },
                         paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
@@ -123,22 +133,21 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                 Button (
                     id: "kinetic_console_flow",
                     grow: 1.0,
-                    height: 16,
-                    padding: Padding::all(2),
-                    normal_color: ${ if model.mode() == ConsoleMode::Flow { VIOLET } else { PANEL } },
-                    pressed_color: VIOLET,
-                    border_color: BORDER,
-                    border_width: 1,
-                    border_radius: 6,
+                    height: 14,
+                    padding: Padding::all(1),
+                    normal_color: ${ ConsoleMode::Flow.segment_fill(model.mode()) },
+                    pressed_color: RAISED,
+                    border_width: 0,
+                    border_radius: 4,
                     justify: JustifyContent::Center,
                     align: AlignItems::Center
                 ) {
                     Text (
-                        "FLOW",
+                        "Flow",
                         grow: 1.0,
                         height: Dimension::percent(100),
                         font_size: 7,
-                        text_color: ${ if model.mode() == ConsoleMode::Flow { ColorToken::OnTertiary } else { MUTED } },
+                        text_color: ${ ConsoleMode::Flow.segment_text(model.mode()) },
                         paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
@@ -147,22 +156,21 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                 Button (
                     id: "kinetic_console_pulse",
                     grow: 1.0,
-                    height: 16,
-                    padding: Padding::all(2),
-                    normal_color: ${ if model.mode() == ConsoleMode::Pulse { AMBER } else { PANEL } },
-                    pressed_color: AMBER,
-                    border_color: BORDER,
-                    border_width: 1,
-                    border_radius: 6,
+                    height: 14,
+                    padding: Padding::all(1),
+                    normal_color: ${ ConsoleMode::Pulse.segment_fill(model.mode()) },
+                    pressed_color: RAISED,
+                    border_width: 0,
+                    border_radius: 4,
                     justify: JustifyContent::Center,
                     align: AlignItems::Center
                 ) {
                     Text (
-                        "PLS",
+                        "Pulse",
                         grow: 1.0,
                         height: Dimension::percent(100),
                         font_size: 7,
-                        text_color: ${ if model.mode() == ConsoleMode::Pulse { ColorToken::OnPrimary } else { MUTED } },
+                        text_color: ${ ConsoleMode::Pulse.segment_text(model.mode()) },
                         paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
@@ -176,7 +184,7 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                 max: Fixed::from_int(100),
                 value: ${ model.intensity() },
                 track_color: BORDER,
-                fill_color: CYAN,
+                fill_color: ACCENT,
                 thumb_color: TEXT
             ) on ValueChanged {
                 let _ = event.old;

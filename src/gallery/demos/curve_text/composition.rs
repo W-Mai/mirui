@@ -3,9 +3,10 @@ use super::runtime::{CurveMotion, bind_curve_paths};
 use super::stage::CurveStage;
 use super::state::{CurveModel, CurveStageSize};
 use super::style::{
-    BACKGROUND, BORDER, CYAN, GOLD, MUTED, PANEL, PANEL_ALT, ROUTE_LABEL, TEXT, UI, VIOLET,
+    ACCENT, BACKGROUND, BORDER, MUTED, PANEL, PANEL_ALT, RAISED, ROUTE_LABEL, TEXT, UI,
     bounded_text, mixed_stack, single_line,
 };
+use crate::gallery::brand::MiruiMark;
 use crate::prelude::*;
 use crate::ui::IgnoreHitTest;
 use crate::ui::widgets::{Button, ParagraphStyle, Slider, Text, TextDirection};
@@ -32,19 +33,21 @@ fn compose_header() -> Entity {
                 align: AlignItems::Center,
                 column_gap: 12
             ) {
-                View (width: 8, height: 38, bg_color: CYAN, border_radius: 4)
+                View (width: 32, height: 32) [
+                    MiruiMark,
+                ]
                 Column (grow: 1.0, min_width: 150, row_gap: 2) {
                     Text (
-                        "KINETIC TYPE",
+                        "Kinetic Type",
                         width: Dimension::percent(100),
                         height: 34,
                         font: UI,
-                        font_size: 25,
+                        font_size: 24,
                         text_color: TEXT,
                         paragraph: bounded_text(1)
                     )
                     Text (
-                        "One shaped run / one retained path / continuous pose",
+                        "One shaped run, one retained path, continuous pose",
                         width: Dimension::percent(100),
                         height: @id(curve_text_document).width {
                             if curve_text_document.width < Fixed::from_int(520) { 46 } else { 30 }
@@ -58,17 +61,17 @@ fn compose_header() -> Entity {
             }
             Text (
                 ROUTE_LABEL,
-                width: 248,
+                width: 220,
                 min_width: 170,
-                max_width: 248,
-                height: 30,
-                bg_color: PANEL_ALT,
+                max_width: 220,
+                height: 28,
+                bg_color: PANEL,
                 border_color: BORDER,
                 border_width: 1,
-                border_radius: 15,
+                border_radius: 14,
                 font: UI,
-                font_size: 10,
-                text_color: CYAN,
+                font_size: 11,
+                text_color: MUTED,
                 paragraph: ParagraphStyle::label()
             )
         }
@@ -119,7 +122,7 @@ fn compose_stage(model: model!(CurveModel), paths: CurvePaths) -> Entity {
             bg_color: PANEL,
             border_color: BORDER,
             border_width: 1,
-            border_radius: 18
+            border_radius: 12
         ) {
             compose_stage_backdrop (model, paths)
             Text (
@@ -155,7 +158,7 @@ fn compose_stage(model: model!(CurveModel), paths: CurvePaths) -> Entity {
                 font_size: @id(curve_text_stage).width {
                     if curve_text_stage.width < Fixed::from_int(520) { 17_u16 } else { 25_u16 }
                 },
-                text_color: CYAN,
+                text_color: ACCENT,
                 paragraph: single_line(TextDirection::Auto)
             ) [
                 IgnoreHitTest,
@@ -174,7 +177,7 @@ fn compose_stage(model: model!(CurveModel), paths: CurvePaths) -> Entity {
                 font_size: @id(curve_text_stage).width {
                     if curve_text_stage.width < Fixed::from_int(520) { 10_u16 } else { 14_u16 }
                 },
-                text_color: GOLD,
+                text_color: MUTED,
                 paragraph: single_line(TextDirection::LeftToRight)
             ) [
                 IgnoreHitTest,
@@ -221,10 +224,10 @@ fn compose_controls(model: model!(CurveModel)) -> Entity {
             bg_color: PANEL,
             border_color: BORDER,
             border_width: 1,
-            border_radius: 14
+            border_radius: 10
         ) {
             Row (grow: 1.0, min_width: 250, height: 34, align: AlignItems::Center, column_gap: 8) {
-                Text ("AMPLITUDE", width: 74, font: UI, font_size: 10, text_color: MUTED)
+                Text ("Amplitude", width: 74, font: UI, font_size: 11, text_color: MUTED)
                 Slider (
                     id: "curve_text_amplitude",
                     grow: 1.0,
@@ -234,7 +237,7 @@ fn compose_controls(model: model!(CurveModel)) -> Entity {
                     max: Fixed::from_int(96),
                     value: ${ model.amplitude() },
                     track_color: BORDER,
-                    fill_color: CYAN,
+                    fill_color: ACCENT,
                     thumb_color: TEXT
                 ) on ValueChanged {
                     let _ = event.old;
@@ -252,7 +255,7 @@ fn compose_controls(model: model!(CurveModel)) -> Entity {
                 )
             }
             Row (grow: 1.0, min_width: 210, height: 34, align: AlignItems::Center, column_gap: 8) {
-                Text ("SPEED", width: 46, font: UI, font_size: 10, text_color: MUTED)
+                Text ("Speed", width: 46, font: UI, font_size: 11, text_color: MUTED)
                 Slider (
                     id: "curve_text_speed",
                     grow: 1.0,
@@ -262,7 +265,7 @@ fn compose_controls(model: model!(CurveModel)) -> Entity {
                     max: Fixed::from_int(120),
                     value: ${ model.speed() },
                     track_color: BORDER,
-                    fill_color: VIOLET,
+                    fill_color: ACCENT,
                     thumb_color: TEXT
                 ) on ValueChanged {
                     let _ = event.old;
@@ -282,33 +285,33 @@ fn compose_controls(model: model!(CurveModel)) -> Entity {
             Row (grow: 1.0, min_width: 190, height: 34, column_gap: 8) {
                 Button (
                     id: "curve_text_direction",
-                    text: ${ if model.reversed() { "REVERSE" } else { "FORWARD" } },
+                    text: ${ if model.reversed() { "Reverse" } else { "Forward" } },
                     grow: 1.0,
                     min_width: 92,
                     height: 34,
                     normal_color: PANEL_ALT,
-                    pressed_color: VIOLET,
-                    border_color: VIOLET,
+                    pressed_color: RAISED,
+                    border_color: BORDER,
                     border_width: 1,
-                    border_radius: 10,
+                    border_radius: 8,
                     font: UI,
-                    font_size: 10,
-                    text_color: VIOLET
+                    font_size: 12,
+                    text_color: TEXT
                 ) on Tap { model.toggle_direction(); }
                 Button (
                     id: "curve_text_pause",
-                    text: ${ if model.paused() { "RESUME" } else { "PAUSE" } },
+                    text: ${ if model.paused() { "Resume" } else { "Pause" } },
                     grow: 1.0,
                     min_width: 82,
                     height: 34,
                     normal_color: PANEL_ALT,
-                    pressed_color: CYAN,
-                    border_color: CYAN,
+                    pressed_color: RAISED,
+                    border_color: BORDER,
                     border_width: 1,
-                    border_radius: 10,
+                    border_radius: 8,
                     font: UI,
-                    font_size: 10,
-                    text_color: CYAN
+                    font_size: 12,
+                    text_color: TEXT
                 ) on Tap { model.toggle_paused(); }
             }
         }

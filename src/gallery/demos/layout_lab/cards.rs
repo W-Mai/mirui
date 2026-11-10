@@ -1,7 +1,8 @@
 use super::chips::CHIPS;
 use super::style::{
-    BACKGROUND, BLUE, BORDER, CYAN, GOLD, MUTED, PANEL, PANEL_ALT, TEXT, VIOLET, bounded_body,
+    ACCENT, BACKGROUND, BORDER, MUTED, PANEL, PANEL_ALT, RAISED, SLATE, TEXT, bounded_body,
 };
+use crate::gallery::brand::MiruiMark;
 use crate::prelude::*;
 use crate::ui::widgets::{Image, ParagraphStyle, Text};
 
@@ -18,27 +19,29 @@ pub(super) fn compose_header() -> Entity {
             row_gap: 4,
             column_gap: 14
         ) {
-            View (width: 8, height: 42, bg_color: CYAN, border_radius: 4)
-            Column (grow: 1.0, height: 62, min_width: 150, row_gap: 3) {
+            View (width: 32, height: 32) [
+                MiruiMark,
+            ]
+            Column (grow: 1.0, height: 54, min_width: 150, row_gap: 3) {
                 Text (
-                    "LAYOUT LAB",
+                    "Layout Lab",
                     width: Dimension::percent(100),
-                    height: 28,
-                    font_size: 24,
+                    height: 31,
+                    font_size: 22,
                     text_color: TEXT,
                     paragraph: bounded_body(1)
                 )
                 Text (
                     "Responsive widget tree",
                     width: Dimension::percent(100),
-                    height: 28,
+                    height: 20,
                     font_size: 13,
                     text_color: MUTED,
-                    paragraph: bounded_body(2)
+                    paragraph: bounded_body(1)
                 )
             }
             Text (
-                "8 CAPABILITIES",
+                "8 capabilities",
                 width: @id(layout_lab_document).width {
                     if layout_lab_document.width < Fixed::from_int(640) {
                         Dimension::percent(100)
@@ -51,16 +54,16 @@ pub(super) fn compose_header() -> Entity {
                     if layout_lab_document.width < Fixed::from_int(640) {
                         Dimension::percent(100)
                     } else {
-                        Dimension::px(184)
+                        Dimension::px(140)
                     }
                 },
-                height: 30,
-                bg_color: PANEL_ALT,
+                height: 28,
+                bg_color: PANEL,
                 border_color: BORDER,
                 border_width: 1,
-                border_radius: 15,
+                border_radius: 14,
                 font_size: 12,
-                text_color: CYAN,
+                text_color: MUTED,
                 paragraph: ParagraphStyle::label()
             )
         }
@@ -88,14 +91,14 @@ pub(super) fn compose_flex_card() -> Entity {
             bg_color: PANEL,
             border_color: BORDER,
             border_width: 1,
-            border_radius: 14
+            border_radius: 10
         ) {
             Text (
-                "FLEX / CONTENT > GROW > LIMITS",
+                "Flex: content, grow and limits",
                 width: Dimension::percent(100),
                 min_height: 28,
-                font_size: 12,
-                text_color: BLUE,
+                font_size: 14,
+                text_color: TEXT,
                 paragraph: bounded_body(2)
             )
             Row (
@@ -107,38 +110,40 @@ pub(super) fn compose_flex_card() -> Entity {
             ) {
                 Text (
                     id: "layout_lab_content",
-                    "CONTENT",
+                    "Content",
                     width: Dimension::Content,
-                    height: 38,
-                    padding: Padding::all(8),
-                    bg_color: CYAN,
-                    border_radius: 9,
-                    font_size: 11,
+                    height: 36,
+                    padding: Padding::all(10),
+                    bg_color: ACCENT,
+                    border_radius: 8,
+                    font_size: 12,
                     text_color: ColorToken::OnPrimary,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
                     id: "layout_lab_grow",
-                    "GROW 1",
+                    "Grow 1",
                     grow: 1.0,
                     min_width: 88,
                     max_width: 220,
-                    height: 48,
-                    bg_color: BLUE,
-                    border_radius: 11,
+                    height: 44,
+                    bg_color: RAISED,
+                    border_radius: 8,
                     font_size: 12,
-                    text_color: ColorToken::OnSecondary,
+                    text_color: TEXT,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
                     id: "layout_lab_fixed",
-                    "96 PX",
+                    "96 px",
                     width: 96,
                     height: 32,
-                    bg_color: VIOLET,
+                    bg_color: PANEL_ALT,
+                    border_color: BORDER,
+                    border_width: 1,
                     border_radius: 8,
-                    font_size: 11,
-                    text_color: ColorToken::OnTertiary,
+                    font_size: 12,
+                    text_color: TEXT,
                     paragraph: ParagraphStyle::label()
                 )
             }
@@ -154,13 +159,13 @@ pub(super) fn compose_flex_card() -> Entity {
                     Text (
                         chip.label,
                         width: 76,
-                        height: 28,
+                        height: 26,
                         bg_color: PANEL_ALT,
-                        border_color: chip.color,
+                        border_color: BORDER,
                         border_width: 1,
-                        border_radius: 14,
-                        font_size: 9,
-                        text_color: chip.color,
+                        border_radius: 13,
+                        font_size: 11,
+                        text_color: MUTED,
                         paragraph: ParagraphStyle::label()
                     )
                 }
@@ -169,7 +174,7 @@ pub(super) fn compose_flex_card() -> Entity {
                 "The same row wraps when its minimum widths no longer fit.",
                 width: Dimension::percent(100),
                 min_height: 32,
-                font_size: 11,
+                font_size: 12,
                 text_color: MUTED,
                 paragraph: bounded_body(2)
             )
@@ -195,17 +200,17 @@ pub(super) fn compose_surface_card() -> Entity {
             padding: Padding::all(14),
             row_gap: 12,
             clip_children: true,
-            bg_color: PANEL_ALT,
+            bg_color: PANEL,
             border_color: BORDER,
             border_width: 1,
-            border_radius: 14
+            border_radius: 10
         ) {
             Text (
-                "SURFACES / BORDER / RADIUS",
+                "Fill, stroke and radius",
                 width: Dimension::percent(100),
                 min_height: 28,
-                font_size: 12,
-                text_color: GOLD,
+                font_size: 14,
+                text_color: TEXT,
                 paragraph: bounded_body(2)
             )
             Row (grow: 1.0, align: AlignItems::Center, justify: JustifyContent::SpaceEvenly) {
@@ -213,24 +218,24 @@ pub(super) fn compose_surface_card() -> Entity {
                     id: "layout_lab_surface_round",
                     width: 72,
                     height: 72,
-                    bg_color: BLUE,
-                    border_color: ColorToken::OnSecondary,
+                    bg_color: ACCENT,
+                    border_color: PANEL,
                     border_width: 2,
                     border_radius: 18
                 )
                 View (
                     width: 72,
                     height: 72,
-                    bg_color: CYAN,
-                    border_color: ColorToken::OnPrimary,
+                    bg_color: RAISED,
+                    border_color: SLATE,
                     border_width: 3,
                     border_radius: 36
                 )
                 View (
                     width: 72,
                     height: 72,
-                    border_color: VIOLET,
-                    border_width: 3,
+                    border_color: MUTED,
+                    border_width: 2,
                     border_radius: 9
                 )
             }
@@ -239,7 +244,7 @@ pub(super) fn compose_surface_card() -> Entity {
                 "Fill, stroke and radius stay independent.",
                 width: Dimension::percent(100),
                 height: 28,
-                font_size: 11,
+                font_size: 12,
                 text_color: MUTED,
                 paragraph: bounded_body(2)
             )
@@ -265,17 +270,17 @@ pub(super) fn compose_overlay_card() -> Entity {
             padding: Padding::all(14),
             row_gap: 8,
             clip_children: true,
-            bg_color: PANEL_ALT,
+            bg_color: PANEL,
             border_color: BORDER,
             border_width: 1,
-            border_radius: 14
+            border_radius: 10
         ) {
             Text (
-                "OVERLAY / ABSOLUTE IN A FLEX CARD",
+                "Absolute overlay in a flex card",
                 width: Dimension::percent(100),
                 min_height: 28,
-                font_size: 12,
-                text_color: VIOLET,
+                font_size: 14,
+                text_color: TEXT,
                 paragraph: bounded_body(2)
             )
             View (
@@ -283,14 +288,14 @@ pub(super) fn compose_overlay_card() -> Entity {
                 grow: 1.0,
                 min_height: 162,
                 bg_color: BACKGROUND,
-                border_radius: 11,
+                border_radius: 8,
                 clip_children: true
             ) {
                 View (
                     width: Dimension::percent(72),
                     height: Dimension::percent(62),
-                    bg_color: ColorToken::Primary,
-                    border_radius: 12
+                    bg_color: RAISED,
+                    border_radius: 8
                 )
                 View (
                     id: "layout_lab_absolute",
@@ -299,8 +304,8 @@ pub(super) fn compose_overlay_card() -> Entity {
                     top: 46,
                     width: 126,
                     height: 58,
-                    bg_color: BLUE,
-                    border_radius: 13
+                    bg_color: SLATE,
+                    border_radius: 8
                 )
                 Image (
                     id: "layout_lab_image_overlay",
@@ -312,16 +317,16 @@ pub(super) fn compose_overlay_card() -> Entity {
                     src: "thumbs_up"
                 )
                 Text (
-                    "PINNED",
+                    "Pinned",
                     position: Position::Absolute,
                     right: 10,
                     top: 104,
-                    width: 88,
-                    height: 30,
-                    bg_color: VIOLET,
-                    border_radius: 15,
-                    font_size: 10,
-                    text_color: ColorToken::OnTertiary,
+                    width: 80,
+                    height: 28,
+                    bg_color: ACCENT,
+                    border_radius: 14,
+                    font_size: 12,
+                    text_color: ColorToken::OnPrimary,
                     paragraph: ParagraphStyle::label()
                 )
             }
@@ -352,14 +357,14 @@ pub(super) fn compose_collection_card() -> Entity {
             bg_color: PANEL,
             border_color: BORDER,
             border_width: 1,
-            border_radius: 14
+            border_radius: 10
         ) {
             Text (
-                "COMPOSITION / WALK / IF / IMAGE",
+                "Composition: walk, if and image",
                 width: Dimension::percent(100),
                 min_height: 28,
-                font_size: 12,
-                text_color: CYAN,
+                font_size: 14,
+                text_color: TEXT,
                 paragraph: bounded_body(2)
             )
             Row (height: 82, align: AlignItems::Center, column_gap: 10) {
@@ -373,33 +378,34 @@ pub(super) fn compose_collection_card() -> Entity {
                     Text (
                         "Typed image stays in flex flow.",
                         width: Dimension::percent(100),
-                        font_size: 12,
+                        font_size: 13,
                         text_color: TEXT,
                         paragraph: bounded_body(2)
                     )
                     Text (
                         "Overlay reuses its resource.",
                         width: Dimension::percent(100),
-                        font_size: 11,
+                        font_size: 12,
                         text_color: MUTED,
                         paragraph: bounded_body(2)
                     )
                 }
             }
-            Row (id: "layout_lab_walk", height: 42, column_gap: 7) {
+            Row (id: "layout_lab_walk", height: 42, align: AlignItems::Center, column_gap: 6) {
                 walk CHIPS.iter() with chip {
-                    View (grow: 1.0, height: 20, bg_color: chip.color, border_radius: 6)
+                    View (grow: 1.0, height: 6, bg_color: chip.color, border_radius: 3)
                 }
             }
             if show_note {
                 Text (
                     id: "layout_lab_conditional",
                     "Conditional branch retained",
-                    height: 30,
-                    bg_color: ColorToken::Primary,
-                    border_radius: 8,
-                    font_size: 11,
-                    text_color: ColorToken::OnPrimary,
+                    height: 28,
+                    padding: Padding::all(10),
+                    bg_color: RAISED,
+                    border_radius: 6,
+                    font_size: 12,
+                    text_color: TEXT,
                     paragraph: ParagraphStyle::label()
                 )
             }

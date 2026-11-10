@@ -1,5 +1,5 @@
 use super::state::TypographyModel;
-use super::style::{BLUE, BORDER, CYAN, GOLD, VIOLET};
+use super::style::{ACCENT, BORDER, HIT, SLATE, VIOLET};
 use crate::prelude::*;
 use crate::render::command::{DrawCommand, LineCap, LineJoin, Paint};
 use crate::render::path::PathStore;
@@ -43,10 +43,10 @@ pub(super) fn caret_overlay_render(
     let layout = geometry.layout();
     let metrics = geometry.metrics();
     let border = theme.resolve(BORDER);
-    let primary = theme.resolve(CYAN);
-    let secondary = theme.resolve(BLUE);
+    let primary = theme.resolve(ACCENT);
+    let secondary = theme.resolve(SLATE);
     let tertiary = theme.resolve(VIOLET);
-    let success = theme.resolve(GOLD);
+    let success = theme.resolve(HIT);
     let rect = paint.rect();
     if let Some(text_path) = geometry.text_path() {
         let probe = if component.follows_probe {

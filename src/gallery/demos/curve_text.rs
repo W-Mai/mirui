@@ -18,6 +18,7 @@ where
     F: RendererFactory<B>,
 {
     crate::gallery::showcase_theme::install(app);
+    crate::gallery::brand::install(app);
     app.with_widget(stage::curve_stage_background_render::view())
         .with_widget(stage::curve_paths_view());
     app.compose(

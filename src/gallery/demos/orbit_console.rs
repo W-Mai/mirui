@@ -1,5 +1,5 @@
 //! Orbit Console combines mirui's layout, interaction, animation, SDF text,
-//! gradients, paths, and fixed-point rendering in one product-style interface.
+//! paths, and fixed-point rendering in one product-style interface.
 
 extern crate alloc;
 
@@ -35,8 +35,9 @@ pub enum DemoRunMode {
 
 pub const VIEWPORT: (u16, u16) = (1024, 640);
 
+/// The Play face carries `%` and `·` for the readouts.
 #[cfg(any(feature = "std", test))]
-const FONT_BYTES: &[u8] = include_bytes!("assets/misans_ui.mirx");
+const FONT_BYTES: &[u8] = crate::gallery::play::font::FONT_BYTES;
 
 pub const DEMO_SIZE: crate::gallery::DemoSize =
     crate::gallery::DemoSize::range(320, 320, 1024, 640);

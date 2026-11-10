@@ -1,31 +1,32 @@
-use super::style::{BLUE, CYAN, GOLD, VIOLET};
+use super::style::{ACCENT, RAISED};
 use crate::prelude::ColorToken;
 
 #[derive(Clone, Copy)]
 pub(super) struct LayoutChip {
     pub(super) label: &'static str,
+    /// Fill of the chip's step in the walk row.
     pub(super) color: ColorToken,
 }
 
 pub(super) const CHIPS: [LayoutChip; 5] = [
     LayoutChip {
-        label: "CONTENT",
-        color: CYAN,
+        label: "Content",
+        color: ACCENT,
     },
     LayoutChip {
-        label: "GROW",
-        color: BLUE,
+        label: "Grow",
+        color: RAISED,
     },
     LayoutChip {
-        label: "SHRINK",
-        color: VIOLET,
+        label: "Shrink",
+        color: RAISED,
     },
     LayoutChip {
-        label: "MIN / MAX",
-        color: GOLD,
+        label: "Min · max",
+        color: RAISED,
     },
     LayoutChip {
-        label: "WRAP",
-        color: CYAN,
+        label: "Wrap",
+        color: RAISED,
     },
 ];

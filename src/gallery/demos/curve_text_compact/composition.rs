@@ -1,6 +1,7 @@
 use super::geometry::text_path;
 use super::state::CompactCurveMotion;
-use super::style::{BACKGROUND, BORDER, CYAN, MUTED, PANEL, TEXT, bitmap_line};
+use super::style::{BACKGROUND, BORDER, MUTED, PANEL, TEXT, bitmap_line};
+use crate::gallery::brand::MiruiMark;
 use crate::prelude::*;
 use crate::render::font::FontToken;
 use crate::ui::IgnoreHitTest;
@@ -17,9 +18,11 @@ pub fn build_widgets(path: PathId) {
             bg_color: BACKGROUND
         ) {
             Row (height: 14, align: AlignItems::Center, column_gap: 4) {
-                View (width: 4, height: 10, bg_color: CYAN, border_radius: 2)
+                View (width: 12, height: 12) [
+                    MiruiMark,
+                ]
                 Text (
-                    "CURVE TEXT",
+                    "Curve text",
                     grow: 1.0,
                     height: 14,
                     font: FontToken::Default,
@@ -31,7 +34,7 @@ pub fn build_widgets(path: PathId) {
             View (id: "compact_curve_text_stage", grow: 1.0, clip_children: true) {
                 Text (
                     id: "compact_curve_text_primary",
-                    "MIRUI RIDES THE WAVE    MIRUI RIDES THE WAVE    ",
+                    "mirui rides the wave    mirui rides the wave    ",
                     path: text_path(path, Fixed::ZERO),
                     position: Position::Absolute,
                     left: 0,
@@ -66,7 +69,7 @@ pub fn build_widgets(path: PathId) {
             ] {
                 Text (
                     id: "compact_curve_text_footer_label",
-                    "AUTO LOOP",
+                    "Auto loop",
                     grow: 1.0,
                     font: FontToken::Default,
                     font_size: 6,

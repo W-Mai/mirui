@@ -510,9 +510,9 @@ fn controls_publish_into_the_live_paragraph() {
     for (id, value, capacity) in [
         ("typography_ppem_value", "42", 2),
         ("typography_width_value", "320", 3),
-        ("typography_wrap", "GRAPHEME", 8),
-        ("typography_align", "CENTER", 7),
-        ("typography_overflow", "ELLIPSIS", 8),
+        ("typography_wrap", "Grapheme", 8),
+        ("typography_align", "Center", 7),
+        ("typography_overflow", "Ellipsis", 8),
     ] {
         let text = world
             .get::<Text>(world.find_by_id(id).unwrap())

@@ -233,7 +233,7 @@ fn drag_and_bubble_policy_update_only_the_model() {
     let policy = world.find_by_id("interaction_bubble_policy").unwrap();
     assert_eq!(
         world.get::<Text>(policy).unwrap().resolve(world.resource()),
-        "ALLOW"
+        "Allow"
     );
     assert!(
         world
@@ -551,11 +551,11 @@ fn scroll_notifications_update_the_model_and_header_from_real_input() {
             .get::<Text>(readout)
             .unwrap()
             .resolve(app.world.resource()),
-        "SCROLL 8"
+        "Scroll 8"
     );
     assert_eq!(
         app.world.get::<Style>(readout).unwrap().text_color,
-        super::style::CYAN.into()
+        super::style::ACCENT.into()
     );
     crate::input::event::deliver_input(
         &mut app.world,

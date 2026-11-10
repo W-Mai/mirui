@@ -1,34 +1,15 @@
 use super::ConsoleMode;
-use super::style::{BLUE, MINT, SURFACE, TEXT_MUTED, VIOLET};
+use super::style::{BG, RAISED, TEXT, TEXT_MUTED};
 use crate::prelude::{ColorToken, Fixed};
 
 impl ConsoleMode {
-    pub(super) const fn accent(self) -> ColorToken {
-        match self {
-            Self::Orbit => MINT,
-            Self::Flow => BLUE,
-            Self::Pulse => VIOLET,
-        }
-    }
-
+    /// Modes only change the orbit speed, so the segments share one neutral style.
     pub(super) fn chip_background(self, selected: Self) -> ColorToken {
-        if self == selected {
-            self.accent()
-        } else {
-            SURFACE
-        }
+        if self == selected { RAISED } else { BG }
     }
 
     pub(super) fn chip_foreground(self, selected: Self) -> ColorToken {
-        if self == selected {
-            match self {
-                Self::Orbit => ColorToken::OnPrimary,
-                Self::Flow => ColorToken::OnSecondary,
-                Self::Pulse => ColorToken::OnTertiary,
-            }
-        } else {
-            TEXT_MUTED
-        }
+        if self == selected { TEXT } else { TEXT_MUTED }
     }
 
     fn phase_delta(self, elapsed_ms: u32) -> Fixed {

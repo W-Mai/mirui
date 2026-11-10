@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+pub(crate) mod brand;
 pub mod demos;
 pub(crate) mod play;
 pub mod showcase_theme;

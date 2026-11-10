@@ -24,8 +24,8 @@ mod tests;
 pub use runtime::{setup, setup_app, shutter_bounds};
 #[cfg(any(feature = "std", test))]
 pub use state::{IrisLayout, IrisRun};
-#[cfg(any(feature = "std", test))]
-pub use style::{DARK_ID, LIGHT_ID};
+pub const DARK_ID: &str = "iris-dark";
+pub const LIGHT_ID: &str = "iris-light";
 
 pub const VIEWPORT: (u16, u16) = (1280, 800);
 

@@ -477,53 +477,6 @@ pub(super) fn lens_render(
     component.render(paint, model, &theme);
 }
 
-/// The mirui mark, drawn from the logo geometry: two blades and an iris.
-#[crate::component]
-#[derive(Default)]
-pub(super) struct MiruiMark;
-
-// The logo geometry at a tenth of its source size: about 30 units tall.
-static MARK_LEAD: Path =
-    path!("M -4.919 -14.758 L 8.855 -2.952 L -2.952 -8.855 L -7.245 -0.268 L -12.164 -0.268 Z");
-static MARK_TRAIL: Path =
-    path!("M 4.919 14.758 L -8.855 2.952 L 2.952 8.855 L 7.245 0.268 L 12.164 0.268 Z");
-static MARK_IRIS: Path = path!(
-    "M 4.626 -1.163 C 4.626 0.107 3.596 1.137 2.326 1.137 C 1.056 1.137 0.026 0.107 0.026 -1.163 C 0.026 -2.433 1.056 -3.463 2.326 -3.463 C 3.596 -3.463 4.626 -2.433 4.626 -1.163 Z"
-);
-static MARK_CATCHLIGHT: Path = path!(
-    "M 3.588 -2.089 C 3.588 -1.647 3.23 -1.289 2.788 -1.289 C 2.346 -1.289 1.988 -1.647 1.988 -2.089 C 1.988 -2.531 2.346 -2.889 2.788 -2.889 C 3.23 -2.889 3.588 -2.531 3.588 -2.089 Z"
-);
-
-#[crate::view(component = MiruiMark, name = "MiruiMark", priority = 60)]
-pub(super) fn mark_render(paint: paint!(), theme: res!(Theme)) {
-    let rect = paint.rect();
-    let scale = rect.w.min(rect.h) / 30;
-    let base = paint
-        .transform()
-        .compose(&Transform::translate(
-            rect.x + rect.w / 2,
-            rect.y + rect.h / 2,
-        ))
-        .compose(&Transform::scale(scale, scale));
-    let ink = Paint::Color(theme.resolve(super::style::TEXT).into());
-    let iris = Paint::Color(theme.resolve(SEE).into());
-    let light = Paint::Color(Color::rgb(255, 255, 255).into());
-    for (path, ink) in [
-        (&MARK_LEAD, &ink),
-        (&MARK_TRAIL, &ink),
-        (&MARK_IRIS, &iris),
-        (&MARK_CATCHLIGHT, &light),
-    ] {
-        paint.draw(&DrawCommand::FillPath {
-            path,
-            transform: base,
-            paint: ink,
-            opa: 255,
-            fill_rule: FillRule::NonZero,
-        });
-    }
-}
-
 #[cfg(test)]
 pub(super) fn glass_radius() -> Fixed {
     Fixed::from_ratio(GLASS_PER_MILLE * UNIT, 1000)

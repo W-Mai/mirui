@@ -7,10 +7,12 @@ pub(super) const PANEL_ALT: ColorToken = ColorToken::Surface;
 pub(super) const BORDER: ColorToken = ColorToken::Outline;
 pub(super) const TEXT: ColorToken = ColorToken::OnSurface;
 pub(super) const MUTED: ColorToken = ColorToken::OnSurfaceVariant;
-pub(super) const CYAN: ColorToken = ColorToken::Primary;
-pub(super) const BLUE: ColorToken = ColorToken::Secondary;
-pub(super) const VIOLET: ColorToken = ColorToken::Tertiary;
-pub(super) const GOLD: ColorToken = ColorToken::Success;
+/// Neutral fill for pressed targets and status banners.
+pub(super) const RAISED: ColorToken = ColorToken::Outline;
+/// The one accent: the primary target in each card and live scrolling.
+pub(super) const ACCENT: ColorToken = ColorToken::Primary;
+/// A mid-grey fill for secondary targets.
+pub(super) const SLATE: ColorToken = ColorToken::Secondary;
 pub(super) const ERROR: ColorToken = ColorToken::Error;
 
 pub(super) fn bounded_text(lines: u16) -> ParagraphStyle {

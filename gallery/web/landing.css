@@ -12,6 +12,9 @@
   --site-blue-dark: #223bd5;
   --site-blue-wash: #e6eafd;
   --site-lime: #d4f87c;
+  --logo-ink: #39424c;
+  --logo-see: #cf432b;
+  --logo-ui: #3452ff;
   --site-shadow: 0 28px 80px -42px rgba(22, 27, 51, 0.34);
   --site-gutter: clamp(20px, 5vw, 76px);
   --site-max: 1440px;
@@ -33,6 +36,9 @@ html[data-mode="focus"] { overflow-y: scroll; }
   --site-blue-dark: #8c9aff;
   --site-blue-wash: #242942;
   --site-lime: #c8ee72;
+  --logo-ink: #eef0f4;
+  --logo-see: #e5533b;
+  --logo-ui: #6f82ff;
   --site-shadow: 0 30px 90px -42px rgba(0, 0, 0, 0.76);
 }
 
@@ -110,22 +116,11 @@ html[data-mode="focus"] .site-home { display: none; }
   letter-spacing: -0.055em;
 }
 
-.site-logo-mark {
-  display: grid;
-  grid-template-columns: repeat(2, 8px);
-  grid-template-rows: repeat(2, 8px);
-  gap: 3px;
-  width: 19px;
-  height: 19px;
-}
-
-.site-logo-mark i {
-  display: block;
-  border-radius: 2px;
-  background: var(--site-blue);
-}
-
-.site-logo-mark i:nth-child(2) { border-radius: 50%; }
+/* The published logo: blades and wordmark in ink, the iris red, the UI dot blue. */
+.site-logo-art { display: block; width: auto; height: 28px; }
+.site-logo-art .logo-ink { fill: var(--logo-ink); }
+.site-logo-art .logo-see { fill: var(--logo-see); }
+.site-logo-art .logo-ui { fill: var(--logo-ui); }
 .site-logo sup { align-self: flex-start; margin-top: 1px; font: 600 10px/1 var(--font-mono); }
 
 .site-nav {

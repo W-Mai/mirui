@@ -1,12 +1,9 @@
-use alloc::borrow::Cow;
-use alloc::vec;
-
 use super::state::ConsoleState;
-use super::style::{BG, BLUE, BORDER, DATA_AMBER, MINT, SURFACE, TEXT, TEXT_MUTED, VIOLET};
+use super::style::{ACCENT, BORDER, SURFACE, TEXT, TEXT_MUTED};
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::path::Path;
-use crate::render::scene::{GradientStop, GradientUnits, Paint, RadialGradient, SpreadMode};
+use crate::render::scene::Paint;
 use crate::types::Transform;
 use crate::ui::Theme;
 use crate::ui::view::PaintCtx;
@@ -70,14 +67,14 @@ impl<'paint, 'frame> DemoPainter<'paint, 'frame> {
         });
     }
 
-    fn fill_path(&mut self, path: &Path, paint: &Paint, translate: Point, scale: Fixed, opa: u8) {
+    fn disc(&mut self, center: Point, radius: Fixed, color: Color) {
         let local =
-            Transform::translate(translate.x, translate.y).compose(&Transform::scale(scale, scale));
+            Transform::translate(center.x, center.y).compose(&Transform::scale(radius, radius));
         self.draw(&DrawCommand::FillPath {
-            path,
+            path: &UNIT_CIRCLE,
             transform: self.transform.compose(&local),
-            paint,
-            opa,
+            paint: &Paint::Color(color.into()),
+            opa: 255,
             fill_rule: crate::render::raster::FillRule::EvenOdd,
         });
     }
@@ -87,112 +84,13 @@ pub(super) static UNIT_CIRCLE: Path = path!(
     "M 1 0 C 1 0.55078125 0.55078125 1 0 1 C -0.55078125 1 -1 0.55078125 -1 0 C -1 -0.55078125 -0.55078125 -1 0 -1 C 0.55078125 -1 1 -0.55078125 1 0 Z"
 );
 
-fn radial_paint(inner: Color, middle: Color, outer: Color) -> Paint {
-    Paint::RadialGradient(RadialGradient {
-        center: Point::new(Fixed::from_ratio(9, 20), Fixed::from_ratio(2, 5)).into(),
-        radius: Fixed::from_ratio(7, 10).into(),
-        focal: Point::new(Fixed::from_ratio(7, 20), Fixed::from_ratio(3, 10)).into(),
-        focal_radius: Fixed::ZERO.into(),
-        stops: Cow::Owned(vec![
-            GradientStop {
-                offset: Fixed::ZERO.into(),
-                color: inner.into(),
-            },
-            GradientStop {
-                offset: Fixed::from_ratio(11, 20).into(),
-                color: middle.into(),
-            },
-            GradientStop {
-                offset: Fixed::ONE.into(),
-                color: outer.into(),
-            },
-        ]),
-        spread: SpreadMode::Pad,
-        units: GradientUnits::ObjectBoundingBox,
-        transform: Transform::IDENTITY.into(),
-    })
-}
-
-#[crate::component]
-pub(super) struct ConsoleBackdrop {
-    mint: Paint,
-    violet: Paint,
-}
-
-impl ConsoleBackdrop {
-    pub(super) fn new() -> Self {
-        Self {
-            mint: radial_paint(
-                Color::rgba(31, 209, 180, 120),
-                Color::rgba(13, 105, 123, 70),
-                Color::rgba(6, 16, 23, 0),
-            ),
-            violet: radial_paint(
-                Color::rgba(123, 92, 220, 105),
-                Color::rgba(50, 65, 145, 60),
-                Color::rgba(6, 16, 23, 0),
-            ),
-        }
-    }
-
-    fn render(&self, painter: &mut DemoPainter<'_, '_>, rect: &Rect, theme: &Theme) {
-        painter.fill(*rect, theme.resolve(BG), Fixed::ZERO, 255);
-        painter.fill_path(
-            &UNIT_CIRCLE,
-            &self.mint,
-            Point::new(rect.x + Fixed::from_int(160), rect.y + Fixed::from_int(80)),
-            Fixed::from_int(280),
-            160,
-        );
-        painter.fill_path(
-            &UNIT_CIRCLE,
-            &self.violet,
-            Point::new(
-                rect.x + rect.w - Fixed::from_int(80),
-                rect.y + rect.h - Fixed::from_int(20),
-            ),
-            Fixed::from_int(280),
-            145,
-        );
-    }
-}
-
-impl Default for ConsoleBackdrop {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
+/// Polar plot of three orbiting nodes around a central body.
 #[crate::component]
 pub(super) struct OrbitInstrument {
     pub(super) model: model!(ConsoleState),
-    core_paints: [Paint; 3],
 }
 
 impl OrbitInstrument {
-    pub(super) fn new(model: <ConsoleState as crate::core::model::BindType>::Shared) -> Self {
-        Self {
-            model,
-            core_paints: [
-                radial_paint(
-                    Color::rgb(236, 255, 251),
-                    Color::rgb(99, 242, 207),
-                    Color::rgb(8, 62, 69),
-                ),
-                radial_paint(
-                    Color::rgb(241, 248, 255),
-                    Color::rgb(109, 168, 255),
-                    Color::rgb(13, 45, 91),
-                ),
-                radial_paint(
-                    Color::rgb(251, 246, 255),
-                    Color::rgb(167, 139, 250),
-                    Color::rgb(54, 27, 96),
-                ),
-            ],
-        }
-    }
-
     fn render(
         &self,
         painter: &mut DemoPainter<'_, '_>,
@@ -203,7 +101,8 @@ impl OrbitInstrument {
         let surface = theme.resolve(SURFACE);
         let border = theme.resolve(BORDER);
         let text = theme.resolve(TEXT);
-        let text_muted = theme.resolve(TEXT_MUTED);
+        let muted = theme.resolve(TEXT_MUTED);
+        let accent = theme.resolve(ACCENT);
         let grid = surface.blend_with(border, Fixed::from_ratio(1, 2));
         let margin = (rect.w / Fixed::from_int(24))
             .max(Fixed::from_int(8))
@@ -226,7 +125,7 @@ impl OrbitInstrument {
                 Point::new(x, y1),
                 grid,
                 Fixed::from_ratio(1, 2),
-                62,
+                90,
             );
         }
         for row in 0..7 {
@@ -236,7 +135,7 @@ impl OrbitInstrument {
                 Point::new(x1, y),
                 grid,
                 Fixed::from_ratio(1, 2),
-                54,
+                90,
             );
         }
 
@@ -244,7 +143,6 @@ impl OrbitInstrument {
             rect.x + rect.w / Fixed::from_int(2),
             y0 + (y1 - y0) / Fixed::from_int(2),
         );
-        let accent = theme.resolve(state.mode.accent());
         let outer_radius = ((x1 - x0) / Fixed::from_int(2))
             .min((y1 - y0) / Fixed::from_int(2))
             .max(Fixed::from_int(18))
@@ -255,37 +153,31 @@ impl OrbitInstrument {
             outer_radius,
         ];
         for (index, radius) in radii.into_iter().enumerate() {
+            let focused = index == state.focused_node as usize;
             let offset = Fixed::from_int(index as i32 * 37);
             painter.arc(ArcStroke {
                 center,
                 radius,
                 start: Fixed::from_int(-28) + offset + state.phase() / Fixed::from_int(8),
                 end: Fixed::from_int(246) + offset + state.phase() / Fixed::from_int(8),
-                color: if index == state.focused_node as usize {
-                    accent
-                } else {
-                    border
-                },
-                width: if index == state.focused_node as usize {
+                color: if focused { accent } else { muted },
+                width: if focused {
                     Fixed::from_ratio(3, 2)
                 } else {
                     Fixed::from_ratio(3, 4)
                 },
-                opacity: if index == state.focused_node as usize {
-                    210
-                } else {
-                    104
-                },
+                opacity: if focused { 255 } else { 110 },
             });
         }
 
         for tick in 0..32 {
+            let major = tick % 4 == 0;
             let angle = Fixed::from_int(tick * 360 / 32);
             let inner = outer_radius
-                - if tick % 4 == 0 {
-                    Fixed::from_int(9)
+                - if major {
+                    Fixed::from_int(8)
                 } else {
-                    Fixed::from_int(6)
+                    Fixed::from_int(4)
                 };
             let outer = outer_radius + Fixed::from_int(1);
             let sin = Fixed::sin_deg(angle);
@@ -293,47 +185,28 @@ impl OrbitInstrument {
             painter.line(
                 Point::new(center.x + cos * inner, center.y + sin * inner),
                 Point::new(center.x + cos * outer, center.y + sin * outer),
-                if tick % 4 == 0 { accent } else { text_muted },
+                muted,
                 Fixed::from_ratio(3, 4),
-                if tick % 4 == 0 { 165 } else { 72 },
+                if major { 200 } else { 90 },
             );
         }
 
         let intensity = Fixed::from_ratio(state.intensity as i32, 100);
-        let core_radius = (outer_radius * Fixed::from_ratio(13, 50))
-            .max(Fixed::from_int(12))
-            .min(Fixed::from_int(48));
-        for halo in (0..4).rev() {
-            let radius = core_radius + outer_radius * Fixed::from_ratio(halo + 1, 18);
-            painter.fill(
-                Rect::new(center.x - radius, center.y - radius, radius * 2, radius * 2),
-                accent,
-                radius,
-                (24 + (3 - halo) * 10) as u8,
-            );
-        }
-        painter.fill_path(
-            &UNIT_CIRCLE,
-            &self.core_paints[state.mode as usize],
-            center,
-            core_radius,
-            255,
-        );
+        let core_radius = (outer_radius * Fixed::from_ratio(4, 25))
+            .max(Fixed::from_int(8))
+            .min(Fixed::from_int(30));
+        painter.disc(center, core_radius, border);
+        painter.disc(center, core_radius / Fixed::from_int(4), text);
         painter.arc(ArcStroke {
             center,
-            radius: core_radius + outer_radius / Fixed::from_int(12),
+            radius: core_radius + Fixed::from_int(5),
             start: state.phase(),
             end: state.phase() + Fixed::from_int(110) + intensity * Fixed::from_int(60),
-            color: text,
+            color: accent,
             width: Fixed::from_int(2),
-            opacity: 220,
+            opacity: 255,
         });
 
-        let node_colors = [
-            theme.resolve(MINT),
-            theme.resolve(BLUE),
-            theme.resolve(VIOLET),
-        ];
         let node_speeds = [
             Fixed::ONE,
             Fixed::from_ratio(-3, 5),
@@ -345,51 +218,27 @@ impl OrbitInstrument {
             Fixed::from_int(272),
         ];
         for index in 0..3 {
+            let focused = index == state.focused_node as usize;
             let angle = node_offsets[index] + state.phase() * node_speeds[index];
             let radius = radii[index];
             let node = Point::new(
                 center.x + Fixed::cos_deg(angle) * radius,
                 center.y + Fixed::sin_deg(angle) * radius,
             );
-            painter.line(
-                center,
-                node,
-                node_colors[index],
-                Fixed::from_ratio(1, 2),
-                76,
-            );
-            let halo = Fixed::from_int(if index == state.focused_node as usize {
-                15
-            } else {
-                10
-            });
-            painter.fill(
-                Rect::new(node.x - halo, node.y - halo, halo * 2, halo * 2),
-                node_colors[index],
-                halo,
-                38,
-            );
-            let dot = Fixed::from_int(if index == state.focused_node as usize {
-                6
-            } else {
-                4
-            });
-            painter.fill(
-                Rect::new(node.x - dot, node.y - dot, dot * 2, dot * 2),
-                node_colors[index],
-                dot,
-                255,
-            );
-            if index == state.focused_node as usize {
+            if focused {
+                painter.line(center, node, accent, Fixed::from_ratio(3, 4), 140);
+                painter.disc(node, Fixed::from_int(5), accent);
                 painter.arc(ArcStroke {
                     center: node,
-                    radius: Fixed::from_int(12),
-                    start: Fixed::from_int(20),
-                    end: Fixed::from_int(322),
+                    radius: Fixed::from_int(10),
+                    start: Fixed::ZERO,
+                    end: Fixed::from_int(360),
                     color: text,
                     width: Fixed::ONE,
-                    opacity: 220,
+                    opacity: 200,
                 });
+            } else {
+                painter.disc(node, Fixed::from_ratio(7, 2), muted);
             }
         }
     }
@@ -418,15 +267,14 @@ impl SignalMeter {
             rect.x + rect.w - radius - inset,
             rect.y + rect.h / Fixed::from_int(2),
         );
-        let accent = theme.resolve(state.mode.accent());
         painter.arc(ArcStroke {
             center,
             radius,
             start: Fixed::from_int(145),
             end: Fixed::from_int(395),
             color: theme.resolve(BORDER),
-            width: Fixed::from_int(6),
-            opacity: 150,
+            width: Fixed::from_int(5),
+            opacity: 255,
         });
         let sweep = Fixed::from_int(145)
             + Fixed::from_ratio(state.intensity as i32, 100) * Fixed::from_int(250);
@@ -435,24 +283,14 @@ impl SignalMeter {
             radius,
             start: Fixed::from_int(145),
             end: sweep,
-            color: accent,
-            width: Fixed::from_int(6),
+            color: theme.resolve(ACCENT),
+            width: Fixed::from_int(5),
             opacity: 255,
         });
-        painter.fill(
-            Rect::new(
-                center.x - Fixed::from_int(3),
-                center.y - Fixed::from_int(3),
-                Fixed::from_int(6),
-                Fixed::from_int(6),
-            ),
-            theme.resolve(TEXT),
-            Fixed::from_int(3),
-            255,
-        );
     }
 }
 
+/// Packet rate as a line over per-interval bars.
 #[crate::component]
 pub(super) struct ActivityPlot {
     pub(super) model: model!(ConsoleState),
@@ -473,8 +311,36 @@ impl ActivityPlot {
         let width = rect.w - inset * Fixed::from_int(2);
         let plot_top = rect.y + (rect.h / Fixed::from_int(4)).max(Fixed::from_int(24));
         let plot_height = (rect.y + rect.h - plot_top - inset).max(Fixed::from_int(12));
+        let floor = plot_top + plot_height * Fixed::from_ratio(4, 5);
         let baseline = plot_top + plot_height * Fixed::from_ratio(2, 5);
-        let accent = theme.resolve(state.mode.accent());
+        let muted = theme.resolve(TEXT_MUTED);
+        let accent = theme.resolve(ACCENT);
+
+        painter.line(
+            Point::new(left, floor),
+            Point::new(left + width, floor),
+            theme.resolve(BORDER),
+            Fixed::ONE,
+            255,
+        );
+        for bar in 0..14 {
+            let angle = state.phase() + Fixed::from_int(bar * 31);
+            let height = Fixed::from_int(3)
+                + Fixed::sin_deg(angle).abs() * plot_height * Fixed::from_ratio(3, 10);
+            let x = left + width * Fixed::from_ratio(bar, 14);
+            painter.fill(
+                Rect::new(
+                    x,
+                    floor - height,
+                    (width / Fixed::from_int(28)).max(Fixed::from_int(3)),
+                    height,
+                ),
+                muted,
+                Fixed::from_int(2),
+                70,
+            );
+        }
+
         let mut previous = Point::new(left, baseline);
         for sample in 0..24 {
             let x = left + width * Fixed::from_ratio(sample, 23);
@@ -484,47 +350,11 @@ impl ActivityPlot {
                 Fixed::sin_deg(angle * Fixed::from_ratio(5, 3)) * plot_height / Fixed::from_int(10);
             let point = Point::new(x, baseline - primary - secondary);
             if sample > 0 {
-                painter.line(previous, point, accent, Fixed::from_ratio(3, 2), 225);
+                painter.line(previous, point, accent, Fixed::from_ratio(3, 2), 255);
             }
             previous = point;
         }
-
-        for bar in 0..14 {
-            let angle = state.phase() + Fixed::from_int(bar * 31);
-            let height = Fixed::from_int(3)
-                + Fixed::sin_deg(angle).abs() * plot_height * Fixed::from_ratio(3, 10);
-            let x = left + width * Fixed::from_ratio(bar, 14);
-            painter.fill(
-                Rect::new(
-                    x,
-                    plot_top + plot_height * Fixed::from_ratio(4, 5) - height,
-                    (width / Fixed::from_int(28)).max(Fixed::from_int(3)),
-                    height,
-                ),
-                if bar % 7 == 0 {
-                    DATA_AMBER
-                } else if bar % 3 == 0 {
-                    theme.resolve(VIOLET)
-                } else {
-                    theme.resolve(BLUE)
-                },
-                Fixed::from_int(4),
-                120,
-            );
-        }
     }
-}
-
-#[crate::view(
-    component = ConsoleBackdrop,
-    name = "ConsoleBackdrop",
-    priority = 10
-)]
-pub(super) fn backdrop_render(component: component!(), paint: paint!(), theme: res!(Theme)) {
-    let rect = paint.rect();
-    let transform = paint.transform();
-    let mut painter = DemoPainter::new(paint, transform);
-    component.render(&mut painter, &rect, &theme);
 }
 
 #[crate::view(
@@ -534,7 +364,7 @@ pub(super) fn backdrop_render(component: component!(), paint: paint!(), theme: r
 )]
 pub(super) fn orbit_render(
     component: component!(),
-    model: model!(component.model, watch(mode, intensity, focused_node, phase)),
+    model: model!(component.model, watch(intensity, focused_node, phase)),
     paint: paint!(),
     theme: res!(Theme),
 ) {
@@ -547,7 +377,7 @@ pub(super) fn orbit_render(
 #[crate::view(component = SignalMeter, name = "SignalMeter", priority = 60)]
 pub(super) fn signal_render(
     component: component!(),
-    model: model!(component.model, watch(mode, intensity)),
+    model: model!(component.model, watch(intensity)),
     paint: paint!(),
     theme: res!(Theme),
 ) {
@@ -560,7 +390,7 @@ pub(super) fn signal_render(
 #[crate::view(component = ActivityPlot, name = "ActivityPlot", priority = 60)]
 pub(super) fn activity_render(
     component: component!(),
-    model: model!(component.model, watch(mode, phase)),
+    model: model!(component.model, watch(phase)),
     paint: paint!(),
     theme: res!(Theme),
 ) {

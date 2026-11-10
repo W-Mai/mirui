@@ -6,8 +6,9 @@ use super::runtime::{ARABIC, CJK, DEVANAGARI, FEATURES_OFF, LIVE_SAMPLE, THAI, U
 use super::runtime::{register_fonts, register_path};
 use super::state::{TypographyModel, align_label, live_paragraph, overflow_label, wrap_label};
 use super::style::{
-    ACTIVE_RENDER_PATH, BACKGROUND, BLUE, BORDER, CYAN, GOLD, MUTED, PANEL, PANEL_ALT, TEXT, VIOLET,
+    ACCENT, ACTIVE_RENDER_PATH, BACKGROUND, BORDER, MUTED, PANEL, PANEL_ALT, RAISED, TEXT,
 };
+use crate::gallery::brand::MiruiMark;
 use crate::prelude::*;
 use crate::types::Transform3D;
 use crate::ui::widgets::{
@@ -115,13 +116,15 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                     row_gap: 4,
                     column_gap: 14
                 ) {
-                    View (width: 8, height: 42, bg_color: CYAN, border_radius: 4)
+                    View (width: 32, height: 32) [
+                        MiruiMark,
+                    ]
                     Column (grow: 1.0, min_width: 150, row_gap: 3) {
                         Text (
-                            "TYPOGRAPHY LAB",
+                            "Typography Lab",
                             width: Dimension::percent(100),
                             font: UI,
-                            font_size: 24,
+                            font_size: 22,
                             text_color: TEXT,
                             paragraph: bounded_paragraph(1)
                         )
@@ -137,18 +140,18 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                     }
                     Text (
                         id: "typography_panel_count",
-                        "8 TEST PANELS",
+                        "8 test panels",
                         width: Dimension::percent(32),
                         min_width: 96,
-                        max_width: 158,
-                        height: 30,
-                        bg_color: PANEL_ALT,
+                        max_width: 132,
+                        height: 28,
+                        bg_color: PANEL,
                         border_color: BORDER,
                         border_width: 1,
-                        border_radius: 15,
+                        border_radius: 14,
                         font: UI,
                         font_size: 12,
-                        text_color: CYAN,
+                        text_color: MUTED,
                         paragraph: ParagraphStyle::label()
                     )
                 }
@@ -174,9 +177,9 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                         bg_color: PANEL,
                         border_color: BORDER,
                         border_width: 1,
-                        border_radius: 14
+                        border_radius: 10
                     ) {
-                        Text ("LATIN · GSUB / GPOS", font: UI, font_size: 12, text_color: BLUE)
+                        Text ("Latin · GSUB/GPOS", font: UI, font_size: 12, text_color: MUTED)
                         Text (
                             id: "typography_latin_shaped",
                             "office ffi · AVATAR To",
@@ -214,9 +217,9 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                         bg_color: PANEL_ALT,
                         border_color: BORDER,
                         border_width: 1,
-                        border_radius: 14
+                        border_radius: 10
                     ) {
-                        Text ("CJK · GLYPH METRICS", font: UI, font_size: 12, text_color: GOLD)
+                        Text ("CJK · glyph metrics", font: UI, font_size: 12, text_color: MUTED)
                         Text (
                             id: "typography_cjk_sample",
                             "中文字体排版",
@@ -245,13 +248,13 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                         bg_color: PANEL,
                         border_color: BORDER,
                         border_width: 1,
-                        border_radius: 14
+                        border_radius: 10
                     ) {
                         Text (
-                            "ARABIC · RTL JOINING",
+                            "Arabic · RTL joining",
                             font: UI,
                             font_size: 12,
-                            text_color: VIOLET
+                            text_color: MUTED
                         )
                         Text (
                             id: "typography_arabic_sample",
@@ -281,9 +284,9 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                         bg_color: PANEL_ALT,
                         border_color: BORDER,
                         border_width: 1,
-                        border_radius: 14
+                        border_radius: 10
                     ) {
-                        Text ("THAI · MARK PLACEMENT", font: UI, font_size: 12, text_color: CYAN)
+                        Text ("Thai · mark placement", font: UI, font_size: 12, text_color: MUTED)
                         Text (
                             id: "typography_thai_sample",
                             "สวัสดีครับ · ตั้ง",
@@ -312,13 +315,13 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                         bg_color: PANEL,
                         border_color: BORDER,
                         border_width: 1,
-                        border_radius: 14
+                        border_radius: 10
                     ) {
                         Text (
-                            "DEVANAGARI · CONJUNCTS",
+                            "Devanagari · conjuncts",
                             font: UI,
                             font_size: 12,
-                            text_color: GOLD
+                            text_color: MUTED
                         )
                         Text (
                             id: "typography_devanagari_sample",
@@ -348,9 +351,9 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                         bg_color: PANEL,
                         border_color: BORDER,
                         border_width: 1,
-                        border_radius: 14
+                        border_radius: 10
                     ) {
-                        Text ("MIXED BIDI · FALLBACK", font: UI, font_size: 12, text_color: BLUE)
+                        Text ("Mixed bidi · fallback", font: UI, font_size: 12, text_color: MUTED)
                         Text (
                             id: "typography_bidi_sample",
                             "mirui 42 · 中文字体排版 · مرحبا",
@@ -383,9 +386,9 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                         bg_color: PANEL_ALT,
                         border_color: BORDER,
                         border_width: 1,
-                        border_radius: 14
+                        border_radius: 10
                     ) {
-                        Text ("COVERAGE / SDF", font: UI, font_size: 12, text_color: GOLD)
+                        Text ("Coverage · SDF", font: UI, font_size: 12, text_color: MUTED)
                         RasterContour (
                             id: "typography_contour",
                             font: UI,
@@ -405,7 +408,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                             width: Dimension::percent(100),
                             font: UI,
                             font_size: 10,
-                            text_color: VIOLET,
+                            text_color: MUTED,
                             paragraph: plain_paragraph()
                         )
                     }
@@ -420,9 +423,9 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                         bg_color: PANEL,
                         border_color: BORDER,
                         border_width: 1,
-                        border_radius: 14
+                        border_radius: 10
                     ) {
-                        Text ("PATH + PROJECTIVE", font: UI, font_size: 12, text_color: CYAN)
+                        Text ("Path and projective", font: UI, font_size: 12, text_color: MUTED)
                         View (height: 78) {
                             Text (
                                 id: "typography_path_sample",
@@ -456,13 +459,13 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                                 height: 48,
                                 font: UI,
                                 font_size: 20,
-                                text_color: GOLD,
+                                text_color: TEXT,
                                 paragraph: ParagraphStyle::label()
                             )
                         }
                         Text (
                             text: format_args!(
-                                "POSE {} B RAM / {} B WIRE · MATRIX {} B\nNATIVE OR CALLER-BUDGETED FALLBACK",
+                                "Pose {} B RAM / {} B wire · matrix {} B\nNative or caller-budgeted fallback",
                                 core::mem::size_of::<textflow::placement::GlyphFrame>(),
                                 mirx::scene::GlyphPose::WIRE_SIZE,
                                 mirx::types::Transform3D::WIRE_SIZE,
@@ -491,7 +494,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                     bg_color: PANEL,
                     border_color: BORDER,
                     border_width: 1,
-                    border_radius: 14
+                    border_radius: 10
                 ) {
                     Column (
                         grow: 1.0,
@@ -500,7 +503,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                         height: 130,
                         row_gap: 6
                     ) {
-                        Text ("LIVE PARAGRAPH", font: UI, font_size: 12, text_color: CYAN)
+                        Text ("Live paragraph", font: UI, font_size: 12, text_color: MUTED)
                         View (grow: 1.0, height: 78) {
                             Text (
                                 id: "typography_live_sample",
@@ -522,7 +525,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                             ]
                         }
                         Text (
-                            "cyan LTR · violet RTL · lines are authoritative caret stops",
+                            "Blue LTR · violet RTL · lines are authoritative caret stops",
                             width: Dimension::percent(100),
                             font: UI,
                             font_size: 11,
@@ -547,7 +550,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                                 max: Fixed::from_int(64),
                                 value: ${ Fixed::from_int(i32::from(model.ppem())) },
                                 track_color: BORDER,
-                                fill_color: CYAN,
+                                fill_color: ACCENT,
                                 thumb_color: TEXT
                             ) on ValueChanged {
                                 let _ = event.old;
@@ -564,7 +567,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                             )
                         }
                         Row (height: 22, align: AlignItems::Center, column_gap: 9) {
-                            Text ("WIDTH", width: 54, font: UI, font_size: 11, text_color: MUTED)
+                            Text ("Width", width: 54, font: UI, font_size: 11, text_color: MUTED)
                             Slider (
                                 id: "typography_width",
                                 grow: 1.0,
@@ -573,7 +576,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                                 max: Fixed::from_int(560),
                                 value: ${ Fixed::from_int(i32::from(model.width())) },
                                 track_color: BORDER,
-                                fill_color: BLUE,
+                                fill_color: ACCENT,
                                 thumb_color: TEXT
                             ) on ValueChanged {
                                 let _ = event.old;
@@ -597,13 +600,13 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                                 grow: 1.0,
                                 height: 28,
                                 normal_color: PANEL_ALT,
-                                pressed_color: CYAN,
+                                pressed_color: RAISED,
                                 border_color: BORDER,
                                 border_width: 1,
                                 border_radius: 8,
                                 font: UI,
-                                font_size: 10,
-                                text_color: CYAN
+                                font_size: 11,
+                                text_color: TEXT
                             ) on Tap { model.cycle_wrap(); }
                             Button (
                                 id: "typography_align",
@@ -612,13 +615,13 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                                 grow: 1.0,
                                 height: 28,
                                 normal_color: PANEL_ALT,
-                                pressed_color: BLUE,
+                                pressed_color: RAISED,
                                 border_color: BORDER,
                                 border_width: 1,
                                 border_radius: 8,
                                 font: UI,
-                                font_size: 10,
-                                text_color: BLUE
+                                font_size: 11,
+                                text_color: TEXT
                             ) on Tap { model.cycle_align(); }
                             Button (
                                 id: "typography_overflow",
@@ -627,13 +630,13 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                                 grow: 1.0,
                                 height: 28,
                                 normal_color: PANEL_ALT,
-                                pressed_color: GOLD,
+                                pressed_color: RAISED,
                                 border_color: BORDER,
                                 border_width: 1,
                                 border_radius: 8,
                                 font: UI,
-                                font_size: 10,
-                                text_color: GOLD
+                                font_size: 11,
+                                text_color: TEXT
                             ) on Tap { model.toggle_overflow(); }
                         }
                     }
@@ -650,6 +653,7 @@ where
     F: RendererFactory<B>,
 {
     crate::gallery::showcase_theme::install(app);
+    crate::gallery::brand::install(app);
     app.with_widget(caret_overlay_view());
     app.with_widget(raster_contour_view());
     app.compose(parent, register_fonts());

@@ -87,24 +87,24 @@ pub(super) fn live_paragraph(
 
 pub(super) const fn wrap_label(wrap: TextWrap) -> &'static str {
     match wrap {
-        TextWrap::NoWrap => "NO WRAP",
-        TextWrap::Word => "WORD",
-        TextWrap::Grapheme => "GRAPHEME",
+        TextWrap::NoWrap => "No wrap",
+        TextWrap::Word => "Word",
+        TextWrap::Grapheme => "Grapheme",
     }
 }
 
 pub(super) const fn align_label(align: TextAlign) -> &'static str {
     match align {
-        TextAlign::Start => "START",
-        TextAlign::Center => "CENTER",
-        TextAlign::End => "END",
-        TextAlign::Justify => "JUSTIFY",
+        TextAlign::Start => "Start",
+        TextAlign::Center => "Center",
+        TextAlign::End => "End",
+        TextAlign::Justify => "Justify",
     }
 }
 
 pub(super) const fn overflow_label(overflow: TextOverflow) -> &'static str {
     match overflow {
-        TextOverflow::Clip => "CLIP",
-        TextOverflow::Ellipsis => "ELLIPSIS",
+        TextOverflow::Clip => "Clip",
+        TextOverflow::Ellipsis => "Ellipsis",
     }
 }

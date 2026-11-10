@@ -1,5 +1,5 @@
 use super::state::{ConsoleModel, ConsoleMotion};
-use super::style::{BORDER, MUTED, PANEL, TEXT};
+use super::style::{ACCENT, BORDER, MUTED, PANEL, TEXT};
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::ui::Theme;
@@ -45,8 +45,8 @@ pub(super) fn orbit_render(
     let panel = theme.resolve(PANEL);
     let border = theme.resolve(BORDER);
     let text = theme.resolve(TEXT);
-    let accent = theme.resolve(model.mode.accent());
-    let secondary = theme.resolve(model.mode.secondary());
+    let accent = theme.resolve(ACCENT);
+    let secondary = theme.resolve(MUTED);
 
     paint.set_background_handled(true);
     let rect = paint.rect();
@@ -135,14 +135,8 @@ pub(super) fn orbit_render(
         );
     }
 
-    for size in [13, 8, 3] {
-        let color = if size == 13 {
-            Color::rgba(accent.r, accent.g, accent.b, 70)
-        } else if size == 8 {
-            secondary
-        } else {
-            text
-        };
+    for size in [8, 3] {
+        let color = if size == 8 { border } else { text };
         painter.fill(
             Rect::new(
                 center.x - Fixed::from_ratio(size, 2),
@@ -167,7 +161,7 @@ pub(super) fn wave_render(
     let phase = motion.phase.phase();
     let panel = theme.resolve(PANEL);
     let muted = theme.resolve(MUTED);
-    let accent = theme.resolve(model.mode.accent());
+    let accent = theme.resolve(ACCENT);
     paint.set_background_handled(true);
     let rect = paint.rect();
     let mut painter = InstrumentPainter { paint };

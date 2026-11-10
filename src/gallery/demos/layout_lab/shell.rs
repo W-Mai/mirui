@@ -51,6 +51,8 @@ where
     F: RendererFactory<B>,
 {
     crate::gallery::showcase_theme::install(app);
+    app.add_plugin(crate::gallery::play::font::PlayFontPlugin);
+    crate::gallery::brand::install(app);
     app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
     app.compose(parent, build_widgets());
 }

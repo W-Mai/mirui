@@ -20,8 +20,7 @@ pub(super) const CLIP: ColorToken = ColorToken::Error;
 
 pub(super) const FONT: FontToken = FontToken::Custom("iris_ui");
 
-pub const DARK_ID: &str = "iris-dark";
-pub const LIGHT_ID: &str = "iris-light";
+pub use super::{DARK_ID, LIGHT_ID};
 
 pub fn dark() -> Theme {
     Theme::dark()

@@ -57,6 +57,13 @@ pub fn appearance_theme_id(active: &str, dark: bool) -> Option<&'static str> {
                 mirui::gallery::showcase_theme::LIGHT_ID
             })
         }
+        mirui::gallery::demos::iris::DARK_ID | mirui::gallery::demos::iris::LIGHT_ID => {
+            Some(if dark {
+                mirui::gallery::demos::iris::DARK_ID
+            } else {
+                mirui::gallery::demos::iris::LIGHT_ID
+            })
+        }
         _ => None,
     }
 }
@@ -678,6 +685,14 @@ mod appearance_tests {
             app.set_theme(id).unwrap();
         }
         app.with_default_widgets().with_default_systems();
+        let iris = app.spawn_root().id();
+        mirui::gallery::demos::iris::setup_app(&mut app, iris);
+        for dark in [false, true] {
+            let id = super::appearance_theme_id(app.theme().id().as_str(), dark).unwrap();
+            assert!(app.themes().get(id).is_some());
+            app.set_theme(id).unwrap();
+            assert_eq!(app.theme().id().as_str(), id);
+        }
         let root = app.spawn_root().id();
         mirui::gallery::demos::nearby::setup_app(&mut app, root);
         assert_eq!(app.theme().id().as_str(), "forest");

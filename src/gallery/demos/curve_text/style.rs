@@ -14,12 +14,14 @@ pub(super) const PANEL_ALT: ColorToken = ColorToken::Surface;
 pub(super) const BORDER: ColorToken = ColorToken::Outline;
 pub(super) const TEXT: ColorToken = ColorToken::OnSurface;
 pub(super) const MUTED: ColorToken = ColorToken::OnSurfaceVariant;
-pub(super) const CYAN: ColorToken = ColorToken::Primary;
-pub(super) const VIOLET: ColorToken = ColorToken::Tertiary;
-pub(super) const GOLD: ColorToken = ColorToken::Success;
-pub(super) const LANE_COLORS: [ColorToken; 3] = [CYAN, VIOLET, GOLD];
+/// Pressed buttons.
+pub(super) const RAISED: ColorToken = ColorToken::Outline;
+/// The one accent: the multiscript lane and the slider fills.
+pub(super) const ACCENT: ColorToken = ColorToken::Primary;
+/// Guide strokes under the primary, multiscript and caption lanes.
+pub(super) const LANE_COLORS: [ColorToken; 3] = [MUTED, ACCENT, MUTED];
 
-pub(super) const ROUTE_LABEL: &str = "POSED GLYPHS / BOUNDED FALLBACK";
+pub(super) const ROUTE_LABEL: &str = "Posed glyphs · bounded fallback";
 
 pub(super) fn mixed_stack() -> FontStack {
     FontStack::new(UI).with_fallbacks(&FALLBACKS)

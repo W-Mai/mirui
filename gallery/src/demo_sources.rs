@@ -74,7 +74,7 @@ split_demo_sources! {
     },
     ORBIT_CONSOLE => {
         demo: "orbit_console",
-        marker: "fn radial_paint",
+        marker: "fn disc",
         parts: [
             "style.rs",
             "state.rs",

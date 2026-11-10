@@ -1,9 +1,10 @@
-use super::lens::{IrisLens, MiruiMark};
+use super::lens::IrisLens;
 use super::meters::{
     DialMeter, ExposureMeter, FOCUS_MARKS, FocusScale, Histogram, ShutterRing, focus_track,
 };
 use super::state::{IrisLayout, IrisState, MAX_STOP, third_label};
 use super::style::{BG, BORDER, FONT, MUTED, OK, PANEL, RAISED, SEE, TEXT, label};
+use crate::gallery::brand::MiruiMark;
 use crate::prelude::*;
 use crate::types::Transform;
 use crate::ui::widgets::{Button, ButtonSize, Slider, Text, TextAlign};

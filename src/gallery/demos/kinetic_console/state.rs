@@ -1,4 +1,4 @@
-use super::style::{AMBER, BLUE, CYAN, PINK, VIOLET};
+use super::style::{BACKGROUND, MUTED, RAISED, TEXT};
 use crate::gallery::play::change::ChangeSet;
 use crate::prelude::{ColorToken, Fixed};
 
@@ -11,20 +11,13 @@ pub(super) enum ConsoleMode {
 }
 
 impl ConsoleMode {
-    pub(super) const fn accent(self) -> ColorToken {
-        match self {
-            Self::Orbit => CYAN,
-            Self::Flow => VIOLET,
-            Self::Pulse => AMBER,
-        }
+    /// Modes change the orbit speed, so the segments share one neutral style.
+    pub(super) fn segment_fill(self, selected: Self) -> ColorToken {
+        if self == selected { RAISED } else { BACKGROUND }
     }
 
-    pub(super) const fn secondary(self) -> ColorToken {
-        match self {
-            Self::Orbit => BLUE,
-            Self::Flow => CYAN,
-            Self::Pulse => PINK,
-        }
+    pub(super) fn segment_text(self, selected: Self) -> ColorToken {
+        if self == selected { TEXT } else { MUTED }
     }
 
     pub(super) const fn speed(self) -> i32 {

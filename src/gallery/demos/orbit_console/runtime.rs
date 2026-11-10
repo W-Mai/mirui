@@ -6,7 +6,7 @@ use super::FONT_BYTES;
 use super::composition::build_widgets;
 use super::state::ConsoleState;
 #[cfg(feature = "std")]
-use super::visuals::{activity_render, backdrop_render, orbit_render, signal_render};
+use super::visuals::{activity_render, orbit_render, signal_render};
 use crate::ecs::DeltaTimeMs;
 #[cfg(any(feature = "std", test))]
 use crate::prelude::*;
@@ -54,8 +54,8 @@ where
     };
     let model = app.add_model(initial_state).finish();
     app.compose(parent, register_fonts());
-    app.with_widget(backdrop_render::view())
-        .with_widget(orbit_render::view())
+    crate::gallery::brand::install(app);
+    app.with_widget(orbit_render::view())
         .with_widget(signal_render::view())
         .with_widget(activity_render::view());
     if run_mode == DemoRunMode::Live {

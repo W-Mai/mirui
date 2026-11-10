@@ -23,7 +23,7 @@ impl ConsoleNodes {
 
 use super::runtime::console_animation_system;
 use super::state::ConsoleState;
-use super::style::VIOLET;
+use super::style::{BG, RAISED};
 use super::visuals::{ActivityPlot, OrbitInstrument, SignalMeter, UNIT_CIRCLE};
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
@@ -177,8 +177,26 @@ fn observed_fields_invalidate_only_their_canvas_consumers() {
     assert!(
         world
             .get::<Text>(pause)
-            .is_some_and(|text| text.resolve(world.resource()).contains("RESUME"))
+            .is_some_and(|text| text.resolve(world.resource()).contains("Resume"))
     );
+}
+
+#[test]
+fn font_covers_every_label_character() {
+    let font = crate::render::font::Font::from_mirx(
+        "Orbit Console",
+        14,
+        FONT_BYTES,
+        &mirx::reader::PayloadLimits::HOST,
+    )
+    .unwrap();
+    let mut buffer = [0u8; 4];
+    let missing: alloc::string::String =
+        "98% 12.4 k/s 16.67 ms Q24.8 Fixed-point · Tracking node 3"
+            .chars()
+            .filter(|c| !font.covers(c.encode_utf8(&mut buffer)))
+            .collect();
+    assert!(missing.is_empty(), "console font lacks {missing:?}");
 }
 
 #[test]
@@ -304,11 +322,12 @@ fn controls_update_shared_state_and_visual_style() {
         world
             .get::<Button>(pulse)
             .map(|button| button.normal_color.resolve(&Theme::dark())),
-        Some(Theme::dark().resolve(VIOLET))
+        Some(Theme::dark().resolve(RAISED))
     );
+    // A mode only changes the orbit speed, so the instruments wait for the next phase step.
     assert!(!world.has::<Dirty>(stage));
     for entity in [stage, signal, activity] {
-        assert!(world.has::<crate::ui::dirty::VisualDirty>(entity));
+        assert!(!world.has::<crate::ui::dirty::VisualDirty>(entity));
     }
 }
 
@@ -327,7 +346,10 @@ fn setup_preserves_the_parent_background() {
         );
         let shell = app.world.find_by_id(ConsoleNodes::SHELL).unwrap();
         assert_eq!(app.world.get::<Parent>(shell).unwrap().0, parent);
-        assert!(app.world.has::<super::visuals::ConsoleBackdrop>(shell));
+        assert_eq!(
+            app.world.get::<Style>(shell).unwrap().bg_color,
+            Some(BG.into())
+        );
     }
 }
 
@@ -379,7 +401,7 @@ fn stage_tap_cycles_focus_without_allocation_state() {
     assert!(
         world
             .get::<Text>(focus_label)
-            .is_some_and(|text| text.resolve(world.resource()).contains("NODE 03"))
+            .is_some_and(|text| text.resolve(world.resource()).contains("node 3"))
     );
 }
 
@@ -430,6 +452,6 @@ fn intensity_and_pause_handlers_update_visible_state() {
     assert!(
         world
             .get::<Text>(pause)
-            .is_some_and(|text| text.resolve(world.resource()).contains("RESUME"))
+            .is_some_and(|text| text.resolve(world.resource()).contains("Resume"))
     );
 }

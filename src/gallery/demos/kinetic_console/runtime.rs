@@ -78,6 +78,7 @@ where
     F: RendererFactory<B>,
 {
     crate::gallery::showcase_theme::install(app);
+    crate::gallery::brand::install(app);
     app.with_widget(orbit_render::view())
         .with_widget(wave_render::view());
     let model = app.add_model(ConsoleModel::default()).finish();

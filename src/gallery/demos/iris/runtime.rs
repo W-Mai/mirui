@@ -1,6 +1,6 @@
 use super::FONT_BYTES;
 use super::composition::build_widgets;
-use super::lens::{lens_render, mark_render};
+use super::lens::lens_render;
 use super::meters::{
     ShutterRing, dial_render, exposure_render, focus_render, histogram_render, shutter_render,
 };
@@ -38,8 +38,8 @@ where
     let (width, height) = app.backend.viewport().logical_size();
     let model = app.add_model(IrisState::new(run, width, height)).finish();
     app.compose(parent, register_fonts());
+    crate::gallery::brand::install(app);
     app.with_widget(lens_render::view())
-        .with_widget(mark_render::view())
         .with_widget(histogram_render::view())
         .with_widget(exposure_render::view())
         .with_widget(focus_render::view())

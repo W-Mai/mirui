@@ -32,6 +32,7 @@ where
     F: RendererFactory<B>,
 {
     crate::gallery::showcase_theme::install(app);
+    crate::gallery::brand::install(app);
     let path = app
         .paths()
         .insert_static(WAVE.commands())

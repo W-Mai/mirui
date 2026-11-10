@@ -1,5 +1,5 @@
 use super::runtime::UI;
-use super::style::{BLUE, CYAN, GOLD, PANEL_ALT};
+use super::style::{ACCENT, PANEL_ALT};
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::font::FontManager;
@@ -24,15 +24,14 @@ impl Default for RasterContour {
 }
 
 fn contour_color(theme: &Theme, value: Fixed) -> Color {
+    // One hue from the panel to the accent, so coverage reads as a single ramp.
     let surface = theme.resolve(PANEL_ALT);
-    let primary = theme.resolve(CYAN);
-    let secondary = theme.resolve(BLUE);
-    let success = theme.resolve(GOLD);
+    let primary = theme.resolve(ACCENT);
     match crate::types::fixed::to_textflow(value).clamp(0, 256) {
         0..=63 => surface,
-        64..=111 => surface.blend_with(secondary, Fixed::from_ratio(1, 2)),
-        112..=144 => success,
-        145..=207 => secondary,
+        64..=111 => surface.blend_with(primary, Fixed::from_ratio(1, 4)),
+        112..=144 => surface.blend_with(primary, Fixed::from_ratio(1, 2)),
+        145..=207 => surface.blend_with(primary, Fixed::from_ratio(3, 4)),
         _ => primary,
     }
 }

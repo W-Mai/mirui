@@ -18,10 +18,8 @@ const DEFAULT_HEIGHT: u16 = orbit_console::VIEWPORT.1;
 #[derive(Debug, Default)]
 struct PaletteCounts {
     non_background: usize,
-    mint: usize,
-    blue: usize,
-    violet: usize,
-    amber: usize,
+    accent: usize,
+    warm: usize,
     bright: usize,
 }
 
@@ -29,16 +27,20 @@ fn default_output() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/assets/orbit-console.png")
 }
 
+/// Count pixels against the shell background in the top-left corner.
 fn count_palette(pixels: &[u8], stride: usize, width: u16, height: u16) -> PaletteCounts {
+    let background = [pixels[0], pixels[1], pixels[2]];
     let mut counts = PaletteCounts::default();
     for y in 0..height as usize {
         for pixel in pixels[y * stride..y * stride + width as usize * 4].chunks_exact(4) {
             let [r, g, b, _] = [pixel[0], pixel[1], pixel[2], pixel[3]];
-            counts.non_background += usize::from(r > 12 || g > 22 || b > 35);
-            counts.mint += usize::from(g > 145 && b > 115 && g > r.saturating_add(30));
-            counts.blue += usize::from(b > 130 && b > r.saturating_add(25));
-            counts.violet += usize::from(r > 85 && b > 115 && b > g.saturating_add(20));
-            counts.amber += usize::from(r > 90 && g > 65 && b < 100 && r > g.saturating_add(10));
+            let distance = u16::from(r.abs_diff(background[0]))
+                + u16::from(g.abs_diff(background[1]))
+                + u16::from(b.abs_diff(background[2]));
+            counts.non_background += usize::from(distance > 24);
+            counts.accent +=
+                usize::from(b > 180 && b > r.saturating_add(60) && b > g.saturating_add(50));
+            counts.warm += usize::from(r > 150 && r > b.saturating_add(80));
             counts.bright += usize::from(r > 180 && g > 180 && b > 180);
         }
     }
@@ -79,14 +81,14 @@ fn validate(pixels: &[u8], stride: usize, width: u16, height: u16) {
     let area = usize::from(width) * usize::from(height);
     println!("palette {counts:?}");
     assert!(
-        counts.non_background > area / 4,
+        counts.non_background > area / 8,
         "showcase rendered too little content"
     );
-    assert!(counts.mint > area / 200, "mint accent is missing");
-    assert!(counts.blue > area / 200, "blue accent is missing");
-    assert!(counts.violet > area / 1_200, "violet accent is missing");
-    assert!(counts.amber > area / 5_000, "amber accent is missing");
+    assert!(counts.accent > area / 400, "the blue accent is missing");
     assert!(counts.bright > area / 800, "high-contrast text is missing");
+    // Neutral panels: warm colour is limited to the iris of the mirui mark.
+    assert!(counts.warm > 0, "the mirui mark is missing");
+    assert!(counts.warm < area / 500, "warm colour leaks past the mark");
 
     assert!(
         luminance_range(
