@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Retain lyric accent spans and expose borrowed complete-bar chord groups without duplicating score text.
+
 - Scroll past, current and upcoming prompter bars at a uniform horizontal speed with center enlargement, active chord fragments and native bitmap emphasis; separate embedded connection feedback from chord content.
 
 - Preview the pointed bar and its successor from the prompter timeline with pointer and keyboard input.

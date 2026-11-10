@@ -3,14 +3,59 @@ use super::*;
 const SONG: &str = "---\ntitle: Practice\nkey: C\nbpm: 96.5\ntime: 4/4\nstrum: pop\n---\n--- Verse ---\n[跟]着[节]拍 | | [回]到起点 @ 1/5 6m 4\n--- Chorus | strum:whole ---\n[再]走一步 @ 1\n";
 
 #[test]
+fn source_accents_are_borrowed_with_plain_utf8_offsets_without_losing_bar_content() {
+    let score = Score::parse(SONG, ScoreLimits::DEVICE).unwrap();
+    let bar = score.bar_chords(0);
+    assert_eq!(bar.len(), 2);
+    let first: alloc::vec::Vec<_> = score.lyric(&bar[0]).segments().collect();
+    assert_eq!(
+        first,
+        [
+            LyricSegment {
+                text: "跟",
+                accented: true,
+                offset: 0
+            },
+            LyricSegment {
+                text: "着",
+                accented: false,
+                offset: 3
+            }
+        ]
+    );
+    let text: alloc::string::String = bar
+        .iter()
+        .flat_map(|chord| score.lyric(chord).chars())
+        .collect();
+    assert_eq!(text, "跟着节拍");
+    let empty = Score::parse(
+        &SONG.replace("[再]走一步", "[]A[再][]B[走]"),
+        ScoreLimits::DEVICE,
+    )
+    .unwrap();
+    assert_eq!(
+        alloc::format!("{}", empty.lyric(&empty.bar_chords(3)[0])),
+        "A再B走"
+    );
+    assert_eq!(
+        empty
+            .lyric(&empty.bar_chords(3)[0])
+            .segments()
+            .filter(|span| span.accented)
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn song_preserves_musical_bars_unicode_and_section_overrides() {
     let score = Score::parse(SONG, ScoreLimits::DEVICE).unwrap();
     assert_eq!(score.title(), "Practice");
     assert_eq!(score.milli_bpm, 96_500);
     assert_eq!(score.bars(), 4);
     assert_eq!(score.chords().len(), 5);
-    assert_eq!(score.text(score.chords()[0].lyric.clone()), "跟着");
-    assert_eq!(score.text(score.chords()[1].lyric.clone()), "节拍");
+    assert!(score.lyric(&score.chords()[0]).chars().eq("跟着".chars()));
+    assert!(score.lyric(&score.chords()[1]).chars().eq("节拍".chars()));
     assert!(score.text(score.chords()[2].lyric.clone()).is_empty());
     assert_eq!(score.chord_name(1), "C");
     assert_eq!(score.chord_name(5), "G");

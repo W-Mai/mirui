@@ -15,7 +15,10 @@ pub use motion::BarMotion;
 pub use runtime::install;
 #[cfg(feature = "std")]
 pub use runtime::setup_app;
-pub use score::{Attack, Chord, Meter, Pattern, Score, ScoreError, ScoreLimits, Section, Stroke};
+pub use score::{
+    Attack, Chord, Lyric, LyricSegment, Meter, Pattern, Score, ScoreError, ScoreLimits, Section,
+    Stroke,
+};
 pub use state::{Session, SessionHandle};
 pub use transport::{Action, Boundary, CommandError, Playback, TICKS_PER_BEAT, Transport};
 

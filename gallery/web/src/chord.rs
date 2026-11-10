@@ -51,7 +51,7 @@ impl ChordPreview {
                 "{{\"tick\":{},\"chord\":\"{}\",\"lyric\":\"{}\",\"section\":\"{}\"}}",
                 start,
                 self.score.chord_name(chord.degree),
-                super::json_escape(self.score.text(chord.lyric.clone())),
+                super::json_escape(&self.score.lyric(chord).to_string()),
                 super::json_escape(self.score.text(section.name.clone())),
             ));
         }

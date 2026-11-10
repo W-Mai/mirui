@@ -34,7 +34,7 @@ pub(super) fn validate(score: &Score) -> Result<(), ScoreError> {
         score
             .chords()
             .iter()
-            .flat_map(|chord| score.text(chord.lyric.clone()).chars()),
+            .flat_map(|chord| score.lyric(chord).chars()),
     );
     for ch in text {
         if !ch.is_whitespace() && font.map_char(ch).is_none() {

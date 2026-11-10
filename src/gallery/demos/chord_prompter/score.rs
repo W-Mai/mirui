@@ -290,6 +290,68 @@ pub struct Chord {
     pub slots: u8,
 }
 
+/// Borrowed lyric text retaining explicit accent spans from the source.
+#[derive(Clone, Copy)]
+pub struct Lyric<'a> {
+    raw: &'a str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LyricSegment<'a> {
+    pub text: &'a str,
+    pub accented: bool,
+    /// Byte offset in the plain lyric, excluding source delimiters.
+    pub offset: usize,
+}
+
+impl<'a> Lyric<'a> {
+    pub fn chars(self) -> impl Iterator<Item = char> + 'a {
+        self.raw.chars().filter(|ch| !matches!(ch, '[' | ']'))
+    }
+
+    pub fn segments(self) -> impl Iterator<Item = LyricSegment<'a>> + 'a {
+        let mut remaining = self.raw;
+        let mut accented = false;
+        let mut offset = 0;
+        core::iter::from_fn(move || {
+            loop {
+                if remaining.is_empty() {
+                    return None;
+                }
+                if remaining.starts_with('[') {
+                    accented = true;
+                    remaining = &remaining[1..];
+                    continue;
+                }
+                if remaining.starts_with(']') {
+                    accented = false;
+                    remaining = &remaining[1..];
+                    continue;
+                }
+                let end = remaining.find(['[', ']']).unwrap_or(remaining.len());
+                let text = &remaining[..end];
+                remaining = &remaining[end..];
+                let segment = LyricSegment {
+                    text,
+                    accented,
+                    offset,
+                };
+                offset += text.len();
+                return Some(segment);
+            }
+        })
+    }
+}
+
+impl core::fmt::Display for Lyric<'_> {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for segment in self.segments() {
+            formatter.write_str(segment.text)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Section {
     pub name: Range<usize>,
@@ -466,11 +528,7 @@ impl Score {
                     if end - start > limits.lyric_bytes {
                         return Err(ScoreError::Capacity);
                     }
-                    score.text.extend(
-                        bar[start..end]
-                            .chars()
-                            .filter(|ch| !['[', ']'].contains(ch)),
-                    );
+                    score.text.push_str(&bar[start..end]);
                     score.chords.push(Chord {
                         degree,
                         lyric: text_start..score.text.len(),
@@ -496,6 +554,18 @@ impl Score {
         let start = self.text.len();
         self.text.push_str(value);
         start..self.text.len()
+    }
+
+    pub fn lyric(&self, chord: &Chord) -> Lyric<'_> {
+        Lyric {
+            raw: self.text(chord.lyric.clone()),
+        }
+    }
+
+    pub fn bar_chords(&self, bar: u16) -> &[Chord] {
+        let first = self.chords.partition_point(|chord| chord.bar < bar);
+        let end = self.chords.partition_point(|chord| chord.bar <= bar);
+        &self.chords[first..end]
     }
 
     pub fn title(&self) -> &str {

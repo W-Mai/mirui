@@ -96,7 +96,7 @@ impl Session {
             self.current = next;
             let current = &self.score.chords()[next];
             self.lyric.clear();
-            self.lyric.push_str(self.score.text(current.lyric.clone()));
+            self.lyric.extend(self.score.lyric(current).chars());
             self.chord = self.score.chord_name(current.degree);
             self.next_lyric.clear();
             self.previous_lyric.clear();
@@ -106,7 +106,7 @@ impl Session {
                 .map(|index| &self.score.chords()[index])
             {
                 self.previous_lyric
-                    .push_str(self.score.text(previous.lyric.clone()));
+                    .extend(self.score.lyric(previous).chars());
                 self.previous_chord = self.score.chord_name(previous.degree);
             } else {
                 self.previous_chord = "";
@@ -116,8 +116,7 @@ impl Session {
                 .chords()
                 .partition_point(|chord| chord.bar <= bar);
             if let Some(next) = self.score.chords().get(following) {
-                self.next_lyric
-                    .push_str(self.score.text(next.lyric.clone()));
+                self.next_lyric.extend(self.score.lyric(next).chars());
                 self.next_chord = self.score.chord_name(next.degree);
             } else {
                 self.next_chord = "END";
