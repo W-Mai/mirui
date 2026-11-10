@@ -3,6 +3,52 @@ use super::*;
 const SONG: &str = "---\ntitle: Practice\nkey: C\nbpm: 96.5\ntime: 4/4\nstrum: pop\n---\n--- Verse ---\n[跟]着[节]拍 | | [回]到起点 @ 1/5 6m 4\n--- Chorus | strum:whole ---\n[再]走一步 @ 1\n";
 
 #[test]
+fn lyric_follow_uses_its_actual_viewport_and_reveals_the_next_reading_window() {
+    use crate::prelude::*;
+    let mut app = App::headless(128, 128);
+    app.with_default_widgets().with_default_systems();
+    app.add_resource(MonoClock::new(|| 0));
+    let root = app.spawn_root().id();
+    let session = install(&mut app, root);
+    session.toggle(0);
+    for time in [0, 625_000, 937_500, 1_250_000, 1_875_000, 2_490_000] {
+        session.advance(time);
+        app.render().unwrap();
+        let sheet = app.world.find_by_id("prompter_sheet").unwrap();
+        let row = app.world.get::<crate::ui::Children>(sheet).unwrap().0[1];
+        let page = app.world.get::<crate::ui::Children>(row).unwrap().0[1];
+        let stage = app.world.find_by_id("prompter_sheet_viewport").unwrap();
+        let stage = app.world.get::<crate::ui::ComputedRect>(stage).unwrap().0;
+        let rect = app.world.get::<crate::ui::ComputedRect>(page).unwrap().0;
+        assert_eq!(rect.y + rect.h, stage.y + stage.h);
+        let actual = app
+            .world
+            .get::<crate::input::event::scroll::ScrollOffset>(page)
+            .unwrap()
+            .y;
+        assert_eq!(actual, session.sheet_scroll());
+        if time >= 937_500 {
+            let (top, bottom) = crate::core::model::ModelHandle::read(&session, |data| {
+                let slot = &data.sheet.slots[data.sheet.current_start];
+                let top = i32::from(slot.y)
+                    + 2
+                    + i32::from(slot.end_line - slot.first_line - 1)
+                        * i32::from(super::font::CONTENT_SIZE + 2);
+                (
+                    Fixed::from_int(top),
+                    Fixed::from_int(top + i32::from(super::font::CONTENT_SIZE)),
+                )
+            });
+            assert!(top >= actual, "the next row must remain below the clip top");
+            assert!(
+                bottom - actual <= rect.h,
+                "the next row must fit before its reading interval"
+            );
+        }
+    }
+}
+
+#[test]
 fn source_accents_are_borrowed_with_plain_utf8_offsets_without_losing_bar_content() {
     let score = Score::parse(SONG, ScoreLimits::DEVICE).unwrap();
     let bar = score.bar_chords(0);

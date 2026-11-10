@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Follow complete lyric reading windows and reveal wrapped rows before their display interval, using the actual lyric viewport height.
+
 - Use integer-multiple bitmap text sizes and larger beat and strum symbols in the embedded prompter.
 
 - Remove duplicate header lyric previews from the embedded prompter; retain the right-aligned bar counter and scrolling lyric context.

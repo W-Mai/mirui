@@ -33,10 +33,11 @@ pub(super) fn build_widgets(session: model!(Session)) {
                 ) [
                     crate::input::event::scroll::ScrollOffset::default(),
                     crate::input::event::scroll::ScrollConfig {direction:crate::input::event::scroll::ScrollAxis::Horizontal,elastic:false,..Default::default()},
-                ] on SizeChanged { session.sheet_viewport(event.new.width,(event.new.height-Fixed::from_int(super::strips::CHORD_TRACK_HEIGHT)).max(Fixed::ONE)); } {
+                ] {
                     Column(id:"prompter_sheet",width:${session.stage_width()*3},height:Dimension::percent(100),shrink:0.0,min_height:0) {
                         View(height:super::strips::CHORD_TRACK_HEIGHT,width:Dimension::percent(100),shrink:0.0) [super::strips::ChordTimeline{model:session.clone()},IgnoreHitTest]
-                        Row(width:Dimension::percent(100),grow:1.0,min_height:0,shrink:0.0) {
+                        Row(width:Dimension::percent(100),grow:1.0,min_height:0,shrink:0.0)
+                            on SizeChanged { session.sheet_viewport(session.stage_width(),event.new.height); } {
                             sheet_page(session.clone(),0)
                             sheet_page(session.clone(),1)
                             sheet_page(session.clone(),2)

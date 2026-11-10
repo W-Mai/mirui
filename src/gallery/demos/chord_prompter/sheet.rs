@@ -178,16 +178,27 @@ impl Sheet {
         }
         let slot = (self.current_start + slot).min(self.current_count - 1);
         let max = self.height - viewport;
-        let start = self.slots[slot].y.min(max);
-        let end = if slot + 1 < self.current_count {
-            self.slots[slot + 1].y.min(max)
+        let current = &self.slots[slot];
+        let line_height = u64::from(CONTENT_SIZE + 2);
+        let rows = u64::from(viewport.saturating_sub(4) / (CONTENT_SIZE + 2)).max(1);
+        let lines = u64::from(current.end_line - current.first_line).max(1);
+        let pages = lines.div_ceil(rows);
+        let duration = duration.max(1);
+        let progress = elapsed.min(duration) * pages;
+        let page = (progress / duration).min(pages - 1);
+        let start = (u64::from(current.y) + page * rows * line_height).min(u64::from(max));
+        let end = if page + 1 < pages {
+            (u64::from(current.y) + (page + 1) * rows * line_height).min(u64::from(max))
+        } else if slot + 1 < self.current_count {
+            u64::from(self.slots[slot + 1].y.min(max))
         } else {
-            max
+            u64::from(max)
         };
-        // Leave the final screen visible before the musical interval ends.
-        let travel_ticks = (duration * 3 / 4).max(1);
-        let offset = u64::from(end - start) * elapsed.min(travel_ticks) / travel_ticks;
-        Fixed::from_int(i32::from(start) + offset as i32)
+        // Hold complete reading windows; reveal the next one before its interval.
+        let phase = progress - page * duration;
+        let travel = (phase * 4).saturating_sub(duration * 2).min(duration);
+        let offset = start + (end - start) * travel / duration;
+        Fixed::from_int(offset as i32)
     }
 }
 
