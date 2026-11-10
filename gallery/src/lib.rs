@@ -42,6 +42,7 @@ pub struct DemoEntry {
     pub label: &'static str,
     pub category: &'static str,
     pub size: mirui::gallery::DemoSize,
+    pub preferred_size: Option<(u16, u16)>,
     pub setup: fn(&mut Setup<'_>) -> Entity,
     pub source: &'static str,
 }
@@ -118,6 +119,8 @@ pub fn extract_focus(src: &str) -> String {
 
 #[macro_export]
 macro_rules! register_demos {
+    (@preferred) => { None };
+    (@preferred $size:expr) => { Some($size) };
     (@source $module:ident) => {
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -129,7 +132,7 @@ macro_rules! register_demos {
     (@source $module:ident, $source:expr) => {
         $source
     };
-    ( $( ($slug:literal, $label:literal, $category:literal, $module:ident $(, source = $source:expr)?) ),* $(,)? ) => {
+    ( $( ($slug:literal, $label:literal, $category:literal, $module:ident $(, source = $source:expr)? $(, preferred_size = $preferred:expr)?) ),* $(,)? ) => {
         pub const DEMOS: &[$crate::DemoEntry] = &[
             $(
                 $crate::DemoEntry {
@@ -137,6 +140,7 @@ macro_rules! register_demos {
                     label: $label,
                     category: $category,
                     size: $crate::mirui::gallery::demos::$module::DEMO_SIZE,
+                    preferred_size: $crate::register_demos!(@preferred $($preferred)?),
                     setup: |setup| {
                         let parent = setup.app.spawn_root().id();
                         $crate::mirui::gallery::demos::$module::setup_app(setup.app, parent);
@@ -177,7 +181,7 @@ macro_rules! register_demos {
 register_demos! {
     ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console, source = demo_sources::ORBIT_CONSOLE),
     ("iris",                 "Iris",                 "Showcase",    iris, source = demo_sources::IRIS),
-    ("chord_prompter",       "Chord Prompter",       "Music",       chord_prompter, source = demo_sources::CHORD_PROMPTER),
+    ("chord_prompter",       "Chord Prompter",       "Music",       chord_prompter, source = demo_sources::CHORD_PROMPTER, preferred_size = mirui::gallery::demos::chord_prompter::VIEWPORT),
     ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab, source = demo_sources::LAYOUT_LAB),
     ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab, source = demo_sources::TYPOGRAPHY_LAB),
     ("curve_text",           "Kinetic Type",         "Showcase",    curve_text, source = demo_sources::KINETIC_TYPE),

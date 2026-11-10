@@ -17,8 +17,8 @@ pub use score::{Attack, Chord, Meter, Pattern, Score, ScoreError, ScoreLimits, S
 pub use state::{Session, SessionHandle};
 pub use transport::{Action, Boundary, CommandError, Playback, TICKS_PER_BEAT, Transport};
 
-pub const VIEWPORT: (u16, u16) = (360, 480);
-pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::range(128, 128, 480, 640);
+pub const VIEWPORT: (u16, u16) = (320, 240);
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_least(128, 128);
 pub const PRACTICE: &str = include_str!("chord_prompter/chord-practice.md");
 
 #[cfg(test)]

@@ -820,6 +820,8 @@ The macro generates the property application callback internally. Application co
 
 The binding runs after layout and may request another layout pass when it changes a layout property. The pass count is bounded, and unchanged derived values do not invalidate the widget. Use [`SizeChanged`](events.md#layout-size-events) callbacks to update Model state from a node's size.
 
+`visible: @width { width >= Fixed::from_int(256) }` uses the existing visibility Property to remove a widget from layout, drawing and hit testing. Its container dependency remains active while hidden, so growing the ancestor can reveal the same retained widget again. Query an ancestor whose size does not depend on the hidden content to avoid a layout cycle.
+
 ## Reactive control flow
 
 A `$` on a control-flow head makes its selection reactive. An `if` caches

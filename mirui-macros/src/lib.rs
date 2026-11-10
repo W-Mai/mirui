@@ -319,6 +319,16 @@ fn binding_role(property: &syn::Ident) -> proc_macro2::TokenStream {
 #[cfg(test)]
 mod binding_role_tests {
     #[test]
+    fn responsive_visibility_uses_the_retained_visibility_property() {
+        for widget in ["Row", "Column", "Text", "View"] {
+            assert_eq!(
+                super::responsive_property(widget, "visible"),
+                Some("Visible")
+            );
+        }
+    }
+
+    #[test]
     fn lifecycle_properties_never_use_the_display_gate() {
         for property in [
             "Visible",
@@ -357,6 +367,7 @@ mod binding_role_tests {
 
 fn responsive_property(widget: &str, attr: &str) -> Option<&'static str> {
     match attr {
+        "visible" => Some("Visible"),
         "bg_color" => Some("BackgroundColor"),
         "text_color" => Some("TextColor"),
         "normal_color" if widget == "Button" => Some("ButtonNormalColor"),

@@ -9,6 +9,7 @@ fn main() {
     app.compose(root, |cx| {
         ui! {
             Column (container: true) {
+                Row (visible: @width { width >= Fixed::from_int(256) })
                 Text(
                     "Title",
                     font_size: @(width, id(stage).height) {

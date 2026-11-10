@@ -21,16 +21,11 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
     app: &mut App<B, F>,
     parent: Entity,
 ) -> SessionHandle {
-    let width = app.backend.viewport().logical_size().0;
-    let small = width < 240;
     let fonts = crate::render::font::FontManager::new(
         crate::core::cache::MaxSize::Unbound,
-        super::font::body(if small { 12 } else { 24 }),
+        super::font::body(),
     );
-    fonts.add_static(
-        super::font::CHORD.cache_key(),
-        super::font::chord(if small { 36 } else { 48 }),
-    );
+    fonts.add_static(super::font::CHORD.cache_key(), super::font::chord());
     app.with_fonts(fonts);
     let session = app
         .add_model(Session::new(
@@ -39,10 +34,7 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
         .finish();
     app.with_widget(strips::rhythm_strip::view());
     app.add_system(advance::system(session.clone()));
-    app.compose(
-        parent,
-        composition::build_widgets(session.clone(), if width < 240 { 1 } else { 2 }),
-    );
+    app.compose(parent, composition::build_widgets(session.clone()));
     session
 }
 

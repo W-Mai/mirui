@@ -12,35 +12,33 @@
     "Nearby-Galmuri-OFL.txt"
   ],
   "tool": "icu 0.11.1 bake-font",
-  "size": 12,
   "format": "gray",
   "bit_depth": 1,
   "charset_count": 271,
   "charset_file": "prompter-charset.txt",
-  "output": "prompter-pixel.mirx",
-  "output_sha256": "719d5e52dd88761fbe33da332fe77ab869757912ab88058e7299c6bae1f86fa3",
-  "output_size": 43540,
-  "native_strikes": [
+  "outputs": [
     {
-      "output": "prompter-pixel-24.mirx",
-      "size": 24,
+      "output": "prompter-pixel.mirx",
+      "sizes": [
+        12,
+        24
+      ],
       "charset": "prompter-charset.txt",
-      "output_sha256": "56a4f8aade0102df6611527021bb168010789ea03969dbe97cf84077d3f99776",
-      "output_size": 56884
+      "output_sha256": "18084bf9cd29a2c00d1d2c2f32b71a72cf62ed1ec1d43765f085d2a01c57348a",
+      "output_size": 69284
     },
     {
-      "output": "prompter-chord-36.mirx",
-      "size": 36,
+      "output": "prompter-chord.mirx",
+      "sizes": [
+        12,
+        24,
+        36,
+        48
+      ],
       "charset": " #ABCDEFGbm",
-      "output_sha256": "68870da2036a3a737e21a4db821bc41467bef4226999592ccd4285efc03fa364",
-      "output_size": 3388
-    },
-    {
-      "output": "prompter-chord-48.mirx",
-      "size": 48,
-      "charset": " #ABCDEFGbm",
-      "output_sha256": "6ce48fec33116317b0b851f90b4b8e62d5d9313b7bb1ce86af8c8f82d966006d",
-      "output_size": 4268
+      "output_sha256": "3950daa2825ac74a844c6e78fe3230023a89c7a3f9536bbb29a927c36a2dee27",
+      "output_size": 7052
     }
-  ]
+  ],
+  "merge_tool": "gallery/examples/tools/merge_font_strikes.rs"
 }

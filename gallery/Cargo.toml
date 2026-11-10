@@ -45,6 +45,11 @@ web-sys = { version = "0.3.99", optional = true, features = [
 
 # cargo autoexamples doesn't recurse — subdir entries need explicit path.
 [[example]]
+name = "merge_font_strikes"
+path = "examples/tools/merge_font_strikes.rs"
+required-features = ["snapshot"]
+
+[[example]]
 name = "compose_backend_demo"
 path = "examples/backends/compose_backend_demo.rs"
 required-features = ["sdl"]

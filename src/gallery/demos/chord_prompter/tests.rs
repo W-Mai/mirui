@@ -376,10 +376,10 @@ fn all_rhythm_presentations_use_the_shared_timeline_on_the_small_display() {
 fn prompter_fonts_use_native_one_bit_strikes_at_every_requested_size() {
     use mirx::image::SampleLayout;
     for (font, size, text) in [
-        (super::font::body(12), 12, "跟着节拍"),
-        (super::font::body(24), 24, "跟着节拍"),
-        (super::font::chord(36), 36, "C#Dmb"),
-        (super::font::chord(48), 48, "C#Dmb"),
+        (super::font::body(), 12, "跟着节拍"),
+        (super::font::body(), 24, "跟着节拍"),
+        (super::font::chord(), 36, "C#Dmb"),
+        (super::font::chord(), 48, "C#Dmb"),
     ] {
         for ch in text.chars() {
             let glyph = font.map_char(ch).unwrap();
@@ -432,4 +432,63 @@ fn connection_feedback_survives_score_replacement_and_uses_binary_pixels() {
         backgrounds.push(pixels.bytes()[4 * pixels.stride() + 4 * 4..][..4].to_vec());
     }
     assert_ne!(backgrounds[0], backgrounds[1]);
+}
+
+#[test]
+fn resizing_reuses_entities_and_matches_direct_creation_at_every_size() {
+    use crate::prelude::*;
+    use crate::surface::{FramebufferAccess, framebuf::FramebufSurface};
+    let mut app = App::headless(320, 240);
+    app.with_default_widgets().with_default_systems();
+    app.add_resource(MonoClock::new(|| 0));
+    let root = app.spawn_root().id();
+    let session = install(&mut app, root);
+    session.load(SONG).unwrap();
+    app.render().unwrap();
+    let chord = app.world.find_by_id("prompter_chord").unwrap();
+    let lyric = app.world.find_by_id("prompter_lyric").unwrap();
+    for (width, height) in [
+        (128, 128),
+        (320, 240),
+        (480, 320),
+        (128, 320),
+        (640, 128),
+        (1024, 768),
+        (128, 128),
+    ] {
+        let flush: fn(&[u8], PhysicalRect) = |_, _| {};
+        app.backend = FramebufSurface::new(width, height, flush);
+        app.render().unwrap();
+        crate::gallery::demos::assert_text_layouts_fit(&app.world);
+        assert_eq!(app.world.find_by_id("prompter_chord"), Some(chord));
+        assert_eq!(app.world.find_by_id("prompter_lyric"), Some(lyric));
+        let compact = width < 256 || height < 200;
+        let controls = app.world.find_by_id("prompter_controls").unwrap();
+        assert_eq!(app.world.has::<crate::ui::Hidden>(controls), compact);
+        assert_eq!(
+            app.world.get::<Style>(chord).unwrap().font_size,
+            Some(if compact { 36 } else { 48 })
+        );
+        assert_eq!(
+            app.world.get::<Style>(lyric).unwrap().font_size,
+            Some(if compact { 12 } else { 24 })
+        );
+        let actual = app.backend.framebuffer();
+        let actual = actual.read_pixels().unwrap();
+
+        let mut direct = App::headless(width, height);
+        direct.with_default_widgets().with_default_systems();
+        direct.add_resource(MonoClock::new(|| 0));
+        let root = direct.spawn_root().id();
+        let session = install(&mut direct, root);
+        session.load(SONG).unwrap();
+        direct.render().unwrap();
+        let expected = direct.backend.framebuffer();
+        let expected = expected.read_pixels().unwrap();
+        assert_eq!(
+            actual.bytes(),
+            expected.bytes(),
+            "resized output differs at {width}x{height}"
+        );
+    }
 }

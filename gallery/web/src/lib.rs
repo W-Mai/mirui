@@ -381,7 +381,7 @@ pub fn demo_catalog_json() -> String {
                 .unwrap_or_else(|| "null".to_string())
         };
         out.push_str(&alloc::format!(
-            "{{\"slug\":\"{}\",\"label\":\"{}\",\"category\":\"{}\",\"minWidth\":{},\"minHeight\":{},\"maxWidth\":{},\"maxHeight\":{},\"darkTheme\":\"{}\",\"lightTheme\":\"{}\"}}",
+            "{{\"slug\":\"{}\",\"label\":\"{}\",\"category\":\"{}\",\"minWidth\":{},\"minHeight\":{},\"maxWidth\":{},\"maxHeight\":{},\"preferredWidth\":{},\"preferredHeight\":{},\"darkTheme\":\"{}\",\"lightTheme\":\"{}\"}}",
             json_escape(demo.slug),
             json_escape(demo.label),
             json_escape(demo.category),
@@ -389,6 +389,8 @@ pub fn demo_catalog_json() -> String {
             bound(demo.size.min_height),
             bound(demo.size.max_width),
             bound(demo.size.max_height),
+            bound(demo.preferred_size.map(|size| size.0)),
+            bound(demo.preferred_size.map(|size| size.1)),
             json_escape(dark_theme),
             json_escape(light_theme),
         ));

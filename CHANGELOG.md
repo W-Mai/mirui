@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Resize Chord Prompter from 128×128 upward using retained widgets, native MIRX font strikes and layout-responsive visibility; default to 320×240.
+
 - Keep prompter play, fullscreen and editor icons consistent with their actual control state.
 
 - Link the chord Demo and fullscreen prompter, share Gallery theme tokens, and preserve editor drafts during navigation.

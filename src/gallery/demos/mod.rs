@@ -102,6 +102,9 @@ pub(super) fn assert_text_layouts_fit(world: &crate::ecs::World) {
         .expect("text geometry outputs")
         .storage();
     for entity in entities {
+        if crate::ui::branch::is_hidden_in_tree(world, entity) {
+            continue;
+        }
         if world.has::<crate::text::TextPath>(entity) {
             continue;
         }
