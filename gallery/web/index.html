@@ -880,43 +880,83 @@
         flex-direction: column;
         min-width: 0;
       }
+      /* Head: file tabs on the left, GitHub and Copy on the right. */
       .code-head {
         display: flex;
         align-items: center;
-        justify-content: space-between;
         gap: var(--s3);
-        padding: var(--s3) var(--s3) var(--s3) var(--s4);
+        padding: 9px var(--s3) 9px 10px;
         border-bottom: 1px solid var(--line);
         background: var(--panel-2);
-        cursor: pointer;
       }
       .code-head .actions {
         display: inline-flex;
         align-items: center;
         gap: var(--s2);
         flex: 0 0 auto;
+        margin-left: auto;
       }
-      .code-head .title {
-        display: inline-flex;
-        align-items: baseline;
-        gap: 7px;
-        font-size: 10.5px;
-        font-weight: 700;
-        color: var(--ink-faint);
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
+      .code-head .actions .icon-btn { padding: 6px 7px; color: var(--ink-dim); text-decoration: none; }
+      /* A strip wider than the head scrolls sideways; an edge fades only
+         while more tabs sit past it. */
+      @property --fade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
+      @property --fade-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
+      .code-tabs {
+        --fade-l: 0px;
+        --fade-r: 0px;
+        position: relative;
+        display: flex;
+        gap: 2px;
+        min-width: 0;
+        padding: 2px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-mask: linear-gradient(90deg, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+        mask: linear-gradient(90deg, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+        transition: --fade-l 0.18s ease, --fade-r 0.18s ease;
+      }
+      .code-tabs.more-l { --fade-l: 22px; }
+      .code-tabs.more-r { --fade-r: 22px; }
+      .code-tabs::-webkit-scrollbar { display: none; }
+      .code-tab {
+        flex: 0 0 auto;
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid transparent;
+        border-radius: var(--r1);
+        background: transparent;
+        color: var(--ink-dim);
+        font: 500 12px/1 "Geist Mono", var(--font-mono);
         white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        cursor: pointer;
+        transition: background 0.13s, border-color 0.13s, color 0.13s;
       }
-      .code-head .title b {
+      .code-tab:hover { background: var(--raised-2); color: var(--ink); }
+      .code-tab[aria-selected="true"] {
+        border-color: var(--line);
+        background: var(--raised);
         color: var(--ink);
-        font-family: var(--font-mono);
-        font-weight: 600;
-        font-size: 12px;
-        text-transform: none;
-        letter-spacing: 0;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
       }
+      .code-tab:focus-visible { outline: 2px solid var(--signal-edge); outline-offset: 1px; }
+      .code-tab.ui { font-family: var(--font-ui); }
+      .code-tab.ui b { color: var(--syn-mac); font: 600 12px/1 "Geist Mono", var(--font-mono); }
+
+      /* Where the shown lines live in the repository. */
+      .code-path {
+        display: flex;
+        align-items: center;
+        gap: var(--s3);
+        padding: 7px var(--s4);
+        border-bottom: 1px solid var(--line-soft);
+        background: var(--panel);
+        color: var(--ink-faint);
+        font: 500 11px/1.3 "Geist Mono", var(--font-mono);
+        white-space: nowrap;
+      }
+      .code-path .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      .code-path .path b { color: var(--ink-dim); font-weight: 600; }
+      .code-path .count { flex: 0 0 auto; margin-left: auto; font-variant-numeric: tabular-nums; }
 
       .code-body {
         margin: 0;
@@ -924,17 +964,44 @@
         background: var(--well);
         flex: 1 1 auto;
       }
-      .code-body pre {
-        margin: 0;
-        padding: var(--s4) var(--s4) var(--s5);
-        font-family: var(--font-mono);
-        font-size: 12.5px;
-        line-height: 1.66;
+      /* One row per line: a sticky line number, then the code. Line numbers
+         are not selectable, so a copied selection is plain source. */
+      .code-rows {
+        min-width: max-content;
+        padding: 8px 0 28px;
         color: var(--ink);
+        font: 400 12.5px/1.72 "Geist Mono", var(--font-mono);
         tab-size: 4;
-        white-space: pre;
       }
-      .code-body code { font: inherit; }
+      .code-rows .row { display: flex; }
+      .code-rows .ln {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        flex: 0 0 auto;
+        box-sizing: content-box;
+        width: var(--ln-w, 3ch);
+        padding: 0 14px 0 12px;
+        background: var(--well);
+        color: color-mix(in srgb, var(--ink-faint) 72%, transparent);
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        user-select: none;
+      }
+      .code-rows .tx { flex: 1 0 auto; padding-right: 28px; white-space: pre; }
+      .code-rows .row:hover .ln,
+      .code-rows .row:hover .tx { background: color-mix(in srgb, var(--ink) 4%, var(--well)); }
+      .code-rows .row:hover .ln { color: var(--ink-dim); }
+      /* In a file, the lines of its ui! tree carry a mark in the gutter. */
+      .code-rows .row.mark .ln { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--syn-mac) 70%, transparent); color: var(--ink-dim); }
+      .code-rows .row.gap { margin: 6px 0; }
+      .code-rows .row.gap .tx {
+        color: var(--ink-faint);
+        font-size: 11px;
+        background: linear-gradient(var(--line), var(--line)) 0 50% / 100% 1px no-repeat;
+      }
+      .code-rows .row.gap .gap-label { margin-left: 10px; padding: 0 8px; background: var(--well); }
+      .code-rows .row.gap .ln { color: var(--ink-faint); }
       .code-empty {
         padding: var(--s7) var(--s4);
         color: var(--ink-dim);
@@ -1088,7 +1155,7 @@
           height: auto;
         }
         /* keep the sheet's bottom edge clear of the home indicator */
-        .code-body pre { padding-bottom: calc(var(--s5) + env(safe-area-inset-bottom, 0px)); }
+        .code-rows { padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); }
       }
       @media (max-width: 760px) and (prefers-reduced-motion: reduce), (max-width: 1000px) and (max-height: 500px) and (prefers-reduced-motion: reduce) {
         .code-panel, aside, .nav-backdrop { transition: none; }
@@ -1839,19 +1906,12 @@ fn counter_panel(counter: model!(Counter)) {
               <span class="vlabel" data-i18n="gallery.source">Source</span>
             </div>
             <div class="code-inner">
-              <div class="code-head" id="code-head" title="Click to close the source panel">
-                <span class="title">source · <b id="code-title">—</b></span>
+              <div class="code-head" id="code-head">
+                <div class="code-tabs" id="code-tabs" role="tablist" aria-label="Source files"></div>
                 <span class="actions">
-                  <button class="icon-btn on" id="focus-btn" type="button" title="Showing core ui! tree — click to show full source" aria-label="Toggle focused source">
-                    <svg class="eye-open" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                      <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" stroke="currentColor" stroke-width="1.3"/>
-                      <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/>
-                    </svg>
-                    <svg class="eye-off" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="display:none">
-                      <path d="M1.5 8s2.5-4.5 6.5-4.5c1.06 0 2.02.32 2.86.81M14.5 8s-.86 1.55-2.5 2.86M9.9 9.9A2 2 0 0 1 6.1 6.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                      <path d="M2.5 2.5l11 11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                    </svg>
-                  </button>
+                  <a class="icon-btn" id="code-github" href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener" data-i18n-label="gallery.onGithub" aria-label="Open on GitHub" title="Open on GitHub">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+                  </a>
                   <button class="copy-btn" id="copy-btn" type="button" aria-label="Copy source">
                     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <rect x="5.5" y="5.5" width="8" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
@@ -1861,8 +1921,9 @@ fn counter_panel(counter: model!(Counter)) {
                   </button>
                 </span>
               </div>
+              <div class="code-path" id="code-path"><span class="path" id="code-file"></span><span class="count" id="code-count"></span></div>
               <div class="code-body" id="code-body">
-                <pre><code id="code"></code></pre>
+                <div class="code-rows" id="code"></div>
               </div>
             </div>
           </div>
@@ -1922,6 +1983,7 @@ fn counter_panel(counter: model!(Counter)) {
             "gallery.title": "mirui · gallery", "gallery.tag": "subpixel UI · no_std · wasm",
             "gallery.filter": "Filter demos…", "gallery.noMatch": "No demos match that filter.", "gallery.rendering": "rendering",
             "gallery.source": "Source", "gallery.copy": "Copy", "gallery.copied": "Copied!",
+            "gallery.uiTreeTab": "tree", "gallery.lines": "{n} lines", "gallery.onGithub": "Open on GitHub",
             "gallery.backHome": "Back to home", "gallery.choose": "Choose demo", "gallery.themeLight": "Switch to light theme", "gallery.themeDark": "Switch to dark theme",
             "gallery.rotate": "Swap portrait and landscape", "gallery.fixed": "This demo has a fixed logical canvas", "gallery.reset": "Reset canvas size", "gallery.audioOn": "Mute sound", "gallery.audioOff": "Enable sound", "gallery.audioUnlock": "Click to enable sound",
             "gallery.simulation": "Simulate", "gallery.simulationHint": "Toggle network simulation (F2)",
@@ -1977,6 +2039,7 @@ fn counter_panel(counter: model!(Counter)) {
             "gallery.title": "mirui · Gallery", "gallery.tag": "亚像素 UI · no_std · wasm",
             "gallery.filter": "筛选 Demo…", "gallery.noMatch": "没有匹配的 Demo。", "gallery.rendering": "渲染中",
             "gallery.source": "源码", "gallery.copy": "复制", "gallery.copied": "已复制",
+            "gallery.uiTreeTab": "组件树", "gallery.lines": "{n} 行", "gallery.onGithub": "在 GitHub 查看",
             "gallery.backHome": "返回首页", "gallery.choose": "选择 Demo", "gallery.themeLight": "切换到亮色主题", "gallery.themeDark": "切换到暗色主题",
             "gallery.rotate": "交换横屏与竖屏", "gallery.fixed": "此 Demo 使用固定逻辑画布", "gallery.reset": "重置画布尺寸", "gallery.audioOn": "关闭声音", "gallery.audioOff": "打开声音", "gallery.audioUnlock": "点击启用声音",
             "gallery.simulation": "模拟联机", "gallery.simulationHint": "打开或关闭联机模拟面板（F2）",
@@ -3240,74 +3303,243 @@ fn counter_panel(counter: model!(Counter)) {
         window.setInterval(followCanvasTheme, 200);
 
         // ── Code panel ─────────────────────────────────────────
+        // The embedded source is the demo's root module followed by its child
+        // modules, each after a "// <module>/<part>.rs" line. The panel splits
+        // it back into the real files, with their own line numbers, and leads
+        // with the ui! tree the demo marks between //~focus-start and
+        // //~focus-end.
+        const REPO_BLOB = "https://github.com/W-Mai/mirui/blob/main/";
         const codeBody = document.getElementById("code-body");
-        const codeTitle = document.getElementById("code-title");
+        const codeTabs = document.getElementById("code-tabs");
+        const codeFile = document.getElementById("code-file");
+        const codeCount = document.getElementById("code-count");
+        const codeGithub = document.getElementById("code-github");
         const copyBtn = document.getElementById("copy-btn");
         const copyLabel = copyBtn.querySelector(".label");
+        let sourceFiles = [];
+        let sourceFocus = null;
+        let sourceTab = 0;
 
-        // Per-demo source state. loadSource() refreshes these from the
-        // wasm bindings on each switch; applyFocusState() repaints the panel.
-        let fullSource = "";
-        let focusSource = "";
-
-        // Default to the focused core ui! view.
-        let focusMode = true;
-        const focusBtn = document.getElementById("focus-btn");
-        const eyeOpen = focusBtn.querySelector(".eye-open");
-        const eyeOff = focusBtn.querySelector(".eye-off");
-
-        // The string currently shown in the panel — Copy mirrors this.
-        function shownSource() {
-          return focusMode ? focusSource : fullSource;
+        function splitSourceFiles(slug, text) {
+          const lines = text.replace(/\r\n/g, "\n").split("\n");
+          let module = null;
+          let file = { name: `${slug}.rs`, path: `src/gallery/demos/${slug}.rs`, lines: [] };
+          const files = [file];
+          lines.forEach((line, index) => {
+            const part = /^\/\/ ([a-z0-9_]+)\/([A-Za-z0-9_/]+\.rs)$/.exec(line);
+            if (part && lines[index - 1] === "" && (module === null || part[1] === module)) {
+              if (module === null) {
+                module = part[1];
+                files[0].name = `${module}.rs`;
+                files[0].path = `src/gallery/demos/${module}.rs`;
+              }
+              file = { name: part[2], path: `src/gallery/demos/${module}/${part[2]}`, lines: [] };
+              files.push(file);
+              return;
+            }
+            file.lines.push(line);
+          });
+          for (const each of files) {
+            while (each.lines.length && each.lines[each.lines.length - 1] === "") each.lines.pop();
+          }
+          return files.filter((each) => each.lines.length);
         }
 
-        // Pull both source views for a slug from the wasm bindings.
+        // Focus regions with their real file and line numbers, dedented
+        // together; a gap row separates regions.
+        function focusRows(files) {
+          const rows = [];
+          for (const file of files) {
+            let inside = false;
+            file.lines.forEach((text, index) => {
+              const marker = text.trimStart();
+              if (marker.startsWith("//~focus-start")) {
+                inside = true;
+                if (rows.length) rows.push({ gap: true, file, line: index + 2 });
+              } else if (marker.startsWith("//~focus-end")) {
+                inside = false;
+              } else if (inside) {
+                rows.push({ file, line: index + 1, text });
+              }
+            });
+          }
+          const code = rows.filter((row) => !row.gap);
+          if (!code.length) return null;
+          const indent = Math.min(...code.filter((row) => row.text.trim()).map((row) => row.text.length - row.text.trimStart().length));
+          for (const row of code) row.text = row.text.trim() ? row.text.slice(indent) : "";
+          // A tree spread over several files names the first one too.
+          if (new Set(code.map((row) => row.file)).size > 1) {
+            rows.unshift({ gap: true, file: code[0].file, line: code[0].line });
+          }
+          return rows;
+        }
+
+        // Paths under one folder: the folder once, then each file name.
+        function pathHtml(paths) {
+          const dirs = paths.map((path) => path.slice(0, path.lastIndexOf("/") + 1));
+          let dir = dirs[0];
+          while (!dirs.every((each) => each.startsWith(dir))) dir = dir.slice(0, dir.slice(0, -1).lastIndexOf("/") + 1);
+          return escapeHtml(dir) + paths.map((path) => `<b>${escapeHtml(path.slice(dir.length))}</b>`).join(" · ");
+        }
+
+        // Highlights a whole text, then cuts it into lines, closing and
+        // reopening a token span wherever a comment or string crosses a line.
+        function highlightLines(text) {
+          const lines = [];
+          let line = "";
+          let open = "";
+          for (const piece of highlightRust(text).split(/(<span class="[^"]+">|<\/span>|\n)/)) {
+            if (piece.startsWith("<span")) { open = piece; line += piece; }
+            else if (piece === "</span>") { open = ""; line += piece; }
+            else if (piece === "\n") { lines.push(open ? `${line}</span>` : line); line = open; }
+            else line += piece;
+          }
+          lines.push(line);
+          return lines;
+        }
+
         function loadSource(slug) {
-          try {
-            fullSource = wasmBindings.demo_source(slug) || "";
-          } catch (err) {
-            fullSource = "";
+          let text = "";
+          try { text = wasmBindings.demo_source(slug) || ""; } catch (_) {}
+          sourceFiles = splitSourceFiles(slug, text);
+          sourceFocus = focusRows(sourceFiles);
+          sourceTab = 0;
+          codeBody.scrollTop = 0;
+        }
+
+        // Tabs: the ui! tree first when the demo marks one, then each file.
+        function sourceViews() {
+          const files = sourceFiles.map((file) => ({ file }));
+          return sourceFocus ? [{ focus: true }, ...files] : files;
+        }
+
+        function shownSource() {
+          const view = sourceViews()[sourceTab];
+          if (!view) return "";
+          if (view.focus) {
+            const rows = sourceFocus[0].gap ? sourceFocus.slice(1) : sourceFocus;
+            return rows.map((row) => (row.gap ? "" : row.text)).join("\n") + "\n";
           }
-          try {
-            focusSource = wasmBindings.demo_source_focus(slug) || "";
-          } catch (err) {
-            focusSource = "";
+          return view.file.lines.join("\n") + "\n";
+        }
+
+        function renderTabs() {
+          const t = window.miruiLanguage.t;
+          codeTabs.innerHTML = sourceViews().map((view, index) => {
+            const selected = index === sourceTab;
+            const label = view.focus
+              ? `<b>ui!</b> ${escapeHtml(t("gallery.uiTreeTab"))}`
+              : escapeHtml(view.file.name);
+            return `<button class="code-tab${view.focus ? " ui" : ""}" type="button" role="tab" data-tab="${index}" aria-selected="${selected}" tabindex="${selected ? 0 : -1}">${label}</button>`;
+          }).join("");
+          revealTab();
+        }
+
+        // Scrolls only the strip, never the page, so the selected tab clears
+        // the faded edges.
+        function revealTab() {
+          const tab = codeTabs.querySelector('[aria-selected="true"]');
+          if (tab && codeTabs.clientWidth) {
+            const edge = 26;
+            const left = tab.offsetLeft - edge;
+            const right = tab.offsetLeft + tab.offsetWidth + edge - codeTabs.clientWidth;
+            if (codeTabs.scrollLeft > left) codeTabs.scrollLeft = Math.max(0, left);
+            else if (codeTabs.scrollLeft < right) codeTabs.scrollLeft = right;
           }
-          // Fall back to full if focus is empty so the toggle is harmless.
-          if (!focusSource) focusSource = fullSource;
-          codeTitle.textContent = `${slug}.rs`;
+          syncTabFade();
+        }
+
+        function syncTabFade() {
+          const max = codeTabs.scrollWidth - codeTabs.clientWidth;
+          codeTabs.classList.toggle("more-l", codeTabs.scrollLeft > 1);
+          codeTabs.classList.toggle("more-r", codeTabs.scrollLeft < max - 1);
+        }
+
+        function renderRows(rows, marks) {
+          const width = String(Math.max(...rows.map((row) => row.line || 0), 9)).length;
+          const html = highlightLines(rows.filter((row) => !row.gap).map((row) => row.text).join("\n"));
+          let next = 0;
+          const out = rows.map((row) => {
+            if (row.gap) {
+              return `<div class="row gap"><span class="ln">⋯</span><span class="tx"><span class="gap-label">${escapeHtml(row.file.name)}:${row.line}</span></span></div>`;
+            }
+            const mark = marks && marks.has(row.line) ? " mark" : "";
+            return `<div class="row${mark}"><span class="ln">${row.line}</span><span class="tx">${html[next++] || ""}</span></div>`;
+          });
+          codeBody.innerHTML = `<div class="code-rows" id="code" style="--ln-w: ${width}ch">${out.join("")}</div>`;
         }
 
         function renderSource() {
-          const src = shownSource();
-          if (src) {
-            codeBody.innerHTML = '<pre><code id="code"></code></pre>';
-            document.getElementById("code").innerHTML = highlightRust(src);
-            copyBtn.disabled = false;
-          } else {
-            codeBody.innerHTML = `<div class="code-empty">${escapeHtml(window.miruiLanguage.t("gallery.noSource"))} <code>${escapeHtml(activeSlug)}</code>.</div>`;
+          const t = window.miruiLanguage.t;
+          renderTabs();
+          const view = sourceViews()[sourceTab];
+          if (!view) {
+            codeBody.innerHTML = `<div class="code-empty">${escapeHtml(t("gallery.noSource"))} <code>${escapeHtml(activeSlug)}</code>.</div>`;
+            codeFile.textContent = "";
+            codeFile.title = "";
+            codeCount.textContent = "";
             copyBtn.disabled = true;
+            codeGithub.href = "https://github.com/W-Mai/mirui";
+            return;
           }
+          copyBtn.disabled = false;
+          let rows;
+          let marks = null;
+          let paths;
+          let anchor = "";
+          if (view.focus) {
+            rows = sourceFocus;
+            const lines = rows.filter((row) => !row.gap);
+            paths = [...new Set(lines.map((row) => row.file.path))];
+            if (paths.length === 1) anchor = `#L${lines[0].line}-L${lines[lines.length - 1].line}`;
+            codeCount.textContent = t("gallery.lines").replace("{n}", lines.length);
+          } else {
+            rows = view.file.lines.map((text, index) => ({ line: index + 1, text }));
+            if (sourceFocus) {
+              marks = new Set(sourceFocus.filter((row) => !row.gap && row.file === view.file).map((row) => row.line));
+            }
+            paths = [view.file.path];
+            codeCount.textContent = t("gallery.lines").replace("{n}", rows.length);
+          }
+          codeGithub.href = REPO_BLOB + paths[0] + anchor;
+          codeFile.innerHTML = pathHtml(paths);
+          codeFile.title = paths.join(" · ");
+          codeGithub.title = t("gallery.onGithub");
+          codeGithub.setAttribute("aria-label", codeGithub.title);
+          renderRows(rows, marks);
         }
 
-        function applyFocusState() {
-          focusBtn.classList.toggle("on", focusMode);
-          eyeOpen.style.display = focusMode ? "block" : "none";
-          eyeOff.style.display = focusMode ? "none" : "block";
-          focusBtn.title = focusMode
-            ? "Showing core ui! tree — click to show full source"
-            : "Showing full source — click to focus the core ui! tree";
+        function selectSourceTab(index, focus = false) {
+          const count = sourceViews().length;
+          if (!count) return;
+          sourceTab = (index + count) % count;
           codeBody.scrollTop = 0;
+          codeBody.scrollLeft = 0;
           renderSource();
+          if (focus) codeTabs.querySelector('[aria-selected="true"]')?.focus();
         }
+
+        codeTabs.addEventListener("click", (event) => {
+          const tab = event.target.closest("[data-tab]");
+          if (tab) selectSourceTab(Number(tab.dataset.tab));
+        });
+        codeTabs.addEventListener("keydown", (event) => {
+          const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+          if (!step) return;
+          event.preventDefault();
+          selectSourceTab(sourceTab + step, true);
+        });
+        // A vertical wheel scrolls a long tab strip sideways.
+        codeTabs.addEventListener("wheel", (event) => {
+          if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || codeTabs.scrollWidth <= codeTabs.clientWidth) return;
+          event.preventDefault();
+          codeTabs.scrollLeft += event.deltaY;
+        }, { passive: false });
+        codeTabs.addEventListener("scroll", syncTabFade, { passive: true });
+        if ("ResizeObserver" in window) new ResizeObserver(revealTab).observe(codeTabs);
 
         loadSource(activeSlug);
-        applyFocusState();
-
-        focusBtn.addEventListener("click", () => {
-          focusMode = !focusMode;
-          applyFocusState();
-        });
+        renderSource();
 
         let copyResetTimer = null;
         copyBtn.addEventListener("click", async () => {
@@ -3336,12 +3568,10 @@ fn counter_panel(counter: model!(Counter)) {
         });
 
         // ── Source drawer toggle ───────────────────────────────
-        // Closed at rest (a sliver peeks at the right edge). The handle
-        // strip toggles; the head closes when open. Clicks inside the code
-        // body never toggle, so selecting source can't retract the drawer.
+        // Closed at rest (a sliver peeks at the right edge). The handle strip
+        // toggles. The head holds the file tabs, so it never closes the drawer.
         const codePanel = document.getElementById("code-panel");
         const codeHandle = document.getElementById("code-handle");
-        const codeHead = document.getElementById("code-head");
         const focusMain = codePanel.parentElement;
 
         function setDrawer(open) {
@@ -3358,13 +3588,6 @@ fn counter_panel(counter: model!(Counter)) {
             setDrawer(!codePanel.classList.contains("open"));
           }
         });
-        // The head closes the drawer — but not when a control inside it
-        // (focus / copy button) was the target.
-        codeHead.addEventListener("click", (e) => {
-          if (e.target.closest("button")) return;
-          if (codePanel.classList.contains("open")) setDrawer(false);
-        });
-
         // ── One live stage, two presentation modes ─────────────
         // The canvas and running App survive every homepage/focus change.
         // Only the stage subtree moves between hosts; demo switches reuse
@@ -3395,7 +3618,7 @@ fn counter_panel(counter: model!(Counter)) {
           applyStoredAudioPreference();
 
           loadSource(slug);
-          applyFocusState();
+          renderSource();
           return true;
         }
 
