@@ -177,6 +177,7 @@ macro_rules! register_demos {
 register_demos! {
     ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console, source = demo_sources::ORBIT_CONSOLE),
     ("iris",                 "Iris",                 "Showcase",    iris, source = demo_sources::IRIS),
+    ("chord_prompter",       "Chord Prompter",       "Music",       chord_prompter, source = demo_sources::CHORD_PROMPTER),
     ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab, source = demo_sources::LAYOUT_LAB),
     ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab, source = demo_sources::TYPOGRAPHY_LAB),
     ("curve_text",           "Kinetic Type",         "Showcase",    curve_text, source = demo_sources::KINETIC_TYPE),

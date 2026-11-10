@@ -39,6 +39,11 @@ macro_rules! split_demo_sources {
 }
 
 split_demo_sources! {
+    CHORD_PROMPTER => {
+        demo: "chord_prompter",
+        marker: "fn rhythm_strip",
+        parts: ["score.rs", "transport.rs", "state.rs", "strips.rs", "composition.rs", "runtime.rs", "tests.rs"]
+    },
     GLASS_LIGHT_TOGGLE => {
         demo: "glass_light_toggle",
         marker: "fn glass_render",

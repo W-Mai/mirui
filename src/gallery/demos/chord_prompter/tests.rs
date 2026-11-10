@@ -188,3 +188,42 @@ fn control_queue_is_bounded_and_sorted_without_allocations() {
         Err(CommandError::Tempo)
     );
 }
+
+#[test]
+fn session_preserves_score_on_failed_import_and_stops_at_the_end() {
+    let mut session = Session::new(Score::parse(PRACTICE, ScoreLimits::DEVICE).unwrap());
+    assert_eq!(session.chord, "C");
+    assert_eq!(session.next_chord, "G");
+    session.toggle(0);
+    session.advance(2_500_000);
+    assert_eq!(session.chord, "G");
+    assert!(session.load("incomplete").is_err());
+    assert_eq!(session.chord, "G");
+    session.advance(100_000_000);
+    assert!(!session.playing);
+    assert_eq!(session.chord, "C");
+    assert_eq!(session.next_chord, "END");
+    session.stop();
+    assert_eq!(session.bar_phase, 0);
+    assert_eq!(session.chord, "C");
+}
+
+#[test]
+fn shared_composition_renders_small_and_large_without_text_overflow() {
+    use crate::prelude::*;
+    for (width, height) in [(128, 128), (360, 480), (480, 320)] {
+        let mut app = App::headless(width, height);
+        app.with_default_widgets().with_default_systems();
+        app.add_resource(MonoClock::new(|| 0));
+        let root = app.spawn_root().id();
+        let session = install(&mut app, root);
+        app.render().unwrap();
+        crate::gallery::demos::assert_text_layouts_fit(&app.world);
+        session.toggle(0);
+        for time in [310_000, 625_000, 1_875_000, 2_500_000, 10_000_000] {
+            session.advance(time);
+            app.render_dirty().unwrap();
+            crate::gallery::demos::assert_text_layouts_fit(&app.world);
+        }
+    }
+}
