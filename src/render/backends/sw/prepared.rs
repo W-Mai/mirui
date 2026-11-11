@@ -37,6 +37,7 @@ impl SwRenderer<'_> {
     // Keep texture sampling and projection branches out of primitive submission frames.
     #[inline(never)]
     fn blit_prepared(&mut self, draw: &PreparedDraw<'_>) -> Result<(), RenderError> {
+        crate::trace_span!("sw.blit");
         let DrawCommand::Blit {
             texture,
             pos,
@@ -145,6 +146,47 @@ mod tests {
         texture::{AlphaMode, ColorFormat, Texture},
     };
     use crate::types::{Color, Fixed, PhysicalRect, Point, Transform, Viewport};
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn raw_and_prepared_blits_record_one_primitive_span() {
+        let _serial = crate::core::perf::tests::SERIAL.lock().unwrap();
+        let texture = Texture::from_ref(&[255; 64], 4, 4, ColorFormat::RGBA8888).unwrap();
+        for prepared in [false, true] {
+            let mut renderer =
+                SwRenderer::new(Texture::owned(16, 16, ColorFormat::RGBA8888).unwrap());
+            let command = DrawCommand::Blit {
+                pos: Point::new(2, 3),
+                size: Point::new(4, 4),
+                transform: Transform::IDENTITY,
+                quad: None,
+                texture: &texture,
+                opa: 255,
+                radius: Fixed::ZERO,
+                composite: CompositeMode::SourceOver,
+            };
+            let clip = Rect::new(0, 0, 16, 16);
+            let mut capture =
+                crate::core::perf::Capture::new(crate::core::perf::DEFAULT_TRACE_BUDGET).unwrap();
+            if prepared {
+                renderer
+                    .draw_request(&DrawRequest::new(&command, clip))
+                    .unwrap();
+            } else {
+                renderer.draw(&command, &clip);
+            }
+            let mut blits = 0;
+            capture.drain_events(|_, records| {
+                blits += records
+                    .iter()
+                    .filter(|record| record.span().is_some_and(|span| span.name == "sw.blit"))
+                    .count();
+            });
+            assert_eq!(blits, 1, "prepared={prepared}");
+            assert_eq!(capture.status().dropped, 0);
+            assert_eq!(capture.status().open_scopes, 0);
+        }
+    }
 
     #[test]
     fn integrated_primitives_match_independent_preparation_in_physical_scopes() {
