@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Skip dependency-column scans for consumers known to have no subscriptions, preserving pending work and generation checks.
+
 - Restore the prompter's known score association after reconnecting and reset closed connection state when returning to the page.
 
 - Synchronize the prompter on demand and every five seconds during steady playback; suspend periodic status reads while paused or hidden, confirm control and section boundaries, and preserve delayed starts and continuous browser projection.

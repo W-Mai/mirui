@@ -115,6 +115,8 @@ struct ConsumerNode {
     pending: bool,
     target: Subscriber,
     automatic: bool,
+    // False proves the entire column is empty; clearing a source may leave true.
+    may_have_edges: bool,
 }
 
 struct BitGraph {
@@ -283,6 +285,7 @@ impl BitGraph {
             node.pending = false;
             node.target = target;
             node.automatic = automatic;
+            debug_assert!(!node.may_have_edges, "removed consumers have empty columns");
             SlotId {
                 slot: slot as u32,
                 generation: node.generation,
@@ -302,6 +305,7 @@ impl BitGraph {
                 pending: false,
                 target,
                 automatic,
+                may_have_edges: false,
             });
             SlotId {
                 slot,
@@ -368,6 +372,7 @@ impl BitGraph {
         }
         let index = source.slot as usize * self.words_per_row + consumer.slot as usize / 64;
         self.rows[index] |= 1u64 << (consumer.slot % 64);
+        self.consumers[consumer.slot as usize].may_have_edges = true;
         Ok(())
     }
 
@@ -380,7 +385,7 @@ impl BitGraph {
     }
 
     fn clear_column(&mut self, consumer_slot: usize) {
-        if self.words_per_row == 0 {
+        if !self.consumers[consumer_slot].may_have_edges {
             return;
         }
         let word = consumer_slot / 64;
@@ -388,6 +393,7 @@ impl BitGraph {
         for source in 0..self.sources.len() {
             self.rows[source * self.words_per_row + word] &= mask;
         }
+        self.consumers[consumer_slot].may_have_edges = false;
     }
 
     fn row(&self, source_slot: usize) -> &[u64] {
@@ -1301,6 +1307,89 @@ pub(super) mod tests {
             entity = world.spawn_empty();
         }
         entity
+    }
+
+    #[test]
+    fn empty_column_proof_preserves_other_columns_and_pending_work() {
+        let mut graph = BitGraph::try_new(128, 65).unwrap();
+        let sources: Vec<_> = (0..128)
+            .map(|_| graph.add_source(PartitionKey::Shared).unwrap())
+            .collect();
+        let target = Subscriber::Effect(super::super::EffectId(SlotId {
+            slot: 0,
+            generation: 1,
+        }));
+        let consumers: Vec<_> = (0..65)
+            .map(|_| {
+                graph
+                    .add_consumer(PartitionKey::Shared, target, true)
+                    .unwrap()
+            })
+            .collect();
+        assert!(graph.consumers.iter().all(|node| !node.may_have_edges));
+        let first = consumers[0];
+        let last = consumers[64];
+        assert_eq!(
+            tracked_allocations(|| {
+                graph.subscribe(sources[127], first).unwrap();
+                graph.subscribe(sources[0], last).unwrap();
+                graph.subscribe(sources[0], last).unwrap();
+                graph.publish_checked(sources[0], PendingKind::Any);
+                graph.clear_consumer(last).unwrap();
+                assert!(!graph.consumers[64].may_have_edges);
+                assert!(graph.consumers[64].pending);
+                graph.clear_consumer(last).unwrap();
+                assert_eq!(graph.row(0), &[0, 0]);
+                assert_eq!(graph.row(127), &[1, 0]);
+                assert_eq!(
+                    graph.take_pending_kind(PendingKind::Any),
+                    Some((last, target))
+                );
+                graph.remove_consumer(last).unwrap();
+                let replacement = graph
+                    .add_consumer(PartitionKey::Shared, target, true)
+                    .unwrap();
+                assert_eq!(replacement.slot, last.slot);
+                assert_ne!(replacement.generation, last.generation);
+                graph.subscribe(sources[1], replacement).unwrap();
+                assert_eq!(graph.clear_consumer(last), Err(GraphError::StaleConsumer));
+                assert!(graph.consumers[64].may_have_edges);
+                assert_eq!(graph.row(1), &[0, 1]);
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn conservative_column_proof_survives_source_reuse_and_matrix_growth() {
+        let mut graph = BitGraph::try_new(2, 1).unwrap();
+        let source = graph.add_source(PartitionKey::Shared).unwrap();
+        let target = Subscriber::Effect(super::super::EffectId(SlotId {
+            slot: 0,
+            generation: 1,
+        }));
+        let consumer = graph
+            .add_consumer(PartitionKey::Shared, target, true)
+            .unwrap();
+        graph.subscribe(source, consumer).unwrap();
+        graph.remove_source(source).unwrap();
+        assert!(graph.consumers[0].may_have_edges);
+        let source = graph.add_source(PartitionKey::Shared).unwrap();
+        assert_eq!(graph.row(source.slot as usize), &[0]);
+        graph.clear_consumer(consumer).unwrap();
+        assert!(!graph.consumers[0].may_have_edges);
+        graph.subscribe(source, consumer).unwrap();
+        let mut graph = graph.try_grown(3, 65).unwrap();
+        assert!(graph.consumers[0].may_have_edges);
+        assert_eq!(graph.row(source.slot as usize), &[1, 0]);
+        graph.clear_consumer(consumer).unwrap();
+        assert_eq!(graph.row(source.slot as usize), &[0, 0]);
+        assert!(!graph.consumers[0].may_have_edges);
+        graph.subscribe(source, consumer).unwrap();
+        graph.renew_source(source).unwrap();
+        assert!(graph.consumers[0].may_have_edges);
+        graph.clear_consumer(consumer).unwrap();
+        assert!(!graph.consumers[0].may_have_edges);
     }
 
     #[test]
