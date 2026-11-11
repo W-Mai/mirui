@@ -16,6 +16,64 @@ use hashbrown::HashMap;
 #[cfg(test)]
 mod native_tests;
 
+#[cfg(feature = "perf")]
+#[derive(Clone, Copy)]
+struct DecisionTrace {
+    key: BufferKey,
+    slot: u8,
+    retained: bool,
+}
+
+#[cfg(feature = "perf")]
+impl DecisionTrace {
+    fn new(outputs: &Outputs<WidgetTexture>, key: BufferKey) -> Self {
+        Self {
+            key,
+            slot: u8::MAX,
+            retained: outputs
+                .state(key.entity)
+                .is_some_and(|state| state.retained),
+        }
+    }
+
+    fn record(
+        self,
+        outcome: crate::core::perf::DecisionOutcome,
+        storage: crate::core::perf::DecisionStorage,
+        requested: Option<usize>,
+        available: usize,
+    ) {
+        use crate::core::perf::{ResourceDecision, ResourceKind, decision};
+        decision(ResourceDecision {
+            kind: ResourceKind::OutputTarget,
+            resource: (u64::from(self.key.entity.id) << 32) | u64::from(self.key.entity.generation),
+            requested_bytes: requested.unwrap_or(0) as u64,
+            requested_known: requested.is_some(),
+            resource_known: true,
+            available_bytes: available as u64,
+            scale: self.key.scale,
+            width: self.key.w,
+            height: self.key.h,
+            outcome,
+            storage,
+            slot: self.slot,
+            retained: self.retained,
+        });
+    }
+}
+
+macro_rules! trace_output {
+    ($trace:expr, $outcome:ident, $storage:ident, $requested:expr, $available:expr) => {
+        #[cfg(feature = "perf")]
+        $trace.record(
+            crate::core::perf::DecisionOutcome::$outcome,
+            crate::core::perf::DecisionStorage::$storage,
+            $requested,
+            $available,
+        );
+    };
+}
+
 /// The completed pixel output of a widget subtree.
 pub struct WidgetTexture;
 
@@ -88,6 +146,7 @@ impl WidgetTextureStorage {
         native: (&dyn crate::render::Renderer, &crate::render::TargetPlan),
         workspace: &mut PaintWorkspace,
         paint_bytes: usize,
+        #[cfg(feature = "perf")] trace: DecisionTrace,
     ) -> Result<bool, RenderError> {
         let (renderer, plan) = native;
         let plane = self
@@ -95,7 +154,14 @@ impl WidgetTextureStorage {
             .get(&entity)
             .and_then(|slots| slots.planes[slot].as_ref());
         let reusable = match plane {
-            Some(plane) => plane.texture.can_reuse_native(renderer, plan)?,
+            Some(plane) => {
+                let result = plane.texture.can_reuse_native(renderer, plan);
+                #[cfg(feature = "perf")]
+                if result.is_err() {
+                    trace_output!(trace, BackendError, Native, None, self.budget.available());
+                }
+                result?
+            }
             None => false,
         };
         let reclaim = if reusable {
@@ -112,19 +178,39 @@ impl WidgetTextureStorage {
         };
         let required = storage_bytes.and_then(|bytes| bytes.checked_add(paint_bytes));
         let growth = plan.workspace_bytes.saturating_sub(workspace.capacity());
-        if required
-            .and_then(|bytes| bytes.checked_add(growth))
-            .is_none_or(|bytes| bytes > self.budget.available().saturating_add(reclaim))
-        {
+        let total = required.and_then(|bytes| bytes.checked_add(growth));
+        let available = self.budget.available().saturating_add(reclaim);
+        let Some(total) = total else {
+            trace_output!(trace, ArithmeticOverflow, Native, None, available);
+            return Ok(false);
+        };
+        if total > available {
+            trace_output!(trace, Budget, Native, Some(total), available);
             return Ok(false);
         }
         if !reusable && let Some(slots) = self.textures.get_mut(&entity) {
             slots.planes[slot] = None;
         }
-        Ok(
-            self.reserve_workspace(workspace, plan.workspace_bytes.max(workspace.capacity()))
-                && required.is_some_and(|bytes| bytes <= self.budget.available()),
-        )
+        if !self.reserve_workspace(workspace, plan.workspace_bytes.max(workspace.capacity())) {
+            #[cfg(feature = "perf")]
+            trace.record(
+                if self.plan.is_some() || self.deferred_workspace_trim {
+                    crate::core::perf::DecisionOutcome::WorkspaceUnavailable
+                } else {
+                    crate::core::perf::DecisionOutcome::WorkspaceAllocation
+                },
+                crate::core::perf::DecisionStorage::Native,
+                Some(plan.workspace_bytes.max(workspace.capacity())),
+                self.budget.available().saturating_add(workspace.capacity()),
+            );
+            return Ok(false);
+        }
+        let admitted = required.is_some_and(|bytes| bytes <= self.budget.available());
+        #[cfg(feature = "perf")]
+        if !admitted {
+            trace_output!(trace, Budget, Native, required, self.budget.available());
+        }
+        Ok(admitted)
     }
 
     fn reserve_plane(
@@ -134,6 +220,7 @@ impl WidgetTextureStorage {
         layout: crate::render::PlaneLayout,
         mut native: Option<(&mut dyn crate::render::Renderer, crate::render::TargetPlan)>,
         mut workspace: Option<(&mut PaintWorkspace, usize, bool)>,
+        #[cfg(feature = "perf")] trace: DecisionTrace,
     ) -> Result<bool, RenderError> {
         if let (Some((renderer, plan)), Some((workspace, paint_bytes, _))) =
             (&native, &mut workspace)
@@ -143,6 +230,8 @@ impl WidgetTextureStorage {
                 (&**renderer, plan),
                 workspace,
                 *paint_bytes,
+                #[cfg(feature = "perf")]
+                trace,
             )?
         {
             native = None;
@@ -174,10 +263,28 @@ impl WidgetTextureStorage {
             .and_then(|slots| slots.planes[slot].as_ref())
         {
             let reusable = match &native {
-                Some((renderer, plan)) => plane.texture.can_reuse_native(&**renderer, plan)?,
+                Some((renderer, plan)) => {
+                    let result = plane.texture.can_reuse_native(&**renderer, plan);
+                    #[cfg(feature = "perf")]
+                    if result.is_err() {
+                        trace_output!(trace, BackendError, Native, None, self.budget.available());
+                    }
+                    result?
+                }
                 None => !plane.texture.is_native(),
             };
             if reusable {
+                #[cfg(feature = "perf")]
+                trace.record(
+                    crate::core::perf::DecisionOutcome::Reused,
+                    if native.is_some() {
+                        crate::core::perf::DecisionStorage::Native
+                    } else {
+                        crate::core::perf::DecisionStorage::Cpu
+                    },
+                    Some(0),
+                    self.budget.available(),
+                );
                 return Ok(true);
             }
             self.textures
@@ -185,17 +292,53 @@ impl WidgetTextureStorage {
                 .expect("existing write slot")
                 .planes[slot] = None;
         }
+        #[cfg(feature = "perf")]
+        let selected = if native.is_some() {
+            crate::core::perf::DecisionStorage::Native
+        } else {
+            crate::core::perf::DecisionStorage::Cpu
+        };
         let plane = if let Some((renderer, plan)) = native {
+            let texture = Texture::native(renderer, plan, &self.budget);
+            #[cfg(feature = "perf")]
+            if texture.is_err() {
+                trace_output!(trace, BackendError, Native, None, self.budget.available());
+            }
             OutputPlane {
-                texture: Texture::native(renderer, plan, &self.budget)?,
+                texture: texture?,
                 _allocation: None,
             }
         } else {
             let Some(reservation) = self.budget.reserve(layout.required_bytes()) else {
+                trace_output!(
+                    trace,
+                    Budget,
+                    Cpu,
+                    Some(layout.required_bytes()),
+                    self.budget.available()
+                );
                 return Ok(false);
             };
-            let texture = Texture::owned(layout.width(), layout.height(), layout.format())?;
+            let texture = Texture::owned(layout.width(), layout.height(), layout.format());
+            #[cfg(feature = "perf")]
+            if texture.is_err() {
+                trace_output!(
+                    trace,
+                    AllocationFailed,
+                    Cpu,
+                    Some(layout.required_bytes()),
+                    self.budget.available()
+                );
+            }
+            let texture = texture?;
             let Ok(allocation) = reservation.commit(texture.cache_size()) else {
+                trace_output!(
+                    trace,
+                    Budget,
+                    Cpu,
+                    Some(texture.cache_size()),
+                    self.budget.available()
+                );
                 return Ok(false);
             };
             OutputPlane {
@@ -204,8 +347,22 @@ impl WidgetTextureStorage {
             }
         };
         if !self.textures.contains_key(&entity) && self.textures.try_reserve(1).is_err() {
+            #[cfg(feature = "perf")]
+            trace.record(
+                crate::core::perf::DecisionOutcome::AllocationFailed,
+                selected,
+                None,
+                self.budget.available(),
+            );
             return Ok(false);
         }
+        #[cfg(feature = "perf")]
+        trace.record(
+            crate::core::perf::DecisionOutcome::Allocated,
+            selected,
+            Some(plane.texture.cache_size()),
+            self.budget.available(),
+        );
         let slots = self.textures.entry(entity).or_insert_with(|| TextureSlots {
             planes: [None, None],
             shape: (layout.width(), layout.height(), layout.format()),
@@ -338,6 +495,37 @@ impl Outputs<WidgetTexture> {
         Ok(true)
     }
 
+    #[cfg(feature = "perf")]
+    pub(crate) fn trace_texture_reuse(&self, key: BufferKey) {
+        let Some(state) = self.state(key.entity) else {
+            return;
+        };
+        let Some(current) = state.current else { return };
+        let storage = self.storage();
+        let Some(plane) = storage
+            .textures
+            .get(&key.entity)
+            .and_then(|slots| slots.planes[current.record.slot].as_ref())
+        else {
+            return;
+        };
+        DecisionTrace {
+            key,
+            slot: current.record.slot as u8,
+            retained: state.retained,
+        }
+        .record(
+            crate::core::perf::DecisionOutcome::Unchanged,
+            if plane.texture.is_native() {
+                crate::core::perf::DecisionStorage::Native
+            } else {
+                crate::core::perf::DecisionStorage::Cpu
+            },
+            Some(0),
+            storage.budget.available(),
+        );
+    }
+
     pub(crate) fn reserve_texture(
         &self,
         key: BufferKey,
@@ -359,7 +547,18 @@ impl Outputs<WidgetTexture> {
     ) -> Result<bool, RenderError> {
         let layout = crate::render::PlaneLayout::packed(key.w, key.h, key.format)
             .map_err(|_| RenderError::InvalidTexture)?;
-        let plan = renderer.plan_target(layout)?;
+        let plan = renderer.plan_target(layout);
+        #[cfg(feature = "perf")]
+        if plan.is_err() {
+            trace_output!(
+                DecisionTrace::new(self, key),
+                BackendError,
+                Unselected,
+                None,
+                self.storage().budget.available()
+            );
+        }
+        let plan = plan?;
         self.reserve_texture_slot(
             key,
             plan.map(|plan| (renderer, plan)),
@@ -385,14 +584,30 @@ impl Outputs<WidgetTexture> {
         native: Option<(&mut dyn crate::render::Renderer, crate::render::TargetPlan)>,
         workspace: Option<(&mut PaintWorkspace, usize, bool)>,
     ) -> Result<bool, RenderError> {
+        #[cfg(feature = "perf")]
+        let mut trace = DecisionTrace::new(self, key);
         if let Some((_, plan)) = &native
             && (plan.descriptor.layout.width() != key.w
                 || plan.descriptor.layout.height() != key.h
                 || plan.descriptor.layout.format() != key.format)
         {
+            trace_output!(
+                trace,
+                InvalidPlan,
+                Native,
+                None,
+                self.storage().budget.available()
+            );
             return Err(RenderError::InvalidTexture);
         }
         if key.w == 0 || key.h == 0 {
+            trace_output!(
+                trace,
+                ZeroSize,
+                Unselected,
+                Some(0),
+                self.storage().budget.available()
+            );
             self.reset_texture(key.entity);
             return Ok(false);
         }
@@ -400,12 +615,26 @@ impl Outputs<WidgetTexture> {
             .state(key.entity)
             .is_some_and(|state| state.retained && state.published_in_batch)
         {
+            trace_output!(
+                trace,
+                HistoryFrozen,
+                Unselected,
+                None,
+                self.storage().budget.available()
+            );
             return Ok(false);
         }
         let shape = (key.w, key.h, key.format);
         let layout = crate::render::PlaneLayout::packed(key.w, key.h, key.format)
             .map_err(|_| RenderError::InvalidTexture)?;
         if self.state(key.entity).is_none() && self.reserve(1).is_err() {
+            trace_output!(
+                trace,
+                AllocationFailed,
+                Unselected,
+                None,
+                self.storage().budget.available()
+            );
             return Ok(false);
         }
         let mut storage = self.storage_mut();
@@ -414,6 +643,7 @@ impl Outputs<WidgetTexture> {
             .get(&key.entity)
             .is_some_and(|slots| slots.writing)
         {
+            trace_output!(trace, Busy, Unselected, None, storage.budget.available());
             return Ok(false);
         }
         let local_mapping_changed = self.state(key.entity).is_some_and(|state| {
@@ -444,7 +674,22 @@ impl Outputs<WidgetTexture> {
             return Ok(false);
         };
         let slot = writable_slot(state);
-        storage.reserve_plane(key.entity, slot, layout, native, workspace)
+        #[cfg(feature = "perf")]
+        {
+            trace.slot = slot as u8;
+            if native.is_none() && workspace.is_some() {
+                trace_output!(trace, NotOffered, Native, None, storage.budget.available());
+            }
+        }
+        storage.reserve_plane(
+            key.entity,
+            slot,
+            layout,
+            native,
+            workspace,
+            #[cfg(feature = "perf")]
+            trace,
+        )
     }
 
     pub(crate) fn prepare_texture(&self, key: BufferKey) -> Option<TextureWrite<'_>> {

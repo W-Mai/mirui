@@ -127,6 +127,8 @@ The [update contracts](../tests/compose_backend_basic/native_targets/updates.rs)
 
 ## SDL frame tracing
 
+With `perf`, `output.target` records native/CPU output selection, storage reuse and admission failures. `sdl.target.workspace` identifies missing or insufficient SDL destination-fallback workspace independently of the output pool. These are bounded decision events, not GPU durations; see [timing diagnostics](timing-diagnostics.md#backend-evidence) for identity, byte-count and attribution rules.
+
 With performance tracing enabled, `sdl.target.select` and `sdl.target.restore` include SDL's implicit submission when changing targets; `sdl.state.select` and `sdl.state.restore` measure the remaining property updates. `sdl.frame.compose` includes copying the retained image to the window. At the completed-frame boundary, `sdl.queue.submit` submits queued commands before `sdl.present` presents the window. Submission errors use the existing frame failure path and do not acknowledge pending damage.
 
 These spans measure time on the calling thread. Submission and presentation can both block inside the driver; neither span measures GPU execution alone. No GPU-idle synchronization is inserted for tracing.

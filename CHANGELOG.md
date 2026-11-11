@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Record offscreen storage decisions and SDL target-workspace rejection in the existing bounded performance trace, including full entity identity, history slots and explicit unknown sizes.
+
 - Index owned Effects by World and full entity identity for teardown, preserving destruction order, reentrant cleanup and allocation-free first-model binding.
 
 - Reuse prepared reactive graph buffers within physical capacity and amortize metadata growth while retaining logical admission limits and transactional owner reservations.

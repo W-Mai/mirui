@@ -83,6 +83,11 @@ pub enum RecordData {
         operation: u64,
         at_ns: u64,
     },
+    Decision {
+        operation: u64,
+        at_ns: u64,
+        data: super::ResourceDecision,
+    },
     Feedback {
         submission: u64,
         display: u64,
@@ -148,6 +153,48 @@ pub fn format_record(info: super::BatchInfo, record: &Record, w: &mut impl Write
             w,
             r#", "scope":{id},"parent":{parent},"app":{app}}},"name":"trace.context","ph":"M"}}"#
         ),
+        RecordData::Decision {
+            operation,
+            at_ns,
+            data,
+        } => {
+            write!(w, r#", "operation":{operation},"resource":"#)?;
+            if data.resource_known {
+                write!(w, r#""{}""#, data.resource)?;
+            } else {
+                w.write_str("null")?;
+            }
+            w.write_str(r#","slot":"#)?;
+            if data.slot == u8::MAX {
+                w.write_str("null")?;
+            } else {
+                write!(w, "{}", data.slot)?;
+            }
+            write!(
+                w,
+                r#","width":{},"height":{},"scale":{},"retained":{},"storage":"{:?}","outcome":"{:?}","available_bytes":{},"requested_bytes":"#,
+                data.width,
+                data.height,
+                data.scale.to_f32(),
+                data.retained,
+                data.storage,
+                data.outcome,
+                data.available_bytes
+            )?;
+            if data.requested_known {
+                write!(w, "{}", data.requested_bytes)?;
+            } else {
+                w.write_str("null")?;
+            }
+            w.write_str(r#"},"name":""#)?;
+            write_json_escaped(data.kind.name(), w)?;
+            write!(
+                w,
+                r#"","ph":"i","s":"t","ts":{}.{:03}}}"#,
+                at_ns / 1000,
+                at_ns % 1000
+            )
+        }
         RecordData::ThreadCpu { scope, nanos } => write!(
             w,
             r#", "scope":{scope},"thread_cpu_ns":{nanos}}},"name":"trace.cpu","ph":"M"}}"#

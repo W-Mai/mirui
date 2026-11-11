@@ -12,6 +12,192 @@ use core::any::Any;
 
 mod consumers;
 
+#[cfg(all(feature = "perf", feature = "std"))]
+#[test]
+fn decision_evidence_preserves_native_admission_reuse_and_errors() {
+    use crate::core::perf::{Capture, DecisionOutcome, DecisionStorage, RecordData};
+    let _serial = crate::core::perf::tests::SERIAL.lock().unwrap();
+    for (budget, expected, selected) in [
+        (
+            native_bytes() + 31,
+            DecisionOutcome::Budget,
+            DecisionStorage::Cpu,
+        ),
+        (
+            native_bytes() + 32,
+            DecisionOutcome::Allocated,
+            DecisionStorage::Native,
+        ),
+    ] {
+        let outputs = Outputs::<WidgetTexture>::with_budget(budget);
+        let key = super::tests::key(1, 1);
+        let mut plan = outputs.take_texture_plan().unwrap();
+        let mut renderer = Fixture {
+            workspace_bytes: 32,
+            ..Fixture::default()
+        };
+        let mut capture = Capture::new(8192).unwrap();
+        assert!(
+            outputs
+                .reserve_render_texture(key, &mut renderer, &mut plan.target_workspace, 0, false)
+                .unwrap()
+        );
+        let mut records = alloc::vec::Vec::new();
+        capture.drain_events(|_, batch| {
+            records.extend(batch.iter().filter_map(|record| {
+                if let RecordData::Decision { data, .. } = record.data {
+                    Some(data)
+                } else {
+                    None
+                }
+            }))
+        });
+        assert!(
+            records
+                .iter()
+                .any(|data| data.outcome == expected && data.storage == DecisionStorage::Native)
+        );
+        assert!(
+            records
+                .iter()
+                .any(|data| data.outcome == DecisionOutcome::Allocated && data.storage == selected)
+        );
+        assert!(records.iter().all(|data| data.resource
+            == (u64::from(key.entity.id) << 32) | u64::from(key.entity.generation)
+            && data.resource_known
+            && data.width == key.w
+            && data.height == key.h
+            && data.slot == 0));
+        assert_eq!(
+            tracked_allocations(|| {
+                assert!(
+                    outputs
+                        .reserve_render_texture(
+                            key,
+                            &mut renderer,
+                            &mut plan.target_workspace,
+                            0,
+                            false
+                        )
+                        .unwrap()
+                );
+            }),
+            0
+        );
+        records.clear();
+        capture.drain_events(|_, batch| {
+            records.extend(batch.iter().filter_map(|record| {
+                if let RecordData::Decision { data, .. } = record.data {
+                    Some(data)
+                } else {
+                    None
+                }
+            }))
+        });
+        assert!(
+            records
+                .iter()
+                .any(|data| data.outcome == DecisionOutcome::Reused && data.storage == selected)
+        );
+        if selected == DecisionStorage::Native {
+            renderer.device.access_failure.set(true);
+            assert_eq!(
+                outputs.reserve_render_texture(
+                    key,
+                    &mut renderer,
+                    &mut plan.target_workspace,
+                    0,
+                    false
+                ),
+                Err(RenderError::InvalidScope)
+            );
+            records.clear();
+            capture.drain_events(|_, batch| {
+                records.extend(batch.iter().filter_map(|record| {
+                    if let RecordData::Decision { data, .. } = record.data {
+                        Some(data)
+                    } else {
+                        None
+                    }
+                }))
+            });
+            assert!(
+                records
+                    .iter()
+                    .any(|data| data.outcome == DecisionOutcome::BackendError)
+            );
+            assert!(
+                !records
+                    .iter()
+                    .any(|data| data.storage == DecisionStorage::Cpu)
+            );
+        }
+        capture.drain_events(|info, _| {
+            if info.track != 0 {
+                assert_eq!(info.status.dropped, 0);
+            }
+        });
+        outputs.put_texture_plan(plan);
+    }
+}
+
+#[cfg(all(feature = "perf", feature = "std"))]
+#[test]
+fn decision_evidence_distinguishes_arithmetic_and_workspace_rejection() {
+    use crate::core::perf::{Capture, DecisionOutcome, DecisionStorage, RecordData};
+    let _serial = crate::core::perf::tests::SERIAL.lock().unwrap();
+    for (take_plan, workspace_bytes, expected) in [
+        (true, usize::MAX, DecisionOutcome::ArithmeticOverflow),
+        (false, 32, DecisionOutcome::WorkspaceUnavailable),
+    ] {
+        let outputs = Outputs::<WidgetTexture>::with_budget(4096);
+        let mut held = take_plan.then(|| outputs.take_texture_plan().unwrap());
+        let mut workspace = PaintWorkspace::default();
+        let mut renderer = Fixture {
+            workspace_bytes,
+            ..Fixture::default()
+        };
+        let mut capture = Capture::new(8192).unwrap();
+        assert!(
+            outputs
+                .reserve_render_texture(
+                    super::tests::key(1, 1),
+                    &mut renderer,
+                    &mut workspace,
+                    0,
+                    false
+                )
+                .unwrap()
+        );
+        let mut found = false;
+        capture.drain_events(|_, records| {
+            for record in records {
+                if let RecordData::Decision { data, .. } = record.data
+                    && data.outcome == expected
+                    && data.storage == DecisionStorage::Native
+                {
+                    found = true;
+                    if expected == DecisionOutcome::ArithmeticOverflow {
+                        assert!(!data.requested_known);
+                    }
+                }
+            }
+        });
+        assert!(found);
+        assert_eq!(renderer.device.creates.get(), 0);
+        assert!(
+            !outputs.storage().textures[&super::tests::key(1, 1).entity].planes[0]
+                .as_ref()
+                .unwrap()
+                .texture
+                .is_native()
+        );
+        if let Some(plan) = held.take() {
+            outputs.put_texture_plan(plan);
+        }
+    }
+}
+
 fn native_bytes() -> usize {
     let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
     128 + Texture::native_cpu_bytes(layout).unwrap()

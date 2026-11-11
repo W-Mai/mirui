@@ -1581,6 +1581,40 @@ fn check_target_workspace<S: AsRef<[u8]> + AsMut<[u8]>>(
     Ok(())
 }
 
+#[cfg(feature = "perf")]
+fn trace_target_workspace(layout: crate::render::PlaneLayout, error: RenderError) {
+    use crate::core::perf::{
+        DecisionOutcome, DecisionStorage, ResourceDecision, ResourceKind, decision,
+    };
+    let (outcome, requested, available) = match error {
+        RenderError::MissingWorkspace => (DecisionOutcome::WorkspaceUnavailable, None, 0),
+        RenderError::InsufficientWorkspace {
+            required_bytes,
+            capacity_bytes,
+        } => (
+            DecisionOutcome::Budget,
+            Some(required_bytes),
+            capacity_bytes,
+        ),
+        _ => return,
+    };
+    decision(ResourceDecision {
+        kind: ResourceKind::SdlTargetWorkspace,
+        resource: 0,
+        resource_known: false,
+        requested_bytes: requested.unwrap_or(0) as u64,
+        requested_known: requested.is_some(),
+        available_bytes: available as u64,
+        scale: Fixed::ONE,
+        width: layout.width(),
+        height: layout.height(),
+        outcome,
+        storage: DecisionStorage::Native,
+        slot: u8::MAX,
+        retained: false,
+    });
+}
+
 impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
     type TargetState = target::TargetState;
 
@@ -1594,7 +1628,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         let plan = target::plan(self.device, layout)?;
         match check_target_workspace(self.projective_fallback.as_deref(), layout) {
             Ok(()) => Ok(plan),
-            Err(RenderError::MissingWorkspace | RenderError::InsufficientWorkspace { .. }) => {
+            Err(
+                error @ (RenderError::MissingWorkspace | RenderError::InsufficientWorkspace { .. }),
+            ) => {
+                #[cfg(feature = "perf")]
+                trace_target_workspace(layout, error);
+                #[cfg(not(feature = "perf"))]
+                let _ = error;
                 Ok(None)
             }
             Err(error) => Err(error),

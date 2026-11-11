@@ -5,6 +5,67 @@ use std::sync::Mutex;
 pub(crate) static SERIAL: Mutex<()> = Mutex::new(());
 
 #[test]
+fn decisions_share_the_bounded_stream_without_cpu_or_duration_samples() {
+    let _serial = SERIAL.lock().unwrap();
+    let data = ResourceDecision {
+        kind: ResourceKind::OutputTarget,
+        resource: u64::MAX,
+        resource_known: true,
+        requested_bytes: 0,
+        requested_known: false,
+        available_bytes: 32,
+        scale: crate::types::Fixed::ONE,
+        width: 4,
+        height: 8,
+        outcome: DecisionOutcome::ArithmeticOverflow,
+        storage: DecisionStorage::Native,
+        slot: u8::MAX,
+        retained: true,
+    };
+    let mut capture = Capture::new(8192).unwrap();
+    let capacity = capture.event_capacity();
+    let operation = super::operation(19, crate::ecs::FrameOperation::Draw);
+    let id = operation.id().unwrap();
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| decision(data)),
+        0
+    );
+    let mut encoded = String::with_capacity(1024);
+    let mut count = 0;
+    capture.drain_events(|info, records| {
+        for record in records {
+            if let RecordData::Decision { operation, .. } = record.data {
+                assert_eq!(operation, id.value);
+                assert!(record.span().is_none());
+                format_record(info, record, &mut encoded).unwrap();
+                count += 1;
+            }
+        }
+    });
+    assert_eq!(count, 1);
+    assert!(encoded.contains(r#""requested_bytes":null"#));
+    assert!(encoded.contains(r#""resource":"18446744073709551615""#));
+    assert!(encoded.contains(r#""slot":null"#));
+    assert!(encoded.contains(r#""ph":"i""#));
+    assert!(!encoded.contains("dur"));
+    assert!(!encoded.contains("thread_cpu_ns"));
+    drop(operation);
+    capture.drain_events(|_, _| {});
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            for _ in 0..capacity + 3 {
+                decision(data);
+            }
+        }),
+        0
+    );
+    capture.drain(None);
+    assert_eq!(capture.status().dropped, 3);
+    assert_eq!(capture.status().open_scopes, 0);
+    assert!(capture.stage_stats().is_empty());
+}
+
+#[test]
 fn trace_macros_gate_guard_construction_without_changing_capture_lifetimes() {
     let _serial = SERIAL.lock().unwrap();
     #[crate::trace_fn("macro.function")]

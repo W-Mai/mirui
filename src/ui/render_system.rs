@@ -2929,6 +2929,8 @@ fn prepare_offscreen(
     crate::trace_span!("draw.offscreen");
 
     if outputs.texture_matches(key)? {
+        #[cfg(feature = "perf")]
+        outputs.trace_texture_reuse(key);
         skip_subtree(node, idx, None, output_plan);
         return Ok(true);
     }

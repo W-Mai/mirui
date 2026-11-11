@@ -1,6 +1,10 @@
 //! Bounded span recording and export. A capture has one consumer; additional producer threads register before tracing. All timestamps use `core::time`, which need not share the epoch of an application's custom `MonoClock`.
 
 mod buffer;
+mod decision;
+#[cfg(any(feature = "perf", test))]
+pub(crate) use decision::decision;
+pub use decision::{DecisionOutcome, DecisionStorage, ResourceDecision, ResourceKind};
 pub(crate) mod cpu;
 mod observer;
 mod record;
