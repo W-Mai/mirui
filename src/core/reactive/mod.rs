@@ -106,6 +106,7 @@ struct Reactive {
     model_visual_subscriptions: usize,
     dirty_effects: VecDeque<EffectId>,
     effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
+    unbound_effects: usize,
     captured_effects: Option<Vec<EffectId>>,
     computeds: BTreeMap<ComputedId, Weak<dyn ComputedNode>>,
     effect_slots: SlotAllocator,
@@ -130,6 +131,7 @@ impl Reactive {
             model_visual_subscriptions: 0,
             dirty_effects: VecDeque::new(),
             effects: BTreeMap::new(),
+            unbound_effects: 0,
             captured_effects: None,
             computeds: BTreeMap::new(),
             effect_slots: SlotAllocator::new(),
@@ -140,10 +142,7 @@ impl Reactive {
     }
 
     fn unbound_effect_count(&self) -> usize {
-        self.effects
-            .values()
-            .filter(|effect| effect.borrow().owner_world.is_none())
-            .count()
+        self.unbound_effects
     }
 
     fn reserve_owned_consumer_slot(&mut self, partition: PartitionKey) {
@@ -533,7 +532,9 @@ fn subscribe_automatic_graph(source: SourceKey, subscriber: Subscriber) -> bool 
                                 .register_consumer(source.partition, subscriber)
                                 .expect("reactive model Effect reserved capacity exhausted");
                             effect.model_consumer = Some(consumer);
-                            effect.owner_world = Some(world);
+                            if effect.owner_world.replace(world).is_none() {
+                                r.unbound_effects -= 1;
+                            }
                             consumer
                         }
                     }
@@ -1704,6 +1705,9 @@ fn unregister_effect(id: EffectId) {
         let removed = r.effects.remove(&id);
         if let Some(effect) = &removed {
             let effect = effect.borrow();
+            if effect.owner_world.is_none() {
+                r.unbound_effects -= 1;
+            }
             if let Some(consumer) = effect.model_consumer {
                 let _ = r.graph.remove_consumer(consumer);
             }
@@ -1795,6 +1799,9 @@ impl Effect {
                 depth: 0,
             }));
             r.effects.insert(id, inner);
+            if owner_world.is_none() {
+                r.unbound_effects += 1;
+            }
             if let Some(captured) = &mut r.captured_effects {
                 captured.push(id);
             }
@@ -2170,6 +2177,7 @@ mod tests {
             r.dirty_visual_widgets.clear();
             r.dirty_effects.clear();
             let effects = core::mem::take(&mut r.effects);
+            r.unbound_effects = 0;
             for id in effects.keys() {
                 r.effect_slots.release(id.0);
             }
@@ -2184,6 +2192,89 @@ mod tests {
 
     fn entity(id: u32) -> Entity {
         Entity { id, generation: 0 }
+    }
+
+    fn assert_unbound_effects(expected: usize) {
+        with_reactive(|runtime| {
+            assert_eq!(runtime.unbound_effect_count(), expected);
+            assert_eq!(
+                runtime.unbound_effect_count(),
+                runtime
+                    .effects
+                    .values()
+                    .filter(|effect| effect.borrow().owner_world.is_none())
+                    .count()
+            );
+        });
+    }
+
+    #[test]
+    fn unbound_count_tracks_binding_disposal_and_failed_initialization() {
+        reset();
+        assert_unbound_effects(0);
+        let shared = Effect::new(|| {});
+        assert_unbound_effects(1);
+        let mut world = World::new();
+        let owned = with_world_scope(&mut world, || Effect::new(|| {}));
+        assert_unbound_effects(1);
+        let model = Rc::new(ModelSource::new());
+        model.register_owner(world.id());
+        let gate = Signal::new(false);
+        let (read_gate, read_model) = (gate.clone(), Rc::clone(&model));
+        let bound_later = Effect::new(move || {
+            if read_gate.get() {
+                read_model.track();
+            }
+        });
+        assert_unbound_effects(2);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                gate.set(true);
+                flush_signal_dirty(&mut world);
+            }),
+            0
+        );
+        assert_unbound_effects(1);
+        drop(bound_later);
+        drop(owned);
+        assert_unbound_effects(1);
+        drop(shared);
+        assert_unbound_effects(0);
+        for bind_before_failure in [false, true] {
+            let read = Rc::clone(&model);
+            let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _effect = Effect::new(move || {
+                    if bind_before_failure {
+                        read.track();
+                    }
+                    panic!("initial effect failed");
+                });
+            }));
+            assert!(failed.is_err());
+            assert_unbound_effects(0);
+        }
+    }
+
+    #[test]
+    fn unbound_count_is_updated_before_reentrant_capture_destruction() {
+        struct SpawnOnDrop(Rc<RefCell<Option<Effect>>>);
+        impl Drop for SpawnOnDrop {
+            fn drop(&mut self) {
+                assert_unbound_effects(0);
+                *self.0.borrow_mut() = Some(Effect::new(|| {}));
+            }
+        }
+        reset();
+        let spawned = Rc::new(RefCell::new(None));
+        let capture = SpawnOnDrop(Rc::clone(&spawned));
+        let effect = Effect::new(move || {
+            let _ = &capture;
+        });
+        assert_unbound_effects(1);
+        drop(effect);
+        assert_unbound_effects(1);
+        drop(spawned.borrow_mut().take());
+        assert_unbound_effects(0);
     }
 
     mod paint_requests {

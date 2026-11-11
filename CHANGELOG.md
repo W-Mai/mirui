@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Maintain the unowned Effect count across registration, model binding and disposal to avoid rescanning effects during consumer reservation.
+
 - Skip dependency-column scans for consumers known to have no subscriptions, preserving pending work and generation checks.
 
 - Restore the prompter's known score association after reconnecting and reset closed connection state when returning to the page.
