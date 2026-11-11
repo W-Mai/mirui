@@ -97,6 +97,8 @@ pub fn register_thread() -> Result<(), CaptureError> {
             os_thread: super::cpu::thread_id(),
             buffer: Mutex::new(buffer),
         });
+        // Initialize platform lock storage before publishing the producer.
+        drop(track.buffer.lock().unwrap());
         registry
             .tracks
             .try_reserve(1)

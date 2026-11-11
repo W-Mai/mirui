@@ -9,10 +9,12 @@ pub(crate) mod cpu;
 mod observer;
 mod record;
 mod scope;
+#[cfg(any(all(feature = "perf", feature = "sdl-gpu"), all(test, feature = "std")))]
+pub(crate) use observer::transfer;
 pub(crate) use observer::{report as observe_report, report_context};
 pub use record::{
     ClockDomain, FeedbackKind, PlatformTimestamp, Record, RecordData, ScopeKind, SubmissionId,
-    SubmissionOutcome, format_record,
+    SubmissionOutcome, TransferKind, format_record,
 };
 pub(crate) use scope::{accepted, operation};
 pub use scope::{display_presented, feedback, submission, wait};

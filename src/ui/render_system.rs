@@ -2944,6 +2944,7 @@ fn prepare_offscreen(
     let texture = write.texture_mut();
 
     if texture.is_native() {
+        crate::trace_span!("draw.offscreen.native");
         let workspace = &output_plan
             .ok_or(RenderError::MissingWorkspace)?
             .target_workspace;
@@ -2968,6 +2969,7 @@ fn prepare_offscreen(
             )
         })?;
     } else {
+        crate::trace_span!("draw.offscreen.software");
         let mut pixels = texture.pixels_mut()?;
         let stride = pixels.stride();
         let inner_tex =

@@ -14,6 +14,24 @@ pub enum SubmissionOutcome {
     Abandoned,
 }
 
+/// Synchronous SDL calls that pass or receive logical pixel payloads.
+#[derive(Clone, Copy, Debug)]
+pub enum TransferKind {
+    SdlTextureUpload,
+    SdlTargetReadback,
+    SdlTargetWriteback,
+}
+
+impl TransferKind {
+    fn name(self) -> &'static str {
+        match self {
+            Self::SdlTextureUpload => "sdl.texture.upload.bytes",
+            Self::SdlTargetReadback => "sdl.target.readback.bytes",
+            Self::SdlTargetWriteback => "sdl.target.writeback.bytes",
+        }
+    }
+}
+
 /// Native timestamp units and epoch are explicit. A domain name does not calibrate it to the Mirui clock.
 #[derive(Clone, Copy, Debug)]
 pub struct ClockDomain {
@@ -87,6 +105,15 @@ pub enum RecordData {
         operation: u64,
         at_ns: u64,
         data: super::ResourceDecision,
+    },
+    Transfer {
+        operation: u64,
+        at_ns: u64,
+        kind: TransferKind,
+        width: u16,
+        height: u16,
+        payload_bytes: Option<u64>,
+        outcome: SubmissionOutcome,
     },
     Feedback {
         submission: u64,
@@ -191,6 +218,32 @@ pub fn format_record(info: super::BatchInfo, record: &Record, w: &mut impl Write
             write!(
                 w,
                 r#"","ph":"i","s":"t","ts":{}.{:03}}}"#,
+                at_ns / 1000,
+                at_ns % 1000
+            )
+        }
+        RecordData::Transfer {
+            operation,
+            at_ns,
+            kind,
+            width,
+            height,
+            payload_bytes,
+            outcome,
+        } => {
+            write!(
+                w,
+                r#", "operation":{operation},"width":{width},"height":{height},"outcome":"{outcome:?}","payload_bytes":"#
+            )?;
+            if let Some(bytes) = payload_bytes {
+                write!(w, "{bytes}")?;
+            } else {
+                w.write_str("null")?;
+            }
+            write!(
+                w,
+                r#"}},"name":"{}","ph":"i","s":"t","ts":{}.{:03}}}"#,
+                kind.name(),
                 at_ns / 1000,
                 at_ns % 1000
             )

@@ -206,6 +206,7 @@ fn create<'a, T: RenderTarget>(
     device: &'a Device<T>,
     src: &Texture,
 ) -> Result<SdlTexture<'a>, RenderError> {
+    crate::trace_span!("sdl.texture.create");
     let _lease = device.canvas()?;
     let texture = device
         .creator

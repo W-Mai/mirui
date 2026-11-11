@@ -1615,6 +1615,30 @@ fn trace_target_workspace(layout: crate::render::PlaneLayout, error: RenderError
     });
 }
 
+#[cfg(feature = "perf")]
+fn trace_transfer(
+    kind: crate::core::perf::TransferKind,
+    width: u16,
+    height: u16,
+    format: ColorFormat,
+    issued: bool,
+) {
+    let payload = crate::render::PlaneLayout::packed(width, height, format)
+        .ok()
+        .map(|layout| layout.required_bytes());
+    crate::core::perf::transfer(
+        kind,
+        width,
+        height,
+        payload,
+        if issued {
+            crate::core::perf::SubmissionOutcome::Issued
+        } else {
+            crate::core::perf::SubmissionOutcome::Failed
+        },
+    );
+}
+
 impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
     type TargetState = target::TargetState;
 

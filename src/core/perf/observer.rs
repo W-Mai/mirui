@@ -62,3 +62,35 @@ pub(crate) fn report<R>(action: impl FnOnce() -> R) -> R {
     record("probe.report", cost);
     result
 }
+
+#[cfg(any(all(feature = "perf", feature = "sdl-gpu"), all(test, feature = "std")))]
+pub(crate) fn transfer(
+    kind: super::TransferKind,
+    width: u16,
+    height: u16,
+    payload_bytes: Option<usize>,
+    outcome: super::SubmissionOutcome,
+) {
+    let Some(scope) = imp::next_scope() else {
+        return;
+    };
+    let Some(at_ns) = crate::core::time::try_clock_now_ns() else {
+        super::invalid_scope(scope.capture);
+        return;
+    };
+    let operation = imp::operation()
+        .filter(|op| op.capture == scope.capture)
+        .map_or(0, |op| op.value);
+    imp::record(
+        scope.capture,
+        RecordData::Transfer {
+            operation,
+            at_ns,
+            kind,
+            width,
+            height,
+            payload_bytes: payload_bytes.map(|bytes| bytes as u64),
+            outcome,
+        },
+    );
+}

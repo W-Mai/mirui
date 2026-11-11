@@ -10,6 +10,7 @@ pub(super) fn edit<T: RenderTarget>(
     alpha: TargetAlpha,
     body: &mut dyn FnMut(&mut Texture<'_>) -> Result<(), RenderError>,
 ) -> Result<(), RenderError> {
+    crate::trace_span!("sdl.target.edit");
     let area = region.rect();
     let stride = region.stride_bytes();
     let mut texture = Texture::new(bytes, area.width(), area.height(), ColorFormat::RGBA8888)?
@@ -28,7 +29,7 @@ pub(super) fn edit<T: RenderTarget>(
         )?;
     }
     // Device access ends before the callback can read another source on it.
-    body(&mut texture)?;
+    crate::trace_span!("sdl.target.edit.body", { body(&mut texture) })?;
     if (texture.width(), texture.height(), texture.format())
         != (area.width(), area.height(), ColorFormat::RGBA8888)
     {
@@ -53,9 +54,20 @@ pub(super) fn edit<T: RenderTarget>(
             u32::from(area.height()),
         )
         .map_err(|_| RenderError::BackendFailure)?;
-    uploaded
-        .update(None, pixels.bytes(), stride)
-        .map_err(|_| RenderError::BackendFailure)?;
+    let update = crate::trace_span!("sdl.target.writeback", {
+        uploaded
+            .update(None, pixels.bytes(), stride)
+            .map_err(|_| RenderError::BackendFailure)
+    });
+    #[cfg(feature = "perf")]
+    super::trace_transfer(
+        crate::core::perf::TransferKind::SdlTargetWriteback,
+        area.width(),
+        area.height(),
+        ColorFormat::RGBA8888,
+        update.is_ok(),
+    );
+    update?;
     uploaded.set_blend_mode(sdl2::render::BlendMode::None);
     let previous_clip = canvas.clip_rect();
     canvas.set_clip_rect(None);
@@ -213,6 +225,7 @@ fn read_rows<T: RenderTarget>(
     bytes: &mut [u8],
     pitch: i32,
 ) -> Result<(), RenderError> {
+    crate::trace_span!("sdl.target.readback");
     // rgba8 validates every pitched row; a short final row uses its packed width.
     let result = unsafe {
         sdl2_sys::SDL_RenderReadPixels(
@@ -223,11 +236,22 @@ fn read_rows<T: RenderTarget>(
             pitch,
         )
     };
-    if result == 0 {
+    let result = if result == 0 {
         Ok(())
     } else {
         Err(RenderError::BackendFailure)
+    };
+    #[cfg(feature = "perf")]
+    if let (Ok(width), Ok(height)) = (u16::try_from(rect.w), u16::try_from(rect.h)) {
+        super::trace_transfer(
+            crate::core::perf::TransferKind::SdlTargetReadback,
+            width,
+            height,
+            ColorFormat::RGBA8888,
+            result.is_ok(),
+        );
     }
+    result
 }
 
 #[cfg(test)]

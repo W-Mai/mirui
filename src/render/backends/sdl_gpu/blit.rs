@@ -22,6 +22,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         src: &TexturePixels<'_>,
         area: Option<sdl2::rect::Rect>,
     ) -> Result<(), RenderError> {
+        crate::trace_span!("sdl.texture.upload");
         let swap = matches!(
             src.format(),
             ColorFormat::RGB565 | ColorFormat::RGB565Swapped
@@ -30,15 +31,25 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             .stride()
             .checked_mul(usize::from(src.height()))
             .is_some_and(|len| len <= src.bytes().len());
-        if swap || !complete_pitch {
+        let result = if swap || !complete_pitch {
             dst.with_lock(area, |pixels, pitch| {
                 Self::write_rows(src, pixels, pitch, swap)
             })
-            .map_err(|_| RenderError::BackendFailure)?
+            .map_err(|_| RenderError::BackendFailure)
+            .and_then(core::convert::identity)
         } else {
             dst.update(area, src.bytes(), src.stride())
                 .map_err(|_| RenderError::BackendFailure)
-        }
+        };
+        #[cfg(feature = "perf")]
+        super::trace_transfer(
+            crate::core::perf::TransferKind::SdlTextureUpload,
+            src.width(),
+            src.height(),
+            src.format(),
+            result.is_ok(),
+        );
+        result
     }
 
     fn write_rows(
@@ -153,6 +164,71 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(all(feature = "perf", feature = "std"))]
+    #[test]
+    fn upload_evidence_counts_packed_payload_for_padded_and_swapped_sources() {
+        use crate::core::perf::{Capture, RecordData, SubmissionOutcome, TransferKind};
+        let _serial = crate::core::perf::tests::SERIAL.lock().unwrap();
+        let canvas = sdl2::surface::Surface::new(4, 4, PixelFormatEnum::RGBA32)
+            .unwrap()
+            .into_canvas()
+            .unwrap();
+        let creator = canvas.texture_creator();
+        for (format, pitch, payload) in [
+            (ColorFormat::RGBA8888, 16usize, 24),
+            (ColorFormat::RGB565Swapped, 8usize, 12),
+        ] {
+            let bytes = [0x83; 32];
+            let last = pitch
+                + crate::render::PlaneLayout::packed(3, 1, format)
+                    .unwrap()
+                    .required_bytes();
+            let source = Texture::from_ref(&bytes[..last], 3, 2, format)
+                .unwrap()
+                .with_stride(pitch)
+                .unwrap();
+            let pixels = source.read_pixels().unwrap();
+            let mut dst = creator
+                .create_texture_streaming(SdlGpuRenderer::<Box<[u8]>>::texture_format(format), 3, 2)
+                .unwrap();
+            let mut capture = Capture::new(8192).unwrap();
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    SdlGpuRenderer::<Box<[u8]>>::upload_texture(&mut dst, &pixels, None).unwrap();
+                }),
+                0
+            );
+            let mut calls = 0;
+            let mut spans = 0;
+            capture.drain_events(|info, records| {
+                if info.track != 0 {
+                    assert_eq!(info.status.dropped, 0);
+                }
+                for record in records {
+                    if let RecordData::Transfer {
+                        kind: TransferKind::SdlTextureUpload,
+                        width,
+                        height,
+                        payload_bytes,
+                        outcome: SubmissionOutcome::Issued,
+                        ..
+                    } = record.data
+                    {
+                        assert_eq!((width, height, payload_bytes), (3, 2, Some(payload)));
+                        calls += 1;
+                    }
+                    if record
+                        .span()
+                        .is_some_and(|span| span.name == "sdl.texture.upload")
+                    {
+                        spans += 1;
+                    }
+                }
+            });
+            assert_eq!((calls, spans), (1, 1));
+        }
+    }
 
     #[test]
     fn texture_upload_skips_source_and_destination_padding() {

@@ -5,6 +5,55 @@ use std::sync::Mutex;
 pub(crate) static SERIAL: Mutex<()> = Mutex::new(());
 
 #[test]
+fn transfer_facts_preserve_unknown_sizes_and_operation_without_claiming_completion() {
+    let _serial = SERIAL.lock().unwrap();
+    let mut capture = Capture::new(8192).unwrap();
+    let scope = operation(19, crate::ecs::FrameOperation::Draw);
+    let id = scope.id().unwrap();
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            transfer(
+                TransferKind::SdlTextureUpload,
+                2,
+                2,
+                Some(16),
+                SubmissionOutcome::Issued,
+            );
+            transfer(
+                TransferKind::SdlTargetReadback,
+                2,
+                2,
+                None,
+                SubmissionOutcome::Failed,
+            );
+        }),
+        0
+    );
+    let mut json = String::with_capacity(2048);
+    let mut count = 0;
+    capture.drain_events(|info, records| {
+        for record in records {
+            if let RecordData::Transfer { operation, .. } = record.data {
+                assert_eq!(operation, id.value);
+                assert!(record.span().is_none());
+                format_record(info, record, &mut json).unwrap();
+                count += 1;
+            }
+        }
+    });
+    assert_eq!(count, 2);
+    assert!(json.contains(r#""payload_bytes":16"#));
+    assert!(json.contains(r#""payload_bytes":null"#));
+    assert!(json.contains(r#""outcome":"Issued""#));
+    assert!(json.contains(r#""outcome":"Failed""#));
+    assert!(!json.contains("dur"));
+    assert!(!json.contains("submission"));
+    assert!(!json.contains("resource"));
+    assert!(!json.contains("thread_cpu_ns"));
+    drop(scope);
+}
+
+#[test]
 fn decisions_share_the_bounded_stream_without_cpu_or_duration_samples() {
     let _serial = SERIAL.lock().unwrap();
     let data = ResourceDecision {
