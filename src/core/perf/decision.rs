@@ -21,6 +21,7 @@ impl ResourceKind {
 pub enum DecisionOutcome {
     NotOffered,
     Budget,
+    WorkingSetProtected,
     ArithmeticOverflow,
     WorkspaceUnavailable,
     WorkspaceAllocation,

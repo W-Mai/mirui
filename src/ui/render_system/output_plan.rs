@@ -9,6 +9,9 @@ use crate::ui::outputs::workspace::PaintWorkspace;
 use crate::ui::view::SourceGeometry;
 use core::any::TypeId;
 
+mod admission;
+use admission::NativeAdmission;
+
 #[cfg(test)]
 mod drop_effect_tests;
 #[cfg(test)]
@@ -117,6 +120,7 @@ pub(crate) struct TexturePlan {
     raster: Option<crate::render::backends::sw::SwScratch>,
     pub(crate) workspace: PaintWorkspace,
     pub(crate) target_workspace: PaintWorkspace,
+    admissions: Vec<NativeAdmission>,
 }
 
 impl TexturePlan {
@@ -156,6 +160,7 @@ impl TexturePlan {
         self.nodes.get(index).map(|node| node.subtree_end)
     }
     pub(crate) fn trim_memory(&mut self) {
+        self.admissions = Vec::new();
         self.raster = None;
         self.workspace.release();
         self.target_workspace.release();
@@ -213,6 +218,7 @@ impl TexturePlan {
     }
 
     fn invalidate_structure(&mut self) {
+        self.admissions = Vec::new();
         self.damage_scan = None;
         self.invalidate_geometry();
         self.structure_valid = false;
@@ -332,6 +338,9 @@ impl TexturePlan {
             .map_or(0, OutputRelations::structure_revision);
         self.root = entities.first().copied();
         self.structure_valid = true;
+        if self.admissions.capacity() > self.captures.len() {
+            self.admissions = Vec::new();
+        }
     }
 
     fn reconcile_dependencies(&mut self, world: &World, entities: &[Entity], build_graph: bool) {
@@ -821,6 +830,7 @@ pub(super) struct PreparedTextures<'a> {
 
 impl Drop for PreparedTextures<'_> {
     fn drop(&mut self) {
+        self.plan.admissions.clear();
         self.outputs
             .put_texture_plan(core::mem::take(&mut self.plan));
     }
@@ -894,14 +904,19 @@ pub(super) fn prepare<'a>(
         let key = plan.captures[id].key;
         if state == CaptureState::Pending {
             let native = outputs.plan_render_texture(key, renderer)?;
-            let native = native.map(|target| (&mut *renderer as &mut dyn Renderer, target));
+            if let Some(native) = native {
+                plan.admit_native_suffix(position, native, outputs, renderer, binding_required)?;
+                break;
+            }
             if !outputs.reserve_render_texture(
                 key,
-                native,
+                None,
                 &mut plan.target_workspace,
                 plan.workspace_bytes
                     .saturating_sub(plan.workspace.capacity()),
                 binding_required,
+                #[cfg(feature = "perf")]
+                0,
             )? {
                 state = CaptureState::Missing;
             }

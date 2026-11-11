@@ -1229,6 +1229,7 @@ fn warm_output_preparation_reuses_the_plan_and_pixel_slots_without_allocating() 
             )
             .unwrap()
             .unwrap();
+            assert_eq!(prepared.plan.admissions.capacity(), 0);
             assert!(
                 prepared
                     .plan

@@ -205,6 +205,7 @@ fn checked_geometry_fixed(value: Fixed64) -> Option<Fixed> {
 }
 
 mod output;
+pub(crate) use output::TextureBaseline;
 pub use output::{WidgetTexture, WidgetTextureRead, WidgetTextureStorage};
 
 pub(crate) fn texture_requested(world: &World, entity: Entity) -> bool {

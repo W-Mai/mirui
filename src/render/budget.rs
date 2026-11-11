@@ -105,6 +105,19 @@ pub(crate) struct Reservation {
 }
 
 impl Reservation {
+    pub(crate) fn resize(&mut self, bytes: usize) -> bool {
+        let ledger = self.ledger.as_ref().expect("active reservation");
+        transaction(|| {
+            let other = ledger.reserved.get() - self.bytes;
+            if bytes > ledger.limit - ledger.allocated.get() - other {
+                return false;
+            }
+            ledger.reserved.set(other + bytes);
+            self.bytes = bytes;
+            true
+        })
+    }
+
     pub(crate) fn retain(mut self) -> RetainedReservation {
         RetainedReservation(Rc::new(Retained {
             ledger: self.ledger.take().expect("active reservation"),
@@ -286,6 +299,37 @@ impl Drop for Allocation {
 mod tests {
     use super::*;
     use crate::test_support::tracked_allocations;
+
+    #[test]
+    fn resized_reservations_protect_other_work_and_release_on_unwind() {
+        let budget = MemoryBudget::new(128);
+        let mut floor = budget.reserve(96).unwrap();
+        assert_eq!(
+            tracked_allocations(|| {
+                let candidate = budget.reserve(32).unwrap();
+                assert!(candidate.commit(33).is_err());
+                assert_eq!(floor.bytes(), 96);
+                assert_eq!(budget.available(), 32);
+                assert!(floor.resize(64));
+                let live = budget.reserve(64).unwrap().commit(64).unwrap();
+                assert!(!floor.resize(65));
+                assert_eq!(floor.bytes(), 64);
+                assert!(floor.resize(0));
+                assert_eq!(budget.available(), 64);
+                drop(live);
+                assert!(floor.resize(128));
+                assert!(!floor.resize(usize::MAX));
+            }),
+            0
+        );
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _floor = floor;
+            panic!("abandoned preparation");
+        }));
+        assert!(failure.is_err());
+        assert_eq!(budget.available(), 128);
+        assert_eq!(budget.allocated(), 0);
+    }
 
     #[cfg(all(feature = "std", feature = "sync"))]
     #[test]

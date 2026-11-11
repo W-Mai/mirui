@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Protect remaining widget output capacity while prioritizing native consumer targets; preserve producer-first dependency invalidation and View execution.
+
 - Separate software/native offscreen production, SDL image upload and target readback/writeback in performance traces; record logical pixel payloads and native call results within the existing byte budget.
 
 - Initialize producer synchronization during trace registration to keep lazy platform-lock allocation out of recording calls.

@@ -12,6 +12,48 @@ use core::any::Any;
 
 mod consumers;
 
+#[cfg(all(feature = "perf", feature = "std"))]
+#[test]
+fn native_rejection_distinguishes_protected_capacity_from_total_budget_exhaustion() {
+    use crate::core::perf::{Capture, DecisionOutcome, RecordData};
+    let _serial = crate::core::perf::tests::SERIAL.lock().unwrap();
+    for (budget, expected) in [
+        (native_bytes(), DecisionOutcome::WorkingSetProtected),
+        (native_bytes() - 1, DecisionOutcome::Budget),
+    ] {
+        let outputs = Outputs::<WidgetTexture>::with_budget(budget);
+        let floor = outputs.reserve_texture_budget(64).unwrap();
+        let key = super::tests::key(1, 1);
+        let mut working = outputs.take_texture_plan().unwrap();
+        let mut renderer = Fixture::default();
+        let quoted = outputs
+            .plan_render_texture(key, &renderer)
+            .unwrap()
+            .unwrap();
+        let mut capture = Capture::new(8192).unwrap();
+        assert!(
+            outputs
+                .reserve_render_texture(
+                    key,
+                    Some((&mut renderer, quoted)),
+                    &mut working.target_workspace,
+                    0,
+                    false,
+                    floor.bytes()
+                )
+                .unwrap()
+        );
+        let mut found = false;
+        capture.drain_events(|_, records| {
+            found |= records.iter().any(|record| matches!(record.data, RecordData::Decision { data, .. } if data.storage == crate::core::perf::DecisionStorage::Native && data.outcome == expected));
+        });
+        assert!(found);
+        assert_eq!(renderer.device.creates.get(), 0);
+        drop(floor);
+        outputs.put_texture_plan(working);
+    }
+}
+
 impl Outputs<WidgetTexture> {
     fn reserve_test_render_texture(
         &self,
@@ -28,6 +70,8 @@ impl Outputs<WidgetTexture> {
             workspace,
             paint_bytes,
             binding_required,
+            #[cfg(feature = "perf")]
+            0,
         )
     }
 }
@@ -50,6 +94,8 @@ fn quoted_admission_keeps_the_selected_plan_and_validates_its_geometry() {
             &mut working.target_workspace,
             0,
             false,
+            #[cfg(feature = "perf")]
+            0,
         ),
         Err(RenderError::InvalidTexture)
     );
@@ -57,7 +103,15 @@ fn quoted_admission_keeps_the_selected_plan_and_validates_its_geometry() {
     // Explicit CPU admission must not replace the caller's choice with another native offer.
     assert!(
         outputs
-            .reserve_render_texture(key, None, &mut working.target_workspace, 0, false)
+            .reserve_render_texture(
+                key,
+                None,
+                &mut working.target_workspace,
+                0,
+                false,
+                #[cfg(feature = "perf")]
+                0
+            )
             .unwrap()
     );
     assert!(
@@ -276,6 +330,7 @@ struct Device {
     reads: Cell<usize>,
     creates: Cell<usize>,
     samples: Cell<usize>,
+    allocation_extra: Cell<usize>,
     #[cfg(feature = "sync")]
     retention_failure: Cell<bool>,
 }
@@ -322,7 +377,7 @@ impl BackendTarget for Target {
         self.descriptor
     }
     fn allocated_bytes(&self) -> usize {
-        self.descriptor.layout.required_bytes()
+        self.descriptor.layout.required_bytes() + self.device.allocation_extra.get()
     }
     fn validate(&self) -> Result<(), RenderError> {
         if self.device.access_failure.get() {
@@ -366,6 +421,8 @@ struct Fixture {
     workspace_bytes: usize,
     bindings: usize,
     reject_storage: bool,
+    only_width: Option<u16>,
+    unsupported_queries: Cell<usize>,
 }
 
 #[cfg(feature = "sync")]
@@ -389,6 +446,11 @@ fn rejected_storage_retention_releases_creation_charges_before_any_binding() {
 impl Renderer for Fixture {
     type TargetState = Option<Rc<Contents>>;
     fn plan_target(&self, layout: PlaneLayout) -> Result<Option<TargetPlan>, RenderError> {
+        if self.only_width.is_some_and(|width| layout.width() != width) {
+            self.unsupported_queries
+                .set(self.unsupported_queries.get() + 1);
+            return Ok(None);
+        }
         Ok(Some(TargetPlan {
             descriptor: TargetDescriptor {
                 layout,
