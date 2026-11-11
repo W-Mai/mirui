@@ -27,6 +27,8 @@ pub(super) fn rhythm_strip(
     ),
     paint: paint!(),
     theme: res!(Theme),
+    images: res!(crate::core::resource::ResourceManager<crate::render::texture::Texture<'static>>),
+    sprites: res!(super::sprites::Sprites),
 ) {
     let rect = paint.rect();
     let transform = paint.transform();
@@ -39,6 +41,18 @@ pub(super) fn rhythm_strip(
     let shift = Fixed::from_int((width.to_int().max(1) as u64 * local / bar_ticks) as i32);
     let Some(clip) = transform.apply_rect_bbox(rect).intersect(&paint.clip()) else {
         return;
+    };
+    let atlas = if component.strums
+        && super::sprites::eligible(paint.output_scale(), transform, paint.quad())
+        && model
+            .pattern
+            .attacks()
+            .iter()
+            .any(|attack| attack.stroke != super::Stroke::Pick)
+    {
+        sprites.atlas(&images, [muted, bright])
+    } else {
+        None
     };
     let mut draw = |command: &DrawCommand<'_>| paint.draw_clipped(command, clip);
     if component.strums {
@@ -92,8 +106,28 @@ pub(super) fn rhythm_strip(
                 } else {
                     -3
                 });
+                draw(&DrawCommand::Line {
+                    p1: Point::new(x, a),
+                    p2: Point::new(x, b),
+                    transform,
+                    color,
+                    width: Fixed::from_int(2),
+                    opa: 100 + attack.velocity,
+                });
+                if atlas.as_ref().is_some_and(|atlas| {
+                    super::sprites::draw_heads(
+                        atlas,
+                        Point::new(x, b),
+                        attack.stroke == super::Stroke::Up,
+                        attack.velocity,
+                        active,
+                        transform,
+                        &mut draw,
+                    )
+                }) {
+                    continue;
+                }
                 for (p1, p2) in [
-                    (Point::new(x, a), Point::new(x, b)),
                     (
                         Point::new(x, b),
                         Point::new(x - Fixed::from_int(3), b + tip),

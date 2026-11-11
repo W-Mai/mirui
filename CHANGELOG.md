@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Rasterize prompter arrowheads into a budgeted texture atlas and borrow its regions during drawing; preserve layered alpha, palette updates and vector fallback for unsupported transforms or insufficient cache capacity.
+
 - Draw physically aligned software lines through the rectangle fast path with unchanged stroke alpha; retain rasterization for fractional edges and path masks.
 
 - Follow complete lyric reading windows and reveal wrapped rows before their display interval, using the actual lyric viewport height.

@@ -7,6 +7,7 @@ mod motion;
 mod runtime;
 mod score;
 mod sheet;
+mod sprites;
 mod state;
 mod strips;
 mod transport;
