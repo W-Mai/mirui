@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { ChordLink, DeviceError, checksum, statusPacket } from '../chord-prompter/protocol.js';
 import { barContent } from '../chord-prompter/presentation.js';
+import { DeviceSync } from '../chord-prompter/sync.js';
 
 test('bar inspection respects canonical half-open bar intervals and unknown sources', () => {
     const data = {bars: 3, beats: 4, slots: [
@@ -139,5 +140,20 @@ describe('bounded device protocol', () => {
         expect(m.writes.length).toBe(0);
         await link.open(m.device);
         expect(link.seq).toBe(0);
+    });
+    test('on-demand synchronization shares the upload and control stream without deadlocking', async () => {
+        const m = mock(), link = new ChordLink();
+        const sample = await link.open(m.device);
+        const sync = new DeviceSync(link, {setTimer: () => 0, clearTimer() {}});
+        sync.accept(sample); sync.setActive(true); sync.setBlocked(true);
+        const upload = link.upload('x'.repeat(200));
+        const control = (async () => {
+            sync.noteControl(await link.command(3));
+            expect(await sync.refresh({allowBlocked: true})).not.toBeNull();
+        })();
+        await Promise.all([upload, control]);
+        expect(m.peak).toBe(1);
+        expect(m.writes.at(-1)[0]).toBe(18);
+        sync.clear(); link.close();
     });
 });

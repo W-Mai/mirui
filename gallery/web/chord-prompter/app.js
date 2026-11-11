@@ -1,5 +1,6 @@
 import { ChordLink, SERVICE, PATTERNS } from './protocol.js';
 import { barContent } from './presentation.js';
+import { DeviceSync } from './sync.js';
 
 const $ = id => document.getElementById(id);
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -41,17 +42,21 @@ function saveDraft() {
 const errorText = error => String(error?.message ?? error);
 let bindings, patterns = [], preview, previewData, draftData, deviceData, deviceGeneration;
 let engineReady = false;
-let sample = null, connecting = false, polling = false, uploading = false, previewMode = true;
+let sample = null, connecting = false, uploading = false, previewMode = true;
 let beatCount = 0, rhythmIndex = -1, lyricKey = '', activeSlot = -1, revision = 0, editTimer, scrubbing = false;
 const barCards = [...document.querySelectorAll('.bar-card')];
 const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
 const link = new ChordLink(() => {
+    deviceSync.clear();
     sample = null; previewMode = true; deviceData = null; refreshConnection();
     message('Disconnected. Display playback continues.');
 });
+const deviceSync = new DeviceSync(link, {onSample: associateDeviceSample,
+    onError: error => { message(errorText(error), true); refreshConnection(); }, visible: !document.hidden});
 const usingDevice = () => link.connected && !previewMode;
 
 function refreshConnection() {
+    deviceSync.setActive(usingDevice());
     $('connection').textContent = link.connected ? 'Connected' : 'Not connected';
     $('lamp').classList.toggle('online', link.connected);
     $('workbench').classList.toggle('device', usingDevice());
@@ -107,21 +112,21 @@ function associateDeviceSample(next) {
         deviceData = null;
         try {
             const saved = JSON.parse(sessionStorage.getItem('mirui-chord-active') ?? 'null');
-            if (saved?.generation === next.generation && saved.device === (link.device?.id ?? '')) deviceData = saved.data;
+            if (saved?.generation === next.generation && saved.device === (link.device?.id ?? '')
+                && Array.isArray(saved.data?.sections)) deviceData = saved.data;
         } catch { /* The display remains usable without stored editor context. */ }
         deviceGeneration = next.generation;
     }
+    deviceSync.setScore(deviceData ?? null);
 }
-async function poll() {
-    if (polling || (link.busy && !uploading) || !link.connected || connecting) return;
-    polling = true;
-    try { associateDeviceSample(await link.sample()); }
+async function poll(allowBlocked = false) {
+    try { await deviceSync.refresh({allowBlocked}); }
     catch (error) { message(errorText(error), true); }
-    finally { polling = false; refreshConnection(); }
+    finally { refreshConnection(); }
 }
 $('connect').onclick = () => run(async () => {
     if (link.connected) {
-        link.close(); sample = null; deviceData = null; deviceGeneration = undefined; previewMode = true;
+        deviceSync.clear(); link.close(); sample = null; deviceData = null; deviceGeneration = undefined; previewMode = true;
         refreshConnection(); message('Disconnected. Display playback continues.'); return;
     }
     if (!navigator.bluetooth) throw new Error('Open in Chrome or Arc on desktop, or Chrome on Android, to connect the display.');
@@ -129,8 +134,9 @@ $('connect').onclick = () => run(async () => {
     connecting = true; refreshConnection();
     try {
         const device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'MIRUI Chord' }], optionalServices: [SERVICE] });
-        associateDeviceSample(await link.open(device));
+        const next = await link.open(device);
         preview?.pause(performance.now()); previewMode = false; lyricKey = '';
+        deviceSync.accept(next);
         message(deviceData ? '' : 'Display connected · song source is not synced');
     } finally { connecting = false; refreshConnection(); }
 });
@@ -138,8 +144,9 @@ $('connect').onclick = () => run(async () => {
 async function control(opcode, arg = 0, boundary = 0) {
     if (!engineReady || (!preview && !usingDevice())) throw new Error('Load a song first');
     if (usingDevice()) {
-        await link.command(opcode, arg, boundary);
-        await poll();
+        const receipt = await link.command(opcode, arg, boundary);
+        deviceSync.noteControl(receipt);
+        await poll(true);
     } else {
         const now = performance.now();
         if (opcode === 1) preview.play(now);
@@ -152,7 +159,7 @@ async function control(opcode, arg = 0, boundary = 0) {
     message(opcode === 4 ? 'Tempo · next beat' : opcode === 5 ? 'Jump · next bar' : opcode === 6 ? 'Strum · next bar' : '');
 }
 $('play').onclick = () => run(() => {
-    const playing = usingDevice() ? sample?.playing : preview?.playing;
+    const playing = usingDevice() ? deviceSync.state()?.playing : preview?.playing;
     return control(playing ? 2 : 1, usingDevice() && !playing ? 500 : 0);
 });
 $('stop').onclick = () => run(() => control(3));
@@ -237,7 +244,8 @@ $('upload').onclick = () => run(async () => {
     const candidate = new bindings.ChordPreview(source);
     const data = JSON.parse(candidate.score_json()); candidate.free();
     const total = new TextEncoder().encode(source).length;
-    uploading = true; refreshConnection();
+    const epoch = link.epoch;
+    uploading = true; deviceSync.setBlocked(true); refreshConnection();
     let announced = -1;
     $('transfer').hidden = false; $('workbench').classList.add('has-transfer'); $('transfer').dataset.state = 'sending';
     $('upload').textContent = 'Sending…'; $('progress').value = 0;
@@ -253,17 +261,23 @@ $('upload').onclick = () => run(async () => {
                 $('transfer-announcement').textContent = ratio === 1 ? 'Validating on display' : `Upload ${bucket * 10}%`;
             }
         });
+        deviceSync.clear(); sample = null;
         deviceData = data; deviceGeneration = receipt.generation; previewMode = false;
         preview?.pause(performance.now()); lyricKey = '';
         try { sessionStorage.setItem('mirui-chord-active', JSON.stringify({ device: link.device?.id ?? '', generation: deviceGeneration, data })); } catch { /* Storage is optional. */ }
         $('transfer').dataset.state = 'complete'; $('transfer-label').textContent = `Loaded ${total} bytes · 100%`;
         $('transfer-announcement').textContent = 'Song loaded';
-        message(''); await poll();
+        message('');
     } catch (error) {
+        if (epoch !== link.epoch) return;
         $('transfer').dataset.state = 'error'; $('transfer-label').textContent = `Upload failed: ${errorText(error)}`;
         $('transfer-announcement').textContent = $('transfer-label').textContent;
         throw error;
-    } finally { uploading = false; $('upload').textContent = 'Send to display'; refreshConnection(); }
+    } finally {
+        uploading = false; deviceSync.setBlocked(false);
+        $('upload').textContent = 'Send to display'; refreshConnection();
+        if (epoch === link.epoch) await poll();
+    }
 });
 
 function slotAt(data, tick) {
@@ -331,10 +345,8 @@ function frame() {
     const data = remote ? deviceData : previewData;
     let state;
     if (remote && sample) {
-        const age = now - sample.hostMillis;
-        const tick = sample.tick + (sample.playing && !sample.armed ? Math.min(1500, Math.max(0, age)) * sample.bpm * 960 / 60000000 : 0);
-        state = {...sample, tick, stale: age >= 1500};
-    } else if (preview) {
+        state = deviceSync.state(now);
+    } else if (!remote && preview) {
         state = { tick: preview.tick(now), bpm: preview.bpm, playing: preview.playing, beats: previewData.beats, unit: previewData.unit, pattern: preview.pattern, pending: preview.pending, armed: false, stale: false };
     }
     if (state) {
@@ -363,7 +375,7 @@ function frame() {
         const phase = tick % (state.beats * 960) / (state.beats * 960);
         moveCards(phase, !!data && bar + 1 < data.bars);
         $('strum-track').style.setProperty('--phase', phase);
-        for (const [index, mark] of [...$('attacks').children].entries()) mark.classList.toggle('active', !state.stale && Math.abs(patterns[rhythmIndex][index].offset / 400 - phase) < .035);
+        for (const [index, mark] of [...$('attacks').children].entries()) mark.classList.toggle('active', !state.armed && !state.stale && Math.abs(patterns[rhythmIndex][index].offset / 400 - phase) < .035);
         $('telemetry').textContent = remote ? `Generation ${sample.generation} · status read ${Math.round(sample.roundTrip)} ms. Beat interpolation uses device samples.` : 'Browser preview uses the shared musical transport.';
     }
     requestAnimationFrame(frame);
@@ -387,6 +399,6 @@ run(async () => {
     refreshConnection();
 });
 refreshConnection();
-setInterval(() => {if (!document.hidden) poll();}, 180);
+document.addEventListener('visibilitychange', () => deviceSync.setVisible(!document.hidden));
 requestAnimationFrame(frame);
-window.addEventListener('pagehide', () => { saveDraft(); link.close(); });
+window.addEventListener('pagehide', () => { saveDraft(); deviceSync.clear(); link.close(); });

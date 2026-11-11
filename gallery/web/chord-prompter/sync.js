@@ -32,8 +32,10 @@ export class DeviceSync {
         this.boundaryTick = null;
         this.revision = 0;
         this.requested = false;
+        this.forced = false;
         this.inFlight = null;
         this.endTick = Infinity;
+        this.score = null;
         this.retryAt = 0;
     }
     clear() {
@@ -42,9 +44,11 @@ export class DeviceSync {
         this.sample = null;
         this.startMillis = this.boundaryTick = null;
         this.requested = false;
+        this.forced = false;
         this.inFlight = null;
         this.active = false;
         this.endTick = Infinity;
+        this.score = null;
         this.retryAt = 0;
     }
     cancelTimer() {
@@ -67,9 +71,10 @@ export class DeviceSync {
         this.blocked = blocked;
         this.schedule();
     }
-    setEnd(endTick) {
-        if (endTick === this.endTick) return;
-        this.endTick = endTick;
+    setScore(score) {
+        if (score === this.score) return;
+        this.score = score;
+        this.endTick = score ? score.bars * score.beats * TICKS_PER_BEAT : Infinity;
         this.schedule();
     }
     accept(sample) {
@@ -107,24 +112,33 @@ export class DeviceSync {
             const target = this.boundaryTick ?? (Math.floor(sample.tick / TICKS_PER_BEAT) + 1) * TICKS_PER_BEAT;
             due = Math.min(due, sample.hostMillis + (target - sample.tick) / rate(sample) + guard);
         }
+        const section = this.score?.sections.find(section => section.tick > sample.tick);
+        if (section && !sample.armed) {
+            due = Math.min(due, sample.hostMillis + (section.tick - sample.tick) / rate(sample) + guard);
+        }
         this.timer = this.setTimer(() => {
             this.timer = null;
             this.refresh().catch(this.onError);
         }, Math.max(20, Math.max(due, this.retryAt) - now));
     }
-    refresh() {
-        if (!this.ready) return Promise.resolve(null);
+    refresh({allowBlocked = false} = {}) {
+        if (!this.active || !this.visible || !this.link.connected || (this.blocked && !allowBlocked)) return Promise.resolve(null);
         this.cancelTimer();
         this.requested = true;
+        this.forced ||= allowBlocked;
         if (this.inFlight) return this.inFlight;
         const revision = this.revision, epoch = this.link.epoch;
         const current = () => revision === this.revision && epoch === this.link.epoch;
         const request = Promise.resolve().then(async () => {
             let latest = null;
-            while (current() && this.ready && this.requested) {
+            while (current() && this.requested) {
+                const forced = this.forced;
                 this.requested = false;
-                while (this.link.busy && current() && this.ready) await this.link.tail;
-                if (!current() || !this.ready) break;
+                this.forced = false;
+                const allowed = () => this.active && this.visible && this.link.connected && (!this.blocked || forced);
+                while (this.link.busy && current() && allowed()) await this.link.tail;
+                if (!current()) break;
+                if (!allowed()) continue;
                 const sample = await this.link.sample();
                 if (!current()) break;
                 this.accept(sample);

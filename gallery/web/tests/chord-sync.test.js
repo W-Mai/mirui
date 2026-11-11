@@ -40,7 +40,7 @@ test('stable pause and song completion have no periodic reads', async () => {
     const f = fixture({playing: false});
     await f.advance(60000); expect(f.reads).toBe(0);
     expect(f.sync.state().tick).toBe(0);
-    const g = fixture(); g.sync.setEnd(3840);
+    const g = fixture(); g.sync.setScore({bars: 1, beats: 4, sections: []});
     g.state = {playing: false, tick: 3839};
     await g.advance(5000); expect(g.reads).toBe(1);
     expect(g.sync.state()).toMatchObject({playing: false, tick: 3839});
@@ -71,6 +71,14 @@ test('confirmed delayed start projects at the acknowledged wrapping device time'
     expect(f.tasks.size).toBe(1);
 });
 
+test('on-demand playback controls can confirm status during upload without resuming periodic reads', async () => {
+    const f = fixture(); f.sync.setBlocked(true);
+    await f.sync.refresh(); expect(f.reads).toBe(0);
+    f.state = {playing: false}; await f.sync.refresh({allowBlocked: true});
+    expect(f.reads).toBe(1); expect(f.sync.state().playing).toBe(false);
+    await f.advance(30000); expect(f.reads).toBe(1);
+});
+
 test('known control boundaries are confirmed before the periodic deadline', async () => {
     const f = fixture();
     f.sync.noteControl({generation: 31, opcode: 4, tick: 960});
@@ -93,6 +101,16 @@ test('unknown armed and queued transitions use bounded temporary confirmations',
     await g.advance(10); expect(g.reads).toBe(1);
     const paused = fixture({playing: false, pending: true});
     await paused.advance(60000); expect(paused.reads).toBe(0);
+});
+
+test('canonical section transitions trigger confirmation without polling intervening beats', async () => {
+    const f = fixture();
+    f.sync.setScore({bars: 4, beats: 4, sections: [{tick: 0}, {tick: 3840}]});
+    await f.advance(2500); expect(f.reads).toBe(0);
+    f.state = {tick: 3850, pattern: 5};
+    await f.advance(10); expect(f.reads).toBe(1);
+    expect(f.sync.state().pattern).toBe(5);
+    await f.advance(4000); expect(f.reads).toBe(1);
 });
 
 test('overlapping refreshes coalesce with one trailing confirmation for later controls', async () => {

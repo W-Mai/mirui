@@ -57,6 +57,16 @@ Disconnect discards incomplete uploads and connection-local sequence state. The 
 
 Browser audio should schedule future events against calibrated device/audio clocks, using the acknowledged start time and execution ticks. A received status packet is not a cue to play an immediate click. Audio-device latency, BLE transfer time and display presentation are separate measurements.
 
+## Browser synchronization
+
+The device advances playback from its local monotonic clock. The browser projects between device samples using its host clock and the confirmed tempo. Visible steady playback reads status every five seconds; paused or stopped playback has no periodic status reads. Hidden pages and browser-preview mode suspend sampling. Returning to the foreground confirms current state once, including while paused. Radio connection events are independent of these application reads.
+
+Control receipts request an immediate state confirmation. An acknowledged delayed start maps its wrapping device-millisecond timestamp to the sampled host clock; zero is a valid wrapped timestamp. A queued control schedules confirmation after its accepted execution tick. Canonical section-start ticks exported by the Rust score parser also schedule confirmation because the device can change rhythm at those boundaries. The existing GATT queue serializes these reads with controls and upload chunks; repeated requests share one running read loop and a trailing confirmation.
+
+If a reconnect exposes an armed start without its receipt, temporary 250ms confirmations resolve that transition. Pending controls whose targets are unknown are confirmed at counted-beat boundaries until resolved. Stable paused queues do not generate polling. Delayed or failed reads do not create a rapid retry loop, and closed connection epochs retire late results.
+
+Uploads suspend background calibration; explicit playback controls can still confirm their result between chunks. Upload completion or failure obtains fresh state. Device samples older than fifteen seconds are marked stale without the former short extrapolation freeze. Known score bounds clamp the presentation at the final tick and restore the Play action. Local projection is an estimate between authoritative samples, not an audio or LCD presentation timestamp.
+
 ## Display font
 
 The display uses a bundled 12px one-bit MIRX font with 271 mapped characters. ASCII and a fixed Chinese subset are supported; the exact repertoire is in `src/gallery/demos/assets/prompter-charset.txt`, and font provenance and license references are in `prompter-font-source.json`. Uploads containing unsupported visible title or lyric characters return result 9 and preserve the active score. The atlas is borrowed from static storage rather than expanded into a second bitmap buffer.

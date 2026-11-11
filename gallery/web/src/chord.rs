@@ -55,6 +55,16 @@ impl ChordPreview {
                 super::json_escape(self.score.text(section.name.clone())),
             ));
         }
+        out.push_str("],\"sections\":[");
+        for (index, section) in self.score.sections().iter().enumerate() {
+            if index != 0 {
+                out.push(',');
+            }
+            out.push_str(&alloc::format!(
+                "{{\"tick\":{}}}",
+                u64::from(section.first_bar) * bar_ticks,
+            ));
+        }
         out.push_str("]}");
         out
     }

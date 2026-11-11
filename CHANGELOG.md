@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Synchronize the prompter on demand and every five seconds during steady playback; suspend periodic status reads while paused or hidden, confirm control and section boundaries, and preserve delayed starts and continuous browser projection.
+
 - Include prepared software blits in the existing `sw.blit` trace category and document layout and idle-render phase attribution.
 
 - Rasterize prompter arrowheads into a budgeted texture atlas and borrow its regions during drawing; preserve layered alpha, palette updates and vector fallback for unsupported transforms or insufficient cache capacity.
