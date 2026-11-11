@@ -48,7 +48,7 @@ const barCards = [...document.querySelectorAll('.bar-card')];
 const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
 const link = new ChordLink(() => {
     deviceSync.clear();
-    sample = null; previewMode = true; deviceData = null; refreshConnection();
+    sample = null; previewMode = true; deviceData = null; deviceGeneration = undefined; refreshConnection();
     message('Disconnected. Display playback continues.');
 });
 const deviceSync = new DeviceSync(link, {onSample: associateDeviceSample,
@@ -401,4 +401,8 @@ run(async () => {
 refreshConnection();
 document.addEventListener('visibilitychange', () => deviceSync.setVisible(!document.hidden));
 requestAnimationFrame(frame);
-window.addEventListener('pagehide', () => { saveDraft(); deviceSync.clear(); link.close(); });
+window.addEventListener('pagehide', () => {
+    saveDraft(); deviceSync.clear(); link.close();
+    sample = null; deviceData = null; deviceGeneration = undefined; previewMode = true;
+});
+window.addEventListener('pageshow', () => { deviceSync.setVisible(!document.hidden); refreshConnection(); });
