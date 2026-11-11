@@ -105,6 +105,22 @@ Binding workspace is required only by pending native writes, not by completed so
 
 SDL-GPU and native WGPU target planning requires enough configured destination workspace for a complete target-sized fallback. SDL checks its existing `ProjectiveFallback` capacity, including row alignment; WGPU checks `with_target_edit_budget` and the device readback limit. Missing capacity returns `None` before drawing. Binding rechecks the workspace; WGPU prepares reusable edit bytes and staging before entering the callback. Incremental binding never replaces target storage to satisfy these checks. Output storage, history, source CPU copies, source staging and shared paint/binding workspace use the output budget; destination fallback buffers and upload caches retain their Factory limits. The output budget is not a total backend memory limit.
 
+For SDL-GPU native outputs, configure the shared destination workspace when constructing the factory:
+
+```rust
+use mirui::render::{PlaneLayout, ProjectiveFallback};
+use mirui::render::texture::ColorFormat;
+use mirui::surface::sdl_gpu::SdlGpuFactory;
+
+let layout = PlaneLayout::packed(640, 480, ColorFormat::RGBA8888).unwrap();
+let factory = SdlGpuFactory::new().with_projective_fallback(
+    ProjectiveFallback::new(vec![0; layout.required_bytes()])
+);
+// Pass factory to App::with_factory(surface, factory).
+```
+
+This example reserves one 1,228,800-byte workspace at setup for a packed 640×480 RGBA target. Use the largest intended physical paint footprint, including output scale and overflow; resized or larger targets can select software production when this fixed capacity is insufficient. Configure `App::with_offscreen_pool_budget` separately for simultaneously live output slots and source-read reservations. A larger output pool alone does not supply SDL destination workspace. Inspect `sdl.target.workspace` and `output.target` decisions to distinguish these two capacity checks.
+
 Each `Renderer` declares `type TargetState`; renderers without native target support use `()`. Native backends implement `plan_target`, `can_reuse_target`, `create_target`, `bind_target` and `restore_target`. Planning returns `None` when native storage is unsupported. The binding state must not borrow the renderer or the supplied workspace.
 
 `can_reuse_target(target, plan)` checks writable storage compatibility without binding, allocating, submitting or reading pixels. A different device, stale generation or incompatible attachments return `Ok(false)`; destination failures and active-target conflicts return errors. Incomplete contents do not prevent storage reuse for rebuilding. Binding repeats the shared backend checks and separately requires completed contents for `Incremental`. An incremental operation never replaces mismatched storage or changes itself into a rebuild. Readable source textures use their existing source validation and conversion paths, independently of writable target compatibility.

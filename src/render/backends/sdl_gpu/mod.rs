@@ -813,6 +813,23 @@ impl SdlGpuFactory<Box<[u8]>> {
         }
     }
 
+    /// Supply one fixed workspace shared by destination edits and native offscreen target production.
+    ///
+    /// Native target planning requires this workspace to cover the complete physical target, including row alignment. The workspace is retained by the factory and reused across targets; its storage is separate from the App's offscreen output budget. Targets larger than the configured capacity remain eligible for software production through the output planner.
+    ///
+    /// Configure storage once for the largest intended physical target:
+    ///
+    /// ```
+    /// use mirui::render::{PlaneLayout, ProjectiveFallback};
+    /// use mirui::render::texture::ColorFormat;
+    /// use mirui::surface::sdl_gpu::SdlGpuFactory;
+    ///
+    /// let layout = PlaneLayout::packed(640, 480, ColorFormat::RGBA8888).unwrap();
+    /// let factory = SdlGpuFactory::new().with_projective_fallback(
+    ///     ProjectiveFallback::new(vec![0; layout.required_bytes()])
+    /// );
+    /// # let _ = factory;
+    /// ```
     pub fn with_projective_fallback<S>(self, fallback: ProjectiveFallback<S>) -> SdlGpuFactory<S> {
         SdlGpuFactory {
             projective_fallback: Some(fallback),
