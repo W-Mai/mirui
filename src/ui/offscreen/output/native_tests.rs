@@ -12,6 +12,65 @@ use core::any::Any;
 
 mod consumers;
 
+impl Outputs<WidgetTexture> {
+    fn reserve_test_render_texture(
+        &self,
+        key: BufferKey,
+        renderer: &mut dyn Renderer,
+        workspace: &mut PaintWorkspace,
+        paint_bytes: usize,
+        binding_required: bool,
+    ) -> Result<bool, RenderError> {
+        let native = self.plan_render_texture(key, renderer)?;
+        self.reserve_render_texture(
+            key,
+            native.map(|plan| (renderer, plan)),
+            workspace,
+            paint_bytes,
+            binding_required,
+        )
+    }
+}
+
+#[test]
+fn quoted_admission_keeps_the_selected_plan_and_validates_its_geometry() {
+    let outputs = Outputs::<WidgetTexture>::with_budget(4096);
+    let key = super::tests::key(1, 1);
+    let mut working = outputs.take_texture_plan().unwrap();
+    let mut renderer = Fixture::default();
+    let mut quoted = outputs
+        .plan_render_texture(key, &renderer)
+        .unwrap()
+        .unwrap();
+    quoted.descriptor.layout = PlaneLayout::packed(2, 2, ColorFormat::RGBA8888).unwrap();
+    assert_eq!(
+        outputs.reserve_render_texture(
+            key,
+            Some((&mut renderer, quoted)),
+            &mut working.target_workspace,
+            0,
+            false,
+        ),
+        Err(RenderError::InvalidTexture)
+    );
+    assert_eq!(renderer.device.creates.get(), 0);
+    // Explicit CPU admission must not replace the caller's choice with another native offer.
+    assert!(
+        outputs
+            .reserve_render_texture(key, None, &mut working.target_workspace, 0, false)
+            .unwrap()
+    );
+    assert!(
+        !outputs.storage().textures[&key.entity].planes[0]
+            .as_ref()
+            .unwrap()
+            .texture
+            .is_native()
+    );
+    assert_eq!(renderer.device.creates.get(), 0);
+    outputs.put_texture_plan(working);
+}
+
 #[cfg(all(feature = "perf", feature = "std"))]
 #[test]
 fn decision_evidence_preserves_native_admission_reuse_and_errors() {
@@ -39,7 +98,13 @@ fn decision_evidence_preserves_native_admission_reuse_and_errors() {
         let mut capture = Capture::new(8192).unwrap();
         assert!(
             outputs
-                .reserve_render_texture(key, &mut renderer, &mut plan.target_workspace, 0, false)
+                .reserve_test_render_texture(
+                    key,
+                    &mut renderer,
+                    &mut plan.target_workspace,
+                    0,
+                    false
+                )
                 .unwrap()
         );
         let mut records = alloc::vec::Vec::new();
@@ -72,7 +137,7 @@ fn decision_evidence_preserves_native_admission_reuse_and_errors() {
             tracked_allocations(|| {
                 assert!(
                     outputs
-                        .reserve_render_texture(
+                        .reserve_test_render_texture(
                             key,
                             &mut renderer,
                             &mut plan.target_workspace,
@@ -102,7 +167,7 @@ fn decision_evidence_preserves_native_admission_reuse_and_errors() {
         if selected == DecisionStorage::Native {
             renderer.device.access_failure.set(true);
             assert_eq!(
-                outputs.reserve_render_texture(
+                outputs.reserve_test_render_texture(
                     key,
                     &mut renderer,
                     &mut plan.target_workspace,
@@ -160,7 +225,7 @@ fn decision_evidence_distinguishes_arithmetic_and_workspace_rejection() {
         let mut capture = Capture::new(8192).unwrap();
         assert!(
             outputs
-                .reserve_render_texture(
+                .reserve_test_render_texture(
                     super::tests::key(1, 1),
                     &mut renderer,
                     &mut workspace,
@@ -580,7 +645,13 @@ fn automatic_admission_preserves_cpu_slots_and_shared_workspace_at_budget_bounda
         outputs.reserve(1).unwrap();
         assert!(
             outputs
-                .reserve_render_texture(key, &mut renderer, &mut working.target_workspace, 0, false)
+                .reserve_test_render_texture(
+                    key,
+                    &mut renderer,
+                    &mut working.target_workspace,
+                    0,
+                    false
+                )
                 .unwrap()
         );
         let native = outputs.storage().textures[&key.entity].planes[0]
@@ -595,7 +666,7 @@ fn automatic_admission_preserves_cpu_slots_and_shared_workspace_at_budget_bounda
                 for _ in 0..8 {
                     assert!(
                         outputs
-                            .reserve_render_texture(
+                            .reserve_test_render_texture(
                                 key,
                                 &mut renderer,
                                 &mut working.target_workspace,
@@ -613,7 +684,7 @@ fn automatic_admission_preserves_cpu_slots_and_shared_workspace_at_budget_bounda
             assert_eq!(working.target_workspace.capacity(), 32);
             renderer.device.access_failure.set(true);
             assert_eq!(
-                outputs.reserve_render_texture(
+                outputs.reserve_test_render_texture(
                     key,
                     &mut renderer,
                     &mut working.target_workspace,
@@ -641,7 +712,13 @@ fn automatic_cpu_selection_keeps_frozen_native_history() {
         let _batch = outputs.begin_batch();
         assert!(
             outputs
-                .reserve_render_texture(key, &mut renderer, &mut working.target_workspace, 0, false)
+                .reserve_test_render_texture(
+                    key,
+                    &mut renderer,
+                    &mut working.target_workspace,
+                    0,
+                    false
+                )
                 .unwrap()
         );
         let mut write = outputs.prepare_texture(key).unwrap();
@@ -656,7 +733,7 @@ fn automatic_cpu_selection_keeps_frozen_native_history() {
     };
     assert!(
         outputs
-            .reserve_render_texture(
+            .reserve_test_render_texture(
                 changed,
                 &mut renderer,
                 &mut working.target_workspace,
@@ -798,7 +875,7 @@ fn software_admission_preserves_binding_storage_needed_by_prior_native_outputs()
         let second = super::tests::key(2, 1);
         assert!(
             outputs
-                .reserve_render_texture(
+                .reserve_test_render_texture(
                     first,
                     &mut renderer,
                     &mut working.target_workspace,
@@ -810,7 +887,7 @@ fn software_admission_preserves_binding_storage_needed_by_prior_native_outputs()
         assert_eq!(outputs.write_workspace_bytes(first.entity), 32);
         assert_eq!(
             outputs
-                .reserve_render_texture(
+                .reserve_test_render_texture(
                     second,
                     &mut renderer,
                     &mut working.target_workspace,

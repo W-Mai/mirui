@@ -120,6 +120,37 @@ pub(crate) struct TexturePlan {
 }
 
 impl TexturePlan {
+    fn prepare_capture(
+        &self,
+        id: usize,
+        outputs: &Outputs<WidgetTexture>,
+    ) -> Result<CaptureState, RenderError> {
+        let capture = &self.captures[id];
+        let missing = capture.state == CaptureState::Missing
+            || self
+                .graph
+                .dependencies(id)
+                .any(|dependency| self.captures[dependency].state == CaptureState::Missing);
+        let changes = self
+            .graph
+            .dependencies(id)
+            .any(|dependency| self.captures[dependency].state == CaptureState::Pending);
+        if changes {
+            outputs.invalidate(capture.entity);
+        }
+        if capture.key.w == 0 || capture.key.h == 0 {
+            outputs.reserve_texture(capture.key, None)?;
+            Ok(CaptureState::Missing)
+        } else if missing {
+            outputs.invalidate(capture.entity);
+            Ok(CaptureState::Missing)
+        } else if outputs.texture_matches(capture.key)? {
+            Ok(CaptureState::Ready)
+        } else {
+            Ok(CaptureState::Pending)
+        }
+    }
+
     pub(super) fn subtree_end(&self, index: usize) -> Option<usize> {
         self.structure_valid.then_some(())?;
         self.nodes.get(index).map(|node| node.subtree_end)
@@ -859,41 +890,24 @@ pub(super) fn prepare<'a>(
     let mut binding_required = false;
     for position in 0..plan.graph.order().len() {
         let id = plan.graph.order()[position];
-        let capture = &plan.captures[id];
-        let missing = capture.state == CaptureState::Missing
-            || plan
-                .graph
-                .dependencies(id)
-                .any(|dependency| plan.captures[dependency].state == CaptureState::Missing);
-        let changes = plan
-            .graph
-            .dependencies(id)
-            .any(|dependency| plan.captures[dependency].state == CaptureState::Pending);
-        if changes {
-            outputs.invalidate(capture.entity);
-        }
-        let state = if capture.key.w == 0 || capture.key.h == 0 {
-            outputs.reserve_texture(capture.key, None)?;
-            CaptureState::Missing
-        } else if missing {
-            outputs.invalidate(capture.entity);
-            CaptureState::Missing
-        } else if outputs.texture_matches(capture.key)? {
-            CaptureState::Ready
-        } else if outputs.reserve_render_texture(
-            capture.key,
-            renderer,
-            &mut plan.target_workspace,
-            plan.workspace_bytes
-                .saturating_sub(plan.workspace.capacity()),
-            binding_required,
-        )? {
-            CaptureState::Pending
-        } else {
-            CaptureState::Missing
-        };
+        let mut state = plan.prepare_capture(id, outputs)?;
+        let key = plan.captures[id].key;
         if state == CaptureState::Pending {
-            binding_required |= outputs.write_workspace_bytes(capture.entity) != 0;
+            let native = outputs.plan_render_texture(key, renderer)?;
+            let native = native.map(|target| (&mut *renderer as &mut dyn Renderer, target));
+            if !outputs.reserve_render_texture(
+                key,
+                native,
+                &mut plan.target_workspace,
+                plan.workspace_bytes
+                    .saturating_sub(plan.workspace.capacity()),
+                binding_required,
+            )? {
+                state = CaptureState::Missing;
+            }
+        }
+        if state == CaptureState::Pending {
+            binding_required |= outputs.write_workspace_bytes(key.entity) != 0;
         }
         plan.captures[id].state = state;
     }

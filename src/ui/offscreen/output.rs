@@ -537,14 +537,11 @@ impl Outputs<WidgetTexture> {
         self.reserve_texture_slot(key, native, None)
     }
 
-    pub(crate) fn reserve_render_texture(
+    pub(crate) fn plan_render_texture(
         &self,
         key: BufferKey,
-        renderer: &mut dyn crate::render::Renderer,
-        workspace: &mut PaintWorkspace,
-        paint_bytes: usize,
-        binding_required: bool,
-    ) -> Result<bool, RenderError> {
+        renderer: &dyn crate::render::Renderer,
+    ) -> Result<Option<crate::render::TargetPlan>, RenderError> {
         let layout = crate::render::PlaneLayout::packed(key.w, key.h, key.format)
             .map_err(|_| RenderError::InvalidTexture)?;
         let plan = renderer.plan_target(layout);
@@ -558,10 +555,20 @@ impl Outputs<WidgetTexture> {
                 self.storage().budget.available()
             );
         }
-        let plan = plan?;
+        plan
+    }
+
+    pub(crate) fn reserve_render_texture(
+        &self,
+        key: BufferKey,
+        native: Option<(&mut dyn crate::render::Renderer, crate::render::TargetPlan)>,
+        workspace: &mut PaintWorkspace,
+        paint_bytes: usize,
+        binding_required: bool,
+    ) -> Result<bool, RenderError> {
         self.reserve_texture_slot(
             key,
-            plan.map(|plan| (renderer, plan)),
+            native,
             Some((workspace, paint_bytes, binding_required)),
         )
     }
