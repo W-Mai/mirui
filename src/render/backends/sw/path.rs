@@ -6,6 +6,14 @@ use crate::render::raster::{self, FillRule};
 use crate::render::renderer::ProjectiveDrawError;
 use crate::types::{Color, Fixed, Rect, Transform, Transform3D};
 
+#[inline]
+pub(super) fn solid_alpha(opacity: u8, alpha: u8) -> Fixed {
+    let opacity =
+        Fixed::from_int(i32::from(opacity)).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+    let alpha = Fixed::from_int(i32::from(alpha)).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+    opacity * alpha
+}
+
 fn stroked_paint_bbox(outline: &Path, physical: &Transform) -> Option<Rect> {
     let inverse = physical.inverse()?;
     path::bbox_of_cmds_transformed(&outline.cmds, Some(&inverse))
@@ -762,14 +770,11 @@ impl SwRenderer<'_> {
         };
 
         let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
-        let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let solid_color = match paint {
             Paint::Color(color) => (*color).into(),
             _ => Color::rgba(255, 255, 255, 255),
         };
-        let color_a_norm =
-            Fixed::from_int(solid_color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let combined_alpha = opa_norm * color_a_norm;
+        let combined_alpha = solid_alpha(opa, solid_color.a);
 
         let segs = &scratch.flatten_buf;
         let target_w = self.target.width as usize;
@@ -1057,14 +1062,11 @@ impl SwRenderer<'_> {
         };
 
         let (px_x0, px_y0, px_x1, py_y1) = draw_area.pixel_bounds();
-        let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let solid_color = match paint {
             Paint::Color(color) => (*color).into(),
             _ => Color::rgba(255, 255, 255, 255),
         };
-        let color_a_norm =
-            Fixed::from_int(solid_color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let combined_alpha = opa_norm * color_a_norm;
+        let combined_alpha = solid_alpha(opa, solid_color.a);
 
         let segs = &scratch.flatten_buf;
         let target_w = self.target.width as usize;

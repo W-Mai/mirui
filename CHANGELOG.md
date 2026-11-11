@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Draw physically aligned software lines through the rectangle fast path with unchanged stroke alpha; retain rasterization for fractional edges and path masks.
+
 - Follow complete lyric reading windows and reveal wrapped rows before their display interval, using the actual lyric viewport height.
 
 - Use integer-multiple bitmap text sizes and larger beat and strum symbols in the embedded prompter.

@@ -21,6 +21,7 @@ mod blit_rgba;
 pub mod blur;
 mod label;
 mod label_sdf;
+mod line;
 pub mod mix;
 mod path;
 mod prepared;
@@ -503,6 +504,9 @@ impl<'a> Canvas for SwRenderer<'a> {
         color: &Color,
         opa: u8,
     ) {
+        if self.try_aligned_line(p1, p2, clip, width, color, opa) {
+            return;
+        }
         let commands = [PathCmd::MoveTo(p1), PathCmd::LineTo(p2)];
         let paint = Paint::Color((*color).into());
         self.stroke_commands_inner(
