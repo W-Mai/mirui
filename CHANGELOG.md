@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Reuse typed component storage during reactive ancestor checks and Effect ordering to avoid repeated component-type lookups.
+
 - Separate lifecycle preparation, reactive maintenance and editor-session reconciliation in bounded batch traces when `perf` is enabled.
 
 - Prefer CPU production for pending sources of CPU consumers, retaining completed native outputs and reusable native storage when CPU replacement lacks spare capacity.

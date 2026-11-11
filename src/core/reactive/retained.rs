@@ -93,14 +93,16 @@ fn wake_matching(world: &World, root: Entity, accepts: impl Fn(BindingRole) -> b
 }
 
 pub(super) fn display_enabled(world: &World, mut entity: Entity) -> bool {
+    let branches = world.storage::<crate::ui::branch::CachedBranchVisibility>();
+    let parents = world.storage::<crate::ui::Parent>();
     for _ in 0..=world.live_entity_count() {
-        if world
-            .get::<crate::ui::branch::CachedBranchVisibility>(entity)
+        if branches
+            .and_then(|branches| branches.get(entity))
             .is_some_and(|branch| !branch.selected)
         {
             return false;
         }
-        let Some(parent) = world.get::<crate::ui::Parent>(entity) else {
+        let Some(parent) = parents.and_then(|parents| parents.get(entity)) else {
             return true;
         };
         entity = parent.0;
@@ -125,8 +127,10 @@ pub(crate) fn invalid_root(world: &World, mut entity: Entity) -> Option<Entity> 
 }
 
 fn enabled_at(world: &World, mut entity: Entity, issued: u64) -> bool {
+    let gates = world.storage::<RetainedEffects>();
+    let parents = world.storage::<crate::ui::Parent>();
     for _ in 0..=world.live_entity_count() {
-        if let Some(gate) = world.get::<RetainedEffects>(entity)
+        if let Some(gate) = gates.and_then(|gates| gates.get(entity))
             && (!gate.active
                 || gate.incarnation == u64::MAX
                 || gate.incarnation > issued
@@ -134,7 +138,7 @@ fn enabled_at(world: &World, mut entity: Entity, issued: u64) -> bool {
         {
             return false;
         }
-        let Some(parent) = world.get::<crate::ui::Parent>(entity) else {
+        let Some(parent) = parents.and_then(|parents| parents.get(entity)) else {
             return true;
         };
         entity = parent.0;
@@ -143,8 +147,9 @@ fn enabled_at(world: &World, mut entity: Entity, issued: u64) -> bool {
 }
 
 pub(super) fn depth(world: &World, mut entity: Entity) -> usize {
+    let parents = world.storage::<crate::ui::Parent>();
     for depth in 0..=world.live_entity_count() {
-        let Some(parent) = world.get::<crate::ui::Parent>(entity) else {
+        let Some(parent) = parents.and_then(|parents| parents.get(entity)) else {
             return depth;
         };
         entity = parent.0;
