@@ -2,6 +2,7 @@ extern crate alloc;
 
 #[cfg(test)]
 mod binding_tests;
+mod effect_index;
 mod graph;
 mod identity;
 pub(crate) mod retained;
@@ -16,6 +17,7 @@ use core::ptr::NonNull;
 use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, World};
 use crate::ui::dirty::{Dirty, VisualDirty};
+use effect_index::EffectIndex;
 use graph::{ConsumerKey, PartitionKey, PendingKind, ReactiveGraph, SourceKey};
 use identity::{SlotAllocator, SlotId};
 
@@ -107,6 +109,7 @@ struct Reactive {
     dirty_effects: VecDeque<EffectId>,
     effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
     unbound_effects: usize,
+    effect_index: EffectIndex,
     captured_effects: Option<Vec<EffectId>>,
     computeds: BTreeMap<ComputedId, Weak<dyn ComputedNode>>,
     effect_slots: SlotAllocator,
@@ -132,6 +135,7 @@ impl Reactive {
             dirty_effects: VecDeque::new(),
             effects: BTreeMap::new(),
             unbound_effects: 0,
+            effect_index: EffectIndex::new(),
             captured_effects: None,
             computeds: BTreeMap::new(),
             effect_slots: SlotAllocator::new(),
@@ -531,6 +535,9 @@ fn subscribe_automatic_graph(source: SourceKey, subscriber: Subscriber) -> bool 
                                 .graph
                                 .register_consumer(source.partition, subscriber)
                                 .expect("reactive model Effect reserved capacity exhausted");
+                            if effect.owner_world.is_none() {
+                                r.effect_index.bind_world(world, id);
+                            }
                             effect.model_consumer = Some(consumer);
                             if effect.owner_world.replace(world).is_none() {
                                 r.unbound_effects -= 1;
@@ -620,6 +627,8 @@ fn register_graph_owner(world: WorldId) {
         if r.graph.owner_key(world).is_ok() {
             return;
         }
+        let effect_ids = EffectIndex::prepare_world(r.unbound_effect_count())
+            .expect("reactive Effect owner index capacity exhausted");
         r.graph
             .reserve_owner_consumer_headroom(r.unbound_effect_count())
             .expect("reactive owner Effect headroom exhausted");
@@ -629,6 +638,7 @@ fn register_graph_owner(world: WorldId) {
         r.graph
             .add_owner(world)
             .expect("reactive owner registration failed");
+        r.effect_index.register_world(world, effect_ids);
     });
 }
 
@@ -639,17 +649,14 @@ pub(crate) fn has_graph_owner(world: WorldId) -> bool {
 
 /// Release graph state and widget-bound effects for a finished World.
 pub(crate) fn release_graph_owner(world: WorldId) {
+    try_with_reactive(|r| r.effect_index.begin_release(world));
     loop {
-        let effect = try_with_reactive(|r| {
-            r.effects.iter().find_map(|(id, effect)| {
-                (effect.borrow().owner_world == Some(world)).then_some(*id)
-            })
-        })
-        .flatten();
+        let effect = try_with_reactive(|r| r.effect_index.first_world(world)).flatten();
         let Some(effect) = effect else { break };
         unregister_effect(effect);
     }
     try_with_reactive(|r| {
+        r.effect_index.remove_world(world);
         r.graph.remove_owner(world);
         r.dirty_widgets.retain(|(owner, _)| *owner != Some(world));
         r.dirty_visual_widgets
@@ -1126,10 +1133,11 @@ fn reclaim_entity_consumers(world: &mut World) {
 pub(crate) fn cleanup_effects_for(world: &World, entity: Entity) {
     loop {
         let bound = with_reactive(|r| {
-            r.effects.iter().find_map(|(id, e)| {
-                let effect = e.borrow();
-                (effect.owner_entity == Some(entity) && effect.owner_world == Some(world.id()))
-                    .then_some(*id)
+            r.effect_index.first_entity(world.id(), entity, |id| {
+                r.effects.get(&id).is_some_and(|effect| {
+                    let effect = effect.borrow();
+                    effect.owner_world == Some(world.id()) && effect.owner_entity == Some(entity)
+                })
             })
         });
         let Some(id) = bound else { break };
@@ -1707,6 +1715,11 @@ fn unregister_effect(id: EffectId) {
             let effect = effect.borrow();
             if effect.owner_world.is_none() {
                 r.unbound_effects -= 1;
+            } else if let Some(world) = effect.owner_world {
+                assert!(
+                    r.effect_index.remove(world, effect.owner_entity, id),
+                    "Effect owner index missing during cleanup"
+                );
             }
             if let Some(consumer) = effect.model_consumer {
                 let _ = r.graph.remove_consumer(consumer);
@@ -1770,8 +1783,11 @@ impl Effect {
                     .expect("Effect owner is not registered"),
                 None => PartitionKey::Shared,
             };
-            if owner_world.is_some() {
+            if let Some(world) = owner_world {
                 r.reserve_owned_consumer_slot(partition);
+                r.effect_index
+                    .prepare_owned(world, r.unbound_effects)
+                    .expect("reactive Effect index capacity exhausted");
             } else {
                 let needed = r
                     .unbound_effect_count()
@@ -1783,6 +1799,9 @@ impl Effect {
                 r.graph
                     .reserve_for_consumer(partition)
                     .expect("reactive shared Effect consumer capacity exhausted");
+                r.effect_index
+                    .reserve_unbound(r.graph.owner_worlds(), needed)
+                    .expect("reactive unbound Effect index capacity exhausted");
             }
             let id = EffectId(r.effect_slots.allocate());
             let graph_consumer = r
@@ -1799,6 +1818,9 @@ impl Effect {
                 depth: 0,
             }));
             r.effects.insert(id, inner);
+            if let Some(world) = owner_world {
+                r.effect_index.insert_owned(world, owner_entity, id);
+            }
             if owner_world.is_none() {
                 r.unbound_effects += 1;
             }
@@ -2167,7 +2189,7 @@ mod tests {
     // std test threads are pooled and reused, so the per-thread runtime can
     // carry residue between tests on the same thread — reset at entry.
     fn reset() {
-        let effects = with_reactive(|r| {
+        with_reactive(|r| {
             r.scope = None;
             r.world_window = None;
             r.world_id = None;
@@ -2176,17 +2198,15 @@ mod tests {
             r.dirty_widgets.clear();
             r.dirty_visual_widgets.clear();
             r.dirty_effects.clear();
-            let effects = core::mem::take(&mut r.effects);
-            r.unbound_effects = 0;
-            for id in effects.keys() {
-                r.effect_slots.release(id.0);
-            }
             r.computeds.clear();
-            effects
         });
-        drop(effects);
+        while let Some(id) = with_reactive(|r| r.effects.keys().next().copied()) {
+            unregister_effect(id);
+        }
         with_reactive(|r| {
+            assert_eq!(r.unbound_effects, 0);
             r.graph = ReactiveGraph::new();
+            r.effect_index = EffectIndex::new();
         });
     }
 
@@ -2275,6 +2295,176 @@ mod tests {
         assert_unbound_effects(1);
         drop(spawned.borrow_mut().take());
         assert_unbound_effects(0);
+    }
+
+    #[test]
+    fn indexed_entity_cleanup_rechecks_effects_registered_by_capture_drop() {
+        struct Record(Rc<RefCell<Vec<u8>>>, u8);
+        impl Drop for Record {
+            fn drop(&mut self) {
+                self.0.borrow_mut().push(self.1);
+            }
+        }
+        struct ReplaceOnDrop {
+            entity: Entity,
+            replace: Rc<Cell<bool>>,
+            seen: Rc<RefCell<Vec<u8>>>,
+        }
+        impl Drop for ReplaceOnDrop {
+            fn drop(&mut self) {
+                self.seen
+                    .borrow_mut()
+                    .push(if self.replace.get() { 1 } else { 3 });
+                if self.replace.get() {
+                    let capture = Record(Rc::clone(&self.seen), 2);
+                    effect_with_widget(self.entity, move || {
+                        let _ = &capture;
+                    });
+                }
+            }
+        }
+        reset();
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let seen = Rc::new(RefCell::new(Vec::with_capacity(3)));
+        let first_replace = Rc::new(Cell::new(false));
+        let second_replace = Rc::new(Cell::new(false));
+        let spawn = |replace: Rc<Cell<bool>>| {
+            let capture = ReplaceOnDrop {
+                entity,
+                replace,
+                seen: Rc::clone(&seen),
+            };
+            Effect::spawn(
+                move || {
+                    let _ = &capture;
+                },
+                Some(entity),
+                BindingRole::Ordinary,
+            )
+        };
+        let (first, second) = with_world_scope(&mut world, || {
+            (
+                spawn(Rc::clone(&first_replace)),
+                spawn(Rc::clone(&second_replace)),
+            )
+        });
+        if first.id < second.id {
+            first_replace.set(true);
+        } else {
+            second_replace.set(true);
+        }
+        with_world_scope(&mut world, || {
+            with_world(|world| cleanup_effects_for(world, entity))
+        });
+        assert_eq!(&*seen.borrow(), &[1, 2, 3]);
+        assert_eq!(effect_count(), 0);
+        with_reactive(|runtime| {
+            assert_eq!(
+                runtime
+                    .effect_index
+                    .first_entity(world.id(), entity, |_| false),
+                None
+            )
+        });
+        drop((first, second));
+    }
+
+    #[test]
+    fn indexed_world_cleanup_keeps_registry_order_across_entities() {
+        struct Record(Rc<RefCell<Vec<u8>>>, u8);
+        impl Drop for Record {
+            fn drop(&mut self) {
+                self.0.borrow_mut().push(self.1);
+            }
+        }
+        reset();
+        let mut world = World::new();
+        let a = world.spawn_empty();
+        let b = world.spawn_empty();
+        let seen = Rc::new(RefCell::new(Vec::with_capacity(3)));
+        let mut expected = Vec::new();
+        let effects = with_world_scope(&mut world, || {
+            [Some(b), Some(a), None]
+                .into_iter()
+                .enumerate()
+                .map(|(tag, entity)| {
+                    let capture = Record(Rc::clone(&seen), tag as u8);
+                    let effect = Effect::spawn(
+                        move || {
+                            let _ = &capture;
+                        },
+                        entity,
+                        BindingRole::Ordinary,
+                    );
+                    expected.push((effect.id, tag as u8));
+                    effect
+                })
+                .collect::<Vec<_>>()
+        });
+        expected.sort_by_key(|(id, _)| *id);
+        drop(world);
+        assert_eq!(
+            &*seen.borrow(),
+            &expected.into_iter().map(|(_, tag)| tag).collect::<Vec<_>>()
+        );
+        assert_eq!(effect_count(), 0);
+        drop(effects);
+    }
+
+    #[test]
+    fn empty_entity_cleanup_never_borrows_an_unrelated_effect() {
+        reset();
+        let mut world = World::new();
+        let owned = world.spawn_empty();
+        let empty = world.spawn_empty();
+        let effect = with_world_scope(&mut world, || {
+            Effect::spawn(|| {}, Some(owned), BindingRole::Ordinary)
+        });
+        let inner = with_reactive(|runtime| Rc::clone(&runtime.effects[&effect.id]));
+        let unrelated = inner.borrow_mut();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| cleanup_effects_for(&world, empty)),
+            0
+        );
+        drop(unrelated);
+        drop(effect);
+    }
+
+    #[test]
+    fn world_release_preserves_entity_cleanup_requested_by_capture_drop() {
+        struct Record(Rc<RefCell<Vec<u8>>>);
+        impl Drop for Record {
+            fn drop(&mut self) {
+                self.0.borrow_mut().push(2);
+            }
+        }
+        struct RegisterAndClean(Entity, Rc<RefCell<Vec<u8>>>);
+        impl Drop for RegisterAndClean {
+            fn drop(&mut self) {
+                self.1.borrow_mut().push(1);
+                let capture = Record(Rc::clone(&self.1));
+                effect_with_widget(self.0, move || {
+                    let _ = &capture;
+                });
+                with_world(|world| cleanup_effects_for(world, self.0));
+            }
+        }
+        reset();
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let owner = world.id();
+        let seen = Rc::new(RefCell::new(Vec::with_capacity(2)));
+        let capture = RegisterAndClean(entity, Rc::clone(&seen));
+        with_world_scope(&mut world, || {
+            effect_with_widget(entity, move || {
+                let _ = &capture;
+            });
+            release_graph_owner(owner);
+        });
+        assert_eq!(&*seen.borrow(), &[1, 2]);
+        assert_eq!(effect_count(), 0);
+        assert!(!has_graph_owner(owner));
     }
 
     mod paint_requests {

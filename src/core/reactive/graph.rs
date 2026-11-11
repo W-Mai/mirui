@@ -642,6 +642,13 @@ impl BitGraph {
 }
 
 impl ReactiveGraph {
+    pub fn owner_worlds(&self) -> impl Iterator<Item = WorldId> + '_ {
+        self.owners.iter().map(|owner| match owner.key {
+            PartitionKey::Owner { world, .. } => world,
+            PartitionKey::Shared => unreachable!("owner partitions have World identities"),
+        })
+    }
+
     /// A zero-capacity graph suitable for the ambient runtime's const setup.
     /// Registration requires an explicit structural reserve first.
     pub const fn new() -> Self {
