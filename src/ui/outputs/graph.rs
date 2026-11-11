@@ -91,6 +91,15 @@ impl OutputGraph {
             .iter()
             .filter_map(move |&(producer, target)| (target == consumer).then_some(producer))
     }
+
+    pub(crate) fn consumers(&self, producer: usize) -> impl Iterator<Item = usize> + '_ {
+        assert!(producer < self.nodes.len(), "unknown output producer");
+        let start = self.edges.partition_point(|&(source, _)| source < producer);
+        self.edges[start..]
+            .iter()
+            .take_while(move |&&(source, _)| source == producer)
+            .map(|&(_, consumer)| consumer)
+    }
 }
 
 fn resolve_nodes(
@@ -186,6 +195,8 @@ mod tests {
         assert_eq!(forward.resolve(), &[3, 1, 2, 0]);
         assert_eq!(reverse.resolve(), forward.order());
         assert!(forward.dependencies(0).eq([1, 2]));
+        assert!(forward.consumers(3).eq([1, 2]));
+        assert!(forward.consumers(0).next().is_none());
     }
 
     #[test]

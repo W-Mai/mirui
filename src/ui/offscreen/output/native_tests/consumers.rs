@@ -225,6 +225,106 @@ fn native_metadata_allocation_failure_keeps_the_existing_admission_path() {
     assert_eq!(app.world.get::<Producer>(source).unwrap().calls.get(), 2);
 }
 
+#[crate::compose]
+fn shared_consumers(source_size: u16, second_width: u16) -> (Entity, Entity, Entity) {
+    let source = ui! {
+        View (width: source_size, height: source_size) [Producer { color: Color::rgb(20, 80, 160), calls: Cell::new(0) }]
+    };
+    let first = ui! {
+        View (width: 4, height: 4) [Preview { source }, crate::ui::OffscreenRender::new()]
+    };
+    let second = ui! {
+        View (width: second_width, height: 4) [Preview { source }, crate::ui::OffscreenRender::new()]
+    };
+    (source, first, second)
+}
+
+type SharedApp = crate::app::App<
+    crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>,
+>;
+
+fn shared_app(budget: usize) -> SharedApp {
+    let mut app = App::headless(32, 32);
+    app.with_default_widgets()
+        .with_widget(producer::view())
+        .with_widget(preview::view())
+        .with_offscreen_pool_budget(budget);
+    app
+}
+
+#[test]
+fn a_shared_pending_source_prefers_cpu_for_its_cpu_consumer_without_storage_churn() {
+    let mut app = shared_app(4096);
+    let root = app.spawn_root().id();
+    let (source, native, cpu) = app.compose(root, shared_consumers(4, 8));
+    let mut renderer = Fixture {
+        only_width: Some(4),
+        ..Fixture::default()
+    };
+    let viewport = Viewport::new(32, 32, Fixed::ONE);
+    for iteration in 0..3 {
+        app.world.invalidate_visual(source);
+        app.dirty_regions().unwrap();
+        crate::ui::render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        assert!(!outputs.get(source).unwrap().texture().is_native());
+        assert!(outputs.get(native).unwrap().texture().is_native());
+        assert!(!outputs.get(cpu).unwrap().texture().is_native());
+        assert_eq!(renderer.device.creates.get(), 1);
+        assert_eq!(renderer.device.reads.get(), 0);
+        assert_eq!(
+            app.world.get::<Producer>(source).unwrap().calls.get(),
+            iteration + 1
+        );
+    }
+}
+
+#[test]
+fn a_ready_native_source_is_reused_without_reexecuting_its_view_for_a_cpu_consumer() {
+    let mut app = shared_app(4096);
+    let root = app.spawn_root().id();
+    let (source, _, cpu) = app.compose(root, shared_consumers(4, 8));
+    let mut renderer = Fixture::default();
+    let viewport = Viewport::new(32, 32, Fixed::ONE);
+    app.dirty_regions().unwrap();
+    crate::ui::render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
+    renderer.only_width = Some(4);
+    app.world.invalidate_visual(cpu);
+    app.dirty_regions().unwrap();
+    crate::ui::render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
+    let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+    assert!(outputs.get(source).unwrap().texture().is_native());
+    assert!(!outputs.get(cpu).unwrap().texture().is_native());
+    assert_eq!(app.world.get::<Producer>(source).unwrap().calls.get(), 1);
+    assert_eq!(renderer.device.reads.get(), 1);
+}
+
+#[test]
+fn cpu_preference_keeps_a_reusable_native_source_when_replacement_has_no_spare_capacity() {
+    let budget = 3 * native_bytes() + 2 * (16 * 16 * 4 - 64);
+    let mut app = shared_app(budget);
+    let root = app.spawn_root().id();
+    let (source, _, _) = app.compose(root, shared_consumers(16, 4));
+    let viewport = Viewport::new(32, 32, Fixed::ONE);
+    let mut renderer = Fixture::default();
+    app.dirty_regions().unwrap();
+    crate::ui::render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
+    renderer.only_width = Some(16);
+    for iteration in 0..2 {
+        app.world.invalidate_visual(source);
+        app.dirty_regions().unwrap();
+        crate::ui::render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        assert!(outputs.get(source).unwrap().texture().is_native());
+        assert!(outputs.texture_budget_available() < 16 * 16 * 4);
+        assert_eq!(
+            app.world.get::<Producer>(source).unwrap().calls.get(),
+            iteration + 2
+        );
+        assert_eq!(renderer.device.reads.get(), iteration + 1);
+    }
+}
+
 #[test]
 fn dependency_consumers_sample_native_outputs_and_cpu_effects_read_each_revision_once() {
     let mut app = App::headless(16, 16);

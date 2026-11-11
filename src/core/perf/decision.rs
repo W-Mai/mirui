@@ -22,6 +22,7 @@ pub enum DecisionOutcome {
     NotOffered,
     Budget,
     WorkingSetProtected,
+    CpuConsumerPreferred,
     ArithmeticOverflow,
     WorkspaceUnavailable,
     WorkspaceAllocation,

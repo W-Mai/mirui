@@ -14,6 +14,45 @@ mod consumers;
 
 #[cfg(all(feature = "perf", feature = "std"))]
 #[test]
+fn cpu_consumer_preference_does_not_claim_that_native_storage_was_unavailable() {
+    use crate::core::perf::{Capture, DecisionOutcome, RecordData};
+    let _serial = crate::core::perf::tests::SERIAL.lock().unwrap();
+    let outputs = Outputs::<WidgetTexture>::with_budget(4096);
+    let key = super::tests::key(1, 1);
+    let mut working = outputs.take_texture_plan().unwrap();
+    let mut capture = Capture::new(8192).unwrap();
+    assert!(
+        outputs
+            .reserve_render_texture(
+                key,
+                None,
+                &mut working.target_workspace,
+                0,
+                false,
+                AdmissionTrace {
+                    cpu_consumer: true,
+                    ..AdmissionTrace::default()
+                }
+            )
+            .unwrap()
+    );
+    let mut preferred = false;
+    let mut unoffered = false;
+    capture.drain_events(|_, records| {
+        for record in records {
+            if let RecordData::Decision { data, .. } = record.data {
+                preferred |= data.outcome == DecisionOutcome::CpuConsumerPreferred;
+                unoffered |= data.outcome == DecisionOutcome::NotOffered;
+            }
+        }
+    });
+    assert!(preferred);
+    assert!(!unoffered);
+    outputs.put_texture_plan(working);
+}
+
+#[cfg(all(feature = "perf", feature = "std"))]
+#[test]
 fn native_rejection_distinguishes_protected_capacity_from_total_budget_exhaustion() {
     use crate::core::perf::{Capture, DecisionOutcome, RecordData};
     let _serial = crate::core::perf::tests::SERIAL.lock().unwrap();
@@ -39,7 +78,10 @@ fn native_rejection_distinguishes_protected_capacity_from_total_budget_exhaustio
                     &mut working.target_workspace,
                     0,
                     false,
-                    floor.bytes()
+                    AdmissionTrace {
+                        protected: floor.bytes(),
+                        ..AdmissionTrace::default()
+                    }
                 )
                 .unwrap()
         );
@@ -71,7 +113,7 @@ impl Outputs<WidgetTexture> {
             paint_bytes,
             binding_required,
             #[cfg(feature = "perf")]
-            0,
+            AdmissionTrace::default(),
         )
     }
 }
@@ -95,7 +137,7 @@ fn quoted_admission_keeps_the_selected_plan_and_validates_its_geometry() {
             0,
             false,
             #[cfg(feature = "perf")]
-            0,
+            AdmissionTrace::default(),
         ),
         Err(RenderError::InvalidTexture)
     );
@@ -110,7 +152,7 @@ fn quoted_admission_keeps_the_selected_plan_and_validates_its_geometry() {
                 0,
                 false,
                 #[cfg(feature = "perf")]
-                0
+                AdmissionTrace::default()
             )
             .unwrap()
     );

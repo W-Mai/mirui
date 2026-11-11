@@ -134,8 +134,18 @@ impl TexturePlan {
                 floor.resize(remaining),
                 "remaining output reservation must shrink"
             );
-            let target = entry.plan;
             let key = self.captures[id].key;
+            let cpu_consumer = self.graph.consumers(id).any(|consumer| {
+                self.admissions
+                    .binary_search_by_key(&consumer, |entry| entry.capture)
+                    .is_ok_and(|index| self.admissions[index].selection == Selection::Cpu)
+            });
+            let prefer_cpu = cpu_consumer
+                && (entry.baseline != TextureBaseline::ReuseNative
+                    || PlaneLayout::packed(key.w, key.h, key.format).is_ok_and(|layout| {
+                        layout.required_bytes() <= outputs.texture_budget_available()
+                    }));
+            let target = if prefer_cpu { None } else { entry.plan };
             let native = target.map(|plan| (&mut *renderer as &mut dyn Renderer, plan));
             let admitted = outputs.reserve_render_texture(
                 key,
@@ -144,7 +154,10 @@ impl TexturePlan {
                 0,
                 binding_required,
                 #[cfg(feature = "perf")]
-                floor.bytes(),
+                crate::ui::offscreen::AdmissionTrace {
+                    protected: floor.bytes(),
+                    cpu_consumer: prefer_cpu && entry.plan.is_some(),
+                },
             )?;
             if admitted {
                 binding_required |= outputs.write_workspace_bytes(key.entity) != 0;
@@ -193,7 +206,7 @@ impl TexturePlan {
                         .saturating_sub(self.workspace.capacity()),
                     binding_required,
                     #[cfg(feature = "perf")]
-                    0,
+                    crate::ui::offscreen::AdmissionTrace::default(),
                 )? {
                     state = CaptureState::Missing;
                 }

@@ -17,12 +17,19 @@ use hashbrown::HashMap;
 mod native_tests;
 
 #[cfg(feature = "perf")]
+#[derive(Clone, Copy, Default)]
+pub(crate) struct AdmissionTrace {
+    pub protected: usize,
+    pub cpu_consumer: bool,
+}
+
+#[cfg(feature = "perf")]
 #[derive(Clone, Copy)]
 struct DecisionTrace {
     key: BufferKey,
     slot: u8,
     retained: bool,
-    protected: usize,
+    admission: AdmissionTrace,
 }
 
 #[cfg(feature = "perf")]
@@ -34,7 +41,7 @@ impl DecisionTrace {
             retained: outputs
                 .state(key.entity)
                 .is_some_and(|state| state.retained),
-            protected: 0,
+            admission: AdmissionTrace::default(),
         }
     }
 
@@ -66,7 +73,7 @@ impl DecisionTrace {
     fn native_budget(self, requested: Option<usize>, available: usize) {
         self.record(
             if requested.is_some_and(|bytes| {
-                bytes > available && bytes <= available.saturating_add(self.protected)
+                bytes > available && bytes <= available.saturating_add(self.admission.protected)
             }) {
                 crate::core::perf::DecisionOutcome::WorkingSetProtected
             } else {
@@ -470,6 +477,9 @@ impl Output for WidgetTexture {
 impl HistoryOutput for WidgetTexture {}
 
 impl Outputs<WidgetTexture> {
+    pub(crate) fn texture_budget_available(&self) -> usize {
+        self.storage().budget.available()
+    }
     pub(crate) fn reserve_texture_budget(
         &self,
         bytes: usize,
@@ -608,7 +618,7 @@ impl Outputs<WidgetTexture> {
             key,
             slot: current.record.slot as u8,
             retained: state.retained,
-            protected: 0,
+            admission: AdmissionTrace::default(),
         }
         .record(
             crate::core::perf::DecisionOutcome::Unchanged,
@@ -635,7 +645,7 @@ impl Outputs<WidgetTexture> {
             native,
             None,
             #[cfg(feature = "perf")]
-            0,
+            AdmissionTrace::default(),
         )
     }
 
@@ -667,14 +677,14 @@ impl Outputs<WidgetTexture> {
         workspace: &mut PaintWorkspace,
         paint_bytes: usize,
         binding_required: bool,
-        #[cfg(feature = "perf")] protected: usize,
+        #[cfg(feature = "perf")] admission: AdmissionTrace,
     ) -> Result<bool, RenderError> {
         self.reserve_texture_slot(
             key,
             native,
             Some((workspace, paint_bytes, binding_required)),
             #[cfg(feature = "perf")]
-            protected,
+            admission,
         )
     }
 
@@ -695,13 +705,13 @@ impl Outputs<WidgetTexture> {
         key: BufferKey,
         native: Option<(&mut dyn crate::render::Renderer, crate::render::TargetPlan)>,
         workspace: Option<(&mut PaintWorkspace, usize, bool)>,
-        #[cfg(feature = "perf")] protected: usize,
+        #[cfg(feature = "perf")] admission: AdmissionTrace,
     ) -> Result<bool, RenderError> {
         #[cfg(feature = "perf")]
         let mut trace = DecisionTrace::new(self, key);
         #[cfg(feature = "perf")]
         {
-            trace.protected = protected;
+            trace.admission = admission;
         }
         if let Some((_, plan)) = &native
             && (plan.descriptor.layout.width() != key.w
@@ -789,7 +799,16 @@ impl Outputs<WidgetTexture> {
         {
             trace.slot = slot as u8;
             if native.is_none() && workspace.is_some() {
-                trace_output!(trace, NotOffered, Native, None, storage.budget.available());
+                trace.record(
+                    if trace.admission.cpu_consumer {
+                        crate::core::perf::DecisionOutcome::CpuConsumerPreferred
+                    } else {
+                        crate::core::perf::DecisionOutcome::NotOffered
+                    },
+                    crate::core::perf::DecisionStorage::Native,
+                    None,
+                    storage.budget.available(),
+                );
             }
         }
         storage.reserve_plane(

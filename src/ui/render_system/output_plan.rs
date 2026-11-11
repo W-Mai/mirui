@@ -916,7 +916,7 @@ pub(super) fn prepare<'a>(
                     .saturating_sub(plan.workspace.capacity()),
                 binding_required,
                 #[cfg(feature = "perf")]
-                0,
+                crate::ui::offscreen::AdmissionTrace::default(),
             )? {
                 state = CaptureState::Missing;
             }

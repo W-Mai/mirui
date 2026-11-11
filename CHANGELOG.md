@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Prefer CPU production for pending sources of CPU consumers, retaining completed native outputs and reusable native storage when CPU replacement lacks spare capacity.
+
 - Protect remaining widget output capacity while prioritizing native consumer targets; preserve producer-first dependency invalidation and View execution.
 
 - Separate software/native offscreen production, SDL image upload and target readback/writeback in performance traces; record logical pixel payloads and native call results within the existing byte budget.
