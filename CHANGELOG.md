@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Reuse prepared reactive graph buffers within physical capacity and amortize metadata growth while retaining logical admission limits and transactional owner reservations.
+
 - Clear small dependency columns through inline source slots without allocation; retain complete scanning for larger columns and compact retired source entries before overflow.
 
 - Maintain the unowned Effect count across registration, model binding and disposal to avoid rescanning effects during consumer reservation.

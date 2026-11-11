@@ -13,10 +13,28 @@ std::thread_local! {
     static TRACK: Cell<bool> = const { Cell::new(false) };
     #[cfg_attr(target_os = "android", expect(clippy::missing_const_for_thread_local, reason = "Rust 1.97 Android TLS expansion flags an explicit const initializer"))]
     static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+    #[cfg_attr(target_os = "android", expect(clippy::missing_const_for_thread_local, reason = "Rust 1.97 Android TLS expansion flags an explicit const initializer"))]
+    static FAIL_AFTER: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+fn allocation_allowed() -> bool {
+    FAIL_AFTER
+        .try_with(|remaining| match remaining.get() {
+            None => true,
+            Some(0) => false,
+            Some(count) => {
+                remaining.set(Some(count - 1));
+                true
+            }
+        })
+        .unwrap_or(true)
 }
 
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if !allocation_allowed() {
+            return core::ptr::null_mut();
+        }
         let _ = TRACK.try_with(|track| {
             if track.get() {
                 let _ = ALLOCATIONS.try_with(|count| count.set(count.get() + 1));
@@ -32,6 +50,9 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        if !allocation_allowed() {
+            return core::ptr::null_mut();
+        }
         let _ = TRACK.try_with(|track| {
             if track.get() {
                 let _ = ALLOCATIONS.try_with(|count| count.set(count.get() + 1));
@@ -44,6 +65,19 @@ unsafe impl GlobalAlloc for CountingAllocator {
 
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
+
+pub(crate) fn failing_allocations_after<R>(successful: usize, run: impl FnOnce() -> R) -> R {
+    struct Restore(Option<usize>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            FAIL_AFTER.with(|remaining| remaining.set(self.0));
+        }
+    }
+    let restore = Restore(FAIL_AFTER.with(|remaining| remaining.replace(Some(successful))));
+    let result = run();
+    drop(restore);
+    result
+}
 
 pub(crate) fn tracked_allocations(run: impl FnOnce()) -> usize {
     ALLOCATIONS.with(|count| count.set(0));

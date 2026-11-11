@@ -130,6 +130,24 @@ struct BitGraph {
     words_per_row: usize,
 }
 
+struct BitGraphGrowth {
+    sources: Option<Vec<SourceNode>>,
+    consumers: Option<Vec<ConsumerNode>>,
+    rows: Option<Vec<u64>>,
+    pending: Option<VecDeque<SlotId>>,
+    source_limit: usize,
+    consumer_limit: usize,
+    words_per_row: usize,
+}
+
+fn slot_capacity(current: usize, required: usize) -> usize {
+    if required <= current {
+        current
+    } else {
+        required.max(current.saturating_add(current / 2).min(u32::MAX as usize))
+    }
+}
+
 struct OwnerPartition {
     key: PartitionKey,
     graph: BitGraph,
@@ -161,30 +179,86 @@ impl BitGraph {
     }
 
     fn try_new(source_limit: usize, consumer_limit: usize) -> Result<Self, GraphError> {
+        let mut graph = Self::new();
+        let growth = graph.prepare_growth(source_limit, consumer_limit)?;
+        graph.apply_growth(growth);
+        Ok(graph)
+    }
+
+    fn validate_limits(source_limit: usize, consumer_limit: usize) -> Result<(), GraphError> {
         if source_limit > u32::MAX as usize || consumer_limit > u32::MAX as usize {
             return Err(GraphError::CapacityOverflow);
         }
-        let words_per_row = consumer_limit.div_ceil(64);
-        let row_words = source_limit
+        Ok(())
+    }
+
+    fn needs_storage_growth(&self, source_limit: usize, consumer_limit: usize) -> bool {
+        self.sources.capacity() < source_limit
+            || self.consumers.capacity() < consumer_limit
+            || self.pending.capacity() < consumer_limit
+            || self.words_per_row < consumer_limit.div_ceil(64)
+    }
+
+    fn prepare_growth(
+        &self,
+        source_limit: usize,
+        consumer_limit: usize,
+    ) -> Result<BitGraphGrowth, GraphError> {
+        Self::validate_limits(source_limit, consumer_limit)?;
+        if source_limit < self.source_limit || consumer_limit < self.consumer_limit {
+            return Err(GraphError::CapacityOverflow);
+        }
+        let source_capacity = slot_capacity(self.sources.capacity(), source_limit);
+        let consumer_capacity = slot_capacity(self.consumers.capacity(), consumer_limit);
+        let words_per_row = self.words_per_row.max(consumer_limit.div_ceil(64));
+        let row_words = source_capacity
             .checked_mul(words_per_row)
             .ok_or(GraphError::CapacityOverflow)?;
-        let mut sources = Vec::new();
-        sources
-            .try_reserve_exact(source_limit)
-            .map_err(|_| GraphError::Allocation)?;
-        let mut consumers = Vec::new();
-        consumers
-            .try_reserve_exact(consumer_limit)
-            .map_err(|_| GraphError::Allocation)?;
-        let mut rows = Vec::new();
-        rows.try_reserve_exact(row_words)
-            .map_err(|_| GraphError::Allocation)?;
-        rows.resize(row_words, 0);
-        let mut pending = VecDeque::new();
-        pending
-            .try_reserve(consumer_limit)
-            .map_err(|_| GraphError::Allocation)?;
-        Ok(Self {
+        let sources = if source_capacity > self.sources.capacity() {
+            let mut sources = Vec::new();
+            sources
+                .try_reserve_exact(source_capacity)
+                .map_err(|_| GraphError::Allocation)?;
+            sources.extend_from_slice(&self.sources);
+            Some(sources)
+        } else {
+            None
+        };
+        let consumers = if consumer_capacity > self.consumers.capacity() {
+            let mut consumers = Vec::new();
+            consumers
+                .try_reserve_exact(consumer_capacity)
+                .map_err(|_| GraphError::Allocation)?;
+            consumers.extend_from_slice(&self.consumers);
+            Some(consumers)
+        } else {
+            None
+        };
+        let rows = if row_words > self.rows.len() || words_per_row != self.words_per_row {
+            let mut rows = Vec::new();
+            rows.try_reserve_exact(row_words)
+                .map_err(|_| GraphError::Allocation)?;
+            rows.resize(row_words, 0);
+            for source in 0..self.sources.len() {
+                let old = self.row(source);
+                let start = source * words_per_row;
+                rows[start..start + old.len()].copy_from_slice(old);
+            }
+            Some(rows)
+        } else {
+            None
+        };
+        let pending = if consumer_limit > self.pending.capacity() {
+            let mut pending = VecDeque::new();
+            pending
+                .try_reserve(slot_capacity(self.pending.capacity(), consumer_limit))
+                .map_err(|_| GraphError::Allocation)?;
+            pending.extend(self.pending.iter().copied());
+            Some(pending)
+        } else {
+            None
+        };
+        Ok(BitGraphGrowth {
             sources,
             consumers,
             rows,
@@ -195,20 +269,22 @@ impl BitGraph {
         })
     }
 
-    fn try_grown(&self, source_limit: usize, consumer_limit: usize) -> Result<Self, GraphError> {
-        if source_limit < self.source_limit || consumer_limit < self.consumer_limit {
-            return Err(GraphError::CapacityOverflow);
+    fn apply_growth(&mut self, growth: BitGraphGrowth) {
+        if let Some(sources) = growth.sources {
+            self.sources = sources;
         }
-        let mut grown = Self::try_new(source_limit, consumer_limit)?;
-        grown.sources.extend_from_slice(&self.sources);
-        grown.consumers.extend_from_slice(&self.consumers);
-        for source in 0..self.sources.len() {
-            let old = self.row(source);
-            let start = source * grown.words_per_row;
-            grown.rows[start..start + old.len()].copy_from_slice(old);
+        if let Some(consumers) = growth.consumers {
+            self.consumers = consumers;
         }
-        grown.pending.extend(self.pending.iter().copied());
-        Ok(grown)
+        if let Some(rows) = growth.rows {
+            self.rows = rows;
+        }
+        if let Some(pending) = growth.pending {
+            self.pending = pending;
+        }
+        self.source_limit = growth.source_limit;
+        self.consumer_limit = growth.consumer_limit;
+        self.words_per_row = growth.words_per_row;
     }
 
     fn can_add_source(&self) -> bool {
@@ -605,12 +681,14 @@ impl ReactiveGraph {
         if next == self.capacity {
             return Ok(());
         }
+        BitGraph::validate_limits(next.shared_sources, next.shared_consumers)?;
+        BitGraph::validate_limits(next.owner_sources, next.owner_consumers)?;
         let shared = if next.shared_sources != self.capacity.shared_sources
             || next.shared_consumers != self.capacity.shared_consumers
         {
             Some(
                 self.shared
-                    .try_grown(next.shared_sources, next.shared_consumers)?,
+                    .prepare_growth(next.shared_sources, next.shared_consumers)?,
             )
         } else {
             None
@@ -620,30 +698,42 @@ impl ReactiveGraph {
         let grow_proxies = next.shared_sources != self.capacity.shared_sources;
         let mut owner_replacements = Vec::new();
         if grow_owner_graph || grow_proxies {
-            owner_replacements
-                .try_reserve_exact(self.owners.len())
-                .map_err(|_| GraphError::Allocation)?;
-            for owner in &self.owners {
-                let graph = if grow_owner_graph {
+            for (index, owner) in self.owners.iter().enumerate() {
+                let graph = if grow_owner_graph
+                    && owner
+                        .graph
+                        .needs_storage_growth(next.owner_sources, next.owner_consumers)
+                {
                     Some(
                         owner
                             .graph
-                            .try_grown(next.owner_sources, next.owner_consumers)?,
+                            .prepare_growth(next.owner_sources, next.owner_consumers)?,
                     )
                 } else {
                     None
                 };
-                let shared_sources = if grow_proxies {
-                    let mut links = Vec::new();
-                    links
-                        .try_reserve_exact(next.shared_sources)
-                        .map_err(|_| GraphError::Allocation)?;
-                    links.extend_from_slice(&owner.shared_sources);
-                    Some(links)
-                } else {
-                    None
-                };
-                owner_replacements.push((graph, shared_sources));
+                let shared_sources =
+                    if grow_proxies && next.shared_sources > owner.shared_sources.capacity() {
+                        let mut links = Vec::new();
+                        links
+                            .try_reserve_exact(slot_capacity(
+                                owner.shared_sources.capacity(),
+                                next.shared_sources,
+                            ))
+                            .map_err(|_| GraphError::Allocation)?;
+                        links.extend_from_slice(&owner.shared_sources);
+                        Some(links)
+                    } else {
+                        None
+                    };
+                if graph.is_some() || shared_sources.is_some() {
+                    if owner_replacements.capacity() == 0 {
+                        owner_replacements
+                            .try_reserve_exact(self.owners.len())
+                            .map_err(|_| GraphError::Allocation)?;
+                    }
+                    owner_replacements.push((index, graph, shared_sources));
+                }
             }
         }
         if next.owners != self.capacity.owners {
@@ -652,14 +742,21 @@ impl ReactiveGraph {
                 .map_err(|_| GraphError::Allocation)?;
         }
         if let Some(shared) = shared {
-            self.shared = shared;
+            self.shared.apply_growth(shared);
         }
-        for (owner, (graph, shared_sources)) in self.owners.iter_mut().zip(owner_replacements) {
+        for (index, graph, shared_sources) in owner_replacements {
+            let owner = &mut self.owners[index];
             if let Some(graph) = graph {
-                owner.graph = graph;
+                owner.graph.apply_growth(graph);
             }
             if let Some(shared_sources) = shared_sources {
                 owner.shared_sources = shared_sources;
+            }
+        }
+        if grow_owner_graph {
+            for owner in &mut self.owners {
+                owner.graph.source_limit = next.owner_sources;
+                owner.graph.consumer_limit = next.owner_consumers;
             }
         }
         self.capacity = next;
@@ -1416,7 +1513,8 @@ pub(super) mod tests {
         graph.clear_consumer(consumer).unwrap();
         assert!(graph.consumers[0].dependency_count == 0);
         graph.subscribe(source, consumer).unwrap();
-        let mut graph = graph.try_grown(3, 65).unwrap();
+        let growth = graph.prepare_growth(3, 65).unwrap();
+        graph.apply_growth(growth);
         assert!(graph.consumers[0].dependency_count != 0);
         assert_eq!(graph.row(source.slot as usize), &[1, 0]);
         graph.clear_consumer(consumer).unwrap();
@@ -1504,6 +1602,121 @@ pub(super) mod tests {
         for source in [replacement, renewed, third] {
             assert_eq!(graph.row(source.slot as usize), &[0]);
         }
+    }
+
+    #[test]
+    fn logical_growth_reuses_rows_and_never_admits_physical_spare_slots() {
+        let mut graph = BitGraph::try_new(4, 4).unwrap();
+        let target = Subscriber::Effect(super::super::EffectId(SlotId {
+            slot: 0,
+            generation: 1,
+        }));
+        let source = graph.add_source(PartitionKey::Shared).unwrap();
+        let consumers: Vec<_> = (0..4)
+            .map(|_| {
+                graph
+                    .add_consumer(PartitionKey::Shared, target, true)
+                    .unwrap()
+            })
+            .collect();
+        graph.subscribe(source, consumers[0]).unwrap();
+        graph.publish_checked(source, PendingKind::Any);
+        let rows = graph.rows.as_ptr();
+        let sources = graph.sources.as_ptr();
+        let growth = graph.prepare_growth(4, 5).unwrap();
+        graph.apply_growth(growth);
+        assert_eq!(graph.rows.as_ptr(), rows);
+        assert_eq!(graph.sources.as_ptr(), sources);
+        assert_eq!(graph.consumers.capacity(), 6);
+        graph
+            .add_consumer(PartitionKey::Shared, target, true)
+            .unwrap();
+        assert!(matches!(
+            graph.add_consumer(PartitionKey::Shared, target, true),
+            Err(GraphError::Full { limit: 5, .. })
+        ));
+        assert_eq!(
+            tracked_allocations(|| {
+                let growth = graph.prepare_growth(4, 6).unwrap();
+                graph.apply_growth(growth);
+                graph
+                    .add_consumer(PartitionKey::Shared, target, true)
+                    .unwrap();
+            }),
+            0
+        );
+        assert_eq!(graph.rows.as_ptr(), rows);
+        assert_eq!(
+            graph.take_pending_kind(PendingKind::Any),
+            Some((consumers[0], target))
+        );
+        assert_eq!(graph.consumers[0].dependency_count, 1);
+    }
+
+    #[test]
+    fn all_owner_logical_growth_reuses_already_prepared_storage() {
+        let mut graph = ReactiveGraph::try_new(GraphCapacity::new(0, 0, 2, 4, 2)).unwrap();
+        let a = World::new();
+        let b = World::new();
+        graph.add_owner(a.id()).unwrap();
+        graph.add_owner(b.id()).unwrap();
+        graph.reserve(GraphCapacity::new(0, 0, 2, 5, 2)).unwrap();
+        let bytes = graph.reserved_bytes();
+        let rows = [
+            graph.owners[0].graph.rows.as_ptr(),
+            graph.owners[1].graph.rows.as_ptr(),
+        ];
+        assert_eq!(
+            tracked_allocations(|| graph.reserve(GraphCapacity::new(0, 0, 2, 6, 2)).unwrap()),
+            0
+        );
+        assert_eq!(graph.reserved_bytes(), bytes);
+        for (owner, rows) in graph.owners.iter().zip(rows) {
+            assert_eq!(owner.graph.rows.as_ptr(), rows);
+            assert_eq!(owner.graph.consumer_limit, 6);
+        }
+    }
+
+    #[test]
+    fn allocation_failure_at_each_growth_stage_preserves_all_partitions_and_pending_work() {
+        let mut graph = ReactiveGraph::try_new(GraphCapacity::new(1, 1, 2, 2, 2)).unwrap();
+        let a = World::new();
+        let b = World::new();
+        let a_key = graph.add_owner(a.id()).unwrap();
+        let b_key = graph.add_owner(b.id()).unwrap();
+        let source = graph.register_shared_source().unwrap();
+        let first = graph
+            .register_consumer(a_key, Subscriber::Widget(entity(0)))
+            .unwrap();
+        let second = graph
+            .register_consumer(b_key, Subscriber::Widget(entity(0)))
+            .unwrap();
+        graph.subscribe(source, first).unwrap();
+        graph.subscribe(source, second).unwrap();
+        graph.publish(source).unwrap();
+        let capacity = graph.capacity();
+        let bytes = graph.reserved_bytes();
+        for allowed in 0..32 {
+            let result = crate::test_support::failing_allocations_after(allowed, || {
+                graph.reserve(GraphCapacity::new(3, 3, 4, 65, 3))
+            });
+            match result {
+                Ok(()) => {
+                    assert!(allowed >= 8);
+                    assert_eq!(graph.capacity(), GraphCapacity::new(3, 3, 4, 65, 3));
+                    assert_eq!(graph.take_pending(a_key).unwrap().unwrap().0, first);
+                    assert_eq!(graph.take_pending(b_key).unwrap().unwrap().0, second);
+                    return;
+                }
+                Err(error) => assert_eq!(error, GraphError::Allocation),
+            }
+            assert_eq!(graph.capacity(), capacity);
+            assert_eq!(graph.reserved_bytes(), bytes);
+            assert_eq!(graph.take_pending(a_key).unwrap().unwrap().0, first);
+            assert_eq!(graph.take_pending(b_key).unwrap().unwrap().0, second);
+            graph.publish(source).unwrap();
+        }
+        panic!("growth never reached its commit point");
     }
 
     #[test]
