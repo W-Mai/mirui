@@ -6,6 +6,46 @@ use crate::ui::widgets::{TextDocument, TextInput, TextSelection};
 #[derive(Default)]
 struct AppKeys(u32);
 
+#[cfg(feature = "perf")]
+#[test]
+fn native_state_trace_keeps_lifecycle_work_separate_from_editor_reconciliation() {
+    use crate::core::perf::{Capture, DEFAULT_TRACE_BUDGET};
+
+    let _serial = crate::core::perf::tests::SERIAL.lock().unwrap();
+    let (mut app, _, _, _) = fixture();
+    app.with_input_method(InputMethod::native());
+    let expected = native_state(&mut app.world, 0).unwrap();
+    let mut capture = Capture::new(DEFAULT_TRACE_BUDGET).unwrap();
+    assert_eq!(native_state(&mut app.world, 0).unwrap(), expected);
+    let mut spans: alloc::vec::Vec<crate::core::perf::PerfEvent> = alloc::vec::Vec::new();
+    capture.drain_events(|_, records| {
+        spans.extend(records.iter().filter_map(|record| record.span()).copied());
+    });
+    let outer = spans
+        .iter()
+        .find(|span| span.name == "text_input.native_state")
+        .unwrap();
+    let flush = spans
+        .iter()
+        .find(|span| span.name == "text_input.flush")
+        .unwrap();
+    let editor = spans
+        .iter()
+        .find(|span| span.name == "text_input.reconcile")
+        .unwrap();
+    assert!(outer.start_ns <= flush.start_ns && flush.end_ns <= outer.end_ns);
+    assert!(flush.start_ns <= editor.start_ns && editor.end_ns <= flush.end_ns);
+    assert!(editor.depth > flush.depth);
+    assert!(spans.iter().any(|span| {
+        span.name == "lifecycle.prepare"
+            && flush.start_ns <= span.start_ns
+            && span.end_ns <= editor.start_ns
+    }));
+    assert_eq!(capture.status().dropped, 0);
+    assert_eq!(capture.status().invalid, 0);
+    assert_eq!(capture.status().open_scopes, 0);
+}
+
 #[crate::event]
 fn app_key(_event: event!(Key), count: res!(mut AppKeys)) {
     count.0 += 1;

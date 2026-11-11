@@ -360,6 +360,7 @@ impl InterruptedEdit {
     }
 }
 
+#[cfg_attr(feature = "perf", crate::trace_fn("text_input.reconcile"))]
 fn reconcile(world: &mut World, service: &Service) {
     observe(world);
     let retired = {
@@ -533,6 +534,7 @@ fn deliver(world: &mut World, service: &Service, request: &Request) {
     }
 }
 
+#[cfg_attr(feature = "perf", crate::trace_fn("text_input.flush"))]
 pub(crate) fn flush(world: &mut World) {
     let Some(service) = service(world) else {
         return;
@@ -611,6 +613,7 @@ pub(crate) fn software_selected(world: &World) -> bool {
     service(world).is_some_and(|service| service.state.borrow().mode == TextInputMode::Software)
 }
 
+#[cfg_attr(feature = "perf", crate::trace_fn("text_input.native_state"))]
 pub(crate) fn native_state(world: &mut World, unavailable: u8) -> Option<TextInputState> {
     super::lifecycle::prepare(world);
     if service(world).is_none() {

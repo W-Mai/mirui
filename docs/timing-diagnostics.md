@@ -68,6 +68,8 @@ Track IDs are capture-local logical identities, not operating-system thread IDs.
 
 Software `sw.blit` spans cover raw draws and prepared texture submissions. Time outside a parent's measured child spans can include uninstrumented drawing and preparation; it is not automatically framework dispatch overhead. Check category coverage before assigning that residual time to a specific kind of work.
 
+With `perf` enabled, `text_input.native_state` includes lifecycle preparation before reading the platform editor state. `lifecycle.prepare` separates `reactive.flush`, attachment maintenance and View reconciliation. Reactive spans distinguish reclamation, batched callback execution and dirty marking; `reactive.order` is nested inside the callback batch when retained-tree ordering is required. `text_input.reconcile` covers editor-session coordination inside `text_input.flush`. These spans describe work performed at the polling boundary, including application callbacks, rather than attributing the entire boundary to IME processing or backend polling. Records follow batches and passes, not individual widgets or Effects. Nested totals overlap, and callback counts cannot be inferred from span counts. These additional guards are absent when `perf` is disabled.
+
 Web and bare-metal exports use `pid: 0` and `process_identity: "source-local"` because no native process ID is available. Analyze independent exports separately or assign source namespaces before combining them; equal capture and track numbers do not identify the same browser instance or device. Native process IDs also require capture-lifetime context and are not permanent machine identities.
 
 ## Operations, submissions and feedback

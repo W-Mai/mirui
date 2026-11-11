@@ -906,6 +906,8 @@ fn order_effects(world: &World, remaining: usize) {
     {
         return;
     }
+    #[cfg(feature = "perf")]
+    crate::trace_span!("reactive.order");
     with_reactive(|runtime| {
         let count = remaining.min(runtime.dirty_effects.len());
         for (index, id) in runtime.dirty_effects.iter().take(count).enumerate() {
@@ -944,6 +946,7 @@ fn order_effects(world: &World, remaining: usize) {
 /// re-run dirty effects (which may dirty more), then mark dirty widgets. Dead
 /// entities are skipped (no reverse index; subscriber lists may retain
 /// despawned entities).
+#[cfg_attr(feature = "perf", crate::trace_fn("reactive.flush"))]
 pub fn flush_signal_dirty(world: &mut World) {
     let resource_ready = world
         .resource::<Rc<PaintWake>>()
@@ -980,70 +983,78 @@ pub fn flush_signal_dirty(world: &mut World) {
     let _guard = WorldGuard::enter(world);
     let world_id = world.id();
     for _ in 0..FLUSH_MAX_PASSES {
-        let pending_effects = with_reactive(|r| r.dirty_effects.len());
-        if pending_effects > 1 {
-            order_effects(world, pending_effects);
-        }
-        let mut tree_revision = effect_tree_revision(world);
         let mut ran_effect = false;
-        for index in 0..pending_effects {
-            let revision = effect_tree_revision(world);
-            if revision != tree_revision {
-                order_effects(world, pending_effects - index);
-                tree_revision = revision;
+        {
+            #[cfg(feature = "perf")]
+            crate::trace_span!("reactive.effects");
+            let pending_effects = with_reactive(|r| r.dirty_effects.len());
+            if pending_effects > 1 {
+                order_effects(world, pending_effects);
             }
-            let effect = with_reactive(|r| {
-                let id = r.dirty_effects.pop_front()?;
-                match r.effects.get(&id).map(|effect| effect.borrow().owner_world) {
-                    Some(Some(owner)) if owner != world_id => {
-                        r.dirty_effects.push_back(id);
-                        None
+            let mut tree_revision = effect_tree_revision(world);
+            for index in 0..pending_effects {
+                let revision = effect_tree_revision(world);
+                if revision != tree_revision {
+                    order_effects(world, pending_effects - index);
+                    tree_revision = revision;
+                }
+                let effect = with_reactive(|r| {
+                    let id = r.dirty_effects.pop_front()?;
+                    match r.effects.get(&id).map(|effect| effect.borrow().owner_world) {
+                        Some(Some(owner)) if owner != world_id => {
+                            r.dirty_effects.push_back(id);
+                            None
+                        }
+                        Some(_) => Some(id),
+                        None => None,
                     }
-                    Some(_) => Some(id),
-                    None => None,
-                }
-            });
-            if let Some(effect) = effect {
-                let binding = with_reactive(|r| {
-                    r.effects.get(&effect).map(|effect| {
-                        let effect = effect.borrow();
-                        (effect.owner_entity, effect.role)
-                    })
                 });
-                if binding.is_some_and(|(owner, role)| {
-                    owner.is_some_and(|entity| {
-                        !world.is_alive(entity)
-                            || !retained::enabled(world, entity)
-                            || (role == BindingRole::Display
-                                && !retained::display_enabled(world, entity))
-                    })
-                }) {
-                    continue;
+                if let Some(effect) = effect {
+                    let binding = with_reactive(|r| {
+                        r.effects.get(&effect).map(|effect| {
+                            let effect = effect.borrow();
+                            (effect.owner_entity, effect.role)
+                        })
+                    });
+                    if binding.is_some_and(|(owner, role)| {
+                        owner.is_some_and(|entity| {
+                            !world.is_alive(entity)
+                                || !retained::enabled(world, entity)
+                                || (role == BindingRole::Display
+                                    && !retained::display_enabled(world, entity))
+                        })
+                    }) {
+                        continue;
+                    }
+                    run_effect(effect);
+                    ran_effect = true;
                 }
-                run_effect(effect);
-                ran_effect = true;
             }
         }
-        let pending_widgets = with_reactive(|r| r.dirty_widgets.len());
         let mut marked_widget = false;
-        for _ in 0..pending_widgets {
-            let entity = with_reactive(|r| pop_widget_for(&mut r.dirty_widgets, world_id));
-            if let Some(entity) = entity {
-                marked_widget = true;
-                if world.is_alive(entity) {
-                    world.insert(entity, Dirty);
+        let mut marked_visual_widget = false;
+        {
+            #[cfg(feature = "perf")]
+            crate::trace_span!("reactive.mark_dirty");
+            let pending_widgets = with_reactive(|r| r.dirty_widgets.len());
+            for _ in 0..pending_widgets {
+                let entity = with_reactive(|r| pop_widget_for(&mut r.dirty_widgets, world_id));
+                if let Some(entity) = entity {
+                    marked_widget = true;
+                    if world.is_alive(entity) {
+                        world.insert(entity, Dirty);
+                    }
                 }
             }
-        }
-        let pending_visual_widgets = with_reactive(|r| r.dirty_visual_widgets.len());
-        let mut marked_visual_widget = false;
-        for _ in 0..pending_visual_widgets {
-            let entity =
-                with_reactive(|r| pop_visual_widget_for(&mut r.dirty_visual_widgets, world_id));
-            if let Some(entity) = entity {
-                marked_visual_widget = true;
-                if world.is_alive(entity) {
-                    world.insert(entity, VisualDirty::New);
+            let pending_visual_widgets = with_reactive(|r| r.dirty_visual_widgets.len());
+            for _ in 0..pending_visual_widgets {
+                let entity =
+                    with_reactive(|r| pop_visual_widget_for(&mut r.dirty_visual_widgets, world_id));
+                if let Some(entity) = entity {
+                    marked_visual_widget = true;
+                    if world.is_alive(entity) {
+                        world.insert(entity, VisualDirty::New);
+                    }
                 }
             }
         }
@@ -1060,6 +1071,7 @@ pub fn flush_signal_dirty(world: &mut World) {
 
 // Reclaim effects whose owning widget is gone. No ECS hook — flush holds the
 // World, same lazy-liveness approach as the dirty-widget skip.
+#[cfg_attr(feature = "perf", crate::trace_fn("reactive.reclaim"))]
 fn reclaim_dead_effects(world: &mut World) {
     reclaim_entity_consumers(world);
     // Rc lifetimes are independent of entity retirement and graph registration.

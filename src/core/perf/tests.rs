@@ -4,6 +4,75 @@ use std::sync::Mutex;
 
 pub(crate) static SERIAL: Mutex<()> = Mutex::new(());
 
+#[cfg(feature = "perf")]
+#[test]
+fn input_preparation_traces_batches_without_per_effect_records_or_warm_allocations() {
+    use crate::core::reactive::{Effect, Signal, with_world_scope};
+    use alloc::rc::Rc;
+    use core::cell::Cell;
+
+    let _serial = SERIAL.lock().unwrap();
+    let mut previous_names = None;
+    for count in [1, 64] {
+        let mut world = crate::ecs::World::new();
+        crate::ui::lifecycle::prepare(&mut world);
+        let signal = Signal::new(0);
+        let calls = Rc::new(Cell::new(0));
+        let effects: Vec<_> = with_world_scope(&mut world, || {
+            (0..count)
+                .map(|_| {
+                    let signal = signal.clone();
+                    let calls = calls.clone();
+                    Effect::new(move || {
+                        signal.get();
+                        calls.set(calls.get() + 1);
+                    })
+                })
+                .collect()
+        });
+        signal.set(1);
+        assert!(crate::ui::text_input::native_state(&mut world, 0).is_none());
+        let mut capture = Capture::new(DEFAULT_TRACE_BUDGET).unwrap();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                signal.set(2);
+                assert!(crate::ui::text_input::native_state(&mut world, 0).is_none());
+            }),
+            0
+        );
+        assert_eq!(calls.get(), count * 3);
+        let mut spans: Vec<PerfEvent> = Vec::new();
+        capture.drain_events(|_, records| {
+            spans.extend(records.iter().filter_map(|record| record.span()).copied());
+        });
+        let parent = spans
+            .iter()
+            .find(|span| span.name == "text_input.native_state")
+            .unwrap();
+        for name in [
+            "lifecycle.prepare",
+            "reactive.flush",
+            "reactive.reclaim",
+            "reactive.effects",
+            "reactive.mark_dirty",
+        ] {
+            let child = spans.iter().find(|span| span.name == name).unwrap();
+            assert!(child.start_ns >= parent.start_ns);
+            assert!(child.end_ns <= parent.end_ns);
+            assert!(child.depth > parent.depth);
+        }
+        let names: Vec<_> = spans.iter().map(|span| span.name).collect();
+        if let Some(previous) = previous_names.replace(names.clone()) {
+            assert_eq!(names, previous);
+        }
+        assert_eq!(capture.status().dropped, 0);
+        assert_eq!(capture.status().invalid, 0);
+        assert_eq!(capture.status().open_scopes, 0);
+        drop(capture);
+        drop(effects);
+    }
+}
+
 #[test]
 fn transfer_facts_preserve_unknown_sizes_and_operation_without_claiming_completion() {
     let _serial = SERIAL.lock().unwrap();

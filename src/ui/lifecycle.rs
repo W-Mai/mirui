@@ -248,6 +248,7 @@ pub(crate) fn attach_handlers_for(world: &mut World, entity: Entity) {
     }
 }
 
+#[cfg_attr(feature = "perf", crate::trace_fn("lifecycle.prepare"))]
 pub(crate) fn prepare(world: &mut World) {
     for _ in 0..1024 {
         crate::core::reactive::flush_signal_dirty(world);
@@ -260,6 +261,8 @@ pub(crate) fn prepare(world: &mut World) {
             plan
         } else {
             drop(plan);
+            #[cfg(feature = "perf")]
+            crate::trace_span!("lifecycle.attachments");
             for _ in 0..pending {
                 let Some(entity) = world.next_attachment_change() else {
                     break;
@@ -276,6 +279,8 @@ pub(crate) fn prepare(world: &mut World) {
         };
         let mut changed = false;
         if let Some(plan) = plan {
+            #[cfg(feature = "perf")]
+            crate::trace_span!("lifecycle.reconcile");
             for hook in plan.iter() {
                 let Some(reconcile) = hook.reconcile else {
                     continue;
