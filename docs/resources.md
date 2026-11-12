@@ -2,7 +2,27 @@
 
 `ResourceManager<T>` resolves tokens into shared values under its existing cache budget. `ResourceHandle::get()` and `ResourceManager::resolve()` return `cache::Handle<T>` for the completed value or the manager's fallback, retaining the same cache entry without copying its contents. A retained value remains readable after replacement, eviction or manager destruction; a subsequent demand-handle read follows the manager's current value. Static registrations and completed handle reads do not run loaders.
 
-`Image(src: ${expression})` binds a resource token or vector source through the existing reactive property mechanism. A `prop!(ImageSource)` input can forward the source across compositions. Source changes preserve the image's paint configuration, release the previous resource demand and subscribe to the current resource; equal values leave the component unchanged. Typed builders use `bind_property::<prop::ImageSource>(getter)`, and callbacks can use `commands.set::<prop::ImageSource>(entity, source.into())`.
+`Image(src: ${expression})` binds a resource token, vector path or retained texture through the existing reactive property mechanism. A `prop!(ImageSource)` input can forward the source across compositions. Source changes preserve the image's paint configuration, release the previous resource demand and subscribe to the current resource; equal values leave the component unchanged. Typed builders use `bind_property::<prop::ImageSource>(getter)`, and callbacks can use `commands.set::<prop::ImageSource>(entity, source.into())`.
+
+`Image::new(texture)` and `Image::new(handle)` accept an owned `Texture<'static>` or an existing `cache::Handle<Texture<'static>>`. `ImageSource::from` accepts the same values for reactive inputs. An owned texture receives one shared handle allocation; moving an existing handle and cloning a source retain the same pixels. Direct handles display the retained value independently of cache-index eviction or replacement. Replacing the source publishes a new value through the existing property mechanism. Direct inputs use normal image preparation, transforms and composition, preserving native backend lifetime and thread checks. Their original memory-budget receipts remain attached to the texture. They require no resource manager or generated token. Without `sync`, the complete `ImageSource` type has local ownership; enabling `sync` allows `Send + Sync` under the existing texture source constraints.
+
+```rust
+use mirui::prelude::*;
+use mirui::render::texture::{ColorFormat, Texture};
+use mirui::ui::widgets::image::ImageSource;
+
+#[compose]
+fn picture(source: prop!(ImageSource)) {
+    ui! { Image(src: ${ source }, width: 32, height: 32) }
+}
+
+let texture = Texture::owned(32, 32, ColorFormat::RGBA8888).unwrap();
+let source = ImageSource::from(texture);
+let mut app = App::headless(32, 32);
+app.with_default_widgets();
+let root = app.spawn_root().id();
+app.compose(root, picture(source));
+```
 
 ## Metadata
 

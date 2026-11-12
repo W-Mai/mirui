@@ -122,3 +122,30 @@ fn builder_and_dsl_sources_resume_after_hidden_updates() {
         );
     }
 }
+
+#[test]
+fn direct_texture_handles_cross_compose_and_update_the_existing_image() {
+    let first = ImageSource::from(texture(&RED));
+    let second = ImageSource::from(texture(&BLUE));
+    let source = Signal::new(first);
+    let read = source.clone();
+    let mut app = App::headless(8, 8);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let image = app.compose(root, |cx| {
+        ui! { forwarded_picture (${ read.get() }) }
+    });
+    app.render_dirty().unwrap();
+    assert_eq!(
+        &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
+        &RED
+    );
+    source.set(second.clone());
+    app.render_dirty().unwrap();
+    assert_eq!(app.world.query::<Image>().collect(), [image]);
+    assert_eq!(app.world.get::<Image>(image).unwrap().src, second);
+    assert_eq!(
+        &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
+        &BLUE
+    );
+}

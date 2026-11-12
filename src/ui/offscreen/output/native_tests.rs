@@ -694,6 +694,62 @@ fn independent_native_transfer_preserves_receipts_and_validates_without_readback
 }
 
 #[test]
+fn extracted_native_images_use_standard_source_preparation_and_errors() {
+    use crate::core::cache::Handle;
+    use crate::surface::FramebufferAccess;
+    use crate::ui::widgets::Image;
+    let mut renderer = Fixture::default();
+    let outputs = Outputs::<WidgetTexture>::with_budget(2 * native_bytes());
+    let key = super::tests::key(1, 1);
+    let requested = plan(&renderer);
+    assert!(
+        outputs
+            .reserve_texture(key, Some((&mut renderer, requested)))
+            .unwrap()
+    );
+    let mut write = outputs.prepare_texture(key).unwrap();
+    let color = Color::rgb(20, 30, 40);
+    draw(write.texture_mut(), &mut renderer, color, false).unwrap();
+    assert!(write.publish());
+    let budget = outputs.storage().budget.clone();
+    let texture = outputs
+        .take_texture(key.entity)
+        .unwrap()
+        .unwrap()
+        .into_texture();
+    let source = Handle::new(texture);
+    let mut app = crate::app::App::headless(4, 4);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        crate::ui! { Image(src: source.clone(), width: 4, height: 4) }
+    });
+    assert_eq!(renderer.device.reads.get(), 0);
+    renderer.device.lost.set(true);
+    assert_eq!(app.render(), Err(RenderError::BackendFailure));
+    assert_eq!(renderer.device.reads.get(), 0);
+    renderer.device.lost.set(false);
+    app.render().unwrap();
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(0, 0),
+        color
+    );
+    assert_eq!(renderer.device.reads.get(), 1);
+    renderer.device.lost.set(true);
+    app.render().unwrap();
+    assert_eq!(renderer.device.reads.get(), 1);
+    drop(outputs);
+    drop(source);
+    assert!(budget.allocated() > 0);
+    drop(app);
+    assert_eq!(budget.allocated(), 0);
+}
+
+#[test]
 fn output_production_reserves_binding_and_paint_workspaces_together() {
     use crate::app::App;
     use crate::ecs::World;

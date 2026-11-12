@@ -37,6 +37,8 @@ fn inspect(value: Handle<Texture<'static>>)
 
 Existing loaders publish worker completion on their owning App thread through task wake and polling. `ResourceHandle::get()` returns the completed or fallback `Handle<Texture>`; send that value handle to a worker. App, World, Models, Signals, resource managers and demand handles retain their owning-thread contract. `sync` does not make a renderer or window event loop concurrently callable.
 
+`Image::new(texture)` and `Image::new(handle)` display owned textures and existing value handles through standard image preparation and composition. `ImageSource::from` accepts either for `prop!(ImageSource)` inputs and reactive `src` bindings. `ImageSource` supports `Send + Sync` with `sync`; its default shared-handle representation has local ownership. Native source access retains the same backend and thread restrictions. `App::take_widget_output` moves an independent completed output with its original budget receipts, and the resulting texture can feed the same image input.
+
 Textures remain non-`Clone`. Cloning a value handle retains the same immutable value; snapshots explicitly copy pixels. Borrowed textures and guards retain their Rust lifetimes. Scoped threads can borrow ready guards without copying pixels.
 
 ## Native sources

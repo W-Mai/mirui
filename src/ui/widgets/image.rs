@@ -1,6 +1,8 @@
 use alloc::borrow::Cow;
 use core::cell::RefCell;
+use core::fmt;
 
+use crate::core::cache::Handle;
 use crate::core::resource::{ResourceHandle, ResourceManager};
 use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
@@ -10,10 +12,52 @@ use crate::types::{Color, Fixed, Point, Rect, Transform};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::PaintCtx;
 
-#[derive(Clone, Debug, PartialEq)]
+/// A resource token, vector path or directly retained texture.
+///
+/// Converting an owned texture allocates one shared handle. Converting an existing handle moves it without allocating or copying pixels. Direct handles retain their original budget and backend lifetime. With `sync`, image sources support `Send + Sync`; otherwise the shared texture representation is local.
+#[derive(Clone)]
 pub enum ImageSource {
     Texture(Cow<'static, str>),
     Vector(Path),
+    Handle(Handle<Texture<'static>>),
+}
+
+impl PartialEq for ImageSource {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Texture(left), Self::Texture(right)) => left == right,
+            (Self::Vector(left), Self::Vector(right)) => left == right,
+            (Self::Handle(left), Self::Handle(right)) => left.ptr_eq(right),
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Debug for ImageSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Texture(token) => f.debug_tuple("Texture").field(token).finish(),
+            Self::Vector(path) => f.debug_tuple("Vector").field(path).finish(),
+            Self::Handle(texture) => f
+                .debug_struct("Handle")
+                .field("width", &texture.width)
+                .field("height", &texture.height)
+                .field("format", &texture.format)
+                .finish(),
+        }
+    }
+}
+
+impl From<Handle<Texture<'static>>> for ImageSource {
+    fn from(value: Handle<Texture<'static>>) -> Self {
+        Self::Handle(value)
+    }
+}
+
+impl From<Texture<'static>> for ImageSource {
+    fn from(value: Texture<'static>) -> Self {
+        Self::Handle(Handle::new(value))
+    }
 }
 
 impl Default for ImageSource {
@@ -173,7 +217,7 @@ fn synchronize_resource(image: &Image, manager: Option<&ResourceManager<Texture<
         {
             *handle = manager.map(|manager| manager.load(token.clone()));
         }
-        ImageSource::Vector(_) => {
+        ImageSource::Vector(_) | ImageSource::Handle(_) => {
             *handle = None;
         }
         _ => {}
@@ -184,8 +228,10 @@ fn resolve_image(
     image: &Image,
     manager: Option<&ResourceManager<Texture<'static>>>,
 ) -> Option<crate::core::cache::Handle<Texture<'static>>> {
-    let ImageSource::Texture(token) = &image.src else {
-        return None;
+    let token = match &image.src {
+        ImageSource::Texture(token) => token,
+        ImageSource::Handle(texture) => return Some(texture.clone()),
+        ImageSource::Vector(_) => return None,
     };
     {
         let mut handle = image.resource.borrow_mut();
@@ -323,6 +369,7 @@ fn image_render(
                 composite: img.composite,
             };
             if paint.poll_draw(&command).is_pending()
+                && matches!(img.src, ImageSource::Texture(_))
                 && let Some(manager) = manager.as_ref()
             {
                 let fallback = manager.fallback_value();
@@ -367,10 +414,12 @@ fn image_measurement(
 ) -> Option<crate::ui::view::PaintMeasurement> {
     let image = world.get::<Image>(entity)?;
     match image.src {
-        ImageSource::Texture(_) => Some(crate::ui::view::PaintMeasurement {
-            coverage: crate::ui::dirty::PaintCoverage::solid(rect),
-            workspace: None,
-        }),
+        ImageSource::Texture(_) | ImageSource::Handle(_) => {
+            Some(crate::ui::view::PaintMeasurement {
+                coverage: crate::ui::dirty::PaintCoverage::solid(rect),
+                workspace: None,
+            })
+        }
         ImageSource::Vector(_) => None,
     }
 }
@@ -390,6 +439,40 @@ mod tests {
 
     static RED: [u8; 4] = [255, 0, 0, 255];
     static BLUE: [u8; 4] = [0, 0, 255, 255];
+
+    #[test]
+    fn explicit_handles_preserve_value_identity_independently_of_cache_invalidation() {
+        let handle = Handle::new(Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888).unwrap());
+        let mut image = None;
+        assert_eq!(
+            tracked_allocations(|| image = Some(Image::new(handle.clone()))),
+            0
+        );
+        let image = image.unwrap();
+        assert_eq!(image.src, ImageSource::from(handle.clone()));
+        let other = Handle::new(Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888).unwrap());
+        assert_ne!(image.src, ImageSource::from(other));
+        handle.inner.invalid_set(true);
+        assert_eq!(
+            tracked_allocations(|| {
+                let resolved = resolve_image(&image, None).unwrap();
+                assert!(resolved.ptr_eq(&handle));
+                assert_eq!(resolved.read_pixels().unwrap().bytes(), &RED);
+            }),
+            0
+        );
+        assert_eq!(handle.ref_count(), 2);
+        drop(image);
+        assert_eq!(handle.ref_count(), 1);
+        let texture = Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888).unwrap();
+        let mut source = None;
+        assert_eq!(
+            tracked_allocations(|| source = Some(ImageSource::from(texture))),
+            1
+        );
+        drop(source);
+        assert_eq!(tracked_allocations(|| drop(ImageSource::from("static"))), 0);
+    }
 
     #[test]
     fn texture_measurement_bounds_destination_without_resolving_source() {
@@ -520,6 +603,25 @@ mod tests {
         app.render_dirty().unwrap();
         assert!(!blue.has_subscribers());
         assert!(red.has_subscribers());
+        app.world
+            .widget_mut(image)
+            .unwrap()
+            .set::<prop::ImageSource>(
+                Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888)
+                    .unwrap()
+                    .into(),
+            );
+        app.render_dirty().unwrap();
+        assert!(!blue.has_subscribers());
+        assert!(!red.has_subscribers());
+        assert!(
+            app.world
+                .get::<Image>(image)
+                .unwrap()
+                .resource
+                .borrow()
+                .is_none()
+        );
         app.world
             .widget_mut(image)
             .unwrap()

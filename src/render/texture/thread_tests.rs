@@ -17,6 +17,8 @@ fn default_texture_and_cache_values_keep_local_ownership() {
     assert_local!(Texture<'static>, Sync);
     assert_local!(crate::core::cache::Handle<Texture<'static>>, Send);
     assert_local!(crate::core::cache::Handle<Texture<'static>>, Sync);
+    assert_local!(crate::ui::widgets::image::ImageSource, Send);
+    assert_local!(crate::ui::widgets::image::ImageSource, Sync);
 }
 
 #[cfg(feature = "sync")]
@@ -28,6 +30,8 @@ fn complete_texture_and_guard_types_are_transferable() {
     assert_shared::<TexturePixelsMut<'_>>();
     assert_shared::<TextureRegion<'_>>();
     assert_shared::<crate::core::cache::Handle<Texture<'_>>>();
+    assert_shared::<crate::ui::widgets::image::ImageSource>();
+    assert_shared::<crate::ui::WidgetTextureOwned>();
     assert_shared::<crate::core::resource::AssetSource>();
     assert_shared::<alloc::boxed::Box<dyn crate::render::BackendTarget>>();
 }
