@@ -9,10 +9,10 @@
 ```rust
 use mirui::prelude::*;
 use mirui::render::texture::{ColorFormat, Texture};
-use mirui::ui::widgets::image::ImageSource;
+use mirui::ui::widgets::{Image, image::ImageSource};
 
 #[compose]
-fn picture(source: prop!(ImageSource)) {
+fn picture(source: prop!(ImageSource)) -> Entity {
     ui! { Image(src: ${ source }, width: 32, height: 32) }
 }
 
