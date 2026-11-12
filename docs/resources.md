@@ -24,6 +24,8 @@ let root = app.spawn_root().id();
 app.compose(root, picture(source));
 ```
 
+An `ImageSource` field can use the existing `#[observe]` Model declaration. Its generated getter can feed `Image(src: ${model.source()})` or a forwarded `prop!(ImageSource)` input. Tokens and fixed-point vector commands compare by value; texture handles compare by shared-entry identity.
+
 ## Metadata
 
 The optional `sync` feature allows transferable textures, immutable value handles and byte sources while leaving resource managers and demand handles on their owning App thread. See [shared textures](shared-textures.md) for worker handoff, source constraints, device lifetimes and budget retention.

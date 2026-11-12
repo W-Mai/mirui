@@ -33,6 +33,8 @@ impl PartialEq for ImageSource {
     }
 }
 
+impl Eq for ImageSource {}
+
 impl fmt::Debug for ImageSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

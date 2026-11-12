@@ -7,7 +7,7 @@ mod store;
 pub(crate) use store::PathSubscription;
 pub use store::{PathId, PathRevision, PathStore, PathStoreError};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PathCmd {
     MoveTo(Point),
     LineTo(Point),
@@ -23,7 +23,7 @@ pub enum PathCmd {
     Close,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Path {
     pub(crate) cmds: Cow<'static, [PathCmd]>,
 }

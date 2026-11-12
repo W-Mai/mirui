@@ -149,3 +149,63 @@ fn direct_texture_handles_cross_compose_and_update_the_existing_image() {
         &BLUE
     );
 }
+
+#[model]
+struct PictureModel {
+    #[observe]
+    source: ImageSource,
+}
+
+#[model]
+impl PictureModel {
+    fn set_source(&mut self, source: ImageSource) {
+        self.source = source;
+    }
+}
+
+#[compose]
+fn model_picture(picture: model!(PictureModel)) -> Entity {
+    ui! { forwarded_picture (${ picture.source() }) }
+}
+
+#[test]
+fn observed_model_sources_use_existing_bindings_for_tokens_paths_and_handles() {
+    let source = ImageSource::from(texture(&RED));
+    let mut app = App::headless(8, 8);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let model = app
+        .add_model(PictureModel {
+            source: source.clone(),
+        })
+        .finish();
+    let image = app.compose(root, model_picture(model.clone()));
+    app.render_dirty().unwrap();
+    assert_eq!(
+        &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
+        &RED
+    );
+    model.set_source(source);
+    app.render_dirty().unwrap();
+    assert_eq!(app.world.query::<Image>().collect(), [image]);
+    model.set_source(ImageSource::from(texture(&BLUE)));
+    app.render_dirty().unwrap();
+    assert_eq!(
+        &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
+        &BLUE
+    );
+    let path = mirui::render::path::Path::from_static(&[mirui::render::path::PathCmd::Close]);
+    model.set_source(path.clone().into());
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(
+        app.world.get::<Image>(image).unwrap().src,
+        ImageSource::from(path)
+    );
+    model.set_source("red".into());
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(
+        app.world.get::<Image>(image).unwrap().src,
+        ImageSource::from("red")
+    );
+    assert_eq!(app.world.query::<Image>().collect(), [image]);
+}
