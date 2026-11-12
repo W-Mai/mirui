@@ -8,6 +8,8 @@
 //!
 //! Outputs use one pixel slot by default. An owner that explicitly requests history, such as [`TemporalMix`](crate::ui::widgets::TemporalMix), uses two slots and reads its own frozen result through `previous(entity)`. History is the last successful output at the start of the drawing batch, remains fixed across dirty regions, and is independent of input-generation gaps. A first output or an owner without history has no previous result; changed logical dimensions, local footprint, effective scale, pixel dimensions, or format clear old history. Moving the source preserves its local history.
 //!
+//! [`App::take_widget_output`](crate::app::App::take_widget_output) consumes an independent completed output as [`WidgetTextureOwned`], retaining its geometry, original storage and output-budget charge. Current consumers, history and active drawing/storage use prevent extraction. The operation synchronizes observations without rendering a new frame. The source remains configured through `OffscreenRender`; native access retains its backend lifetime and thread requirements. Dropping the final texture owner releases its charge, including after the source or App has been removed.
+//!
 //! The output budget includes retained slots, in-progress writes, source CPU copies and staging, and shared paint and native-binding workspace. Native admission checks storage and workspace before executing the View; insufficient native capacity selects software production without replaying the View. Backend destination-fallback buffers and upload caches retain their renderer-factory limits; metadata and other filters' scratch storage are additional costs. The default output budget is zero; [`App::with_offscreen_pool_budget`](crate::app::App::with_offscreen_pool_budget) configures it before widget construction.
 //!
 //! # Usage
@@ -208,7 +210,7 @@ mod output;
 #[cfg(feature = "perf")]
 pub(crate) use output::AdmissionTrace;
 pub(crate) use output::TextureBaseline;
-pub use output::{WidgetTexture, WidgetTextureRead, WidgetTextureStorage};
+pub use output::{WidgetTexture, WidgetTextureOwned, WidgetTextureRead, WidgetTextureStorage};
 
 pub(crate) fn texture_requested(world: &World, entity: Entity) -> bool {
     world.is_alive(entity)

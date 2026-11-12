@@ -51,7 +51,9 @@ pub use layout_binding::{
 };
 pub use layout_geometry::{LayoutGeometry, LayoutGeometryRead};
 pub use niche::NicheMap;
-pub use offscreen::{OffscreenGeneration, OffscreenRender, WidgetTexture, WidgetTextureRead};
+pub use offscreen::{
+    OffscreenGeneration, OffscreenRender, WidgetTexture, WidgetTextureOwned, WidgetTextureRead,
+};
 pub use outputs::{Output, Outputs};
 pub use prop::Prop;
 pub use property::WidgetMut;

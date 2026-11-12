@@ -75,6 +75,21 @@ impl<R: Copy> Default for OutputState<R> {
     }
 }
 
+impl<R: Copy> OutputState<R> {
+    fn independent_current(self) -> Option<PublishedOutput<R>> {
+        if self.requests != 0
+            || self.history_requests != 0
+            || self.retained
+            || self.previous.is_some()
+            || !self.current_available
+        {
+            return None;
+        }
+        self.current
+            .filter(|current| current.input_version == self.input_version)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum OutputStoreError {
     Allocation,
@@ -172,6 +187,42 @@ impl<T: Output> Outputs<T> {
 
     pub(crate) fn try_storage_mut(&self) -> Option<RefMut<'_, T::Storage>> {
         self.storage.try_borrow_mut().ok()
+    }
+
+    pub(crate) fn try_storage(&self) -> Option<Ref<'_, T::Storage>> {
+        self.storage.try_borrow().ok()
+    }
+
+    pub(crate) fn independent_current(&self, entity: Entity) -> Option<PublishedOutput<T::Record>> {
+        if self.batch_depth.get() != 0 {
+            return None;
+        }
+        self.records
+            .try_borrow()
+            .ok()?
+            .get(&entity)?
+            .independent_current()
+    }
+
+    /// Detach storage through a callback that performs only local validation and moves. Return discarded payloads to the caller for destruction after these borrows end.
+    pub(crate) fn take_independent<R>(
+        &self,
+        entity: Entity,
+        publication: u64,
+        detach: impl FnOnce(&mut T::Storage, T::Record) -> Option<R>,
+    ) -> Option<R> {
+        if self.batch_depth.get() != 0 {
+            return None;
+        }
+        let mut records = self.records.try_borrow_mut().ok()?;
+        let current = records.get(&entity)?.independent_current()?;
+        if current.version != publication {
+            return None;
+        }
+        let mut storage = self.storage.try_borrow_mut().ok()?;
+        let value = detach(&mut storage, current.record)?;
+        records.remove(&entity);
+        Some(value)
     }
 
     pub(crate) fn state(&self, entity: Entity) -> Option<OutputState<T::Record>> {
@@ -439,6 +490,81 @@ mod tests {
         let outputs = Outputs::new([Some(10), Some(20), Some(30), None]);
         outputs.reserve(2).unwrap();
         outputs
+    }
+
+    #[test]
+    fn independent_transfer_preserves_demand_batches_and_publication_identity() {
+        for (requests, history) in [(0, 0), (1, 0), (0, 1)] {
+            let outputs = outputs();
+            let entity = entity(1);
+            outputs.set_demand(entity, requests, history).unwrap();
+            outputs.prepare(entity, 1).unwrap();
+            outputs.publish(entity, 1, 0).unwrap();
+            let version = outputs.state(entity).unwrap().current.unwrap().version;
+            let value =
+                outputs.take_independent(entity, version, |storage, record| storage[record].take());
+            if requests != 0 || history != 0 {
+                assert!(value.is_none());
+                assert_eq!(*outputs.get(entity).unwrap(), 10);
+            } else {
+                assert_eq!(value, Some(10));
+                assert!(outputs.get(entity).is_none());
+            }
+        }
+        let outputs = outputs();
+        let entity = entity(1);
+        outputs.prepare(entity, 1).unwrap();
+        outputs.publish(entity, 1, 0).unwrap();
+        let version = outputs.independent_current(entity).unwrap().version;
+        {
+            let _batch = outputs.begin_batch();
+            assert!(outputs.independent_current(entity).is_none());
+            assert!(
+                outputs
+                    .take_independent(entity, version, |_, _| Some(()))
+                    .is_none()
+            );
+        }
+        let records = outputs.records.borrow();
+        assert!(
+            outputs
+                .take_independent(entity, version, |_, _| Some(()))
+                .is_none()
+        );
+        drop(records);
+        outputs.publish(entity, 1, 1).unwrap();
+        assert!(
+            outputs
+                .take_independent(entity, version, |_, _| Some(()))
+                .is_none()
+        );
+        assert_eq!(*outputs.get(entity).unwrap(), 20);
+        outputs.invalidate(entity);
+        assert!(outputs.independent_current(entity).is_none());
+    }
+
+    #[test]
+    fn detached_payload_destruction_can_reenter_output_storage() {
+        struct Retired<'a>(&'a Outputs<SampleOutput>, Entity);
+        impl Drop for Retired<'_> {
+            fn drop(&mut self) {
+                assert!(self.0.get(self.1).is_none());
+                assert!(self.0.try_storage_mut().is_some());
+                assert!(self.0.records.try_borrow_mut().is_ok());
+            }
+        }
+        let outputs = outputs();
+        let entity = entity(1);
+        outputs.prepare(entity, 1).unwrap();
+        outputs.publish(entity, 1, 0).unwrap();
+        let publication = outputs.independent_current(entity).unwrap().version;
+        let retired = outputs
+            .take_independent(entity, publication, |storage, record| {
+                storage[record].take()?;
+                Some(Retired(&outputs, entity))
+            })
+            .unwrap();
+        drop(retired);
     }
 
     #[test]

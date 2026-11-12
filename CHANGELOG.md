@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add `App::take_widget_output` to transfer independent completed widget textures with their geometry and budget ownership, preserving consumer, history and backend access checks.
+
 - Retain CPU output memory-budget receipts inside their textures so pixel ownership and accounting share the same lifetime.
 
 - Resolve parent component storage once per subtree-membership query used by retained-branch wakeups.

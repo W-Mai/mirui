@@ -637,6 +637,24 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         crate::ui::theme::edit_registered(&mut self.world, id, update)
     }
 
+    /// Consume an independent completed output, retaining its pixel storage, geometry and original output-budget charge.
+    ///
+    /// Synchronizes lifecycle and output observations before checking availability. Returns `None` for missing or unavailable output, active consumers/history, a drawing batch or conflicting storage access. Backend validation failures propagate before storage is detached. This operation does not render. Call [`Self::render`] first to include newer application changes in the capture.
+    ///
+    /// The source's `OffscreenRender` remains application-controlled and later rendering can recreate its output. Native access follows its creating backend's lifetime and thread rules. The returned texture can be shared through a cache handle.
+    pub fn take_widget_output(
+        &mut self,
+        entity: crate::ecs::Entity,
+    ) -> Result<Option<crate::ui::WidgetTextureOwned>, crate::render::RenderError> {
+        ViewRegistry::reconcile_observations(&mut self.world);
+        if !self.world.is_alive(entity) {
+            return Ok(None);
+        }
+        self.world
+            .resource::<Outputs<WidgetTexture>>()
+            .map_or(Ok(None), |outputs| outputs.take_texture(entity))
+    }
+
     /// Copy the entity's completed output into an owned texture. Triggers a full-tree render if no completed output is available. Shared reads use [`Outputs<WidgetTexture>`].
     ///
     /// Returns `None` when the renderer cannot produce an offscreen texture or the output storage cannot fit it. Render failures are returned without exposing a partial snapshot.

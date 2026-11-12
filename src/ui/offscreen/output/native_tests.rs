@@ -643,6 +643,57 @@ fn plan(renderer: &Fixture) -> TargetPlan {
 }
 
 #[test]
+fn independent_native_transfer_preserves_receipts_and_validates_without_readback() {
+    let mut renderer = Fixture::default();
+    let outputs = Outputs::<WidgetTexture>::with_budget(2 * native_bytes());
+    let key = super::tests::key(1, 1);
+    let requested = plan(&renderer);
+    assert!(
+        outputs
+            .reserve_texture(key, Some((&mut renderer, requested)))
+            .unwrap()
+    );
+    let mut write = outputs.prepare_texture(key).unwrap();
+    draw(
+        write.texture_mut(),
+        &mut renderer,
+        Color::rgb(20, 30, 40),
+        false,
+    )
+    .unwrap();
+    assert!(write.publish());
+    let budget = outputs.storage().budget.clone();
+    let charge = budget.allocated();
+    renderer.device.lost.set(true);
+    assert!(matches!(
+        outputs.take_texture(key.entity),
+        Err(RenderError::BackendFailure)
+    ));
+    assert!(outputs.get(key.entity).is_some());
+    assert_eq!(budget.allocated(), charge);
+    renderer.device.lost.set(false);
+    renderer.device.access_failure.set(true);
+    assert!(matches!(
+        outputs.take_texture(key.entity),
+        Err(RenderError::InvalidScope)
+    ));
+    renderer.device.access_failure.set(false);
+    let mut output = None;
+    assert_eq!(
+        tracked_allocations(|| output = outputs.take_texture(key.entity).unwrap()),
+        0
+    );
+    let output = output.unwrap();
+    assert!(output.texture().is_native());
+    assert_eq!(renderer.device.reads.get(), 0);
+    assert_eq!(budget.allocated(), charge);
+    drop(outputs);
+    assert_eq!(budget.allocated(), charge);
+    drop(output);
+    assert_eq!(budget.allocated(), 0);
+}
+
+#[test]
 fn output_production_reserves_binding_and_paint_workspaces_together() {
     use crate::app::App;
     use crate::ecs::World;

@@ -16,6 +16,9 @@ use hashbrown::HashMap;
 #[cfg(test)]
 mod native_tests;
 
+#[cfg(test)]
+mod take_tests;
+
 #[cfg(feature = "perf")]
 #[derive(Clone, Copy, Default)]
 pub(crate) struct AdmissionTrace {
@@ -108,6 +111,35 @@ pub struct WidgetTextureRead<'a> {
     local_bounds: Rect,
 }
 
+/// An independently owned completed widget output and its published logical geometry.
+///
+/// Pixel storage retains its original output-budget charge until the texture is released. Native access follows the creating backend's owner and thread rules.
+pub struct WidgetTextureOwned {
+    texture: Texture<'static>,
+    layout_rect: Rect,
+    local_bounds: Rect,
+}
+
+impl WidgetTextureOwned {
+    pub fn texture(&self) -> &Texture<'static> {
+        &self.texture
+    }
+
+    /// Source rectangle in root layout coordinates, excluding scrolling and external transforms.
+    pub fn layout_rect(&self) -> Rect {
+        self.layout_rect
+    }
+
+    /// Prepared logical pixel footprint relative to the source layout origin.
+    pub fn local_bounds(&self) -> Rect {
+        self.local_bounds
+    }
+
+    pub fn into_texture(self) -> Texture<'static> {
+        self.texture
+    }
+}
+
 impl WidgetTextureRead<'_> {
     pub fn texture(&self) -> &Texture<'static> {
         &self.texture
@@ -179,6 +211,24 @@ pub struct WidgetTextureStorage {
 }
 
 impl WidgetTextureStorage {
+    fn independent_plane(&self, record: WidgetTextureRecord) -> Option<&OutputPlane> {
+        self.plan.as_ref()?;
+        let key = record.key;
+        let slots = self.textures.get(&record.entity)?;
+        if key.entity != record.entity
+            || slots.writing
+            || slots.discard
+            || slots.shape != (key.w, key.h, key.format)
+        {
+            return None;
+        }
+        let plane = slots.planes.get(record.slot)?.as_ref()?;
+        (plane.texture.width == key.w
+            && plane.texture.height == key.h
+            && plane.texture.format == key.format)
+            .then_some(plane)
+    }
+
     fn admit_native_plane(
         &mut self,
         entity: Entity,
@@ -472,6 +522,49 @@ impl Output for WidgetTexture {
 impl HistoryOutput for WidgetTexture {}
 
 impl Outputs<WidgetTexture> {
+    pub(crate) fn take_texture(
+        &self,
+        entity: Entity,
+    ) -> Result<Option<WidgetTextureOwned>, RenderError> {
+        let Some(current) = self.independent_current(entity) else {
+            return Ok(None);
+        };
+        if current.record.entity != entity
+            || current.input_version != u64::from(current.record.key.generation)
+        {
+            return Ok(None);
+        }
+        {
+            let Some(storage) = self.try_storage() else {
+                return Ok(None);
+            };
+            let Some(plane) = storage.independent_plane(current.record) else {
+                return Ok(None);
+            };
+            // Validate without preparing pixels or holding exclusive output borrows.
+            plane.texture.pixels()?;
+        }
+        let detached = self.take_independent(entity, current.version, |storage, record| {
+            storage.independent_plane(record)?;
+            let mut slots = storage.textures.remove(&entity)?;
+            let plane = slots.planes[record.slot]
+                .take()
+                .expect("validated output plane");
+            Some((
+                WidgetTextureOwned {
+                    texture: plane.texture,
+                    layout_rect: record.key.layout_rect,
+                    local_bounds: record.key.local_bounds,
+                },
+                slots,
+            ))
+        });
+        Ok(detached.map(|(output, unused)| {
+            drop(unused);
+            output
+        }))
+    }
+
     pub(crate) fn texture_budget_available(&self) -> usize {
         self.storage().budget.available()
     }
