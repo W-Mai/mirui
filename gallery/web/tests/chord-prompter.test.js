@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { ChordLink, DeviceError, checksum, statusPacket } from '../chord-prompter/protocol.js';
-import { barContent } from '../chord-prompter/presentation.js';
+import { barContent, choose, follow, sectionAt, sectionStarts, steer, stripBar } from '../chord-prompter/presentation.js';
 import { DeviceSync } from '../chord-prompter/sync.js';
 
 test('bar inspection respects canonical half-open bar intervals and unknown sources', () => {
@@ -15,6 +15,65 @@ test('bar inspection respects canonical half-open bar intervals and unknown sour
     expect(barContent(data, 2)).toEqual({number: 3, chords: '', lyric: ''});
     for (const bar of [-1, 3]) expect(barContent(data, bar)).toBeNull();
     expect(barContent(null, 0)).toBeNull();
+});
+
+describe('bar navigation', () => {
+    test('steering moves the next bar while playing and the position while paused', () => {
+        const playing = {bar: 3, bars: 8, playing: true, starts: [0, 4]};
+        expect(steer(playing, 1)).toBe(5);
+        expect(steer(playing, -1)).toBe(3);
+        expect(steer({...playing, jump: 3}, 1)).toBe('cancel');
+        expect(steer({...playing, jump: 6}, 1)).toBe(7);
+        const last = {...playing, bar: 7};
+        expect(steer(last, 1)).toBeNull();
+        expect(steer(last, -1)).toBe(7);
+        expect(steer({...last, jump: 7}, 1)).toBe('cancel');
+        const paused = {bar: 3, bars: 8, offset: 0, starts: [0, 4]};
+        expect(steer(paused, 1)).toBe(4);
+        expect(steer(paused, -1)).toBe(2);
+        expect(steer({...paused, offset: 500}, -1)).toBe(3);
+        expect(steer({...paused, bar: 0}, -1)).toBeNull();
+        expect(steer({...paused, bar: 7, offset: 900}, 1)).toBeNull();
+    });
+    test('section steps land on section starts', () => {
+        const playing = {bar: 2, bars: 8, playing: true, starts: [0, 4]};
+        expect(steer(playing, 1, true)).toBe(4);
+        expect(steer(playing, -1, true)).toBe(0);
+        expect(steer({...playing, bar: 3}, 1, true)).toBeNull();
+        expect(steer({...playing, bar: 5}, -1, true)).toBe(4);
+        const paused = {bar: 5, bars: 8, offset: 0, starts: [0, 4]};
+        expect(steer(paused, -1, true)).toBe(4);
+        expect(steer({...paused, bar: 4, offset: 10}, -1, true)).toBe(4);
+        expect(steer({...paused, bar: 4}, -1, true)).toBe(0);
+        expect(steer(paused, 1, true)).toBeNull();
+    });
+    test('choosing the bar already next changes nothing, the natural next cancels', () => {
+        const playing = {bar: 3, bars: 8, playing: true};
+        expect(choose(playing, 4)).toBeNull();
+        expect(choose(playing, 3)).toBe(3);
+        expect(choose({...playing, jump: 6}, 4)).toBe('cancel');
+        expect(choose({...playing, jump: 6}, 6)).toBeNull();
+        expect(choose({bar: 3, offset: 0}, 3)).toBeNull();
+        expect(choose({bar: 3, offset: 10}, 3)).toBe(3);
+    });
+    test('the strip keeps played bars behind and shows a queued jump ahead', () => {
+        let trail = follow([], null, 0, false);
+        expect(trail).toEqual([-1, -2, -3]);
+        trail = follow(trail, 0, 1, true);
+        trail = follow(trail, 1, 5, true, 5);
+        expect(trail).toEqual([1, 0, -1]);
+        expect(follow(trail, 5, 2, false)).toEqual([1, 0, -1]);
+        expect(follow(trail, 5, 6, true)).toEqual([5, 1, 0]);
+        const view = {bar: 5, trail, jumpBar: 2, ahead: 1};
+        expect([-2, -1, 0, 1, 2].map(offset => stripBar(view, offset))).toEqual([0, 1, 5, 2, 3]);
+        expect(stripBar({...view, jumpBar: null}, 2)).toBe(7);
+    });
+    test('sections name their bars', () => {
+        const data = {bars: 8, beats: 4, slots: [], sections: [{tick: 0, name: 'Verse'}, {tick: 15360, name: 'Chorus'}]};
+        expect(sectionStarts(data)).toEqual([0, 4]);
+        expect([sectionAt(data, 3), sectionAt(data, 4)]).toEqual(['Verse', 'Chorus']);
+        expect(sectionAt(null, 0)).toBe('');
+    });
 });
 
 function mock() {

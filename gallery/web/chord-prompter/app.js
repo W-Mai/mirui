@@ -1,11 +1,15 @@
 import { ChordLink, SERVICE, PATTERNS } from './protocol.js';
-import { barContent } from './presentation.js';
+import { TICKS_PER_BEAT, barContent, choose, follow, sectionAt, sectionStarts, steer, stripBar } from './presentation.js';
 import { DeviceSync } from './sync.js';
 
 const $ = id => document.getElementById(id);
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const mobileLayout = matchMedia('(max-width: 800px)');
 const appearanceQuery = matchMedia('(prefers-color-scheme: dark)');
+// A seek argument that drops the queued jump; see the device protocol.
+const CANCEL_JUMP = 0xffffffff;
+// The display accepts start delays up to five seconds.
+const COUNT_IN_LIMIT = 5000;
 let appearancePicked = false;
 try { appearancePicked = !!localStorage.getItem('mirui-theme'); } catch { /* Use the head-resolved appearance. */ }
 function applyAppearance(dark, persist = false) {
@@ -39,13 +43,32 @@ function saveDraft() {
     if (new TextEncoder().encode(source).length > 8192) return;
     try { sessionStorage.setItem('mirui-chord-draft', source); } catch { /* Editing does not require storage. */ }
 }
+try { $('count-in').checked = localStorage.getItem('mirui-chord-count-in') !== 'off'; } catch { /* Counts in by default. */ }
+$('count-in').onchange = () => {
+    try { localStorage.setItem('mirui-chord-count-in', $('count-in').checked ? 'on' : 'off'); } catch { /* Applies to this page. */ }
+};
 const errorText = error => String(error?.message ?? error);
 let bindings, patterns = [], preview, previewData, draftData, deviceData, deviceGeneration;
 let engineReady = false;
 let sample = null, connecting = false, uploading = false, previewMode = true;
-let beatCount = 0, rhythmIndex = -1, lyricKey = '', activeSlot = -1, revision = 0, editTimer, scrubbing = false;
+let beatCount = 0, rhythmIndex = -1, activeSlot = -1, revision = 0, editTimer, scrubbing = false, scrubPointer = false;
+// The latest frame's playback, read by the controls.
+let view = null;
+// When a browser count-in ends, in host milliseconds.
+let countInUntil = 0;
+// Strip bookkeeping: played bars behind the current one, what is drawn, and
+// the offsets of a slide after a seek and of a finger dragging the bars.
+let trail = [], shown = {identity: '', bar: null, jumpBar: null}, rendered = {key: ''}, slide = null, drag = null;
 const barCards = [...document.querySelectorAll('.bar-card')];
-const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
+const barWindow = document.querySelector('.bar-window');
+let messageTimer;
+// Notes clear themselves; errors stay until the next message.
+function message(text = '', error = false) {
+    clearTimeout(messageTimer);
+    $('message').textContent = text;
+    $('message').classList.toggle('error', error);
+    if (text && !error) messageTimer = setTimeout(() => { $('message').textContent = ''; }, 2600);
+}
 const link = new ChordLink(() => {
     deviceSync.clear();
     sample = null; previewMode = true; deviceData = null; deviceGeneration = undefined; refreshConnection();
@@ -99,11 +122,41 @@ document.addEventListener('fullscreenchange', () => {
     $('fullscreen').setAttribute('aria-label', label);
     $('fullscreen').title = label;
 });
+
+// Keys and page-turn pedals. A control clicked with the pointer keeps focus
+// but not its keys; a control reached with Tab keeps the keys it uses, and
+// text fields keep every key.
+const STEPS = {ArrowRight: 1, ArrowDown: 1, PageDown: 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1};
+let keyboardFocus = false;
+window.addEventListener('pointerdown', () => { keyboardFocus = false; }, true);
+function ownsKey(target, code) {
+    if (target.matches?.('textarea, select, [contenteditable], input:not([type=range]):not([type=checkbox]):not([type=file])')) return true;
+    if (!keyboardFocus) return false;
+    if (target.matches?.('input[type=range]')) return code in STEPS || code === 'Home' || code === 'End';
+    return (code === 'Space' || code === 'Enter') && !!target.closest?.('a,button,summary,label,input');
+}
 window.addEventListener('keydown', event => {
+    if (event.code === 'Tab') { keyboardFocus = true; return; }
     if (event.code === 'Escape' && $('workbench').classList.contains('editor-open')) { editor(false); return; }
-    if (event.code !== 'Space' || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.target.closest('a,input,textarea,select,button,summary')) return;
-    event.preventDefault(); $('play').click();
+    if (event.altKey || event.ctrlKey || event.metaKey || ownsKey(event.target, event.code)) return;
+    // A clicked control would light its focus ring on this key; it gives up focus instead.
+    if (!keyboardFocus && event.target !== document.body) event.target.blur?.();
+    if (event.code === 'Space') {
+        event.preventDefault();
+        if (!event.repeat) $('play').click();
+    } else if (STEPS[event.code]) {
+        event.preventDefault();
+        stepBy(STEPS[event.code], event.shiftKey);
+    } else if (event.code === 'Home') {
+        event.preventDefault();
+        pick(0);
+    } else if (event.code === 'Escape' && view && view.jump !== null) {
+        go('cancel');
+    } else if (event.key === '+' || event.key === '=') {
+        nudgeTempo(1);
+    } else if (event.key === '-' || event.key === '_') {
+        nudgeTempo(-1);
+    }
 });
 
 function associateDeviceSample(next) {
@@ -135,38 +188,85 @@ $('connect').onclick = () => run(async () => {
     try {
         const device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'MIRUI Chord' }], optionalServices: [SERVICE] });
         const next = await link.open(device);
-        preview?.pause(performance.now()); previewMode = false; lyricKey = '';
+        preview?.pause(performance.now()); previewMode = false; rendered.key = ''; countInUntil = 0;
         deviceSync.accept(next);
         message(deviceData ? '' : 'Display connected · song source is not synced');
     } finally { connecting = false; refreshConnection(); }
 });
 
+const barTicks = () => (view?.beats ?? (usingDevice() ? deviceSync.sample?.beats : previewData?.beats) ?? 4) * TICKS_PER_BEAT;
 async function control(opcode, arg = 0, boundary = 0) {
     if (!engineReady || (!preview && !usingDevice())) throw new Error('Load a song first');
     if (usingDevice()) {
         const receipt = await link.command(opcode, arg, boundary);
-        deviceSync.noteControl(receipt);
+        deviceSync.noteControl(receipt, opcode === 5 && arg !== CANCEL_JUMP ? arg * barTicks() : null);
         await poll(true);
-    } else {
-        const now = performance.now();
-        if (opcode === 1) preview.play(now);
-        else if (opcode === 2) preview.pause(now);
-        else if (opcode === 3) preview.stop();
-        else if (opcode === 4) preview.tempo(now, arg);
-        else if (opcode === 5) preview.seek(now, arg);
-        else if (opcode === 6) preview.rhythm(now, arg);
+        return;
     }
-    message(opcode === 4 ? 'Tempo · next beat' : opcode === 5 ? 'Jump · next bar' : opcode === 6 ? 'Strum · next bar' : '');
+    const now = performance.now();
+    if (opcode === 1) preview.play(now + arg);
+    else if (opcode === 2) preview.pause(now);
+    else if (opcode === 3) preview.stop();
+    else if (opcode === 4) preview.tempo(now, arg);
+    else if (opcode === 5) { if (arg === CANCEL_JUMP) preview.cancel_jump(); else preview.seek(now, arg); }
+    else if (opcode === 6) preview.rhythm(now, arg);
 }
-$('play').onclick = () => run(() => {
-    const playing = usingDevice() ? deviceSync.state()?.playing : preview?.playing;
-    return control(playing ? 2 : 1, usingDevice() && !playing ? 500 : 0);
-});
-$('stop').onclick = () => run(() => control(3));
+// One bar at the current tempo, shortened to fit the display's start delay.
+function countInMs() {
+    if (!$('count-in').checked || !view) return 0;
+    const beat = 60_000_000 / view.bpm;
+    return Math.round(Math.max(1, Math.min(view.beats, Math.floor(COUNT_IN_LIMIT / beat))) * beat);
+}
+function togglePlay() {
+    if (view?.running) { countInUntil = 0; return control(2); }
+    const ms = countInMs();
+    countInUntil = performance.now() + ms;
+    return control(1, usingDevice() ? Math.max(500, ms) : ms);
+}
+$('play').onclick = () => run(togglePlay);
+$('stop').onclick = () => { countInUntil = 0; run(() => control(3)); };
+
+// A chosen bar plays next while playing, and is moved to at once otherwise.
+// The choice shows in `view` at once, so quick repeated steps add up before
+// the next frame or the display's receipt.
+function go(target) {
+    if (target === null || !view) return;
+    if (view.playing) view.jump = target === 'cancel' ? null : target;
+    else if (target !== 'cancel') { view.bar = target; view.offset = 0; }
+    run(() => control(5, target === 'cancel' ? CANCEL_JUMP : target, 2));
+}
+const pick = bar => { if (view?.data) go(choose(view, Math.max(0, Math.min(view.bars - 1, bar)))); };
+const stepBy = (delta, bySection = false) => { if (view?.data) go(steer(view, delta, bySection)); };
+
+// Whole steps from the keys and buttons; typed tempos keep their decimals.
+function nudgeTempo(delta) {
+    if (!view) return;
+    const value = Number($('tempo').value) || view.bpm / 1000;
+    const next = Math.max(20, Math.min(300, delta > 0 ? Math.floor(value) + delta : Math.ceil(value) + delta));
+    $('tempo').value = String(next);
+    run(async () => {
+        await control(4, next * 1000, 1);
+        if (view?.playing) message(`Tempo ${next} · next beat`);
+    });
+}
+$('tempo-down').onclick = event => nudgeTempo(event.shiftKey ? -5 : -1);
+$('tempo-up').onclick = event => nudgeTempo(event.shiftKey ? 5 : 1);
+$('tempo').onkeydown = event => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    event.preventDefault();
+    nudgeTempo((event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 5 : 1));
+};
 $('tempo-form').onsubmit = event => { event.preventDefault(); $('tempo').blur(); };
 $('tempo').onchange = () => { if ($('tempo').validity.valid) run(() => control(4, Math.round(Number($('tempo').value) * 1000), 1)); };
-$('seek-form').onsubmit = event => { event.preventDefault(); run(() => control(5, Number($('bar').value) - 1, 2)); };
-$('rhythm-form').onsubmit = event => { event.preventDefault(); run(() => control(6, Number($('rhythm').value), 2)); };
+$('seek-form').onsubmit = event => { event.preventDefault(); pick(Number($('bar').value) - 1); };
+$('rhythm-form').onsubmit = event => {
+    event.preventDefault();
+    const index = Number($('rhythm').value);
+    run(async () => {
+        await control(6, index, 2);
+        if (view?.playing) message(`Strumming ${PATTERNS[index] ?? 'from song'} · next bar`);
+    });
+};
 let inspectedBar = null, inspectedIdentity = '';
 function showBarPreview(bar) {
     inspectedBar = bar;
@@ -186,7 +286,8 @@ function refreshBarPreview() {
     $('bar-preview').hidden = false;
     for (const [offset, name] of [[0, 'hover-current'], [1, 'hover-next']]) {
         const content = barContent(data, inspectedBar + offset);
-        $(`${name}-label`).textContent = `Bar ${inspectedBar + offset + 1}`;
+        const section = content ? sectionAt(data, inspectedBar + offset) : '';
+        $(`${name}-label`).textContent = `Bar ${inspectedBar + offset + 1}${section ? ` · ${section}` : ''}`;
         $(`${name}-chord`).textContent = content?.chords ?? '';
         $(`${name}-lyric`).textContent = content ? content.lyric || 'Instrumental' : data ? 'End of song' : 'Song source not synced';
     }
@@ -202,17 +303,26 @@ positionRange.onpointerleave = () => {
     if (document.activeElement === positionRange) showBarPreview(Number(positionRange.value) - 1);
     else hideBarPreview();
 };
+positionRange.onpointerdown = () => { scrubPointer = true; };
 positionRange.onfocus = () => showBarPreview(Number(positionRange.value) - 1);
 positionRange.onblur = hideBarPreview;
 positionRange.onkeydown = event => { if (event.key === 'Escape') hideBarPreview(); };
-$('position-range').oninput = () => { scrubbing = true; $('position').textContent = `Bar ${$('position-range').value}`; showBarPreview(Number(positionRange.value) - 1); };
-$('position-range').onchange = () => { run(() => control(5, Number($('position-range').value) - 1, 2)); scrubbing = false; };
+positionRange.oninput = () => { scrubbing = true; positionKey = ''; $('position').textContent = `Bar ${positionRange.value}`; showBarPreview(Number(positionRange.value) - 1); };
+positionRange.onchange = () => {
+    pick(Number(positionRange.value) - 1);
+    scrubbing = false;
+    // Hand the keys back to playback after a pointer scrub.
+    if (scrubPointer) positionRange.blur();
+    scrubPointer = false;
+};
 for (const [index, name] of PATTERNS.entries()) {
     const option = document.createElement('option'); option.value = String(index); option.textContent = name; $('rhythm').append(option);
 }
 
 function byteCount() { $('bytes').textContent = `${new TextEncoder().encode($('source').value).length} / 8192 bytes`; }
-function parseEditor(activate = false) {
+// `keep` continues the current preview in the edited song instead of
+// starting it over.
+function parseEditor(activate = false, keep = false) {
     byteCount();
     if (!engineReady) return;
     let candidate;
@@ -221,17 +331,21 @@ function parseEditor(activate = false) {
         draftData = JSON.parse(candidate.score_json());
         $('validation').textContent = `${draftData.bars} bars`; $('validation').classList.remove('error');
         if (activate) {
+            if (keep && preview) candidate.adopt(performance.now(), preview);
+            else countInUntil = 0;
             preview?.free(); preview = candidate; candidate = null;
-            previewData = draftData; previewMode = true; revision++; lyricKey = ''; message('');
+            previewData = draftData; previewMode = true; revision++; rendered.key = '';
+            if (!keep) message('');
         }
     } catch (error) {
         draftData = null;
         $('validation').textContent = errorText(error); $('validation').classList.add('error');
-        if (activate) message(errorText(error), true);
+        if (activate && !keep) message(errorText(error), true);
     } finally { candidate?.free(); refreshConnection(); }
 }
-$('source').oninput = () => { byteCount(); clearTimeout(editTimer); editTimer = setTimeout(() => parseEditor(), 250); };
-$('preview').onclick = () => parseEditor(true);
+// While previewing, a valid edit shows at once from the same place.
+$('source').oninput = () => { byteCount(); clearTimeout(editTimer); editTimer = setTimeout(() => parseEditor(!usingDevice(), true), 250); };
+$('preview').onclick = () => parseEditor(true, true);
 $('file').onchange = () => run(async () => {
     const file = $('file').files[0]; if (!file) return;
     if (file.size > 8192) throw new Error('Song sheet exceeds 8192 bytes');
@@ -263,7 +377,7 @@ $('upload').onclick = () => run(async () => {
         });
         deviceSync.clear(); sample = null;
         deviceData = data; deviceGeneration = receipt.generation; previewMode = false;
-        preview?.pause(performance.now()); lyricKey = '';
+        preview?.pause(performance.now()); rendered.key = ''; countInUntil = 0;
         try { sessionStorage.setItem('mirui-chord-active', JSON.stringify({ device: link.device?.id ?? '', generation: deviceGeneration, data })); } catch { /* Storage is optional. */ }
         $('transfer').dataset.state = 'complete'; $('transfer-label').textContent = `Loaded ${total} bytes · 100%`;
         $('transfer-announcement').textContent = 'Song loaded';
@@ -280,38 +394,90 @@ $('upload').onclick = () => run(async () => {
     }
 });
 
+// Tap a bar to play it next; swipe the bars to step. The bars follow the
+// finger a little and settle back.
+const stepWidth = () => parseFloat(getComputedStyle(barWindow).getPropertyValue('--bar-step')) || 220;
+const dragShift = () => drag?.moved && !reducedMotion.matches ? Math.max(-.6, Math.min(.6, drag.dx / stepWidth() * .45)) : 0;
+barWindow.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || !view?.data) return;
+    drag = {id: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, dy: 0, moved: false, card: event.target.closest('.bar-card')};
+    barWindow.setPointerCapture(event.pointerId);
+});
+barWindow.addEventListener('pointermove', event => {
+    if (drag?.id !== event.pointerId) return;
+    drag.dx = event.clientX - drag.x; drag.dy = event.clientY - drag.y;
+    drag.moved ||= Math.hypot(drag.dx, drag.dy) > 8;
+});
+function releaseDrag(event, commit) {
+    if (drag?.id !== event.pointerId) return;
+    const {moved, dx, dy, card} = drag, shift = dragShift();
+    drag = null;
+    if (shift) startSlide(shift);
+    if (!commit) return;
+    if (!moved && card?.dataset.bar) pick(Number(card.dataset.bar));
+    else if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) stepBy(dx < 0 ? 1 : -1);
+}
+barWindow.addEventListener('pointerup', event => releaseDrag(event, true));
+barWindow.addEventListener('pointercancel', event => releaseDrag(event, false));
+
+// A seek moves the bars in from the side they came from; motion that only
+// changes a queued jump crossfades the bars ahead.
+const ease = t => 1 - (1 - t) ** 3;
+function slideShift(now) {
+    if (!slide) return 0;
+    const t = (now - slide.start) / 320;
+    if (t >= 1) { slide = null; return 0; }
+    return slide.from * (1 - ease(t));
+}
+function startSlide(from) {
+    if (reducedMotion.matches) return;
+    const now = performance.now();
+    slide = {from: Math.max(-1.6, Math.min(1.6, from + slideShift(now))), start: now};
+}
+function restart(card, name) {
+    card.classList.remove(name);
+    void card.offsetWidth;
+    card.classList.add(name);
+}
+for (const card of barCards) card.addEventListener('animationend', () => card.classList.remove('swap'));
+
 function slotAt(data, tick) {
     let lo = 0, hi = data.slots.length;
     while (lo < hi) { const mid = (lo + hi) >>> 1; if (data.slots[mid].tick <= tick) lo = mid + 1; else hi = mid; }
     return Math.max(0, lo - 1);
 }
-function updateWords(data, tick, identity) {
+function renderStrip(data, index, layout) {
     if (!data) {
-        if (lyricKey !== 'unknown') {
-            lyricKey = 'unknown'; $('chord').textContent = '—'; $('lyric').textContent = 'Song not synced';
+        if (rendered.key !== 'unknown') {
+            rendered = {key: 'unknown'}; $('chord').textContent = '—'; $('lyric').textContent = 'Song not synced';
             $('next-chord').textContent = $('next-lyric').textContent = $('section-name').textContent = '';
             for (const card of barCards) {
                 card.hidden = Number(card.dataset.offset) !== 0;
+                card.dataset.bar = '';
+                card.classList.remove('jump');
                 card.querySelector('.bar-number').textContent = '';
             }
             $('song-title').textContent = 'Chord Prompter';
         }
         return;
     }
-    const index = slotAt(data, tick), bar = Math.floor(tick / (data.beats * 960)), key = `${identity}:${bar}`;
-    if (key === lyricKey) { markActiveSlot(index); return; }
-    const current = data.slots[index];
-    lyricKey = key;
+    const key = `${layout.identity}:${layout.bar}:${layout.trail.join()}:${layout.jumpBar}:${layout.ahead}`;
+    if (key === rendered.key) { markActiveSlot(index); return; }
+    const retarget = rendered.identity === layout.identity && rendered.bar === layout.bar && rendered.jumpBar !== layout.jumpBar;
     for (const card of barCards) {
-        const content = barContent(data, bar + Number(card.dataset.offset));
+        const offset = Number(card.dataset.offset), bar = stripBar(layout, offset);
+        const content = barContent(data, bar);
         card.hidden = !content;
+        card.dataset.bar = content ? String(bar) : '';
+        card.classList.toggle('jump', layout.jumpBar !== null && offset === layout.ahead);
         card.querySelector('.bar-number').textContent = content ? String(content.number).padStart(2, '0') : '';
         card.querySelector('.chord').textContent = content?.chords ?? '';
         card.querySelector('.lyric').textContent = content?.lyric || (content ? 'Instrumental' : '');
+        if (retarget && offset >= layout.ahead && !reducedMotion.matches) restart(card, 'swap');
     }
     const chords = [], lyrics = [];
     for (const [slotIndex, slot] of data.slots.entries()) {
-        if (Math.floor(slot.tick / (data.beats * 960)) !== bar) continue;
+        if (Math.floor(slot.tick / (data.beats * TICKS_PER_BEAT)) !== layout.bar) continue;
         const chord = document.createElement('span'), lyric = document.createElement('span');
         chord.dataset.slot = lyric.dataset.slot = String(slotIndex);
         chord.textContent = slot.chord; lyric.textContent = slot.lyric;
@@ -321,23 +487,52 @@ function updateWords(data, tick, identity) {
     $('chord').replaceChildren(...chords);
     if (lyrics.some(span => span.textContent)) $('lyric').replaceChildren(...lyrics);
     activeSlot = -1; markActiveSlot(index);
-    $('section-name').textContent = current.section; $('song-title').textContent = data.title;
+    $('song-title').textContent = data.title;
     document.title = `${data.title} · Chord Prompter`;
+    rendered = {key, identity: layout.identity, bar: layout.bar, jumpBar: layout.jumpBar};
 }
 function markActiveSlot(index) {
     if (activeSlot === index) return;
     activeSlot = index;
     for (const span of $('current-card').querySelectorAll('[data-slot]')) span.classList.toggle('active-slot', Number(span.dataset.slot) === index);
 }
-function moveCards(phase, hasNext) {
+function moveCards(phase, hasNext, shift) {
     const travel = reducedMotion.matches || !hasNext ? 0 : phase;
     for (const card of barCards) {
-        const relative = Number(card.dataset.offset) - travel;
+        const relative = Number(card.dataset.offset) - travel + shift;
         const emphasis = bindings.chord_center_emphasis(Math.round(relative * 256)) / 256;
         card.style.transform = `translate(calc(${relative} * var(--bar-step) - 50%), -50%) scale(${1 + emphasis * .42})`;
         card.style.opacity = String((relative < -.5 ? .45 : .75) + emphasis * .25);
     }
 }
+let marksKey = '';
+function renderMarks(data, jumpBar) {
+    const key = `${rendered.identity}:${data?.bars}:${jumpBar}`;
+    if (key === marksKey) return;
+    marksKey = key;
+    const span = Math.max(1, (data?.bars ?? 1) - 1), marks = [];
+    for (const start of data ? sectionStarts(data).filter(start => start > 0) : []) {
+        const tick = document.createElement('i'); tick.className = 'section'; tick.style.left = `${start / span * 100}%`; marks.push(tick);
+    }
+    if (jumpBar !== null) {
+        const mark = document.createElement('i'); mark.className = 'jump'; mark.style.left = `${jumpBar / span * 100}%`; marks.push(mark);
+    }
+    $('scrub-marks').replaceChildren(...marks);
+}
+let positionKey = '';
+function showPosition(bar, data, state, jumpBar) {
+    const queued = state.pending && jumpBar === null ? ' · queued' : '';
+    const key = `${bar}:${jumpBar}:${data?.bars}:${queued}`;
+    if (key === positionKey) return;
+    positionKey = key;
+    const parts = [`Bar ${bar + 1}`];
+    if (jumpBar !== null) {
+        const to = document.createElement('span'); to.className = 'to'; to.textContent = ` → ${jumpBar + 1}`; parts.push(to);
+    }
+    parts.push(` / ${data?.bars ?? '—'}${queued}`);
+    $('position').replaceChildren(...parts);
+}
+const setText = (element, text) => { if (element.textContent !== text) element.textContent = text; };
 function frame() {
     refreshBarPreview();
     const now = performance.now();
@@ -347,22 +542,48 @@ function frame() {
     if (remote && sample) {
         state = deviceSync.state(now);
     } else if (!remote && preview) {
-        state = { tick: preview.tick(now), bpm: preview.bpm, playing: preview.playing, beats: previewData.beats, unit: previewData.unit, pattern: preview.pattern, pending: preview.pending, armed: false, stale: false };
+        const tick = preview.tick(now), at = preview.jump_at;
+        const armed = preview.playing && now < countInUntil;
+        state = { tick, bpm: preview.bpm, playing: preview.playing, beats: previewData.beats, unit: previewData.unit, pattern: preview.pattern,
+            pending: preview.pending, armed, startsAt: armed ? countInUntil : null, jump: at === undefined ? null : {at, to: preview.jump_to}, stale: false };
     }
     if (state) {
-        const maxTick = data ? data.bars * data.beats * 960 - 1 : Infinity;
-        const tick = Math.min(state.tick, maxTick), beat = Math.floor(tick / 960) % state.beats, bar = Math.floor(tick / (960 * state.beats));
+        const ticksPerBar = state.beats * TICKS_PER_BEAT;
+        const maxTick = data ? data.bars * ticksPerBar - 1 : Infinity;
+        const tick = Math.min(state.tick, maxTick), beat = Math.floor(tick / TICKS_PER_BEAT) % state.beats, bar = Math.floor(tick / ticksPerBar);
+        const moving = state.playing && !state.armed;
+        const jumpBar = state.jump ? Math.floor(state.jump.to / ticksPerBar) : null;
+        const ahead = state.jump ? Math.max(1, Math.round(state.jump.at / ticksPerBar) - bar) : 1;
+        view = {data, bar, bars: data?.bars ?? 1, offset: tick % ticksPerBar, playing: moving, running: state.playing,
+            jump: jumpBar, starts: sectionStarts(data), beats: state.beats, bpm: state.bpm};
+        const identity = remote ? `device-${deviceGeneration}` : `preview-${revision}`;
+        if (identity !== shown.identity) {
+            trail = follow([], null, bar, false);
+            slide = null;
+        } else if (bar !== shown.bar) {
+            const carried = moving && (bar === shown.bar + 1 || bar === shown.jumpBar);
+            trail = follow(trail, shown.bar, bar, moving, shown.jumpBar);
+            if (!carried) startSlide(bar - shown.bar);
+        }
+        shown = {identity, bar, jumpBar};
         if (beatCount !== state.beats) {
             $('beats').replaceChildren(...Array.from({length: state.beats}, (_, index) => {const dot = document.createElement('i'); dot.textContent=String(index+1); return dot;})); beatCount = state.beats;
         }
-        for (const [index, dot] of [...$('beats').children].entries()) dot.classList.toggle('active', !state.armed && !state.stale && index === beat);
+        // A count-in lights the beats before the music starts.
+        let lit = state.stale ? -1 : beat;
+        if (state.armed) lit = state.startsAt === null ? -1 : state.beats - Math.ceil((state.startsAt - now) * state.bpm / 60_000_000);
+        for (const [index, dot] of [...$('beats').children].entries()) dot.classList.toggle('active', index === lit);
+        $('beats').classList.toggle('counting', !!state.armed);
         $('meter').textContent = `${state.beats} / ${state.unit}`;
         $('play').setAttribute('aria-pressed', String(state.playing));
         $('play').setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
-        $('play').title = state.playing ? 'Pause' : 'Play';
-        if (!scrubbing) { $('position').textContent = `Bar ${bar + 1} / ${data?.bars ?? '—'}${state.pending ? ' · queued' : ''}`; $('position-range').max = String(data?.bars ?? 128); $('position-range').value = String(bar + 1); }
+        $('play').title = state.playing ? 'Pause (Space)' : 'Play (Space)';
+        if (!scrubbing) { showPosition(bar, data, state, jumpBar); $('position-range').max = String(data?.bars ?? 128); $('position-range').value = String(bar + 1); }
         if (document.activeElement !== $('tempo') && !state.pending) $('tempo').value = String(state.bpm / 1000);
-        updateWords(data, tick, remote ? `device-${deviceGeneration}` : `preview-${revision}`);
+        renderStrip(data, data ? slotAt(data, tick) : 0, {identity, bar, trail, jumpBar, ahead});
+        renderMarks(data, jumpBar);
+        setText($('section-name'), state.armed ? 'Count-in' : data ? sectionAt(data, bar) : '');
+        document.querySelector('.section-heading').classList.toggle('counting', !!state.armed);
         if (rhythmIndex !== state.pattern) {
             rhythmIndex = state.pattern;
             $('attacks').replaceChildren(...(patterns[rhythmIndex] ?? []).map(attack => {
@@ -372,11 +593,13 @@ function frame() {
                 return mark;
             }));
         }
-        const phase = tick % (state.beats * 960) / (state.beats * 960);
-        moveCards(phase, !!data && bar + 1 < data.bars);
+        const phase = tick % ticksPerBar / ticksPerBar;
+        moveCards(phase, !!data && (bar + 1 < data.bars || jumpBar !== null), slideShift(now) + dragShift());
         $('strum-track').style.setProperty('--phase', phase);
         for (const [index, mark] of [...$('attacks').children].entries()) mark.classList.toggle('active', !state.armed && !state.stale && Math.abs(patterns[rhythmIndex][index].offset / 400 - phase) < .035);
         $('telemetry').textContent = remote ? `Generation ${sample.generation} · status read ${Math.round(sample.roundTrip)} ms. Beat interpolation uses device samples.` : 'Browser preview uses the shared musical transport.';
+    } else {
+        view = null;
     }
     requestAnimationFrame(frame);
 }

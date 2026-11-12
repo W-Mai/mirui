@@ -147,3 +147,42 @@ test('stale samples are marked without the former short extrapolation freeze', (
     expect(projectSample(sample, 5010)).toMatchObject({tick: 9700, stale: false});
     expect(projectSample(sample, 15010)).toMatchObject({tick: 28900, stale: true});
 });
+
+test('a queued jump is projected across its bar line until the device confirms it', async () => {
+    const f = fixture();
+    f.sync.noteControl({generation: 31, opcode: 5, tick: 3840}, 5 * 3840);
+    f.sync.accept({...f.sync.sample, pending: true});
+    expect(f.sync.state()).toMatchObject({tick: 0, jump: {at: 3840, to: 19200}});
+    await f.advance(2500);
+    expect(f.sync.state()).toMatchObject({tick: 19200, jump: null, pending: false});
+    expect(f.reads).toBe(0);
+    f.state = {tick: 19204, pending: false};
+    await f.advance(10);
+    expect(f.reads).toBe(1);
+    expect(f.sync.jump).toBeNull();
+    expect(f.sync.state().tick).toBeCloseTo(19204 + (2510 - 2502.651) * 1.536, 0);
+});
+
+test('a jump ending the song continues at its destination instead of finishing', async () => {
+    const f = fixture();
+    f.sync.setScore({bars: 2, beats: 4, sections: []});
+    f.sync.noteControl({generation: 31, opcode: 5, tick: 7680}, 0);
+    f.sync.accept({...f.sync.sample, tick: 3000, pending: true});
+    await f.advance(3047);
+    expect(f.reads).toBe(0);
+    expect(f.sync.state()).toMatchObject({playing: true, jump: null});
+    expect(f.sync.state().tick).toBeCloseTo(3000 + 3047 * 1.536 - 7680, 1);
+});
+
+test('immediate seeks, cancels and stops leave no queued jump', () => {
+    const f = fixture({playing: false});
+    f.sync.noteControl({generation: 31, opcode: 5, tick: 7680}, 7680);
+    expect(f.sync.jump).toBeNull();
+    f.sync.noteControl({generation: 31, opcode: 5, tick: 3840}, 7680);
+    expect(f.sync.jump).toEqual({at: 3840, to: 7680});
+    f.sync.noteControl({generation: 31, opcode: 5, tick: 100});
+    expect(f.sync.jump).toBeNull();
+    f.sync.noteControl({generation: 31, opcode: 5, tick: 3840}, 7680);
+    f.sync.noteControl({generation: 31, opcode: 3, tick: 0});
+    expect(f.sync.jump).toBeNull();
+});

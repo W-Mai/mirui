@@ -122,8 +122,8 @@ impl Transport {
             return Err(CommandError::Tempo);
         }
         self.advance(now_us);
-        if boundary == Boundary::Now || self.playback != Playback::Running {
-            self.apply(now_us, self.position, action);
+        if boundary == Boundary::Now || !self.started(now_us) {
+            self.apply_now(now_us, action);
             return Ok(self.position);
         }
         let quantum = TICKS_PER_BEAT
@@ -153,7 +153,7 @@ impl Transport {
             return Err(CommandError::Late);
         }
         if tick == self.position {
-            self.apply(now_us, tick, action);
+            self.apply_now(now_us, action);
             return Ok(tick);
         }
         if self.playback != Playback::Running {
@@ -163,7 +163,66 @@ impl Transport {
         Ok(tick)
     }
 
+    /// Running with the music clock already past a delayed start.
+    fn started(&self, now_us: u64) -> bool {
+        self.playback == Playback::Running && now_us >= self.anchor_us
+    }
+
+    /// Applies at the current position. During a count-in the change takes
+    /// effect at the delayed start, which stays where it was.
+    fn apply_now(&mut self, now_us: u64, action: Action) {
+        let at = if self.playback == Playback::Running {
+            now_us.max(self.anchor_us)
+        } else {
+            now_us
+        };
+        self.apply(at, self.position, action);
+    }
+
+    /// The queued jump, as its execution tick and destination.
+    pub fn pending_seek(&self) -> Option<(u64, u64)> {
+        self.queue[..self.len]
+            .iter()
+            .flatten()
+            .find_map(|entry| match entry.action {
+                Action::Seek(to) => Some((entry.tick, to)),
+                _ => None,
+            })
+    }
+
+    /// Drops the queued jump; the other queued controls stay.
+    pub fn cancel_seek(&mut self) -> bool {
+        let Some(index) = self.seek_index() else {
+            return false;
+        };
+        self.queue.copy_within(index + 1..self.len, index);
+        self.len -= 1;
+        self.queue[self.len] = None;
+        true
+    }
+
+    fn seek_index(&self) -> Option<usize> {
+        self.queue[..self.len]
+            .iter()
+            .position(|entry| entry.is_some_and(|entry| matches!(entry.action, Action::Seek(_))))
+    }
+
     fn enqueue(&mut self, tick: u64, action: Action) -> Result<(), CommandError> {
+        if matches!(action, Action::Seek(_)) {
+            // The newest jump wins. A queued jump would retire every control
+            // queued after it, so it leaves together with those controls.
+            if let Some(index) = self.seek_index() {
+                self.queue[index..self.len].fill(None);
+                self.len = index;
+            }
+        } else if let Some(entry) = self.queue[..self.len].iter_mut().flatten().find(|entry| {
+            entry.tick == tick
+                && core::mem::discriminant(&entry.action) == core::mem::discriminant(&action)
+        }) {
+            // A newer tempo or rhythm for the same tick replaces the queued one.
+            entry.action = action;
+            return Ok(());
+        }
         if self.len == self.queue.len() {
             return Err(CommandError::Capacity);
         }

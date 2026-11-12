@@ -8,15 +8,20 @@ function startTime(sample, startMillis) {
     return sample.hostMillis + ((startMillis - sample.millis) | 0);
 }
 
-export function projectSample(sample, now, startMillis = null, endTick = Infinity) {
+export function projectSample(sample, now, startMillis = null, endTick = Infinity, jump = null) {
     if (!sample) return null;
     const age = Math.max(0, now - sample.hostMillis);
     const start = sample.armed && startMillis !== null ? startTime(sample, startMillis) : sample.hostMillis;
     const armed = sample.armed && (startMillis === null || now < start);
-    const tick = sample.tick + (sample.playing && !armed ? Math.max(0, now - start) * rate(sample) : 0);
+    const moved = sample.tick + (sample.playing && !armed ? Math.max(0, now - start) * rate(sample) : 0);
+    // A jump still queued in this sample happens when playback reaches it.
+    const crossed = !!jump && moved >= jump.at;
+    const tick = crossed ? jump.to + moved - jump.at : moved;
     const ended = Number.isFinite(endTick) && tick >= endTick;
     return {...sample, tick: Math.min(tick, endTick - 1), playing: sample.playing && !ended,
-        armed: armed && !ended, pending: sample.pending && !ended, stale: sample.playing && age >= STALE};
+        armed: armed && !ended, startsAt: armed && !ended && startMillis !== null ? start : null,
+        pending: sample.pending && !ended && !crossed, jump: crossed || ended ? null : jump,
+        stale: sample.playing && age >= STALE};
 }
 
 // One timer and one coalesced read loop share ChordLink's existing GATT queue.
@@ -37,6 +42,7 @@ export class DeviceSync {
         this.endTick = Infinity;
         this.score = null;
         this.retryAt = 0;
+        this.jump = null;
     }
     clear() {
         this.cancelTimer();
@@ -50,6 +56,7 @@ export class DeviceSync {
         this.endTick = Infinity;
         this.score = null;
         this.retryAt = 0;
+        this.jump = null;
     }
     cancelTimer() {
         if (this.timer !== null) this.clearTimer(this.timer);
@@ -80,24 +87,30 @@ export class DeviceSync {
     accept(sample) {
         if (this.sample?.generation !== sample.generation) {
             this.startMillis = this.boundaryTick = null;
+            this.jump = null;
         }
         if (!sample.armed) this.startMillis = null;
         if (!sample.pending || (this.boundaryTick !== null && sample.tick >= this.boundaryTick)) this.boundaryTick = null;
+        // The device clears its queue when a jump happens, so a sample without
+        // pending controls, or one past the jump tick, already includes it.
+        if (this.jump && !(sample.pending && sample.tick < this.jump.at)) this.jump = null;
         this.sample = sample;
         this.retryAt = 0;
         this.onSample(sample);
         this.schedule();
     }
-    noteControl(receipt) {
+    // `to` is the destination tick of a seek; it stays null for a cancel.
+    noteControl(receipt, to = null) {
         if (!this.sample || receipt.generation !== this.sample.generation) return;
         if (receipt.opcode === 1) this.startMillis = receipt.startMillis;
-        if (receipt.opcode === 3) this.startMillis = this.boundaryTick = null;
+        if (receipt.opcode === 3) this.startMillis = this.boundaryTick = this.jump = null;
+        if (receipt.opcode === 5) this.jump = to !== null && receipt.tick !== to ? {at: receipt.tick, to} : null;
         if (receipt.opcode >= 4 && receipt.opcode <= 6) {
             this.boundaryTick = Math.min(this.boundaryTick ?? Infinity, receipt.tick);
         }
     }
     state(now = this.now()) {
-        return projectSample(this.sample, now, this.startMillis, this.endTick);
+        return projectSample(this.sample, now, this.startMillis, this.endTick, this.jump);
     }
     schedule() {
         this.cancelTimer();

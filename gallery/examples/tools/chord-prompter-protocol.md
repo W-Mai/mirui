@@ -27,12 +27,12 @@ Control and upload writes share one sequence stream. Bytes 0, 1–2 and 3–6 co
 | 2 | Zero | Pause at the sampled position |
 | 3 | Zero | Stop and reset the position and pending controls |
 | 4 | Thousandths of BPM | Change tempo at the requested boundary or tick |
-| 5 | Zero-based destination bar | Seek at the requested boundary or tick |
+| 5 | Zero-based destination bar, or `0xFFFFFFFF` | Seek at the requested boundary or tick; `0xFFFFFFFF` cancels a queued seek |
 | 6 | Rhythm index, or 255 | Override rhythm, or restore section-defined rhythms |
 | 16 | Upload byte length | Begin upload; bytes 12–15 contain its checksum |
 | 18 | Zero | Validate and activate the complete uploaded score |
 
-Rhythm indices are whole, quarter, pop, poprock, ballad, folk, rock, punk, reggae, shuffle, country and arpeggio, starting at zero. A seek cancels controls pending in the retired musical coordinate range. Late explicit tick requests are rejected. A queued tempo or rhythm change preserves the running bar phase.
+Rhythm indices are whole, quarter, pop, poprock, ballad, folk, rock, punk, reggae, shuffle, country and arpeggio, starting at zero. A seek cancels controls pending in the retired musical coordinate range. A newer seek replaces a queued seek together with the controls queued after it, and a newer tempo or rhythm change for the same tick replaces the queued one, so repeated input cannot fill the queue. Controls that arrive during a delayed start take effect at that start without moving it. Late explicit tick requests are rejected. A queued tempo or rhythm change preserves the running bar phase. The display's next page shows the destination of a seek queued for the coming bar line, and its previous page keeps the bar that was played.
 
 Upload chunks use opcode 17, sequence at bytes 1–2, exact byte offset at 3–4, payload length at 5 and up to 14 payload bytes at 6–19. Offsets refer to UTF-8 bytes, so a chunk may split a code point. UTF-8 and the song sheet are validated only after the complete byte stream and checksum are verified. The checksum is 32-bit FNV-1a. A new score becomes active only after successful validation; an incomplete, corrupt or invalid upload preserves the existing score. Successful activation increments the generation and resets playback.
 
@@ -61,7 +61,7 @@ Browser audio should schedule future events against calibrated device/audio cloc
 
 The device advances playback from its local monotonic clock. The browser projects between device samples using its host clock and the confirmed tempo. Visible steady playback reads status every five seconds; paused or stopped playback has no periodic status reads. Hidden pages and browser-preview mode suspend sampling. Returning to the foreground confirms current state once, including while paused. Radio connection events are independent of these application reads.
 
-Control receipts request an immediate state confirmation. An acknowledged delayed start maps its wrapping device-millisecond timestamp to the sampled host clock; zero is a valid wrapped timestamp. A queued control schedules confirmation after its accepted execution tick. Canonical section-start ticks exported by the Rust score parser also schedule confirmation because the device can change rhythm at those boundaries. The existing GATT queue serializes these reads with controls and upload chunks; repeated requests share one running read loop and a trailing confirmation.
+Control receipts request an immediate state confirmation. An acknowledged delayed start maps its wrapping device-millisecond timestamp to the sampled host clock; zero is a valid wrapped timestamp. A queued control schedules confirmation after its accepted execution tick. The receipt of a queued seek gives its execution tick; with the requested destination, the projection continues across the jump until a status sample shows it, so the display does not briefly show the bar it skips. Canonical section-start ticks exported by the Rust score parser also schedule confirmation because the device can change rhythm at those boundaries. The existing GATT queue serializes these reads with controls and upload chunks; repeated requests share one running read loop and a trailing confirmation.
 
 If a reconnect exposes an armed start without its receipt, temporary 250ms confirmations resolve that transition. Pending controls whose targets are unknown are confirmed at counted-beat boundaries until resolved. Stable paused queues do not generate polling. Delayed or failed reads do not create a rapid retry loop, and closed connection epochs retire late results.
 

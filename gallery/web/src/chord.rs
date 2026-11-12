@@ -61,8 +61,9 @@ impl ChordPreview {
                 out.push(',');
             }
             out.push_str(&alloc::format!(
-                "{{\"tick\":{}}}",
+                "{{\"tick\":{},\"name\":\"{}\"}}",
                 u64::from(section.first_bar) * bar_ticks,
+                super::json_escape(self.score.text(section.name.clone())),
             ));
         }
         out.push_str("]}");
@@ -81,6 +82,7 @@ impl ChordPreview {
         self.transport.position() as u32
     }
 
+    /// Starts or resumes; a future time starts after a count-in.
     pub fn play(&mut self, now_ms: f64) {
         let end = u64::from(self.score.bars()) * u64::from(self.score.meter.beats) * TICKS_PER_BEAT;
         if self.transport.position() >= end - 1 {
@@ -100,6 +102,7 @@ impl ChordPreview {
         self.schedule(now_ms, Action::Tempo(milli_bpm), Boundary::Beat)
     }
 
+    /// Jumps at the next bar line while playing, and at once otherwise.
     pub fn seek(&mut self, now_ms: f64, bar: u16) -> Result<(), JsValue> {
         if bar >= self.score.bars() {
             return Err(JsValue::from_str("Bar is outside this song"));
@@ -109,6 +112,43 @@ impl ChordPreview {
             Action::Seek(u64::from(bar) * u64::from(self.score.meter.beats) * TICKS_PER_BEAT),
             Boundary::Bar,
         )
+    }
+
+    /// Drops a queued jump; playback continues into the following bar.
+    pub fn cancel_jump(&mut self) {
+        self.transport.cancel_seek();
+    }
+
+    /// Continues `from` in this song after an edit: the same bar and offset,
+    /// playback state and strumming override, and its live tempo unless this
+    /// song sets a different one.
+    pub fn adopt(&mut self, now_ms: f64, from: &mut ChordPreview) {
+        let now = micros(now_ms);
+        let old = u64::from(from.tick(now_ms));
+        let old_bar = u64::from(from.score.meter.beats) * TICKS_PER_BEAT;
+        let bar_ticks = u64::from(self.score.meter.beats) * TICKS_PER_BEAT;
+        let bar = (old / old_bar).min(u64::from(self.score.bars() - 1));
+        let tick = bar * bar_ticks + (old % old_bar).min(bar_ticks - 1);
+        let _ = self
+            .transport
+            .schedule(now, Boundary::Now, Action::Seek(tick));
+        if self.score.milli_bpm == from.score.milli_bpm {
+            let _ = self.transport.schedule(
+                now,
+                Boundary::Now,
+                Action::Tempo(from.transport.milli_bpm()),
+            );
+        }
+        if let Some(pattern) = from.transport.rhythm() {
+            let _ = self
+                .transport
+                .schedule(now, Boundary::Now, Action::Rhythm(Some(pattern)));
+        }
+        match from.transport.playback() {
+            Playback::Running => self.transport.start(now.max(from.transport.starts_at_us())),
+            Playback::Paused => self.transport.pause(now),
+            Playback::Stopped => {}
+        }
     }
 
     pub fn rhythm(&mut self, now_ms: f64, index: u8) -> Result<(), JsValue> {
@@ -135,6 +175,16 @@ impl ChordPreview {
     #[wasm_bindgen(getter)]
     pub fn pending(&self) -> bool {
         self.transport.pending() != 0
+    }
+    /// The tick of a queued jump, if any.
+    #[wasm_bindgen(getter)]
+    pub fn jump_at(&self) -> Option<u32> {
+        self.transport.pending_seek().map(|(at, _)| at as u32)
+    }
+    /// Where a queued jump lands, if any.
+    #[wasm_bindgen(getter)]
+    pub fn jump_to(&self) -> Option<u32> {
+        self.transport.pending_seek().map(|(_, to)| to as u32)
     }
     #[wasm_bindgen(getter)]
     pub fn pattern(&self) -> u8 {

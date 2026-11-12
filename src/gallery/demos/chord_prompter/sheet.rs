@@ -34,6 +34,11 @@ pub(super) struct Sheet {
     accents: [u8; BAR_BYTES / 8],
 }
 
+fn keep_largest(largest: &mut [usize; 3], value: usize) {
+    let smallest = largest.iter_mut().min().expect("three entries");
+    *smallest = (*smallest).max(value);
+}
+
 impl Sheet {
     pub fn new() -> Self {
         Self {
@@ -50,41 +55,78 @@ impl Sheet {
         }
     }
 
+    /// Sizes the buffers once. A queued jump can put any three bars side by
+    /// side, so the reserve covers the three largest bars.
     pub fn prepare(&mut self, score: &Score, width: u16, height: u16) {
+        let (mut text, mut lines) = ([0usize; 3], [0usize; 3]);
         for bar in 0..score.bars() {
-            self.rebuild(score, bar, width, height);
+            self.rebuild_pages(score, [None, Some(bar), None], width, height);
+            keep_largest(&mut text, self.text.len());
+            keep_largest(&mut lines, self.lines.len());
         }
+        self.text.clear();
+        self.text.reserve(text.iter().sum());
+        self.lines.clear();
+        self.lines.reserve(lines.iter().sum());
     }
 
+    /// Lays out the bar before, the bar itself and the bar after it.
+    #[cfg(test)]
     pub fn rebuild(&mut self, score: &Score, bar: u16, width: u16, viewport_height: u16) {
+        let next = (bar + 1 < score.bars()).then_some(bar + 1);
+        self.rebuild_pages(
+            score,
+            [bar.checked_sub(1), Some(bar), next],
+            width,
+            viewport_height,
+        );
+    }
+
+    /// Lays out the previous, current and next pages. A bar shown twice
+    /// shares the text and layout of its first page.
+    pub fn rebuild_pages(
+        &mut self,
+        score: &Score,
+        pages: [Option<u16>; 3],
+        width: u16,
+        viewport_height: u16,
+    ) {
         self.text.clear();
         self.accents.fill(0);
         self.count = 0;
+        let first = |page: usize| {
+            (0..page).find(|&earlier| pages[earlier].is_some() && pages[earlier] == pages[page])
+        };
+        let mut ranges = [0..0, 0..0, 0..0];
         for page in 0..3 {
-            let source_bar = match page {
-                0 => bar.checked_sub(1),
-                1 => Some(bar),
-                _ => Some(bar + 1),
-            };
-            for chord in source_bar.map(|bar| score.bar_chords(bar)).unwrap_or(&[]) {
-                let start = self.text.len();
-                for span in score.lyric(chord).segments() {
-                    let offset = self.text.len();
-                    self.text.push_str(span.text);
-                    if span.accented {
-                        for byte in offset..self.text.len() {
-                            self.accents[byte / 8] |= 1 << (byte % 8);
+            let start = self.count;
+            if let Some(earlier) = first(page) {
+                for index in ranges[earlier].clone() {
+                    self.slots[self.count] = self.slots[index];
+                    self.count += 1;
+                }
+            } else {
+                for chord in pages[page].map(|bar| score.bar_chords(bar)).unwrap_or(&[]) {
+                    let start = self.text.len();
+                    for span in score.lyric(chord).segments() {
+                        let offset = self.text.len();
+                        self.text.push_str(span.text);
+                        if span.accented {
+                            for byte in offset..self.text.len() {
+                                self.accents[byte / 8] |= 1 << (byte % 8);
+                            }
                         }
                     }
+                    self.slots[self.count] = Slot {
+                        start: start as u16,
+                        end: self.text.len() as u16,
+                        chord: score.chord_name(chord.degree),
+                        ..Slot::default()
+                    };
+                    self.count += 1;
                 }
-                self.slots[self.count] = Slot {
-                    start: start as u16,
-                    end: self.text.len() as u16,
-                    chord: score.chord_name(chord.degree),
-                    ..Slot::default()
-                };
-                self.count += 1;
             }
+            ranges[page] = start..self.count;
             if page == 0 {
                 self.current_start = self.count;
             }
@@ -94,14 +136,16 @@ impl Sheet {
         }
         self.lines.clear();
         let width = width.max(CONTENT_SIZE * 2);
-        for (page, range) in [
-            0..self.current_start,
-            self.current_start..self.current_count,
-            self.current_count..self.count,
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        let mut heights = [0u16; 3];
+        for page in 0..3 {
+            let range = ranges[page].clone();
+            if let Some(earlier) = first(page) {
+                for (to, from) in range.zip(ranges[earlier].clone()) {
+                    self.slots[to] = self.slots[from];
+                }
+                heights[page] = heights[earlier];
+                continue;
+            }
             let columns = range
                 .len()
                 .min(usize::from(width / (CONTENT_SIZE * 2)))
@@ -112,12 +156,9 @@ impl Sheet {
                 self.lines.truncate(first_line);
                 height = self.wrap(width, 1, viewport_height, range).0;
             }
-            match page {
-                0 => self.previous_height = height,
-                1 => self.height = height,
-                _ => self.next_height = height,
-            }
+            heights[page] = height;
         }
+        [self.previous_height, self.height, self.next_height] = heights;
     }
 
     #[cfg(test)]
@@ -128,6 +169,20 @@ impl Sheet {
             self.slots[self.current_count - 1].end as usize
         };
         &self.text[usize::from(self.slots[self.current_start].start)..end]
+    }
+
+    #[cfg(test)]
+    pub fn page_text(&self, page: usize) -> String {
+        let range = [
+            0..self.current_start,
+            self.current_start..self.current_count,
+            self.current_count..self.count,
+        ][page]
+            .clone();
+        self.slots[range]
+            .iter()
+            .map(|slot| &self.text[usize::from(slot.start)..usize::from(slot.end)])
+            .collect()
     }
 
     fn wrap(

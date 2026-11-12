@@ -12,7 +12,7 @@ mod state;
 mod strips;
 mod transport;
 
-pub use link::{DeviceLink, LinkError, checksum};
+pub use link::{CANCEL_JUMP, DeviceLink, LinkError, checksum};
 pub use motion::center_emphasis;
 pub use runtime::install;
 #[cfg(feature = "std")]

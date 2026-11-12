@@ -18,6 +18,9 @@ pub enum LinkError {
     Glyph = 9,
 }
 
+/// A seek argument that drops the queued jump instead of adding one.
+pub const CANCEL_JUMP: u32 = u32::MAX;
+
 /// Fixed-size GATT packets share one ordered command stream per connection.
 pub struct DeviceLink {
     generation: u32,
@@ -175,6 +178,10 @@ impl DeviceLink {
                     2 => Boundary::Bar,
                     _ => return Err(LinkError::Packet),
                 };
+                if opcode == 5 && arg == CANCEL_JUMP {
+                    session.cancel_jump();
+                    return Ok((session.position(), 0));
+                }
                 let action = match opcode {
                     4 => Action::Tempo(arg),
                     5 => {

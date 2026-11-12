@@ -93,10 +93,40 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .bar-preview p { margin: 8px 0 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; max-height: 9em; overflow-y: hidden; }
 .scrubber label { font-size: 11px; color: var(--ink-dim); display: block; margin-bottom: 9px; font-variant-numeric: tabular-nums; }
 input[type="range"] { width: 100%; accent-color: var(--signal); cursor: pointer; height: 4px; margin: 0; display: block; }
-.tempo-control { display: flex; flex-direction: column; align-items: center; width: 58px; }
+.tempo-control { display: flex; flex-direction: column; align-items: center; }
 .tempo-control label { font-size: 9px; letter-spacing: .08em; color: var(--ink-dim); }
-.tempo-control input { background: transparent; border: none; width: 68px; color: var(--ink); font-family: var(--font-mono); font-size: 21px; text-align: center; padding: 3px 0; appearance: textfield; -moz-appearance: textfield; font-variant-numeric: tabular-nums; }
+.tempo-control input { background: transparent; border: none; width: 52px; color: var(--ink); font-family: var(--font-mono); font-size: 21px; text-align: center; padding: 3px 0; appearance: textfield; -moz-appearance: textfield; font-variant-numeric: tabular-nums; }
 .tempo-control input::-webkit-inner-spin-button { appearance: none; }
+.tempo-row { display: flex; align-items: center; }
+.tempo-step { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border: none; border-radius: 50%; background: transparent; color: var(--ink-dim); }
+.tempo-step svg { width: 16px; height: 16px; stroke-width: 1.8; }
+.tempo-step:hover:not(:disabled) { background: var(--raised-2); border: none; color: var(--ink); }
+/* The thumb stays on the bar playing; ticks mark section starts and a bar
+   marks where a chosen jump lands. */
+.scrubber .track { position: relative; }
+.scrub-marks { position: absolute; inset: 0 8px; pointer-events: none; }
+.scrub-marks i { position: absolute; top: 50%; transform: translate(-50%, -50%); }
+.scrub-marks .section { width: 1px; height: 12px; background: var(--ink-faint); }
+.scrub-marks .jump { width: 4px; height: 16px; border-radius: 2px; background: var(--signal); box-shadow: 0 0 0 3px var(--signal-wash); }
+#position .to { color: var(--signal); }
+/* Cards are targets: tap one to play it next, swipe to step. */
+.bar-window { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.bar-card { cursor: pointer; }
+.bar-card:hover .bar-number { color: var(--ink-dim); }
+.bar-card.jump .bar-number { color: var(--signal); }
+.bar-card.jump .bar-number::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 1.5v5a2 2 0 0 0 2 2h6M8 6l2.5 2.5L8 11'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 1.5v5a2 2 0 0 0 2 2h6M8 6l2.5 2.5L8 11'/%3E%3C/svg%3E") center / contain no-repeat; }
+.bar-card.swap .chord, .bar-card.swap .lyric { animation: card-swap 240ms cubic-bezier(.2,.8,.2,1); }
+@keyframes card-swap { from { opacity: 0; transform: translateY(8px); } }
+.section-heading.counting #section-name { color: var(--signal); }
+.beats.counting i.active { transform: scale(1.35); }
+.check { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 11px; color: var(--ink-dim); cursor: pointer; }
+.check input { accent-color: var(--signal); margin: 0; }
+.shortcuts { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 10px 0 0; }
+.shortcuts dt { white-space: nowrap; }
+.shortcuts dd { margin: 0; }
+kbd { display: inline-block; min-width: 1.6em; padding: 1px 4px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; background: var(--raised); color: var(--ink); font: 11px/1.3 var(--font-mono); text-align: center; }
 .transfer { display: flex; align-items: center; gap: 15px; padding: 0 0 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); font-size: 12px; font-variant-numeric: tabular-nums; }
 .transfer span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .transfer progress { accent-color: var(--signal); width: 150px; height: 7px; }
@@ -141,6 +171,8 @@ code { color: var(--signal-bright); }
     .controller-wrap { width: calc(100% - 28px); bottom: 18px; }
     .controller { padding: 14px; }
     .controller-row { gap: 14px; }
+    .tempo-step { width: 30px; height: 30px; }
+    .tempo-control input { width: 44px; font-size: 19px; }
     .has-transfer .editor { bottom: 174px; }
 }
 @media (max-height: 650px) {

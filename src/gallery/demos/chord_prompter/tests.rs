@@ -478,6 +478,92 @@ fn pause_preserves_fractional_phase_and_seek_retires_old_controls() {
 }
 
 #[test]
+fn a_newer_jump_replaces_a_pending_jump_and_keeps_earlier_controls() {
+    let mut transport = Transport::new(120_000, 4).unwrap();
+    transport.start(0);
+    transport
+        .schedule(0, Boundary::Beat, Action::Tempo(60_000))
+        .unwrap();
+    assert_eq!(
+        transport.schedule(100_000, Boundary::Bar, Action::Seek(5 * 3840)),
+        Ok(3840)
+    );
+    transport
+        .schedule(200_000, Boundary::Bar, Action::Rhythm(Some(Pattern::Rock)))
+        .unwrap();
+    assert_eq!(
+        transport.schedule(300_000, Boundary::Bar, Action::Seek(2 * 3840)),
+        Ok(3840)
+    );
+    assert_eq!(transport.pending(), 2);
+    assert_eq!(transport.advance(3_499_999), 3839);
+    assert_eq!(transport.milli_bpm(), 60_000);
+    assert_eq!(transport.advance(3_500_000), 2 * 3840);
+    assert_eq!(transport.rhythm(), None);
+    assert_eq!(transport.pending(), 0);
+}
+
+#[test]
+fn repeated_controls_for_one_boundary_keep_the_newest_value() {
+    let mut transport = Transport::new(120_000, 4).unwrap();
+    transport.start(0);
+    for step in 0..12 {
+        assert_eq!(
+            transport.schedule(1000, Boundary::Beat, Action::Tempo(121_000 + step * 1000)),
+            Ok(960)
+        );
+    }
+    transport
+        .schedule(1000, Boundary::Bar, Action::Rhythm(Some(Pattern::Folk)))
+        .unwrap();
+    transport
+        .schedule(2000, Boundary::Bar, Action::Rhythm(Some(Pattern::Rock)))
+        .unwrap();
+    assert_eq!(transport.pending(), 2);
+    transport.advance(500_000);
+    assert_eq!(transport.milli_bpm(), 132_000);
+    transport.advance(2_000_000);
+    assert_eq!(transport.rhythm(), Some(Pattern::Rock));
+}
+
+#[test]
+fn controls_during_a_count_in_apply_at_the_delayed_start() {
+    let mut transport = Transport::new(120_000, 4).unwrap();
+    transport.start(2_000_000);
+    assert_eq!(
+        transport.schedule(500_000, Boundary::Bar, Action::Seek(3 * 3840)),
+        Ok(3 * 3840)
+    );
+    assert_eq!(
+        transport.schedule(600_000, Boundary::Beat, Action::Tempo(60_000)),
+        Ok(3 * 3840)
+    );
+    assert_eq!(transport.pending(), 0);
+    assert_eq!(transport.starts_at_us(), 2_000_000);
+    assert_eq!(transport.advance(1_999_999), 3 * 3840);
+    assert_eq!(transport.advance(3_000_000), 3 * 3840 + 960);
+}
+
+#[test]
+fn a_cancelled_jump_keeps_the_other_queued_controls() {
+    let mut transport = Transport::new(120_000, 4).unwrap();
+    transport.start(0);
+    transport
+        .schedule(0, Boundary::Bar, Action::Seek(5 * 3840))
+        .unwrap();
+    transport
+        .schedule(0, Boundary::Beat, Action::Tempo(60_000))
+        .unwrap();
+    assert_eq!(transport.pending_seek(), Some((3840, 5 * 3840)));
+    assert!(transport.cancel_seek());
+    assert!(!transport.cancel_seek());
+    assert_eq!(transport.pending_seek(), None);
+    assert_eq!(transport.pending(), 1);
+    assert_eq!(transport.advance(3_500_000), 3840);
+    assert_eq!(transport.milli_bpm(), 60_000);
+}
+
+#[test]
 fn control_queue_is_bounded_and_sorted_without_allocations() {
     let mut transport = Transport::new(120_000, 4).unwrap();
     transport.start(0);
@@ -491,13 +577,18 @@ fn control_queue_is_bounded_and_sorted_without_allocations() {
     assert_eq!(transport.milli_bpm(), 60_000);
     assert_eq!(transport.advance(3_500_000), 3840);
     assert_eq!(transport.milli_bpm(), 90_000);
-    for _ in 0..8 {
+    for beat in 1..=8 {
         transport
-            .schedule(3_500_000, Boundary::Bar, Action::Tempo(90_000))
+            .schedule_at(3_500_000, 3840 + beat * 960, Action::Tempo(90_000))
             .unwrap();
     }
     assert_eq!(
         transport.schedule(3_500_000, Boundary::Beat, Action::Tempo(100_000)),
+        Ok(4800)
+    );
+    assert_eq!(transport.pending(), 8);
+    assert_eq!(
+        transport.schedule_at(3_500_000, 3840 + 9 * 960, Action::Tempo(100_000)),
         Err(CommandError::Capacity)
     );
     assert_eq!(
@@ -827,4 +918,77 @@ fn resizing_reuses_entities_and_matches_direct_creation_at_every_size() {
             "resized output differs at {width}x{height}"
         );
     }
+}
+
+#[test]
+fn queued_jumps_show_on_the_next_page_and_the_played_bar_stays_behind() {
+    use crate::types::Fixed;
+    let mut session = Session::new(Score::parse(PRACTICE, ScoreLimits::DEVICE).unwrap());
+    session.resize(Fixed::from_int(320), Fixed::from_int(240));
+    session.toggle(0);
+    session.advance(2_000_000);
+    assert_eq!(session.sheet.page_text(2), "Let it ring");
+    session
+        .control(2_000_000, Action::Seek(5 * 3840), Boundary::Bar, None)
+        .unwrap();
+    assert_eq!(session.sheet.page_text(2), "Find your way");
+    assert_eq!(session.next_chord, "Am");
+    session.cancel_jump();
+    assert_eq!(session.sheet.page_text(2), "Let it ring");
+    assert_eq!(session.next_chord, "G");
+    session
+        .control(2_100_000, Action::Seek(5 * 3840), Boundary::Bar, None)
+        .unwrap();
+    session.advance(3_000_000);
+    assert_eq!(session.sheet.current_text(), "Find your way");
+    assert_eq!(session.sheet.page_text(0), "Keep the rhythm");
+    assert_eq!(session.previous_chord, "C");
+    assert_eq!(session.sheet.page_text(2), "Stay together");
+    session.pause(3_000_000);
+    session
+        .control(3_000_000, Action::Seek(2 * 3840), Boundary::Bar, None)
+        .unwrap();
+    assert_eq!(session.sheet.page_text(0), "Let it ring");
+}
+
+#[test]
+fn a_repeated_bar_shares_its_layout_within_the_prepared_reserve() {
+    let score = Score::parse(PRACTICE, ScoreLimits::DEVICE).unwrap();
+    let mut sheet = super::sheet::Sheet::new();
+    sheet.prepare(&score, 320, 120);
+    let reserve = (sheet.text.capacity(), sheet.lines.capacity());
+    sheet.rebuild_pages(&score, [Some(4), Some(4), Some(4)], 320, 120);
+    assert_eq!(sheet.text, "One more turn");
+    for page in 0..3 {
+        assert_eq!(sheet.page_text(page), "One more turn");
+    }
+    assert_eq!(sheet.previous_height, sheet.height);
+    assert_eq!(sheet.next_height, sheet.height);
+    sheet.rebuild_pages(&score, [Some(7), Some(2), Some(4)], 320, 120);
+    assert_eq!(sheet.page_text(0), "Home again");
+    assert_eq!((sheet.text.capacity(), sheet.lines.capacity()), reserve);
+}
+
+#[test]
+fn a_queued_jump_can_be_cancelled_over_the_link() {
+    use crate::prelude::*;
+    let mut app = App::headless(128, 128);
+    let session = app
+        .add_model(Session::new(
+            Score::parse(PRACTICE, ScoreLimits::DEVICE).unwrap(),
+        ))
+        .finish();
+    let mut link = DeviceLink::new(17);
+    assert_eq!(link.write(&session, packet(1, 0, 17, 0), 0)[0], 0);
+    let mut seek = packet(5, 1, 17, 5);
+    seek[7] = 2;
+    let receipt = link.write(&session, seek, 100_000);
+    assert_eq!(receipt[0], 0);
+    assert_eq!(u32::from_le_bytes(receipt[8..12].try_into().unwrap()), 3840);
+    assert_eq!(link.status(&session, 200_000)[1] & 2, 2);
+    assert_eq!(
+        link.write(&session, packet(5, 2, 17, CANCEL_JUMP), 300_000)[0],
+        0
+    );
+    assert_eq!(link.status(&session, 400_000)[1] & 2, 0);
 }

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Steer Chord Prompter playback from the keyboard and page-turn pedals: arrow and page keys choose the bar that comes next while playing and move by a bar while paused, Shift moves by section, Home returns to the start, Escape cancels a chosen jump and minus and plus change the tempo; Space keeps working after a control was clicked.
+
+- Tap a Chord Prompter bar card to play it next, or swipe the bars to step; the coming card shows a chosen jump, the cards behind keep the bars that were played, and the timeline shows the destination and section starts.
+
+- Replace a queued prompter jump with the newest one, and a queued tempo or rhythm change with a newer one for the same tick; apply controls received during a delayed start at that start; cancel a queued jump with seek argument `0xFFFFFFFF`.
+
+- Show a queued jump destination on the prompter display's next page and keep the played bar on its previous page; project the browser view across a confirmed jump until a status sample shows it.
+
+- Count in one bar before prompter playback, step the tempo with buttons, and apply valid song-sheet edits to the browser preview as you type from the same place in the song.
+
 ## [0.56.0] - 2026-11-12
 
 - Support observed `ImageSource` Model fields by providing exact equality for fixed-point paths and identity-based texture sources.

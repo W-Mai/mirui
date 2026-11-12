@@ -41,7 +41,8 @@ pub struct Session {
     #[observe]
     pub stage_width: crate::types::Fixed,
     pub(super) sheet: super::sheet::Sheet,
-    sheet_bar: u16,
+    /// Bars on the previous, current and next pages.
+    sheet_pages: [Option<u16>; 3],
     sheet_view_height: u16,
     sheet_needs_prepare: bool,
     #[observe]
@@ -86,7 +87,7 @@ impl Session {
             pattern: score.sections()[0].pattern,
             stage_width: crate::types::Fixed::ZERO,
             sheet: super::sheet::Sheet::new(),
-            sheet_bar: u16::MAX,
+            sheet_pages: [None; 3],
             sheet_view_height: 64,
             sheet_needs_prepare: true,
             sheet_revision: 0,
@@ -121,13 +122,38 @@ impl Session {
             .rhythm()
             .unwrap_or(self.score.sections()[self.score.section_at(bar)].pattern);
         let next = self.score.chord_at(position);
-        if self.sheet_bar != bar {
-            self.rebuild_sheet(bar);
+        // The next page shows where the coming bar line leads, including a
+        // queued jump.
+        let line = (u64::from(bar) + 1) * bar_ticks;
+        let next_bar = match self.transport.pending_seek() {
+            Some((at, to)) if at == line => Some((to / bar_ticks) as u16),
+            _ => (bar + 1 < self.score.bars()).then_some(bar + 1),
+        };
+        if self.sheet_pages[1] != Some(bar) || self.sheet_pages[2] != next_bar {
+            let previous = if self.sheet_pages[1] == Some(bar) {
+                self.sheet_pages[0]
+            } else if self.playing
+                && self.sheet_pages[1].is_some()
+                && self.sheet_pages[2] == Some(bar)
+            {
+                // Playback crossed into the page shown as next; the bar it
+                // left stays on the previous page, also after a jump.
+                self.sheet_pages[1]
+            } else {
+                bar.checked_sub(1)
+            };
+            self.rebuild_sheet([previous, Some(bar), next_bar]);
+            self.previous_chord = previous
+                .and_then(|bar| self.score.bar_chords(bar).last())
+                .map_or("", |chord| self.score.chord_name(chord.degree));
+            self.next_chord = next_bar
+                .and_then(|bar| self.score.bar_chords(bar).first())
+                .map_or("END", |chord| self.score.chord_name(chord.degree));
         }
         self.slot_index = self.score.chords()[next].slot;
         let slots = u64::from(self.score.chords()[next].slots);
         let local = position % bar_ticks;
-        self.has_next = bar + 1 < self.score.bars();
+        self.has_next = next_bar.is_some();
         self.page_scroll = Fixed::from_int(
             self.stage_width.to_int().max(0) / 2
                 + (self.stage_width.to_int().max(0) as u64 * local / bar_ticks) as i32,
@@ -144,24 +170,6 @@ impl Session {
             self.current = next;
             let current = &self.score.chords()[next];
             self.chord = self.score.chord_name(current.degree);
-            let first = self.score.chords().partition_point(|chord| chord.bar < bar);
-            if let Some(previous) = first
-                .checked_sub(1)
-                .map(|index| &self.score.chords()[index])
-            {
-                self.previous_chord = self.score.chord_name(previous.degree);
-            } else {
-                self.previous_chord = "";
-            }
-            let following = self
-                .score
-                .chords()
-                .partition_point(|chord| chord.bar <= bar);
-            if let Some(next) = self.score.chords().get(following) {
-                self.next_chord = self.score.chord_name(next.degree);
-            } else {
-                self.next_chord = "END";
-            }
         }
         self.tempo.clear();
         write!(&mut self.tempo, "{} BPM", self.transport.milli_bpm() / 1000)
@@ -171,7 +179,7 @@ impl Session {
         }
     }
 
-    fn rebuild_sheet(&mut self, bar: u16) {
+    fn rebuild_sheet(&mut self, pages: [Option<u16>; 3]) {
         if self.sheet_needs_prepare {
             self.sheet.prepare(
                 &self.score,
@@ -180,13 +188,14 @@ impl Session {
             );
             self.sheet_needs_prepare = false;
         }
-        self.sheet.rebuild(
+        self.sheet.rebuild_pages(
             &self.score,
-            bar,
+            pages,
             self.stage_width.to_int().max(120) as u16,
             self.sheet_view_height,
         );
-        self.sheet_bar = bar;
+        self.sheet_pages = pages;
+        let bar = pages[1].unwrap_or(0);
         self.content_height = Fixed::from_int(i32::from(self.sheet.height));
         self.next_content_height = Fixed::from_int(i32::from(self.sheet.next_height));
         self.previous_content_height = Fixed::from_int(i32::from(self.sheet.previous_height));
@@ -211,7 +220,7 @@ impl Session {
         use crate::types::Fixed;
         self.stage_width = (width - Fixed::from_int(8)).max(Fixed::ZERO);
         self.sheet_needs_prepare = true;
-        self.sheet_bar = u16::MAX;
+        self.sheet_pages = [None; 3];
         self.sync();
     }
     pub fn sheet_viewport(&mut self, width: Fixed, height: Fixed) {
@@ -220,7 +229,7 @@ impl Session {
             self.stage_width = width;
             self.sheet_view_height = height;
             self.sheet_needs_prepare = true;
-            self.sheet_bar = u16::MAX;
+            self.sheet_pages = [None; 3];
             self.sync();
         }
     }
@@ -312,6 +321,11 @@ impl Session {
         self.transport.stop();
         self.sync();
     }
+    /// Drops a queued jump; playback continues into the following bar.
+    pub fn cancel_jump(&mut self) {
+        self.transport.cancel_seek();
+        self.sync();
+    }
     pub fn adjust_tempo(&mut self, delta: i32) -> Result<(), CommandError> {
         let tempo = (i64::from(self.transport.milli_bpm()) + i64::from(delta) * 1000)
             .clamp(20_000, 300_000) as u32;
@@ -342,7 +356,7 @@ impl Session {
         self.stage_width = stage_width;
         self.sheet_view_height = sheet_view_height;
         self.sheet_needs_prepare = true;
-        self.sheet_bar = u16::MAX;
+        self.sheet_pages = [None; 3];
         self.sync();
         Ok(())
     }
