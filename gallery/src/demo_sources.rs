@@ -42,7 +42,7 @@ split_demo_sources! {
     CHORD_PROMPTER => {
         demo: "chord_prompter",
         marker: "fn rhythm_strip",
-        parts: ["score.rs", "transport.rs", "state.rs", "strips.rs", "composition.rs", "runtime.rs", "tests.rs"]
+        parts: ["score.rs", "transport.rs", "state.rs", "strips.rs", "composition.rs", "runtime.rs", "font.rs", "link.rs", "motion.rs", "sheet.rs", "sprites.rs", "sprites/tests.rs", "tests.rs"]
     },
     GLASS_LIGHT_TOGGLE => {
         demo: "glass_light_toggle",
