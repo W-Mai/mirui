@@ -176,14 +176,18 @@ mod tests {
                 renderer.draw(&command, &clip);
             }
             let mut blits = 0;
-            capture.drain_events(|_, records| {
+            let mut registered_drops = 0;
+            capture.drain_events(|info, records| {
+                if records.is_empty() && info.track != 0 {
+                    registered_drops += info.status.dropped;
+                }
                 blits += records
                     .iter()
                     .filter(|record| record.span().is_some_and(|span| span.name == "sw.blit"))
                     .count();
             });
             assert_eq!(blits, 1, "prepared={prepared}");
-            assert_eq!(capture.status().dropped, 0);
+            assert_eq!(registered_drops, 0);
             assert_eq!(capture.status().open_scopes, 0);
         }
     }

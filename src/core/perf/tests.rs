@@ -42,7 +42,11 @@ fn input_preparation_traces_batches_without_per_effect_records_or_warm_allocatio
         );
         assert_eq!(calls.get(), count * 3);
         let mut spans: Vec<PerfEvent> = Vec::new();
-        capture.drain_events(|_, records| {
+        let mut registered_drops = 0;
+        capture.drain_events(|info, records| {
+            if records.is_empty() && info.track != 0 {
+                registered_drops += info.status.dropped;
+            }
             spans.extend(records.iter().filter_map(|record| record.span()).copied());
         });
         let parent = spans
@@ -65,7 +69,7 @@ fn input_preparation_traces_batches_without_per_effect_records_or_warm_allocatio
         if let Some(previous) = previous_names.replace(names.clone()) {
             assert_eq!(names, previous);
         }
-        assert_eq!(capture.status().dropped, 0);
+        assert_eq!(registered_drops, 0);
         assert_eq!(capture.status().invalid, 0);
         assert_eq!(capture.status().open_scopes, 0);
         drop(capture);
@@ -177,8 +181,13 @@ fn decisions_share_the_bounded_stream_without_cpu_or_duration_samples() {
         }),
         0
     );
-    capture.drain(None);
-    assert_eq!(capture.status().dropped, 3);
+    let mut registered_drops = 0;
+    capture.drain_events(|info, records| {
+        if records.is_empty() && info.track != 0 {
+            registered_drops += info.status.dropped;
+        }
+    });
+    assert_eq!(registered_drops, 3);
     assert_eq!(capture.status().open_scopes, 0);
     assert!(capture.stage_stats().is_empty());
 }

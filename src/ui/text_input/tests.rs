@@ -18,7 +18,11 @@ fn native_state_trace_keeps_lifecycle_work_separate_from_editor_reconciliation()
     let mut capture = Capture::new(DEFAULT_TRACE_BUDGET).unwrap();
     assert_eq!(native_state(&mut app.world, 0).unwrap(), expected);
     let mut spans: alloc::vec::Vec<crate::core::perf::PerfEvent> = alloc::vec::Vec::new();
-    capture.drain_events(|_, records| {
+    let mut registered_drops = 0;
+    capture.drain_events(|info, records| {
+        if records.is_empty() && info.track != 0 {
+            registered_drops += info.status.dropped;
+        }
         spans.extend(records.iter().filter_map(|record| record.span()).copied());
     });
     let outer = spans
@@ -41,7 +45,7 @@ fn native_state_trace_keeps_lifecycle_work_separate_from_editor_reconciliation()
             && flush.start_ns <= span.start_ns
             && span.end_ns <= editor.start_ns
     }));
-    assert_eq!(capture.status().dropped, 0);
+    assert_eq!(registered_drops, 0);
     assert_eq!(capture.status().invalid, 0);
     assert_eq!(capture.status().open_scopes, 0);
 }

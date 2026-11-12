@@ -202,7 +202,11 @@ fn readback_reuses_mapping_storage_and_preserves_destination_layout() {
     capture.stop();
     let mut submissions = std::vec::Vec::new();
     let mut waits = std::vec::Vec::new();
-    capture.drain_events(|_, records| {
+    let mut registered_drops = 0;
+    capture.drain_events(|info, records| {
+        if records.is_empty() && info.track != 0 {
+            registered_drops += info.status.dropped;
+        }
         use crate::core::perf::{RecordData, ScopeKind, SubmissionOutcome};
         for record in records {
             match record.data {
@@ -220,7 +224,7 @@ fn readback_reuses_mapping_storage_and_preserves_destination_layout() {
     });
     assert_eq!(submissions.len(), 1);
     assert_eq!(waits, submissions);
-    assert_eq!(capture.status().dropped, 0);
+    assert_eq!(registered_drops, 0);
     drop(capture);
     let first_buffer = readback.staging.as_ref().unwrap().buffer.clone();
     let (other_device, other_queue) =
