@@ -160,6 +160,10 @@ enum TexBuf<'a> {
     Ref(&'a [u8]),
     Mut(&'a mut [u8]),
     Owned(Vec<u8>),
+    BudgetedOwned {
+        bytes: Vec<u8>,
+        _allocation: crate::render::budget::Allocation,
+    },
     Aligned(AlignedBytes),
     Native(alloc::boxed::Box<native::NativeTexture>),
     Mapped(alloc::boxed::Box<source::MappedTexture>),
@@ -171,7 +175,7 @@ impl TexBuf<'_> {
         match self {
             Self::Ref(s) => Some(s),
             Self::Mut(s) => Some(s),
-            Self::Owned(v) => Some(v),
+            Self::Owned(v) | Self::BudgetedOwned { bytes: v, .. } => Some(v),
             Self::Aligned(v) => Some(v.as_slice()),
             Self::Native(_) | Self::Decoded(_) => None,
             Self::Mapped(source) => source.pixels(),
@@ -257,7 +261,7 @@ impl HasSize for Texture<'_> {
         match &self.buf {
             TexBuf::Ref(bytes) => bytes.len(),
             TexBuf::Mut(bytes) => bytes.len(),
-            TexBuf::Owned(bytes) => bytes.capacity(),
+            TexBuf::Owned(bytes) | TexBuf::BudgetedOwned { bytes, .. } => bytes.capacity(),
             TexBuf::Aligned(bytes) => bytes.storage.capacity(),
             TexBuf::Native(native) => native.cache_size(),
             TexBuf::Mapped(source) => source.cache_size(),
@@ -325,6 +329,18 @@ impl<'a> Texture<'a> {
 }
 
 impl Texture<'static> {
+    pub(crate) fn with_allocation(mut self, allocation: crate::render::budget::Allocation) -> Self {
+        let TexBuf::Owned(bytes) = self.buf else {
+            panic!("output allocation requires owned CPU pixels");
+        };
+        assert_eq!(allocation.bytes(), bytes.capacity());
+        self.buf = TexBuf::BudgetedOwned {
+            bytes,
+            _allocation: allocation,
+        };
+        self
+    }
+
     /// Owned mutable pixels; GPU uploads bypass pointer-keyed caches by default.
     pub fn owned(width: u16, height: u16, format: ColorFormat) -> Result<Self, RenderError> {
         let layout =
@@ -966,6 +982,45 @@ impl crate::core::resource::ResourceManager<Texture<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn output_receipt_follows_shared_pixel_ownership_without_copying() {
+        use crate::core::cache::Handle;
+        use crate::render::budget::MemoryBudget;
+
+        let budget = MemoryBudget::new(128);
+        let texture = Texture::owned(2, 2, ColorFormat::RGBA8888).unwrap();
+        let address = texture.read_pixels().unwrap().bytes().as_ptr();
+        let bytes = texture.cache_size();
+        let allocation = budget.reserve(bytes).unwrap().commit(bytes).unwrap();
+        let mut retained = None;
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                retained = Some(texture.with_allocation(allocation));
+            }),
+            0
+        );
+        let mut texture = retained.unwrap();
+        assert_eq!(texture.read_pixels().unwrap().bytes().as_ptr(), address);
+        assert_eq!(texture.cache_size(), bytes);
+        assert_eq!(budget.allocated(), bytes);
+        texture
+            .pixels_mut()
+            .unwrap()
+            .set_pixel(1, 1, &Color::rgb(12, 34, 56));
+        assert_eq!(texture.cache_revision, 1);
+        assert_eq!(
+            texture.read_pixels().unwrap().get_pixel(1, 1),
+            Color::rgb(12, 34, 56)
+        );
+        let first = Handle::new(texture.with_stride(8).unwrap());
+        let second = first.clone();
+        drop(first);
+        assert_eq!(budget.allocated(), bytes);
+        assert_eq!(second.read_pixels().unwrap().bytes().as_ptr(), address);
+        drop(second);
+        assert_eq!(budget.available(), 128);
+    }
 
     #[test]
     fn cache_charges_owning_capacity_including_alignment_storage() {

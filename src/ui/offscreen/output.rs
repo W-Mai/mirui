@@ -2,7 +2,7 @@ use super::BufferKey;
 use crate::core::cache::HasSize;
 use crate::ecs::Entity;
 use crate::render::RenderError;
-use crate::render::budget::{Allocation, MemoryBudget};
+use crate::render::budget::MemoryBudget;
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::Rect;
 use crate::ui::outputs::{
@@ -151,7 +151,6 @@ struct TextureSlots {
 
 struct OutputPlane {
     texture: Texture<'static>,
-    _allocation: Option<Allocation>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -346,10 +345,7 @@ impl WidgetTextureStorage {
             if texture.is_err() {
                 trace_output!(trace, BackendError, Native, None, self.budget.available());
             }
-            OutputPlane {
-                texture: texture?,
-                _allocation: None,
-            }
+            OutputPlane { texture: texture? }
         } else {
             let Some(reservation) = self.budget.reserve(layout.required_bytes()) else {
                 trace_output!(
@@ -384,8 +380,7 @@ impl WidgetTextureStorage {
                 return Ok(false);
             };
             OutputPlane {
-                texture,
-                _allocation: Some(allocation),
+                texture: texture.with_allocation(allocation),
             }
         };
         if !self.textures.contains_key(&entity) && self.textures.try_reserve(1).is_err() {

@@ -420,7 +420,9 @@ impl Texture<'_> {
                 return Err(RenderError::InvalidTexture);
             }
             super::TexBuf::Mut(bytes) => &mut **bytes,
-            super::TexBuf::Owned(bytes) => bytes.as_mut_slice(),
+            super::TexBuf::Owned(bytes) | super::TexBuf::BudgetedOwned { bytes, .. } => {
+                bytes.as_mut_slice()
+            }
             super::TexBuf::Aligned(bytes) => bytes.as_mut_slice(),
         };
         if let Some(revision) = self.cache_revision.checked_add(1) {

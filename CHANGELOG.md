@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Retain CPU output memory-budget receipts inside their textures so pixel ownership and accounting share the same lifetime.
+
 - Resolve parent component storage once per subtree-membership query used by retained-branch wakeups.
 
 - Reuse typed component storage during reactive ancestor checks and Effect ordering to avoid repeated component-type lookups.
