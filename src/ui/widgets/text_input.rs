@@ -222,12 +222,12 @@ fn text_input_render(
             quad: paint.quad(),
             color: focus_border_color,
             width: Fixed::ONE,
-            radius: Fixed::ZERO,
+            radius: paint.style().border_radius,
             opa: 255,
         });
     }
 
-    let content_rect = input_content_rect(rect);
+    let content_rect = input_content_rect(rect, paint.style().border_radius, metrics.line_height);
     let content_bounds = paint.transform().apply_rect_bbox(content_rect);
     let Some(content_clip) = paint.clip().intersect(&content_bounds) else {
         return;
@@ -810,7 +810,10 @@ mod tests {
                 Transform::translate(140.into(), 80.into())
                     .compose(&Transform::scale((-1).into(), 2.into())),
             ] {
-                let content = transform.apply_rect_bbox(input_content_rect(rect));
+                let content = transform.apply_rect_bbox(
+                    super::super::text_editing::geometry::content_rect_of(&world, entity, rect)
+                        .unwrap(),
+                );
                 for clip in [
                     Rect::new(0, 0, 300, 200),
                     Rect {
@@ -852,10 +855,26 @@ mod tests {
     }
 
     #[test]
+    fn the_line_of_an_input_is_centred_and_keeps_clear_of_a_rounded_corner() {
+        let line = Fixed::from_int(16);
+        let rect = Rect::new(0, 0, 200, 40);
+        let flat = input_content_rect(rect, Fixed::ZERO, line);
+        assert_eq!(flat, Rect::new(2, 12, 196, 16));
+        // A pill pulls the line in by three fifths of its radius, a smaller corner by less.
+        let pill = input_content_rect(rect, Fixed::from_int(20), line);
+        assert_eq!(pill, Rect::new(12, 12, 176, 16));
+        let corner = input_content_rect(rect, Fixed::from_int(10), line);
+        assert_eq!(corner.x, Fixed::from_int(6));
+        // A field too short for its line clips the line to what is left inside the border.
+        let short = input_content_rect(Rect::new(0, 0, 200, 10), Fixed::ZERO, line);
+        assert_eq!((short.y, short.h), (Fixed::from_int(2), Fixed::from_int(6)));
+    }
+
+    #[test]
     fn render_uses_shaped_advances_for_glyphs_and_caret() {
         let renderer = render_input(b"Wi", None, 100);
 
-        assert_eq!(renderer.glyph_runs, vec![(Point::new(2, 2), 2)]);
+        assert_eq!(renderer.glyph_runs, vec![(Point::new(2, 4), 2)]);
         assert_eq!(renderer.fills.len(), 1);
         assert_eq!(renderer.fills[0].x, Fixed::from_int(15));
         assert_eq!(renderer.fills[0].h, Fixed::from_int(12));
@@ -871,7 +890,7 @@ mod tests {
                 Some(super::super::TextSelection { anchor, cursor }),
             );
             assert_eq!(renderer.fills_before_glyphs, 1);
-            assert_eq!(renderer.fills[0], Rect::new(2, 2, 13, 12));
+            assert_eq!(renderer.fills[0], Rect::new(2, 4, 13, 12));
             assert_eq!(renderer.fills.len(), 2);
         }
         let renderer = render_selected_input(
@@ -884,8 +903,8 @@ mod tests {
             }),
         );
         assert_eq!(renderer.fills_before_glyphs, 1);
-        assert_eq!(renderer.fills[0], Rect::new(-3, 2, 20, 12));
-        assert_eq!(renderer.fill_clips[0], Rect::new(2, 2, 16, 16));
+        assert_eq!(renderer.fills[0], Rect::new(-3, 4, 20, 12));
+        assert_eq!(renderer.fill_clips[0], Rect::new(2, 4, 16, 12));
         assert_eq!(renderer.glyph_runs[0].0.x, Fixed::from_int(-13));
     }
 
@@ -1119,7 +1138,7 @@ mod tests {
     fn render_keeps_the_shaped_caret_inside_a_narrow_input() {
         let renderer = render_input(b"WWW", None, 20);
 
-        assert_eq!(renderer.glyph_runs, vec![(Point::new(-13, 2), 3)]);
+        assert_eq!(renderer.glyph_runs, vec![(Point::new(-13, 4), 3)]);
         assert_eq!(renderer.fills[0].x, Fixed::from_int(17));
     }
 
@@ -1127,7 +1146,7 @@ mod tests {
     fn placeholder_uses_the_glyph_layout_without_moving_the_empty_caret() {
         let renderer = render_input(b"", Some("Wi"), 100);
 
-        assert_eq!(renderer.glyph_runs, vec![(Point::new(2, 2), 2)]);
+        assert_eq!(renderer.glyph_runs, vec![(Point::new(2, 4), 2)]);
         assert_eq!(renderer.fills[0].x, Fixed::from_int(2));
     }
 

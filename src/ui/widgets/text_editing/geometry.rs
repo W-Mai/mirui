@@ -9,14 +9,30 @@ use crate::ui::widgets::Placeholder;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct TextEditingLayoutHandle(pub crate::text::TextLayoutHandle);
 
-pub(crate) fn input_content_rect(rect: Rect) -> Rect {
-    let inset = Fixed::from_int(2);
+/// Where the one line of an input is laid out: centred between the top and
+/// the bottom, and inset from the sides by the corner, so that the text keeps
+/// clear of a rounded or pill shaped field instead of running into its arc.
+pub(crate) fn input_content_rect(rect: Rect, radius: Fixed, line_height: Fixed) -> Rect {
+    let least = Fixed::from_int(2);
+    let side = (radius * 3 / 5)
+        .round()
+        .max(least)
+        .min(rect.w / Fixed::from_int(2));
+    let height = line_height.min((rect.h - least * Fixed::from_int(2)).max(Fixed::ZERO));
     Rect {
-        x: rect.x + inset,
-        y: rect.y + inset,
-        w: (rect.w - inset * Fixed::from_int(2)).max(Fixed::ZERO),
-        h: (rect.h - inset * Fixed::from_int(2)).max(Fixed::ZERO),
+        x: rect.x + side,
+        y: rect.y + ((rect.h - height) / Fixed::from_int(2)).floor(),
+        w: (rect.w - side * Fixed::from_int(2)).max(Fixed::ZERO),
+        h: height,
     }
+}
+
+/// The rectangle an input lays its line out in, for a widget drawn in `rect`.
+#[cfg(test)]
+pub(crate) fn content_rect_of(world: &World, entity: Entity, rect: Rect) -> Option<Rect> {
+    with_layout_request(world, entity, rect, |_, _, _, content| Ok(content))
+        .ok()
+        .flatten()
 }
 
 pub(crate) fn prepare_layout(
@@ -24,7 +40,7 @@ pub(crate) fn prepare_layout(
     entity: Entity,
     rect: Rect,
 ) -> Result<Option<crate::text::TextLayoutHandle>, crate::ui::render_system::TextLayoutFailure> {
-    with_layout_request(world, entity, rect, |fonts, request, fingerprint| {
+    with_layout_request(world, entity, rect, |fonts, request, fingerprint, _| {
         let outputs = world.resource::<Outputs<TextGeometry>>().unwrap();
         fonts
             .with_typefaces(
@@ -57,6 +73,7 @@ fn with_layout_request<R>(
         &crate::render::font::ResolvedFontStack,
         crate::text::layout::TextLayoutRequest<'_>,
         u64,
+        Rect,
     ) -> Result<R, crate::ui::render_system::TextLayoutFailure>,
 ) -> Result<Option<R>, crate::ui::render_system::TextLayoutFailure> {
     use crate::ui::render_system::{TextLayoutFailure, TextLayoutStage};
@@ -87,6 +104,7 @@ fn with_layout_request<R>(
         return Ok(None);
     };
     let metrics = fonts.primary().metrics(fonts.primary().size);
+    let content_rect = input_content_rect(rect, style.border_radius, metrics.line_height);
     input.read_display(|text| {
         let content = if text.is_empty() {
             world
@@ -100,9 +118,9 @@ fn with_layout_request<R>(
             max_lines: Some(1),
             ..crate::ui::widgets::ParagraphStyle::default()
         };
-        let request = paragraph.layout_request(content, metrics, Some(input_content_rect(rect).w));
+        let request = paragraph.layout_request(content, metrics, Some(content_rect.w));
         let font_fingerprint = fonts.layout_fingerprint(None, paragraph.shaping);
-        use_request(&fonts, request, font_fingerprint).map(Some)
+        use_request(&fonts, request, font_fingerprint, content_rect).map(Some)
     })
 }
 
@@ -138,29 +156,35 @@ pub(super) fn hit_caret(world: &World, entity: Entity, point: Point) -> Option<u
         projective.inverse()?.apply_point(point)?
     };
     let handle = world.get::<TextEditingLayoutHandle>(entity)?.0;
-    with_layout_request(world, entity, rect, |_, request, fingerprint| {
-        let outputs = world.resource::<Outputs<TextGeometry>>().unwrap();
-        let storage = outputs.storage();
-        let Some(layout) = storage.layouts.get_matching(
-            handle,
-            u64::from(entity.id) | (u64::from(entity.generation) << 32),
-            fingerprint,
-            request,
-        ) else {
-            return Ok(None);
-        };
-        if editing.read_display(str::is_empty) {
-            return Ok(Some(0));
-        }
-        let content_rect = input_content_rect(rect);
-        let (_, scroll) = caret_and_scroll(&layout, editing, content_rect);
-        let x = point.x - content_rect.x + scroll;
-        Ok(layout
-            .carets()
-            .iter()
-            .min_by_key(|caret| (crate::types::fixed::from_textflow(caret.position.x) - x).abs())
-            .map(|caret| editing.document_offset(caret.text_offset as usize)))
-    })
+    with_layout_request(
+        world,
+        entity,
+        rect,
+        |_, request, fingerprint, content_rect| {
+            let outputs = world.resource::<Outputs<TextGeometry>>().unwrap();
+            let storage = outputs.storage();
+            let Some(layout) = storage.layouts.get_matching(
+                handle,
+                u64::from(entity.id) | (u64::from(entity.generation) << 32),
+                fingerprint,
+                request,
+            ) else {
+                return Ok(None);
+            };
+            if editing.read_display(str::is_empty) {
+                return Ok(Some(0));
+            }
+            let (_, scroll) = caret_and_scroll(&layout, editing, content_rect);
+            let x = point.x - content_rect.x + scroll;
+            Ok(layout
+                .carets()
+                .iter()
+                .min_by_key(|caret| {
+                    (crate::types::fixed::from_textflow(caret.position.x) - x).abs()
+                })
+                .map(|caret| editing.document_offset(caret.text_offset as usize)))
+        },
+    )
     .ok()
     .flatten()
     .flatten()
@@ -172,7 +196,7 @@ pub(crate) fn caret_rect(world: &World, entity: Entity) -> Option<Rect> {
         .filter(|editor| editor.usable(world))?;
     let (rect, affine, projective) = crate::ui::geometry::widget_render_geometry(world, entity)?;
     let handle = world.get::<TextEditingLayoutHandle>(entity)?.0;
-    with_layout_request(world, entity, rect, |_, request, fingerprint| {
+    with_layout_request(world, entity, rect, |_, request, fingerprint, content| {
         let outputs = world.resource::<Outputs<TextGeometry>>().unwrap();
         let storage = outputs.storage();
         let Some(layout) = storage.layouts.get_matching(
@@ -183,7 +207,6 @@ pub(crate) fn caret_rect(world: &World, entity: Entity) -> Option<Rect> {
         ) else {
             return Ok(None);
         };
-        let content = input_content_rect(rect);
         let (caret, scroll) = caret_and_scroll(&layout, editing, content);
         let Some(caret) = caret else {
             return Ok(None);
