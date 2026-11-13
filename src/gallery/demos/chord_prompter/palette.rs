@@ -23,6 +23,8 @@ pub(super) struct Palette {
     pub chrome: Color,
     /// The thin line the music flows through.
     pub needle: Color,
+    /// A cell of the beat grid that is a little lighter than the page.
+    pub cell: Color,
     pub ok: Color,
     /// Something asked for that has not happened yet: a jump, an upload.
     pub queued: Color,
@@ -101,6 +103,7 @@ impl Palette {
             now,
             chrome: lift(theme.resolve(ColorToken::OnSurfaceVariant), bg, 4_500),
             needle: dimmest(now, bg, 3_000),
+            cell: dimmest(ink, bg, 1_120),
             ok: lift(theme.resolve(ColorToken::Success), bg, 4_500),
             queued: lift(theme.resolve(ColorToken::Tertiary), bg, 4_500),
         }

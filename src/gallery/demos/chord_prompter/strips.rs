@@ -1,15 +1,13 @@
 use super::Session;
+use super::label;
 use super::palette::PaletteCache;
 use crate::prelude::*;
 use crate::render::{command::DrawCommand, font::Font};
 use crate::text::{FlowPoint, GlyphId, PositionedGlyph};
+use crate::types::{Color, Transform};
 use crate::ui::Theme;
 
 pub(super) const CHORD_TRACK_HEIGHT: i32 = super::font::CONTENT_SIZE as i32 + 4;
-
-/// Opacity of a mark that is not lit yet, so that it stays readable on a
-/// small panel in a bright room.
-const IDLE_OPA: u8 = 170;
 
 #[crate::component]
 pub(super) struct RhythmStrip {
@@ -17,6 +15,67 @@ pub(super) struct RhythmStrip {
     pub strums: bool,
 }
 
+/// Where a mark's bar position puts it, given the whole bar's width.
+fn at(center: Fixed, width: Fixed, shift: Fixed, ratio: Fixed) -> i32 {
+    (center + width * ratio - shift).round().to_int()
+}
+
+/// A down stroke, drawn from the sixth string to the first: the arrow points
+/// up, as the strings run on a tab. It is the heavy one: a wide shaft and, on
+/// an accent, a wide head.
+fn down_stroke(
+    x: i32,
+    top: i32,
+    bottom: i32,
+    strong: bool,
+    transform: Transform,
+    color: Color,
+    draw: &mut impl FnMut(&DrawCommand<'_>),
+) {
+    let rows = if strong { 4 } else { 3 };
+    let bottom = bottom.max(top + rows + 1);
+    for row in 0..rows {
+        label::block(x - row, top + row, 2 * row + 1, 1, transform, color, draw);
+    }
+    label::block(
+        x - 1,
+        top + rows,
+        3,
+        bottom - top - rows + 1,
+        transform,
+        color,
+        draw,
+    );
+}
+
+/// An up stroke, from the first string to the sixth: the arrow points down.
+/// It is the light one: a thin shaft and a small head.
+fn up_stroke(
+    x: i32,
+    top: i32,
+    bottom: i32,
+    transform: Transform,
+    color: Color,
+    draw: &mut impl FnMut(&DrawCommand<'_>),
+) {
+    let bottom = bottom.max(top + 4);
+    label::block(x, top, 1, bottom - top - 2, transform, color, draw);
+    for row in 0..3 {
+        label::block(
+            x - 2 + row,
+            bottom - 2 + row,
+            5 - 2 * row,
+            1,
+            transform,
+            color,
+            draw,
+        );
+    }
+}
+
+/// The two rows under the lyrics, both drawn around the needle: the count of
+/// the bar with its half beats, and the strokes of the pattern. Every other
+/// beat sits on a lighter cell, so that the beat reads without lines.
 #[crate::view(component = RhythmStrip, name = "RhythmStrip")]
 pub(super) fn rhythm_strip(
     component: component!(),
@@ -34,14 +93,10 @@ pub(super) fn rhythm_strip(
     paint: paint!(),
     theme: res!(Theme),
     palette: res!(PaletteCache),
-    images: res!(crate::core::resource::ResourceManager<crate::render::texture::Texture<'static>>),
-    sprites: res!(super::sprites::Sprites),
 ) {
     let rect = paint.rect();
     let transform = paint.transform();
     let colors = palette.get(&theme);
-    let bright = colors.now;
-    let muted = colors.chrome;
     let width = rect.w.max(Fixed::ONE);
     let center = (rect.x + rect.w / 2).round();
     let bar_ticks = u64::from(model.beats) * super::TICKS_PER_BEAT;
@@ -50,164 +105,193 @@ pub(super) fn rhythm_strip(
     let Some(clip) = transform.apply_rect_bbox(rect).intersect(&paint.clip()) else {
         return;
     };
-    let atlas = if component.strums
-        && super::sprites::eligible(paint.output_scale(), transform, paint.quad())
-        && model
-            .pattern
-            .attacks()
-            .iter()
-            .any(|attack| attack.stroke != super::Stroke::Pick)
-    {
-        sprites.atlas(&images, [muted, bright])
-    } else {
-        None
-    };
     let mut draw = |command: &DrawCommand<'_>| paint.draw_clipped(command, clip);
+    let (left, right) = (rect.x.to_int(), (rect.x + rect.w).to_int());
+    let (y, height) = (rect.y.to_int(), rect.h.to_int());
+    let beats = i32::from(model.beats);
+    let beat_x = |beat: i32| at(center, width, shift, Fixed::from_ratio(beat, beats));
+    let playing = model.clock_active;
+    let now_beat = (local / super::TICKS_PER_BEAT) as i32;
+    let now_half = (local / (super::TICKS_PER_BEAT / 2)) as i32;
+
+    for beat in -beats..beats * 2 {
+        if beat.rem_euclid(beats) % 2 == 1 {
+            let (from, to) = (beat_x(beat).max(left), beat_x(beat + 1).min(right));
+            label::block(
+                from,
+                y,
+                to - from,
+                height,
+                transform,
+                colors.cell,
+                &mut draw,
+            );
+        }
+    }
+
     if component.strums {
+        let top = y + 1;
+        let bottom = y + height - 2;
+        let string_y =
+            |string: u8, top: i32, bottom: i32| bottom - (bottom - top) * i32::from(string) / 5;
         for repeat in -1..=1 {
             for attack in model.pattern.attacks() {
-                let x = (center
-                    + width
-                        * (Fixed::from_int(repeat)
-                            + Fixed::from_ratio(i32::from(attack.offset), 400))
-                    - shift)
-                    .round();
-                if x < rect.x + Fixed::from_int(3) || x > rect.x + rect.w - Fixed::from_int(3) {
+                let x = at(
+                    center,
+                    width,
+                    shift,
+                    Fixed::from_int(repeat) + Fixed::from_ratio(i32::from(attack.offset), 400),
+                );
+                if x < left + 3 || x > right - 3 {
                     continue;
                 }
                 let tick = bar_ticks * u64::from(attack.offset) / 400;
-                let active = model.clock_active
-                    && repeat == 0
-                    && tick <= local
-                    && (x - center).abs() <= Fixed::from_int(2);
-                let color = if active { bright } else { muted };
-                let top = rect.y + Fixed::from_int(3);
-                let bottom = rect.y + rect.h - Fixed::from_int(3);
-                let string_y = |string| {
-                    (top + (bottom - top) * Fixed::from_ratio(i32::from(string), 5)).round()
+                let lit =
+                    playing && repeat == 0 && tick <= local && (x - center.to_int()).abs() <= 2;
+                let past = repeat < 0 || (repeat == 0 && tick < local && !lit);
+                let color = if lit {
+                    colors.now
+                } else if past {
+                    colors.past
+                } else {
+                    colors.ink
                 };
-                if attack.stroke == super::Stroke::Pick {
-                    draw(&DrawCommand::Fill {
-                        area: Rect::new(
-                            x - Fixed::from_int(2),
-                            string_y(attack.strings[0]) - Fixed::from_int(2),
-                            Fixed::from_int(5),
-                            Fixed::from_int(5),
-                        ),
+                let [low, high] = attack.strings;
+                match attack.stroke {
+                    super::Stroke::Pick => {
+                        let (top, bottom) = (y + 3, y + height - 4);
+                        let at_y = string_y(low, top, bottom);
+                        label::block(x - 2, at_y - 2, 5, 5, transform, color, &mut draw);
+                    }
+                    super::Stroke::Down => down_stroke(
+                        x,
+                        string_y(high, top, bottom),
+                        string_y(low, top, bottom),
+                        attack.velocity >= 90,
                         transform,
-                        quad: None,
                         color,
-                        radius: Fixed::ZERO,
-                        opa: super::sprites::BASE_OPA + attack.velocity,
-                    });
-                    continue;
-                }
-                let top = string_y(attack.strings[0]);
-                let bottom = string_y(attack.strings[1]);
-                let (a, b) = if attack.stroke == super::Stroke::Up {
-                    (bottom, top)
-                } else {
-                    (top, bottom)
-                };
-                let tip = Fixed::from_int(if attack.stroke == super::Stroke::Up {
-                    3
-                } else {
-                    -3
-                });
-                draw(&DrawCommand::Line {
-                    p1: Point::new(x, a),
-                    p2: Point::new(x, b),
-                    transform,
-                    color,
-                    width: Fixed::from_int(2),
-                    opa: super::sprites::BASE_OPA + attack.velocity,
-                });
-                if atlas.as_ref().is_some_and(|atlas| {
-                    super::sprites::draw_heads(
-                        atlas,
-                        Point::new(x, b),
-                        attack.stroke == super::Stroke::Up,
-                        attack.velocity,
-                        active,
-                        transform,
                         &mut draw,
-                    )
-                }) {
-                    continue;
-                }
-                for (p1, p2) in [
-                    (
-                        Point::new(x, b),
-                        Point::new(x - Fixed::from_int(3), b + tip),
                     ),
-                    (
-                        Point::new(x, b),
-                        Point::new(x + Fixed::from_int(3), b + tip),
-                    ),
-                ] {
-                    draw(&DrawCommand::Line {
-                        p1,
-                        p2,
+                    super::Stroke::Up => up_stroke(
+                        x,
+                        string_y(high, top, bottom),
+                        string_y(low, top, bottom),
                         transform,
                         color,
-                        width: Fixed::from_int(2),
-                        opa: super::sprites::BASE_OPA + attack.velocity,
-                    });
+                        &mut draw,
+                    ),
                 }
             }
         }
-        draw(&DrawCommand::Line {
-            p1: Point::new(center, rect.y),
-            p2: Point::new(center, rect.y + rect.h),
+        label::block(
+            center.to_int(),
+            y,
+            1,
+            height,
             transform,
-            color: bright,
-            width: Fixed::ONE,
-            opa: 255,
-        });
-    } else {
-        let beats = i32::from(model.beats);
-        for beat in -beats..beats * 2 {
-            let x = (center + width * Fixed::from_ratio(beat, beats) - shift).round();
-            if x < rect.x + Fixed::ONE || x > rect.x + rect.w - Fixed::ONE {
+            colors.now,
+            &mut draw,
+        );
+        return;
+    }
+
+    // The count: a number on each beat, a plus between beats where there is room.
+    let cell = width.to_int() / beats;
+    let plus = cell >= 12;
+    for repeat in -1..=1 {
+        for beat in 0..beats {
+            let number = beat + 1;
+            let wide = number > 9;
+            let columns = if wide { 11 } else { 5 };
+            let beat_at = beat_x(repeat * beats + beat);
+            if beat_at < left - columns || beat_at > right + columns {
                 continue;
             }
-            let strong = beat.rem_euclid(beats) == 0
-                || (model.unit() == 8 && beats % 3 == 0 && beat.rem_euclid(3) == 0);
-            let height = if strong {
-                rect.h - Fixed::ONE
+            let lit = playing && repeat == 0 && beat == now_beat;
+            let past = repeat < 0 || (repeat == 0 && beat < now_beat);
+            let color = if lit {
+                colors.now
+            } else if past {
+                colors.past
             } else {
-                (rect.h / 2).max(Fixed::ONE)
+                colors.ink
             };
-            let tick = if beat >= 0 {
-                beat as u64 * super::TICKS_PER_BEAT
+            let digits_y = y + (height - 7) / 2;
+            if cell < columns + 2 {
+                label::block(beat_at - 1, digits_y + 2, 3, 3, transform, color, &mut draw);
+            } else if wide {
+                for (index, digit) in [number / 10, number % 10].into_iter().enumerate() {
+                    label::bitmap(
+                        &label::DIGITS[digit as usize],
+                        5,
+                        beat_at - 5 + index as i32 * 6,
+                        digits_y,
+                        1,
+                        transform,
+                        color,
+                        &mut draw,
+                    );
+                }
             } else {
-                u64::MAX
-            };
-            let active =
-                model.clock_active && tick <= local && (x - center).abs() <= Fixed::from_int(2);
-            draw(&DrawCommand::Fill {
-                area: Rect::new(
-                    x - Fixed::from_int(2),
-                    rect.y + rect.h - height,
-                    if strong { 4 } else { 3 },
-                    height,
-                ),
-                transform,
-                quad: None,
-                color: if active { bright } else { muted },
-                radius: Fixed::ZERO,
-                opa: if active { 255 } else { IDLE_OPA },
-            });
+                label::bitmap(
+                    &label::DIGITS[number as usize],
+                    5,
+                    beat_at - 2,
+                    digits_y,
+                    1,
+                    transform,
+                    color,
+                    &mut draw,
+                );
+            }
+            if plus {
+                let half = 2 * (repeat * beats + beat) + 1;
+                let plus_at = at(
+                    center,
+                    width,
+                    shift,
+                    Fixed::from_ratio(repeat * beats + beat, beats)
+                        + Fixed::from_ratio(1, 2 * beats),
+                );
+                let lit = playing && repeat == 0 && half == now_half;
+                let past = repeat < 0 || (repeat == 0 && half < now_half);
+                let color = if lit {
+                    colors.now
+                } else if past {
+                    colors.past
+                } else {
+                    colors.chrome
+                };
+                label::block(
+                    plus_at - 1,
+                    y + height / 2,
+                    3,
+                    1,
+                    transform,
+                    color,
+                    &mut draw,
+                );
+                label::block(
+                    plus_at,
+                    y + height / 2 - 1,
+                    1,
+                    3,
+                    transform,
+                    color,
+                    &mut draw,
+                );
+            }
         }
-        draw(&DrawCommand::Line {
-            p1: Point::new(center, rect.y),
-            p2: Point::new(center, rect.y + rect.h),
-            transform,
-            color: colors.needle,
-            width: Fixed::ONE,
-            opa: 255,
-        });
     }
+    label::block(
+        center.to_int(),
+        y,
+        1,
+        height,
+        transform,
+        colors.needle,
+        &mut draw,
+    );
 }
 
 /// The needle: the line the music flows through, starting under the chord

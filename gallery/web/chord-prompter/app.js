@@ -579,6 +579,13 @@ function frame() {
         if (beatCount !== state.beats) {
             $('beats').replaceChildren(...Array.from({length: state.beats}, (_, index) => {const dot = document.createElement('i'); dot.textContent=String(index+1); return dot;})); beatCount = state.beats;
             $('strum-track').style.setProperty('--beats', String(state.beats));
+            // The count of the bar: a number on each beat and a plus between beats.
+            $('count').replaceChildren(...Array.from({length: state.beats * 2}, (_, half) => {
+                const mark = document.createElement(half % 2 ? 'i' : 'b');
+                mark.textContent = half % 2 ? '+' : String(half / 2 + 1);
+                mark.style.left = `${half / (state.beats * 2) * 100}%`;
+                return mark;
+            }));
         }
         // A count-in lights the beats before the music starts.
         let lit = state.stale ? -1 : beat;
@@ -599,16 +606,34 @@ function frame() {
         if (rhythmIndex !== state.pattern) {
             rhythmIndex = state.pattern;
             $('attacks').replaceChildren(...(patterns[rhythmIndex] ?? []).map(attack => {
-                const mark = document.createElement('span'); mark.className = `attack ${attack.stroke}`;
-                mark.textContent = attack.stroke === 'down' ? '↓' : attack.stroke === 'up' ? '↑' : '●';
-                mark.style.left = `${attack.offset / 4}%`; mark.title = attack.stroke === 'pick' ? `String ${6 - attack.low}` : `${attack.stroke} · strings ${6 - attack.low}–${6 - attack.high}`;
+                // Strings run as on a tab: the sixth, low E, at the bottom. A down stroke
+                // sweeps from the sixth string to the first, so its arrow points up and is
+                // the heavy one; an up stroke points down and is the light one.
+                const mark = document.createElement('span');
+                mark.className = `attack ${attack.stroke}${attack.velocity >= 90 ? ' strong' : ''}`;
+                mark.style.left = `${attack.offset / 4}%`;
+                mark.style.setProperty('--low', String(attack.low));
+                mark.style.setProperty('--high', String(attack.high));
+                mark.title = attack.stroke === 'pick' ? `String ${6 - attack.low}` : `${attack.stroke === 'down' ? 'Down' : 'Up'} stroke, strings ${6 - attack.low} to ${6 - attack.high}`;
                 return mark;
             }));
         }
         const phase = tick % ticksPerBar / ticksPerBar;
         moveCards(phase, !!data && (bar + 1 < data.bars || jumpBar !== null), slideShift(now) + dragShift());
         $('strum-track').style.setProperty('--phase', phase);
-        for (const [index, mark] of [...$('attacks').children].entries()) mark.classList.toggle('active', !state.armed && !state.stale && Math.abs(patterns[rhythmIndex][index].offset / 400 - phase) < .035);
+        const counting = !state.armed && !state.stale;
+        for (const [index, mark] of [...$('attacks').children].entries()) {
+            const at = patterns[rhythmIndex][index].offset / 400;
+            mark.classList.toggle('active', counting && Math.abs(at - phase) < .035);
+            mark.classList.toggle('past', counting && at < phase - .035);
+        }
+        const half = Math.floor(phase * state.beats * 2);
+        for (const [index, mark] of [...$('count').children].entries()) {
+            const number = index % 2 === 0;
+            const here = number ? Math.floor(half / 2) === index / 2 : half === index;
+            mark.classList.toggle('lit', counting && here);
+            mark.classList.toggle('past', counting && (number ? index / 2 < Math.floor(half / 2) : index < half));
+        }
         $('telemetry').textContent = remote ? `Generation ${sample.generation} · status read ${Math.round(sample.roundTrip)} ms. Beat interpolation uses device samples.` : 'Browser preview uses the shared musical transport.';
     } else {
         view = null;

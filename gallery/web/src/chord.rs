@@ -249,11 +249,12 @@ pub fn chord_patterns_json() -> String {
                 Stroke::Pick => "pick",
             };
             out.push_str(&alloc::format!(
-                "{{\"offset\":{},\"stroke\":\"{}\",\"low\":{},\"high\":{}}}",
+                "{{\"offset\":{},\"stroke\":\"{}\",\"low\":{},\"high\":{},\"velocity\":{}}}",
                 attack.offset,
                 stroke,
                 attack.strings[0],
-                attack.strings[1]
+                attack.strings[1],
+                attack.velocity
             ));
         }
         out.push(']');

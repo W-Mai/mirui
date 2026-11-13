@@ -27,7 +27,6 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
     );
     app.with_fonts(fonts);
     app.add_resource(super::palette::PaletteCache::default());
-    app.compose(parent, super::sprites::install());
     let session = app
         .add_model(Session::new(
             Score::parse(super::PRACTICE, ScoreLimits::DEVICE).expect("bundled practice score"),

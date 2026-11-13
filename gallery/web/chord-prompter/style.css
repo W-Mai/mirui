@@ -67,7 +67,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 :root[data-theme="light"] #appearance .ico-moon { display: block; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 0; min-height: 0; flex: 1; transition: grid-template-columns 320ms cubic-bezier(.2,.8,.2,1); }
 .editor-open .workspace { grid-template-columns: minmax(0, 1fr) 380px; }
-.stage { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; min-height: 0; padding: 8px 0 205px; }
+.stage { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; min-height: 0; padding: 8px 0 221px; }
 .music { width: 100%; text-align: center; }
 .section-heading { display: flex; justify-content: center; align-items: center; gap: 10px; color: var(--ink-dim); font-size: 12px; font-weight: 500; min-height: 22px; }
 #section-name { color: var(--ink); }
@@ -103,15 +103,34 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .bar-card[aria-current] .bar-number { color: var(--signal); }
 /* The rhythm lane: beat lines and the strum cursor run down behind the
    control bar, so the glass has something to bend where it matters. */
-.strum-track { --beats: 4; position: relative; z-index: 0; width: 100%; height: 124px; margin: 0 0 -78px; pointer-events: none;
-    -webkit-mask-image: linear-gradient(180deg, transparent, #000 30%); mask-image: linear-gradient(180deg, transparent, #000 30%); }
-.strum-track::before { content: ''; position: absolute; inset: 0 28px; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--ink) 34%, transparent) 0 1px, transparent 1px calc(100% / var(--beats))); }
-.strum-track::after { content: ''; position: absolute; top: 0; bottom: 0; right: 28px; width: 1px; background: color-mix(in srgb, var(--ink) 34%, transparent); }
-#attacks { position: relative; height: 100%; margin: 0 28px; }
-.attack { position: absolute; top: 8px; transform: translateX(-50%); color: var(--ink-faint); font-size: 22px; line-height: 1; transition: color 70ms, transform 90ms; }
-.attack.active { color: var(--signal); transform: translateX(-50%) translateY(-2px); }
-.attack.pick { font-size: 14px; top: 12px; }
-#strum-cursor { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: linear-gradient(180deg, transparent, var(--signal) 40%); opacity: .9; left: calc(28px + (100% - 56px) * var(--phase, 0)); }
+.strum-track { --beats: 4; --zone-top: 26px; --zone-h: 30px; position: relative; z-index: 0; width: 100%; height: 140px; margin: 0 0 -78px; pointer-events: none; }
+/* Every other beat sits on a lighter cell, so the beat reads without lines. */
+.strum-track::before { content: ''; position: absolute; inset: 0 28px; background: repeating-linear-gradient(90deg, transparent 0 calc(100% / var(--beats)), color-mix(in srgb, var(--ink) 6%, transparent) calc(100% / var(--beats)) calc(200% / var(--beats))); }
+.count { position: absolute; inset: 0 28px auto; height: 20px; font: 500 12px/20px var(--font-mono); font-variant-numeric: tabular-nums; }
+.count b, .count i { position: absolute; top: 0; transform: translateX(-50%); font-style: normal; font-weight: 500; transition: color 80ms; }
+.count b { color: var(--ink); }
+.count i { color: var(--ink-faint); }
+.count .past { color: var(--ink-faint); }
+.count .lit { color: var(--signal); }
+#attacks { position: absolute; inset: 0 28px; }
+/* The strings run as on a tab, the sixth at the bottom. A down stroke sweeps from the
+   sixth string to the first: its arrow points up, with a wide shaft. An up stroke points
+   down, with a thin shaft. */
+.attack { --span: calc(var(--zone-h) * (var(--high) - var(--low)) / 5); --h: max(16px, var(--span)); position: absolute; width: 16px; margin-left: -8px; height: var(--h); color: var(--ink); transition: color 70ms; }
+.attack.down { top: calc(var(--zone-top) + var(--zone-h) * (5 - var(--high)) / 5); }
+.attack.up { top: calc(var(--zone-top) + var(--zone-h) * (5 - var(--low)) / 5 - var(--h)); }
+.attack::before, .attack::after { content: ''; position: absolute; left: 50%; }
+.attack.down::before { top: 0; margin-left: -6px; border: 6px solid transparent; border-top: 0; border-bottom: 8px solid currentColor; }
+.attack.down.strong::before { margin-left: -8px; border-width: 0 8px 10px; border-bottom-color: currentColor; border-left-color: transparent; border-right-color: transparent; }
+.attack.down::after { top: 8px; bottom: 0; width: 4px; margin-left: -2px; background: currentColor; border-radius: 0 0 1px 1px; }
+.attack.down.strong::after { top: 10px; width: 6px; margin-left: -3px; }
+.attack.up::before { bottom: 0; margin-left: -4px; border: 4px solid transparent; border-bottom: 0; border-top: 6px solid currentColor; }
+.attack.up::after { top: 0; bottom: 5px; width: 2px; margin-left: -1px; background: currentColor; }
+.attack.pick { top: calc(var(--zone-top) + var(--zone-h) * (5 - var(--low)) / 5); width: 9px; height: 9px; margin: -4px 0 0 -4px; border-radius: 2px; background: currentColor; }
+.attack.pick::before, .attack.pick::after { display: none; }
+.attack.past { color: var(--ink-faint); }
+.attack.active { color: var(--signal); }
+#strum-cursor { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: linear-gradient(180deg, transparent, var(--signal) 24%); opacity: .9; left: calc(28px + (100% - 56px) * var(--phase, 0)); }
 .controller-wrap { z-index: 4; position: absolute; bottom: 28px; width: min(720px, calc(100% - 56px)); }
 /* Light spilling from under the glass, so that there is something for it to bend. */
 .controller-wrap::before { content: ''; position: absolute; left: -6%; right: -6%; bottom: -34px; height: 110px; z-index: -1; pointer-events: none; background: radial-gradient(closest-side, color-mix(in srgb, var(--signal) 12%, transparent), transparent); filter: blur(22px); }
@@ -238,7 +257,7 @@ code { color: var(--signal-bright); }
     #mode { font-size: 10px; line-height: 14px; padding: 0 6px; }
     .tools { gap: 5px; }
     #connect { padding: 0 10px; }
-    .stage { padding: 4px 0 190px; }
+    .stage { padding: 4px 0 206px; }
     .editor-open .workspace { grid-template-columns: minmax(0,1fr) 0; }
     .editor { position: fixed; z-index: 3; top: 56px; bottom: 130px; right: 0; width: min(380px,100vw); transform: translateX(100%); transition: transform 280ms ease, opacity 200ms; }
     .editor-open .editor { transform: translateX(0); box-shadow: var(--glass-shadow); }
@@ -251,14 +270,12 @@ code { color: var(--signal-bright); }
     .has-transfer .editor { bottom: 174px; }
 }
 @media (max-height: 650px) {
-    .stage { padding-bottom: 160px; }
+    .stage { padding-bottom: 176px; }
     .bar-window { height: clamp(140px, 35vh, 210px); }
     .slot .name { font-size: calc(clamp(24px, 4.5vw, 32px) * var(--fit)); }
     .sheet { margin: 6px 0; font-size: calc(14px * var(--fit)); line-height: 1.4; }
     .beats { height: 38px; margin: 0; }
-    .strum-track { height: 100px; margin-bottom: -74px; }
-    .attack { top: 4px; }
-    .attack.pick { top: 8px; }
+    .strum-track { --zone-top: 22px; --zone-h: 22px; height: 124px; margin-bottom: -74px; }
     .controller-wrap { bottom: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
