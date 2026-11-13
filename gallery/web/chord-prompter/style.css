@@ -55,15 +55,24 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .beats { display: flex; justify-content: center; align-items: center; gap: clamp(14px, 3vw, 34px); height: 48px; margin: 8px 0 0; }
 .beats i { font-style: normal; font-family: var(--font-mono); font-size: clamp(16px, 2.4vw, 28px); color: var(--ink-faint); min-width: 20px; transform: scale(.9); transition: color 80ms, transform 140ms; font-variant-numeric: tabular-nums; }
 .beats i.active { color: var(--signal); transform: scale(1.1); }
-.chord { font-size: clamp(30px, min(4.8vw, 9vh), 64px); line-height: 1.1; font-weight: 650; letter-spacing: -.045em; margin: 12px 0; color: var(--ink); overflow-wrap: anywhere; }
-.lyric { font-size: clamp(16px, min(1.8vw, 3vh), 24px); line-height: 1.5; font-weight: 450; min-height: 3em; overflow-wrap: anywhere; max-height: 4.5em; overflow: hidden; }
+/* A bar as on a lead sheet: each chord stands over the first letter or
+   character of its words, and only the accented words are underlined. The
+   slot playing is lit; the ones before it recede, as on the display. */
+.sheet { --fit: 1; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: .3em .8em; margin: 12px 0; font-size: calc(clamp(16px, min(1.8vw, 3vh), 24px) * var(--fit)); line-height: 1.5; font-weight: 450; overflow-wrap: anywhere; }
+.slot { display: flex; flex-direction: column; align-items: flex-start; gap: .2em; min-width: 0; max-width: 100%; text-align: left; }
+.slot .name { font-size: calc(clamp(30px, min(4.8vw, 9vh), 64px) * var(--fit)); line-height: 1.1; font-weight: 650; letter-spacing: -.045em; color: var(--ink); transition: color 80ms; }
+.slot .words { color: var(--ink); }
+.sheet .accent { color: var(--ink-dim); text-decoration: underline; text-decoration-thickness: .07em; text-underline-offset: .2em; }
+.slot.past .name, .slot.past .words, .slot.past .accent { color: var(--ink-faint); }
+.slot.active .name { color: var(--signal); }
+.running .slot.active .accent { color: var(--signal); }
+.sheet .note { color: var(--ink-dim); }
+.sheet.instrumental::after { content: 'Instrumental'; flex-basis: 100%; text-align: center; color: var(--ink-faint); }
 .bar-window { --bar-step: clamp(160px, 22vw, 260px); position: relative; height: clamp(240px, 42vh, 370px); overflow: hidden; }
 .bar-window::after { content: ''; position: absolute; left: calc(50% - 1px); bottom: 12px; height: 16px; width: 2px; border-radius: 1px; background: var(--signal); }
 .bar-card { position: absolute; top: 50%; left: 50%; width: calc(var(--bar-step) - 32px); padding: 0 16px; display: flex; flex-direction: column; justify-content: center; will-change: transform; transform-origin: center; }
 .bar-number { color: var(--ink-faint); font: 11px var(--font-mono); }
 .bar-card[aria-current] .bar-number { color: var(--signal); }
-.chord .active-slot { color: var(--signal); }
-.lyric .active-slot { text-decoration: underline; text-decoration-color: var(--signal-edge); text-underline-offset: .2em; }
 .strum-track { position: relative; height: 42px; max-width: 480px; margin: 20px auto 0; border-top: 1px solid var(--line-soft); }
 #attacks { position: relative; height: 100%; margin: 0 10px; }
 .attack { position: absolute; top: 9px; transform: translateX(-50%); color: var(--ink-faint); font-size: 25px; line-height: 1; transition: color 70ms, transform 90ms; }
@@ -88,9 +97,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .scrubber { flex: 1; min-width: 40px; position: relative; }
 .bar-preview { position: absolute; bottom: calc(100% + 20px); left: 50%; transform: translateX(-50%); width: min(440px, calc(100vw - 40px)); display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; pointer-events: none; text-align: left; }
 .bar-preview > div { min-width: 0; }
-.bar-preview span { display: block; color: var(--ink-dim); font-size: 11px; margin-bottom: 6px; }
-.bar-preview strong { display: block; color: var(--signal); font-size: 18px; overflow-wrap: anywhere; }
-.bar-preview p { margin: 8px 0 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; max-height: 9em; overflow-y: hidden; }
+.bar-preview > div > span { display: block; color: var(--ink-dim); font-size: 11px; margin-bottom: 6px; }
+.bar-preview .sheet { justify-content: flex-start; margin: 8px 0 0; font-size: 14px; }
+.bar-preview .slot .name { font-size: 18px; letter-spacing: normal; color: var(--signal); }
 .scrubber label { font-size: 11px; color: var(--ink-dim); display: block; margin-bottom: 9px; font-variant-numeric: tabular-nums; }
 input[type="range"] { width: 100%; accent-color: var(--signal); cursor: pointer; height: 4px; margin: 0; display: block; }
 .tempo-control { display: flex; flex-direction: column; align-items: center; }
@@ -117,7 +126,7 @@ input[type="range"] { width: 100%; accent-color: var(--signal); cursor: pointer;
 .bar-card.jump .bar-number::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; background: currentColor;
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 1.5v5a2 2 0 0 0 2 2h6M8 6l2.5 2.5L8 11'/%3E%3C/svg%3E") center / contain no-repeat;
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 1.5v5a2 2 0 0 0 2 2h6M8 6l2.5 2.5L8 11'/%3E%3C/svg%3E") center / contain no-repeat; }
-.bar-card.swap .chord, .bar-card.swap .lyric { animation: card-swap 240ms cubic-bezier(.2,.8,.2,1); }
+.bar-card.swap .sheet { animation: card-swap 240ms cubic-bezier(.2,.8,.2,1); }
 @keyframes card-swap { from { opacity: 0; transform: translateY(8px); } }
 .section-heading.counting #section-name { color: var(--signal); }
 .beats.counting i.active { transform: scale(1.35); }
@@ -178,8 +187,8 @@ code { color: var(--signal-bright); }
 @media (max-height: 650px) {
     .stage { padding-bottom: 130px; }
     .bar-window { height: clamp(140px, 35vh, 210px); }
-    .chord { font-size: clamp(24px, 4.5vw, 32px); margin: 6px 0; }
-    .lyric { font-size: 14px; line-height: 1.4; min-height: 2.8em; max-height: 4.2em; }
+    .slot .name { font-size: calc(clamp(24px, 4.5vw, 32px) * var(--fit)); }
+    .sheet { margin: 6px 0; font-size: calc(14px * var(--fit)); line-height: 1.4; }
     .beats { height: 38px; margin: 0; }
     .strum-track { margin-top: 14px; height: 36px; }
     .controller-wrap { bottom: 12px; }

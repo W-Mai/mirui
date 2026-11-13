@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { ChordLink, DeviceError, checksum, statusPacket } from '../chord-prompter/protocol.js';
 import { barContent, choose, follow, sectionAt, sectionStarts, steer, stripBar } from '../chord-prompter/presentation.js';
+import { fillSheet, fitSheet, slotNodes } from '../chord-prompter/sheet.js';
 import { DeviceSync } from '../chord-prompter/sync.js';
 
 test('bar inspection respects canonical half-open bar intervals and unknown sources', () => {
@@ -10,11 +11,116 @@ test('bar inspection respects canonical half-open bar intervals and unknown sour
         {tick: 3840, chord: 'Am', lyric: 'next'},
         {tick: 7680, chord: '', lyric: ''},
     ]};
-    expect(barContent(data, 0)).toEqual({number: 1, chords: 'C · G', lyric: 'one two'});
-    expect(barContent(data, 1)).toEqual({number: 2, chords: 'Am', lyric: 'next'});
-    expect(barContent(data, 2)).toEqual({number: 3, chords: '', lyric: ''});
+    // Without the parser's accent pairs a lyric is one plain piece.
+    const plain = (index, chord, lyric) => ({index, chord, segments: [[lyric, false]]});
+    expect(barContent(data, 0)).toEqual({number: 1, chords: 'C · G', lyric: 'one two', slots: [plain(0, 'C', 'one '), plain(1, 'G', 'two')]});
+    expect(barContent(data, 1)).toEqual({number: 2, chords: 'Am', lyric: 'next', slots: [plain(2, 'Am', 'next')]});
+    expect(barContent(data, 2)).toEqual({number: 3, chords: '', lyric: '', slots: [plain(3, '', '')]});
     for (const bar of [-1, 3]) expect(barContent(data, bar)).toBeNull();
     expect(barContent(null, 0)).toBeNull();
+});
+
+// A page element reduced to what the sheet builder touches.
+function fakeDocument() {
+    const element = tag => ({tag, className: '', dataset: {}, textContent: '', children: [], classes: new Set(),
+        append(...nodes) { this.children.push(...nodes); },
+        replaceChildren(...nodes) { this.children = nodes; },
+        classList: undefined});
+    const make = tag => {
+        const node = element(tag);
+        node.classList = {toggle: (name, on) => { on ? node.classes.add(name) : node.classes.delete(name); }};
+        return node;
+    };
+    return {createElement: make, createTextNode: text => ({text})};
+}
+
+describe('the lead sheet', () => {
+    // "[Keep] the [Let] it ring" and "[跟]着[节]拍", cut by the parser.
+    const data = {bars: 2, beats: 4, slots: [
+        {tick: 0, chord: 'C', lyric: 'Keep the ', segments: [['Keep', true], [' the ', false]]},
+        {tick: 1920, chord: 'G', lyric: 'Let it ring', segments: [['Let', true], [' it ring', false]]},
+        {tick: 3840, chord: 'Am', lyric: '', segments: []},
+    ]};
+    test('a bar carries each slot with its place in the song and its accents', () => {
+        expect(barContent(data, 0).slots).toEqual([
+            {index: 0, chord: 'C', segments: [['Keep', true], [' the ', false]]},
+            {index: 1, chord: 'G', segments: [['Let', true], [' it ring', false]]},
+        ]);
+        expect(barContent(data, 1).slots).toEqual([{index: 2, chord: 'Am', segments: []}]);
+    });
+    test('each chord starts its slot and only the accents are underlined', () => {
+        const doc = fakeDocument();
+        const [first, second] = slotNodes(barContent(data, 0).slots, doc);
+        for (const [slot, chord, index] of [[first, 'C', '0'], [second, 'G', '1']]) {
+            expect(slot.className).toBe('slot');
+            expect(slot.dataset.slot).toBe(index);
+            const [name, words] = slot.children;
+            expect([name.className, name.textContent]).toEqual(['name', chord]);
+            expect(words.className).toBe('words');
+        }
+        // The words keep their order; the accent is an element of its own and
+        // the rest is plain text, spaces included.
+        const shape = slot => slot.children[1].children.map(node => node.className ? [node.className, node.textContent] : node.text);
+        expect(shape(first)).toEqual([['accent', 'Keep'], ' the ']);
+        expect(shape(second)).toEqual([['accent', 'Let'], ' it ring']);
+    });
+    test('Chinese accents are cut at characters, as the parser cut them', () => {
+        const slots = [{index: 4, chord: 'C', segments: [['跟', true], ['着', false]]}, {index: 5, chord: 'G', segments: [['节', true], ['拍', false]]}];
+        const nodes = slotNodes(slots, fakeDocument());
+        expect(nodes.map(slot => slot.children[1].children.map(node => node.className ? node.textContent : null))).toEqual([['跟', null], ['节', null]]);
+    });
+    test('a bar with chords and no words is marked, and a missing bar says why', () => {
+        const doc = fakeDocument(), sheet = doc.createElement('div');
+        fillSheet(sheet, barContent(data, 1), '', doc);
+        expect(sheet.children).toHaveLength(1);
+        expect(sheet.classes.has('instrumental')).toBe(true);
+        fillSheet(sheet, barContent(data, 0), '', doc);
+        expect(sheet.children).toHaveLength(2);
+        expect(sheet.classes.has('instrumental')).toBe(false);
+        fillSheet(sheet, null, 'End of song', doc);
+        expect(sheet.children.map(node => node.textContent)).toEqual(['End of song']);
+        expect(sheet.classes.has('instrumental')).toBe(false);
+        fillSheet(sheet, null, '', doc);
+        expect(sheet.children).toEqual([]);
+    });
+    // A card whose sheet is `base` pixels tall at full size, `overhead` more
+    // around it, and shrinks in step with `--fit`.
+    function sized(base, overhead = 40) {
+        const props = new Map();
+        const sheet = {
+            style: {setProperty: (name, value) => props.set(name, value), removeProperty: name => props.delete(name)},
+            get offsetHeight() { return Math.round(base * Number(props.get('--fit') ?? 1)); },
+        };
+        return {sheet, card: {hidden: false, get offsetHeight() { return overhead + sheet.offsetHeight; }}, fit: () => props.get('--fit')};
+    }
+    test('a bar that fits the strip keeps its size', () => {
+        const {card, sheet, fit} = sized(100);
+        fitSheet(card, sheet, 336);
+        expect(fit()).toBeUndefined();
+    });
+    test('a bar that is too tall shrinks until it fits when grown to the middle', () => {
+        const {card, sheet, fit} = sized(300);
+        fitSheet(card, sheet, 336);
+        // Room for it: the strip less the needle mark, over the growth.
+        const room = (336 - 56) / 1.42 - 40;
+        expect(sheet.offsetHeight).toBeLessThanOrEqual(room);
+        expect(Number(fit())).toBeGreaterThan(.45);
+        // A new fit starts from the full size, not from the last one.
+        fitSheet(card, sheet, 900);
+        expect(fit()).toBeUndefined();
+    });
+    test('a bar never shrinks below the least size, and a hidden bar is left alone', () => {
+        const tall = sized(2000);
+        fitSheet(tall.card, tall.sheet, 336);
+        expect(Number(tall.fit())).toBe(.45);
+        const hidden = sized(2000);
+        hidden.card.hidden = true;
+        fitSheet(hidden.card, hidden.sheet, 336);
+        expect(hidden.fit()).toBeUndefined();
+        const flat = sized(2000);
+        fitSheet(flat.card, flat.sheet, 0);
+        expect(flat.fit()).toBeUndefined();
+    });
 });
 
 describe('bar navigation', () => {

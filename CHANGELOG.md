@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Show the Chord Prompter workspace's bars as a lead sheet, as the display does: each chord stands over the first letter or character of its words, and the accented words the song brackets are underlined, instead of the whole lyric of the playing chord. The parser sends each lyric cut at its accents with the score, so the page never looks for them in the text; a bar with many chords shrinks to fit the strip, and the hover preview of a bar uses the same sheet.
+
 - Make the Chord Prompter display easier to read on a 128×128 screen without a touch panel: each chord starts over the first letter or character of its lyric, the chord that sounds stays on the needle until the next one pushes it aside, and the top row shows play, pause or stop, the section or the bar a queued jump leads to, the beat at the needle, the bar counter and the connection. A delayed start counts the beats in large digits, an incoming song grows a bar along the top edge, and the end of the song arrives on the chord row. Colours come from the theme and are lifted to a legible contrast.
 
 - Send a damaged area to the display once: drop damage that lies inside an area scrolled whole, and a scrolled area that damage around it has already sent. The Chord Prompter at 128×128 no longer sends its lyric area twice on the frames that change a beat or a bar.

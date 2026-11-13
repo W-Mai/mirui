@@ -1,5 +1,6 @@
 import { ChordLink, SERVICE, PATTERNS } from './protocol.js';
 import { TICKS_PER_BEAT, barContent, choose, follow, sectionAt, sectionStarts, steer, stripBar } from './presentation.js';
+import { CENTER_GROWTH, fillSheet, fitSheet } from './sheet.js';
 import { DeviceSync } from './sync.js';
 
 const $ = id => document.getElementById(id);
@@ -60,6 +61,7 @@ let countInUntil = 0;
 // the offsets of a slide after a seek and of a finger dragging the bars.
 let trail = [], shown = {identity: '', bar: null, jumpBar: null}, rendered = {key: ''}, slide = null, drag = null;
 const barCards = [...document.querySelectorAll('.bar-card')];
+const currentCard = $('current-card');
 const barWindow = document.querySelector('.bar-window');
 let messageTimer;
 // Notes clear themselves; errors stay until the next message.
@@ -166,7 +168,7 @@ function associateDeviceSample(next) {
         try {
             const saved = JSON.parse(sessionStorage.getItem('mirui-chord-active') ?? 'null');
             if (saved?.generation === next.generation && saved.device === (link.device?.id ?? '')
-                && Array.isArray(saved.data?.sections)) deviceData = saved.data;
+                && Array.isArray(saved.data?.sections) && saved.data.slots?.every(slot => Array.isArray(slot.segments))) deviceData = saved.data;
         } catch { /* The display remains usable without stored editor context. */ }
         deviceGeneration = next.generation;
     }
@@ -288,8 +290,7 @@ function refreshBarPreview() {
         const content = barContent(data, inspectedBar + offset);
         const section = content ? sectionAt(data, inspectedBar + offset) : '';
         $(`${name}-label`).textContent = `Bar ${inspectedBar + offset + 1}${section ? ` · ${section}` : ''}`;
-        $(`${name}-chord`).textContent = content?.chords ?? '';
-        $(`${name}-lyric`).textContent = content ? content.lyric || 'Instrumental' : data ? 'End of song' : 'Song source not synced';
+        fillSheet($(`${name}-sheet`), content, data ? 'End of song' : 'Song source not synced');
     }
 }
 const positionRange = $('position-range');
@@ -440,6 +441,8 @@ function restart(card, name) {
     card.classList.add(name);
 }
 for (const card of barCards) card.addEventListener('animationend', () => card.classList.remove('swap'));
+// The bars are fitted to the strip's height; a new height fits them again.
+new ResizeObserver(() => { rendered = {key: ''}; }).observe(barWindow);
 
 function slotAt(data, tick) {
     let lo = 0, hi = data.slots.length;
@@ -449,14 +452,17 @@ function slotAt(data, tick) {
 function renderStrip(data, index, layout) {
     if (!data) {
         if (rendered.key !== 'unknown') {
-            rendered = {key: 'unknown'}; $('chord').textContent = '—'; $('lyric').textContent = 'Song not synced';
-            $('next-chord').textContent = $('next-lyric').textContent = $('section-name').textContent = '';
+            rendered = {key: 'unknown'};
             for (const card of barCards) {
+                const sheet = card.querySelector('.sheet');
+                sheet.style.removeProperty('--fit');
+                fillSheet(sheet, null, card === currentCard ? 'Song not synced' : '');
                 card.hidden = Number(card.dataset.offset) !== 0;
                 card.dataset.bar = '';
                 card.classList.remove('jump');
                 card.querySelector('.bar-number').textContent = '';
             }
+            $('section-name').textContent = '';
             $('song-title').textContent = 'Chord Prompter';
         }
         return;
@@ -471,37 +477,31 @@ function renderStrip(data, index, layout) {
         card.dataset.bar = content ? String(bar) : '';
         card.classList.toggle('jump', layout.jumpBar !== null && offset === layout.ahead);
         card.querySelector('.bar-number').textContent = content ? String(content.number).padStart(2, '0') : '';
-        card.querySelector('.chord').textContent = content?.chords ?? '';
-        card.querySelector('.lyric').textContent = content?.lyric || (content ? 'Instrumental' : '');
+        fillSheet(card.querySelector('.sheet'), content);
+        fitSheet(card, card.querySelector('.sheet'), barWindow.clientHeight);
         if (retarget && offset >= layout.ahead && !reducedMotion.matches) restart(card, 'swap');
     }
-    const chords = [], lyrics = [];
-    for (const [slotIndex, slot] of data.slots.entries()) {
-        if (Math.floor(slot.tick / (data.beats * TICKS_PER_BEAT)) !== layout.bar) continue;
-        const chord = document.createElement('span'), lyric = document.createElement('span');
-        chord.dataset.slot = lyric.dataset.slot = String(slotIndex);
-        chord.textContent = slot.chord; lyric.textContent = slot.lyric;
-        if (chords.length) chords.push(document.createTextNode(' · '));
-        chords.push(chord); lyrics.push(lyric);
-    }
-    $('chord').replaceChildren(...chords);
-    if (lyrics.some(span => span.textContent)) $('lyric').replaceChildren(...lyrics);
     activeSlot = -1; markActiveSlot(index);
     $('song-title').textContent = data.title;
     document.title = `${data.title} · Chord Prompter`;
     rendered = {key, identity: layout.identity, bar: layout.bar, jumpBar: layout.jumpBar};
 }
+// The slot playing is lit and the ones before it recede, as on the display.
 function markActiveSlot(index) {
     if (activeSlot === index) return;
     activeSlot = index;
-    for (const span of $('current-card').querySelectorAll('[data-slot]')) span.classList.toggle('active-slot', Number(span.dataset.slot) === index);
+    for (const slot of currentCard.querySelectorAll('[data-slot]')) {
+        const at = Number(slot.dataset.slot);
+        slot.classList.toggle('active', at === index);
+        slot.classList.toggle('past', at < index);
+    }
 }
 function moveCards(phase, hasNext, shift) {
     const travel = reducedMotion.matches || !hasNext ? 0 : phase;
     for (const card of barCards) {
         const relative = Number(card.dataset.offset) - travel + shift;
         const emphasis = bindings.chord_center_emphasis(Math.round(relative * 256)) / 256;
-        card.style.transform = `translate(calc(${relative} * var(--bar-step) - 50%), -50%) scale(${1 + emphasis * .42})`;
+        card.style.transform = `translate(calc(${relative} * var(--bar-step) - 50%), -50%) scale(${1 + emphasis * CENTER_GROWTH})`;
         card.style.opacity = String((relative < -.5 ? .45 : .75) + emphasis * .25);
     }
 }
@@ -581,6 +581,7 @@ function frame() {
         if (!scrubbing) { showPosition(bar, data, state, jumpBar); $('position-range').max = String(data?.bars ?? 128); $('position-range').value = String(bar + 1); }
         if (document.activeElement !== $('tempo') && !state.pending) $('tempo').value = String(state.bpm / 1000);
         renderStrip(data, data ? slotAt(data, tick) : 0, {identity, bar, trail, jumpBar, ahead});
+        currentCard.classList.toggle('running', moving);
         renderMarks(data, jumpBar);
         setText($('section-name'), state.armed ? 'Count-in' : data ? sectionAt(data, bar) : '');
         document.querySelector('.section-heading').classList.toggle('counting', !!state.armed);

@@ -1,14 +1,24 @@
 // Consume canonical score metadata produced by the shared Rust parser.
 export const TICKS_PER_BEAT = 960;
 
+// A bar's slots, each with the chord and the lyric cut into `[text,
+// accented]` pairs by the parser, and its summary as text. `index` is the
+// slot's place in the whole song. Data without pairs, from before the
+// parser sent them, shows its lyric with no accent.
 export function barContent(data, bar) {
     if (!data || bar < 0 || bar >= data.bars) return null;
-    const start = bar * data.beats * 960, end = start + data.beats * 960;
-    const slots = data.slots.filter(slot => slot.tick >= start && slot.tick < end);
+    const start = bar * data.beats * TICKS_PER_BEAT, end = start + data.beats * TICKS_PER_BEAT;
+    const slots = [], lyrics = [];
+    for (const [index, slot] of data.slots.entries()) {
+        if (slot.tick < start || slot.tick >= end) continue;
+        slots.push({index, chord: slot.chord, segments: slot.segments ?? [[slot.lyric, false]]});
+        lyrics.push(slot.lyric);
+    }
     return {
         number: bar + 1,
         chords: slots.map(slot => slot.chord).filter(Boolean).join(' · '),
-        lyric: slots.map(slot => slot.lyric).join('').trim(),
+        lyric: lyrics.join('').trim(),
+        slots,
     };
 }
 

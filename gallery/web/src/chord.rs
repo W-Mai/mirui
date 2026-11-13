@@ -1,5 +1,6 @@
 use gallery::mirui::gallery::demos::chord_prompter::{
-    Action, Boundary, Pattern, Playback, Score, ScoreLimits, Stroke, TICKS_PER_BEAT, Transport,
+    Action, Boundary, Lyric, Pattern, Playback, Score, ScoreLimits, Stroke, TICKS_PER_BEAT,
+    Transport,
 };
 use wasm_bindgen::prelude::*;
 
@@ -10,6 +11,24 @@ pub fn chord_center_emphasis(distance: i32) -> u16 {
 
 fn micros(millis: f64) -> u64 {
     (millis.max(0.0) * 1000.0) as u64
+}
+
+/// A lyric as `[text, accented]` pairs, cut where the source brackets an
+/// accent, so the page never has to find an accent in the text itself.
+fn segments_json(lyric: Lyric<'_>) -> String {
+    let mut out = String::from("[");
+    for (index, segment) in lyric.segments().enumerate() {
+        if index != 0 {
+            out.push(',');
+        }
+        out.push_str(&alloc::format!(
+            "[\"{}\",{}]",
+            super::json_escape(segment.text),
+            segment.accented
+        ));
+    }
+    out.push(']');
+    out
 }
 
 /// Browser preview using the same bounded score parser and musical transport as the display.
@@ -47,11 +66,13 @@ impl ChordPreview {
             let start = u64::from(chord.bar) * bar_ticks
                 + (u64::from(chord.slot) * bar_ticks).div_ceil(u64::from(chord.slots));
             let section = &self.score.sections()[self.score.section_at(chord.bar)];
+            let lyric = self.score.lyric(chord);
             out.push_str(&alloc::format!(
-                "{{\"tick\":{},\"chord\":\"{}\",\"lyric\":\"{}\",\"section\":\"{}\"}}",
+                "{{\"tick\":{},\"chord\":\"{}\",\"lyric\":\"{}\",\"segments\":{},\"section\":\"{}\"}}",
                 start,
                 self.score.chord_name(chord.degree),
-                super::json_escape(&self.score.lyric(chord).to_string()),
+                super::json_escape(&lyric.to_string()),
+                segments_json(lyric),
                 super::json_escape(self.score.text(section.name.clone())),
             ));
         }
