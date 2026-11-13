@@ -1,4 +1,6 @@
 use super::font::CONTENT_SIZE;
+use super::fretboard::{Fretboard, Role, STRINGS, Tones};
+use super::label;
 use super::{Score, Session};
 use crate::prelude::*;
 use crate::render::{command::DrawCommand, font::Font};
@@ -34,12 +36,16 @@ pub(super) struct Slot {
     pub y: u16,
     pub height: u16,
     pub chord: &'static str,
+    /// The notes of the chord's triad, for the neck of a solo.
+    pub tones: Tones,
 }
 
 pub(super) struct Sheet {
     pub text: String,
     pub lines: Vec<[u16; 2]>,
     pub slots: [Slot; 48],
+    /// A page of a bar without lyrics shows where to play instead of words.
+    pub boards: [Option<Fretboard>; 3],
     pub count: usize,
     pub current_count: usize,
     pub current_start: usize,
@@ -60,6 +66,7 @@ impl Sheet {
             text: String::with_capacity(128),
             lines: Vec::with_capacity(128),
             slots: [Slot::default(); 48],
+            boards: [None; 3],
             count: 0,
             current_count: 0,
             current_start: 0,
@@ -113,9 +120,11 @@ impl Sheet {
             (0..page).find(|&earlier| pages[earlier].is_some() && pages[earlier] == pages[page])
         };
         let mut ranges = [0..0, 0..0, 0..0];
+        self.boards = [None; 3];
         for page in 0..3 {
             let start = self.count;
             if let Some(earlier) = first(page) {
+                self.boards[page] = self.boards[earlier];
                 for index in ranges[earlier].clone() {
                     self.slots[self.count] = self.slots[index];
                     self.count += 1;
@@ -136,10 +145,12 @@ impl Sheet {
                         start: start as u16,
                         end: self.text.len() as u16,
                         chord: score.chord_name(chord.degree),
+                        tones: score.tones(chord.degree),
                         ..Slot::default()
                     };
                     self.count += 1;
                 }
+                self.boards[page] = pages[page].and_then(|bar| score.solo(bar));
             }
             ranges[page] = start..self.count;
             if page == 0 {
@@ -159,6 +170,19 @@ impl Sheet {
                     self.slots[to] = self.slots[from];
                 }
                 heights[page] = heights[earlier];
+                continue;
+            }
+            if self.boards[page].is_some() {
+                // The neck takes the whole strip, so nothing scrolls.
+                for slot in &mut self.slots[range.clone()] {
+                    slot.x = 0;
+                    slot.width = width;
+                    slot.y = 0;
+                    slot.height = 0;
+                    slot.first_line = self.lines.len() as u16;
+                    slot.end_line = slot.first_line;
+                }
+                heights[page] = viewport_height.max(1);
                 continue;
             }
             let columns = range
@@ -304,6 +328,28 @@ pub(super) fn sheet_view(
         1 => sheet.current_start..sheet.current_count,
         _ => sheet.current_count..sheet.count,
     };
+    if let Some(board) = &sheet.boards[usize::from(component.page)] {
+        // The chord that sounds lights its notes in the box.
+        let tones = (component.page == 1)
+            .then(|| {
+                let at =
+                    (range.start + usize::from(model.slot_index)).min(range.end.saturating_sub(1));
+                sheet.slots.get(at).map(|slot| slot.tones)
+            })
+            .flatten();
+        draw_neck(
+            rect,
+            transform,
+            board,
+            tones,
+            component.page == 0,
+            &colors,
+            &mut |command| {
+                paint.draw(command);
+            },
+        );
+        return;
+    }
     for (index, slot) in sheet.slots[range].iter().enumerate() {
         // What was played recedes; the chord that sounds is lit; the rest is
         // ahead and stays bright, with the word each coming chord lands on
@@ -458,4 +504,135 @@ fn draw_text(
             opa: 255,
         });
     }
+}
+
+/// Fretted squares of a box on a neck: the frets run across and the strings
+/// as on a tab, the first string at the top. The lowest fret is written on the
+/// left, big, with the same box an octave up under it; every other fret sits on
+/// a lighter cell; and the notes of the chord that sounds stand out.
+fn draw_neck(
+    rect: Rect,
+    transform: Transform,
+    board: &Fretboard,
+    tones: Option<Tones>,
+    past: bool,
+    colors: &super::palette::Palette,
+    draw: &mut impl FnMut(&DrawCommand<'_>),
+) {
+    const FRETS: i32 = 5;
+    let (x, y, w, h) = (
+        rect.x.to_int(),
+        rect.y.to_int(),
+        rect.w.to_int(),
+        rect.h.to_int(),
+    );
+    if w < 40 || h < 20 {
+        return;
+    }
+    let strings = STRINGS as i32;
+    let gap = ((h - 2) / strings).clamp(3, 12);
+    let height = gap * strings;
+    let top = y + (h - height) / 2;
+    let scale = if gap >= 6 { 2 } else { 1 };
+    let label_w = 12 * scale + 7;
+    let cell = ((w - label_w - 2) / FRETS).max(1);
+    let left = x + label_w;
+
+    // The fret numbers, the box's own big and its octave small under it.
+    let stacked = 7 * scale + board.high.map_or(0, |_| 3 + 7);
+    let label_top = y + (h - stacked) / 2;
+    let main = if past { colors.past } else { colors.ink };
+    number(board.low, (x + 5, label_top), scale, transform, main, draw);
+    if let Some(high) = board.high {
+        number(
+            high,
+            (x + 5, label_top + 7 * scale + 3),
+            1,
+            transform,
+            colors.chrome,
+            draw,
+        );
+    }
+
+    for column in 0..FRETS {
+        if (i32::from(board.low) + column) % 2 == 1 {
+            label::block(
+                left + column * cell,
+                top,
+                cell,
+                height,
+                transform,
+                colors.cell,
+                draw,
+            );
+        }
+    }
+    for row in 0..strings {
+        label::block(
+            left,
+            top + row * gap + gap / 2,
+            cell * FRETS,
+            1,
+            transform,
+            colors.past,
+            draw,
+        );
+    }
+    let big = (gap - 1).clamp(3, 9);
+    let small = (big - 2).max(2);
+    for string in 0..STRINGS {
+        for note in 0..2 {
+            let column = i32::from(board.frets[string][note]) - i32::from(board.low);
+            if !(0..FRETS).contains(&column) {
+                continue;
+            }
+            let role = tones.map_or(Role::Scale, |tones| tones.role(board.notes[string][note]));
+            let (size, color) = match role {
+                Role::Root => (big, colors.now),
+                Role::Tone => (big, colors.ink),
+                Role::Scale if past => (small, colors.past),
+                Role::Scale => (small, colors.chrome),
+            };
+            let center_x = left + column * cell + cell / 2;
+            let center_y = top + (strings - 1 - string as i32) * gap + gap / 2;
+            label::block(
+                center_x - size / 2,
+                center_y - size / 2,
+                size,
+                size,
+                transform,
+                color,
+                draw,
+            );
+        }
+    }
+}
+
+/// A fret number of one or two digits at `at`, every pixel `scale` wide.
+fn number(
+    value: u8,
+    at: (i32, i32),
+    scale: i32,
+    transform: Transform,
+    color: Color,
+    draw: &mut impl FnMut(&DrawCommand<'_>),
+) {
+    let mut x = at.0;
+    let mut put = |digit: u8| {
+        label::bitmap(
+            &label::DIGITS[usize::from(digit)],
+            5,
+            x,
+            at.1,
+            scale,
+            transform,
+            color,
+            draw,
+        );
+        x += 6 * scale;
+    };
+    if value > 9 {
+        put(value / 10);
+    }
+    put(value % 10);
 }

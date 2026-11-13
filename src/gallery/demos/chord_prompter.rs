@@ -2,6 +2,7 @@
 
 mod composition;
 mod font;
+mod fretboard;
 mod header;
 mod label;
 mod link;
@@ -14,6 +15,7 @@ mod state;
 mod strips;
 mod transport;
 
+pub use fretboard::{Fretboard, NECK_FRETS, Role, STRINGS, Scale, Tones, fretboard};
 pub use link::{CANCEL_JUMP, DeviceLink, LinkError, checksum};
 pub use motion::center_emphasis;
 pub use runtime::install;

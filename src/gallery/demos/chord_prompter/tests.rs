@@ -1142,3 +1142,55 @@ fn a_queued_jump_can_be_cancelled_over_the_link() {
     );
     assert_eq!(link.status(&session, 400_000)[1] & 2, 0);
 }
+
+const SOLO: &str = "---\ntitle: Solo\nkey: C\nbpm: 96\ntime: 4/4\nstrum: pop\n---\n--- Verse ---\n[Go] on @ 1\n--- Solo | scale:minor | pos:3 ---\n| @ 6m 4\n";
+
+#[test]
+fn a_section_names_the_scale_and_box_of_its_solo_and_only_bars_without_words_have_one() {
+    let score = Score::parse(SOLO, ScoreLimits::DEVICE).unwrap();
+    let section = &score.sections()[1];
+    assert_eq!((section.scale, section.position), (Scale::Minor, 3));
+    assert_eq!(
+        (score.sections()[0].scale, score.sections()[0].position),
+        (Scale::Pentatonic, 1)
+    );
+    assert!(score.solo(0).is_none(), "a bar with words has no neck");
+    for bar in [1, 2] {
+        assert_eq!(score.solo(bar), Some(fretboard(0, Scale::Minor, 3)));
+    }
+    for (from, to) in [
+        ("pos:3", "pos:6"),
+        ("pos:3", "pos:0"),
+        ("scale:minor", "scale:blues"),
+        ("scale:minor", "colour:red"),
+    ] {
+        assert!(
+            matches!(
+                Score::parse(&SOLO.replace(from, to), ScoreLimits::DEVICE),
+                Err(ScoreError::Header { .. })
+            ),
+            "{to}"
+        );
+    }
+}
+
+#[test]
+fn the_page_of_a_bar_without_words_is_a_neck_that_fills_the_strip_and_lights_the_chord() {
+    let score = Score::parse(SOLO, ScoreLimits::DEVICE).unwrap();
+    let mut sheet = super::sheet::Sheet::new();
+    sheet.rebuild(&score, 1, 120, 76);
+    assert!(sheet.boards[0].is_none() && sheet.boards[1].is_some() && sheet.boards[2].is_some());
+    assert_eq!(sheet.height, 76);
+    // Am, then F: the triad of the chord of the bar, in the key of C.
+    let am = sheet.slots[sheet.current_start].tones;
+    assert_eq!(
+        (am.root, am.role(0), am.role(4)),
+        (9, Role::Tone, Role::Tone)
+    );
+    sheet.rebuild(&score, 2, 120, 76);
+    assert_eq!(sheet.slots[sheet.current_start].tones.root, 5);
+    // The bar with words before them lays out as lyrics again.
+    sheet.rebuild(&score, 0, 120, 76);
+    assert!(sheet.boards[1].is_none());
+    assert_eq!(sheet.current_text(), "Go on");
+}

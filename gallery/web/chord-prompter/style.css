@@ -280,3 +280,18 @@ code { color: var(--signal-bright); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 @media (prefers-reduced-transparency: reduce) { .glass, .glass.lens, :root[data-theme="light"] .glass, :root[data-theme="light"] .glass.lens { background: var(--raised); backdrop-filter: none; -webkit-backdrop-filter: none; } .controller-wrap::before { display: none; } }
+/* A solo: the box to play it in, drawn as a tab runs, the first string on top. The notes of the
+   chord that sounds are lit; the root is the accent. */
+.sheet.solo { gap: .2em .8em; }
+.neck { flex: 0 0 100%; width: 100%; height: auto; margin-top: .3em; overflow: visible; fill: none; stroke: none; stroke-width: 1; font: 500 10px var(--font-mono); font-variant-numeric: tabular-nums; }
+.neck .fret-cell { fill: color-mix(in srgb, var(--ink) 7%, transparent); }
+.neck .string { stroke: var(--ink-faint); stroke-width: 1; opacity: .55; }
+.neck text { stroke: none; }
+.neck .letter, .neck .fret { fill: var(--ink-faint); text-anchor: middle; }
+.neck .fret.first { fill: var(--ink); }
+.neck .again { fill: var(--ink-faint); font-size: 9px; }
+.neck .dot { transition: r 120ms, fill 120ms; }
+.neck .dot.scale { r: 3.2px; fill: var(--ink-dim); }
+.neck .dot.tone { r: 5.6px; fill: var(--ink); }
+.neck .dot.root { r: 5.6px; fill: var(--signal); }
+ot.root { r: 5.6px; fill: var(--signal); }

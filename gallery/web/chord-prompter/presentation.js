@@ -11,15 +11,24 @@ export function barContent(data, bar) {
     const slots = [], lyrics = [];
     for (const [index, slot] of data.slots.entries()) {
         if (slot.tick < start || slot.tick >= end) continue;
-        slots.push({index, chord: slot.chord, segments: slot.segments ?? [[slot.lyric, false]]});
+        const shown = {index, chord: slot.chord, segments: slot.segments ?? [[slot.lyric, false]]};
+        // The notes of the chord, for the neck of a solo.
+        if (slot.root !== undefined) { shown.root = slot.root; shown.tones = slot.tones; }
+        slots.push(shown);
         lyrics.push(slot.lyric);
     }
-    return {
+    const content = {
         number: bar + 1,
         chords: slots.map(slot => slot.chord).filter(Boolean).join(' · '),
         lyric: lyrics.join('').trim(),
         slots,
     };
+    // A solo: the parser marks every chord of a bar the song leaves without words, and
+    // its section holds the box to play it in.
+    const neck = data.sections?.findLast(section => section.tick <= start)?.neck;
+    const solo = neck && slots.length > 0 && data.slots.every((slot, index) => slot.tick < start || slot.tick >= end || slot.solo);
+    if (solo) content.neck = neck;
+    return content;
 }
 
 // Bars where sections start, and the name of the section holding a bar.

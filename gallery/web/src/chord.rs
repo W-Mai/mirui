@@ -1,6 +1,6 @@
 use gallery::mirui::gallery::demos::chord_prompter::{
-    Action, Boundary, Lyric, Pattern, Playback, Score, ScoreLimits, Stroke, TICKS_PER_BEAT,
-    Transport,
+    Action, Boundary, Fretboard, Lyric, Pattern, Playback, Score, ScoreLimits, Stroke,
+    TICKS_PER_BEAT, Transport, fretboard,
 };
 use wasm_bindgen::prelude::*;
 
@@ -29,6 +29,33 @@ fn segments_json(lyric: Lyric<'_>) -> String {
     }
     out.push(']');
     out
+}
+
+/// Rows of two numbers, one row for each string from the low E up.
+fn rows_json(rows: &[[u8; 2]]) -> String {
+    let mut out = String::from("[");
+    for (index, [first, second]) in rows.iter().enumerate() {
+        if index != 0 {
+            out.push(',');
+        }
+        out.push_str(&alloc::format!("[{first},{second}]"));
+    }
+    out.push(']');
+    out
+}
+
+/// The box of a solo: the frets and pitch classes of its two notes on every
+/// string, and where it sits on the neck.
+fn neck_json(board: &Fretboard) -> String {
+    alloc::format!(
+        "{{\"low\":{},\"high\":{},\"frets\":{},\"notes\":{}}}",
+        board.low,
+        board
+            .high
+            .map_or(String::from("null"), |high| high.to_string()),
+        rows_json(&board.frets),
+        rows_json(&board.notes),
+    )
 }
 
 /// Browser preview using the same bounded score parser and musical transport as the display.
@@ -67,13 +94,17 @@ impl ChordPreview {
                 + (u64::from(chord.slot) * bar_ticks).div_ceil(u64::from(chord.slots));
             let section = &self.score.sections()[self.score.section_at(chord.bar)];
             let lyric = self.score.lyric(chord);
+            let tones = self.score.tones(chord.degree);
             out.push_str(&alloc::format!(
-                "{{\"tick\":{},\"chord\":\"{}\",\"lyric\":\"{}\",\"segments\":{},\"section\":\"{}\"}}",
+                "{{\"tick\":{},\"chord\":\"{}\",\"lyric\":\"{}\",\"segments\":{},\"section\":\"{}\",\"root\":{},\"tones\":{},\"solo\":{}}}",
                 start,
                 self.score.chord_name(chord.degree),
                 super::json_escape(&lyric.to_string()),
                 segments_json(lyric),
                 super::json_escape(self.score.text(section.name.clone())),
+                tones.root,
+                tones.mask,
+                self.score.solo(chord.bar).is_some(),
             ));
         }
         out.push_str("],\"sections\":[");
@@ -82,9 +113,10 @@ impl ChordPreview {
                 out.push(',');
             }
             out.push_str(&alloc::format!(
-                "{{\"tick\":{},\"name\":\"{}\"}}",
+                "{{\"tick\":{},\"name\":\"{}\",\"neck\":{}}}",
                 u64::from(section.first_bar) * bar_ticks,
                 super::json_escape(self.score.text(section.name.clone())),
+                neck_json(&fretboard(self.score.key, section.scale, section.position)),
             ));
         }
         out.push_str("]}");

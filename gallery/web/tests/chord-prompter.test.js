@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { ChordLink, DeviceError, checksum, statusPacket } from '../chord-prompter/protocol.js';
 import { barContent, choose, follow, sectionAt, sectionStarts, steer, stripBar } from '../chord-prompter/presentation.js';
-import { fillSheet, fitSheet, slotNodes } from '../chord-prompter/sheet.js';
+import { fillSheet, fitSheet, slotNodes, slotTones } from '../chord-prompter/sheet.js';
+import { role } from '../chord-prompter/neck.js';
 import { displacement } from '../chord-prompter/glass.js';
 import { DeviceSync } from '../chord-prompter/sync.js';
 
@@ -340,4 +341,30 @@ test('the glass lens leaves the middle alone and pulls the rim toward the centre
     expect(Math.hypot(...displacement(0, 40, width, height, radius, bezel, depth))).toBeGreaterThan(depth * .9);
     expect(Math.abs(displacement(12, 40, width, height, radius, bezel, depth)[0]))
         .toBeLessThan(Math.abs(displacement(2, 40, width, height, radius, bezel, depth)[0]));
+});
+
+test('a bar the parser marks as a solo carries its section box and the notes of each chord', () => {
+    const neck = {low: 5, high: 17, frets: [[5, 8]], notes: [[9, 0]]};
+    const data = {bars: 2, beats: 4, sections: [{tick: 0, name: 'Verse'}, {tick: 3840, name: 'Solo', neck}], slots: [
+        {tick: 0, chord: 'C', lyric: 'one', root: 0, tones: 145, solo: false},
+        {tick: 3840, chord: 'Am', lyric: '', root: 9, tones: 529, solo: true},
+    ]};
+    const verse = barContent(data, 0);
+    expect(verse.neck).toBeUndefined();
+    const solo = barContent(data, 1);
+    expect(solo.neck).toEqual(neck);
+    expect(solo.slots).toEqual([{index: 1, chord: 'Am', segments: [['', false]], root: 9, tones: 529}]);
+    // Data from before solos has no box, so it keeps showing a bar without words as before.
+    expect(barContent({...data, sections: [{tick: 0, name: 'Verse'}]}, 1).neck).toBeUndefined();
+});
+
+test('a note of the box is the chord root, another note of its triad, or only the scale', () => {
+    // A minor: A, C and E.
+    const aMinor = {root: 9, mask: (1 << 9) | (1 << 0) | (1 << 4)};
+    expect([9, 0, 4, 2, 7].map(note => role(note, aMinor))).toEqual(['root', 'tone', 'tone', 'scale', 'scale']);
+    expect(role(9, null)).toBe('scale');
+    const element = {dataset: {root: '9', tones: String(aMinor.mask)}};
+    expect(slotTones(element)).toEqual(aMinor);
+    expect(slotTones({dataset: {}})).toBeNull();
+    expect(slotTones(undefined)).toBeNull();
 });

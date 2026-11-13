@@ -1,3 +1,4 @@
+use super::fretboard::{Fretboard, Scale, Tones, fretboard};
 use alloc::{string::String, vec::Vec};
 use core::ops::Range;
 
@@ -355,6 +356,10 @@ pub struct Section {
     pub name: Range<usize>,
     pub first_bar: u16,
     pub pattern: Pattern,
+    /// The scale a bar without lyrics shows on the neck.
+    pub scale: Scale,
+    /// Which of the five boxes of that scale, counted from 1.
+    pub position: u8,
 }
 
 #[derive(Debug)]
@@ -458,13 +463,25 @@ impl Score {
                     return Err(ScoreError::Capacity);
                 }
                 let mut pattern = default_pattern;
+                let (mut scale, mut position) = (Scale::default(), 1);
                 for part in parts {
-                    let value = part
-                        .trim()
-                        .strip_prefix("strum:")
-                        .ok_or(ScoreError::Header { line: line_no })?;
-                    pattern = Pattern::parse(value.trim())
-                        .ok_or(ScoreError::Pattern { line: line_no })?;
+                    let part = part.trim();
+                    if let Some(value) = part.strip_prefix("strum:") {
+                        pattern = Pattern::parse(value.trim())
+                            .ok_or(ScoreError::Pattern { line: line_no })?;
+                    } else if let Some(value) = part.strip_prefix("scale:") {
+                        scale = Scale::parse(value.trim())
+                            .ok_or(ScoreError::Header { line: line_no })?;
+                    } else if let Some(value) = part.strip_prefix("pos:") {
+                        position = value
+                            .trim()
+                            .parse()
+                            .ok()
+                            .filter(|n| (1..=super::fretboard::POSITIONS).contains(n))
+                            .ok_or(ScoreError::Header { line: line_no })?;
+                    } else {
+                        return Err(ScoreError::Header { line: line_no });
+                    }
                 }
                 if score.sections.len() >= limits.sections {
                     return Err(ScoreError::Capacity);
@@ -474,6 +491,8 @@ impl Score {
                     name,
                     pattern,
                     first_bar: score.bars,
+                    scale,
+                    position,
                 });
                 continue;
             }
@@ -485,6 +504,8 @@ impl Score {
                     name: 0..0,
                     pattern: default_pattern,
                     first_bar: 0,
+                    scale: Scale::default(),
+                    position: 1,
                 });
             }
             let (lyrics, degrees) = line
@@ -592,6 +613,32 @@ impl Score {
         let first = self.chords.partition_point(|chord| chord.bar < bar);
         let slots = self.chords[first].slots;
         first + ((tick % bar_ticks) * u64::from(slots) / bar_ticks) as usize
+    }
+
+    /// The notes of the triad of the chord on `degree`, in this song's key.
+    pub fn tones(&self, degree: u8) -> Tones {
+        const OFFSETS: [u8; 6] = [0, 2, 4, 5, 7, 9];
+        let offset = degree
+            .checked_sub(1)
+            .and_then(|i| OFFSETS.get(usize::from(i)))
+            .copied()
+            .unwrap_or(0);
+        Tones::new((self.key + offset) % 12, [2, 3, 6].contains(&degree))
+    }
+
+    /// Where on the neck to play a bar that has no lyrics: its section's box.
+    /// A bar with words has none.
+    pub fn solo(&self, bar: u16) -> Option<Fretboard> {
+        let chords = self.bar_chords(bar);
+        if chords.is_empty()
+            || chords
+                .iter()
+                .any(|chord| self.lyric(chord).chars().next().is_some())
+        {
+            return None;
+        }
+        let section = &self.sections[self.section_at(bar)];
+        Some(fretboard(self.key, section.scale, section.position))
     }
 
     pub fn chord_name(&self, degree: u8) -> &'static str {

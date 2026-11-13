@@ -4,13 +4,16 @@
 // are accents come from the slots the shared Rust parser produced; nothing
 // here looks for either in the text.
 
+import { neckNode } from './neck.js';
+
 // One element for each slot of a bar: the chord, then its words with each
 // accent in an element of its own.
 export function slotNodes(slots, doc = document) {
-    return slots.map(({index, chord, segments}) => {
+    return slots.map(({index, chord, segments, root, tones}) => {
         const slot = doc.createElement('span');
         slot.className = 'slot';
         slot.dataset.slot = String(index);
+        if (root !== undefined) { slot.dataset.root = String(root); slot.dataset.tones = String(tones); }
         const name = doc.createElement('span');
         name.className = 'name';
         name.textContent = chord;
@@ -40,10 +43,18 @@ export function note(text, doc = document) {
 }
 
 // Fills `sheet` with a bar, or with `empty` when there is none. A bar with
-// chords but no words says so below them.
+// chords but no words says so below them; a solo, a bar the song leaves
+// without words on purpose, shows where to play it on the neck instead.
 export function fillSheet(sheet, content, empty = '', doc = document) {
     sheet.replaceChildren(...(content ? slotNodes(content.slots, doc) : empty ? [note(empty, doc)] : []));
-    sheet.classList.toggle('instrumental', !!content && !content.lyric);
+    if (content?.neck) sheet.append(neckNode(content.neck, doc));
+    sheet.classList.toggle('solo', !!content?.neck);
+    sheet.classList.toggle('instrumental', !!content && !content.lyric && !content.neck);
+}
+
+// The notes of the chord a slot's element stands for, for the neck.
+export function slotTones(slot) {
+    return slot?.dataset.root === undefined ? null : {root: Number(slot.dataset.root), mask: Number(slot.dataset.tones)};
 }
 
 // How much larger the bar in the middle of the strip is drawn than the rest.

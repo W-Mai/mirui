@@ -1,6 +1,7 @@
 import { ChordLink, SERVICE, PATTERNS } from './protocol.js';
 import { TICKS_PER_BEAT, barContent, choose, follow, sectionAt, sectionStarts, steer, stripBar } from './presentation.js';
-import { CENTER_GROWTH, fillSheet, fitSheet } from './sheet.js';
+import { CENTER_GROWTH, fillSheet, fitSheet, slotTones } from './sheet.js';
+import { lightNeck } from './neck.js';
 import { mountLens, trackLight } from './glass.js';
 import { DeviceSync } from './sync.js';
 
@@ -505,6 +506,9 @@ function markActiveSlot(index) {
         slot.classList.toggle('active', at === index);
         slot.classList.toggle('past', at < index);
     }
+    // A solo lights the notes of the chord that sounds in its box.
+    const neck = currentCard.querySelector('.neck');
+    if (neck) lightNeck(neck, slotTones(currentCard.querySelector(`[data-slot="${index}"]`)));
 }
 function moveCards(phase, hasNext, shift) {
     const travel = reducedMotion.matches || !hasNext ? 0 : phase;
