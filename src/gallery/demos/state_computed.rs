@@ -36,7 +36,7 @@ pub fn build_widgets() {
                 width: Dimension::percent(100),
                 max_width: 180,
                 height: 44,
-                border_radius: 10,
+                border_radius: 22,
                 normal_color: ColorToken::Primary,
                 pressed_color: ColorToken::Secondary,
                 text_color: ColorToken::OnPrimary

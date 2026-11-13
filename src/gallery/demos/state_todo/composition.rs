@@ -13,7 +13,7 @@ fn todo_row(item: model!(TodoItemModel)) -> Entity {
             width: Dimension::percent(100),
             max_width: 280,
             height: 40,
-            border_radius: 10,
+            border_radius: 14,
             normal_color: ColorToken::SurfaceVariant,
             pressed_color: ColorToken::Primary,
             text_color: ColorToken::OnSurface
@@ -58,16 +58,16 @@ pub fn build_widgets(todo: model!(TodoModel)) {
             Row (
                 width: Dimension::percent(100),
                 max_width: 280,
-                height: 38,
-                padding: Padding::all(3),
-                column_gap: 3,
+                height: 42,
+                padding: Padding::all(4),
+                column_gap: 4,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 11
+                border_radius: 21
             ) {
                 Button (
                     grow: 1.0,
                     font_size: 13,
-                    border_radius: 8,
+                    border_radius: 17,
                     text_color: ColorToken::OnPrimary,
                     normal_color: ColorToken::Primary
                 ) [
@@ -80,7 +80,7 @@ pub fn build_widgets(todo: model!(TodoModel)) {
                 Button (
                     grow: 1.0,
                     font_size: 13,
-                    border_radius: 8,
+                    border_radius: 17,
                     normal_color: ColorToken::Outline,
                     text_color: ColorToken::OnSurface
                 ) [
@@ -89,7 +89,7 @@ pub fn build_widgets(todo: model!(TodoModel)) {
                 Button (
                     grow: 1.0,
                     font_size: 13,
-                    border_radius: 8,
+                    border_radius: 17,
                     normal_color: ColorToken::Outline,
                     text_color: ColorToken::OnSurface
                 ) [

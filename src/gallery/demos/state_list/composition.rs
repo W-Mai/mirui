@@ -33,19 +33,19 @@ pub fn build_widgets() {
             )
             Row (
                 width: Dimension::percent(100),
-                max_width: 180,
-                height: 46,
-                padding: Padding::all(3),
-                column_gap: 3,
+                max_width: 188,
+                height: 48,
+                padding: Padding::all(4),
+                column_gap: 4,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 13
+                border_radius: 24
             ) {
                 Button (
                     font_size: 26,
                     text_color: ColorToken::OnSurface,
                     grow: 1.0,
                     height: 40,
-                    border_radius: 10,
+                    border_radius: 20,
                     normal_color: ColorToken::Outline,
                     pressed_color: ColorToken::SurfaceVariant
                 ) [
@@ -60,7 +60,7 @@ pub fn build_widgets() {
                     text_color: ColorToken::OnPrimary,
                     grow: 1.0,
                     height: 40,
-                    border_radius: 10,
+                    border_radius: 20,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary
                 ) [
@@ -80,7 +80,7 @@ pub fn build_widgets() {
                 max_width: 260,
                 max_height: 180,
                 clip_children: true,
-                border_radius: 14,
+                border_radius: 18,
                 padding: Padding::all(6),
                 row_gap: 4
             ) [
@@ -88,16 +88,23 @@ pub fn build_widgets() {
                 ScrollConfig::default(),
             ] {
                 walk ${ rows.get() } with fruit {
-                    View (
-                        bg_color: fruit.color,
-                        text_color: ColorToken::OnPrimary,
+                    Row (
+                        bg_color: ColorToken::Outline,
                         width: Dimension::percent(100),
                         height: ROW_H,
-                        font_size: 13,
-                        border_radius: 8
-                    ) [
-                        Text::label(fruit.name),
-                    ]
+                        padding: Padding::all(7),
+                        column_gap: 10,
+                        align: AlignItems::Center,
+                        border_radius: 12
+                    ) {
+                        View (width: 8, height: 8, border_radius: 4, bg_color: fruit.color)
+                        Text (
+                            text: fruit.name,
+                            grow: 1.0,
+                            font_size: 14,
+                            text_color: ColorToken::OnSurface
+                        )
+                    }
                 }
             }
         }

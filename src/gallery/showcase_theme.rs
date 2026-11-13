@@ -7,6 +7,8 @@ use crate::ui::theme::{ColorToken, Theme, ThemeInfo};
 
 pub const DARK_ID: &str = "showcase-dark";
 pub const LIGHT_ID: &str = "showcase-light";
+pub const SAMPLE_DARK_ID: &str = "sample-dark";
+pub const SAMPLE_LIGHT_ID: &str = "sample-light";
 
 pub fn dark() -> Theme {
     Theme::dark()
@@ -69,14 +71,70 @@ where
     app.set_theme(DARK_ID).expect("showcase theme registered");
 }
 
-/// For the small API samples: the showcase palette and the clean typeface of
+/// Graphite for the small API samples: tonal greys with a trace of blue, the
+/// brightest grey as the one action colour and no hue besides two muted signals.
+pub fn sample_dark() -> Theme {
+    Theme::dark()
+        .with_info(ThemeInfo::new(
+            SAMPLE_DARK_ID,
+            "Sample Dark",
+            "Tonal graphite; the action is the brightest grey",
+        ))
+        .with_many([
+            (ColorToken::Surface, Color::rgb(16, 17, 19)),
+            (ColorToken::OnSurface, Color::rgb(233, 234, 237)),
+            (ColorToken::SurfaceVariant, Color::rgb(25, 26, 29)),
+            (ColorToken::OnSurfaceVariant, Color::rgb(134, 138, 147)),
+            (ColorToken::Outline, Color::rgb(44, 46, 51)),
+            (ColorToken::Primary, Color::rgb(233, 234, 237)),
+            (ColorToken::OnPrimary, Color::rgb(16, 17, 19)),
+            (ColorToken::Secondary, Color::rgb(160, 164, 173)),
+            (ColorToken::OnSecondary, Color::rgb(16, 17, 19)),
+            (ColorToken::Tertiary, Color::rgb(98, 104, 116)),
+            (ColorToken::OnTertiary, Color::rgb(233, 234, 237)),
+            (ColorToken::Success, Color::rgb(104, 196, 150)),
+            (ColorToken::Error, Color::rgb(238, 122, 112)),
+            (ColorToken::Shadow, Color::rgb(0, 0, 0)),
+        ])
+}
+
+/// The paper side of the same graphite: white cards on a warm-neutral page.
+pub fn sample_light() -> Theme {
+    Theme::light()
+        .with_info(ThemeInfo::new(
+            SAMPLE_LIGHT_ID,
+            "Sample Light",
+            "Tonal paper; the action is the darkest grey",
+        ))
+        .with_many([
+            (ColorToken::Surface, Color::rgb(246, 246, 247)),
+            (ColorToken::OnSurface, Color::rgb(23, 24, 27)),
+            (ColorToken::SurfaceVariant, Color::rgb(236, 237, 240)),
+            (ColorToken::OnSurfaceVariant, Color::rgb(111, 115, 124)),
+            (ColorToken::Outline, Color::rgb(216, 218, 224)),
+            (ColorToken::Primary, Color::rgb(23, 24, 27)),
+            (ColorToken::OnPrimary, Color::rgb(255, 255, 255)),
+            (ColorToken::Secondary, Color::rgb(88, 92, 101)),
+            (ColorToken::OnSecondary, Color::rgb(255, 255, 255)),
+            (ColorToken::Tertiary, Color::rgb(160, 164, 173)),
+            (ColorToken::OnTertiary, Color::rgb(23, 24, 27)),
+            (ColorToken::Success, Color::rgb(30, 140, 95)),
+            (ColorToken::Error, Color::rgb(205, 60, 50)),
+            (ColorToken::Shadow, Color::rgb(57, 66, 76)),
+        ])
+}
+
+/// For the small API samples: the graphite palettes and the clean typeface of
 /// the other demos, in place of the default theme and the 8-bit pixel face.
 pub(in crate::gallery) fn install_sample<B, F>(app: &mut App<B, F>)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
-    install(app);
+    app.register_theme(sample_dark());
+    app.register_theme(sample_light());
+    app.set_theme(SAMPLE_DARK_ID)
+        .expect("sample theme registered");
     app.add_plugin(super::play::font::PlayFontPlugin);
 }
 
@@ -107,5 +165,22 @@ mod tests {
                 theme.resolve(ColorToken::OnPrimary)
             );
         }
+    }
+
+    #[test]
+    fn sample_palettes_are_graphite_with_the_action_as_the_brightest_grey() {
+        for theme in [sample_dark(), sample_light()] {
+            let action = theme.resolve(ColorToken::Primary);
+            let on_action = theme.resolve(ColorToken::OnPrimary);
+            // Neutral to the eye: no channel strays far from the others.
+            for color in [action, on_action, theme.resolve(ColorToken::Surface)] {
+                assert!(color.r.abs_diff(color.b) <= 4, "{color:?}");
+            }
+            assert_ne!(action, on_action);
+        }
+        let mut app = App::headless(1, 1);
+        super::install_sample(&mut app);
+        assert_eq!(app.theme().id().as_str(), SAMPLE_DARK_ID);
+        assert!(app.themes().get(SAMPLE_LIGHT_ID).is_some());
     }
 }

@@ -31,6 +31,6 @@ pub(super) const PALETTE: [Fruit; 6] = [
     },
     Fruit {
         name: "Pear",
-        color: ColorToken::SurfaceVariant,
+        color: ColorToken::OnSurfaceVariant,
     },
 ];

@@ -29,7 +29,7 @@ pub fn build_widgets() {
                 width: Dimension::percent(100),
                 max_width: 220,
                 height: 42,
-                border_radius: 10,
+                border_radius: 21,
                 normal_color: ColorToken::Primary,
                 pressed_color: ColorToken::Secondary,
                 text_color: ColorToken::OnPrimary
@@ -43,7 +43,7 @@ pub fn build_widgets() {
                     width: Dimension::percent(100),
                     max_width: 260,
                     height: 58,
-                    border_radius: 14,
+                    border_radius: 18,
                     text_color: ColorToken::OnPrimary
                 ) [
                     Text::label("now you see me"),
@@ -55,7 +55,7 @@ pub fn build_widgets() {
                     width: Dimension::percent(100),
                     max_width: 260,
                     height: 58,
-                    border_radius: 14,
+                    border_radius: 18,
                     text_color: ColorToken::OnSurfaceVariant
                 ) [
                     Text::label("hidden, tap to show"),
@@ -66,7 +66,7 @@ pub fn build_widgets() {
                 width: Dimension::percent(100),
                 max_width: 220,
                 height: 42,
-                border_radius: 10,
+                border_radius: 21,
                 normal_color: ColorToken::Outline,
                 pressed_color: ColorToken::SurfaceVariant,
                 text_color: ColorToken::OnSurface
@@ -80,9 +80,9 @@ pub fn build_widgets() {
                         width: Dimension::percent(100),
                         max_width: 260,
                         height: 60,
-                        border_radius: 14,
-                        bg_color: ColorToken::Primary,
-                        text_color: ColorToken::OnPrimary
+                        border_radius: 18,
+                        bg_color: ColorToken::Outline,
+                        text_color: ColorToken::OnSurface
                     ) [
                         Text::label("single card"),
                     ]
@@ -99,19 +99,19 @@ pub fn build_widgets() {
                         View (
                             grow: 1.0,
                             height: 60,
-                            border_radius: 14,
-                            bg_color: ColorToken::Error
+                            border_radius: 18,
+                            bg_color: ColorToken::Outline
                         )
                         View (
                             grow: 1.0,
                             height: 60,
-                            border_radius: 14,
-                            bg_color: ColorToken::Success
+                            border_radius: 18,
+                            bg_color: ColorToken::Tertiary
                         )
                         View (
                             grow: 1.0,
                             height: 60,
-                            border_radius: 14,
+                            border_radius: 18,
                             bg_color: ColorToken::Primary
                         )
                     }
@@ -124,7 +124,7 @@ pub fn build_widgets() {
                         padding: Padding::all(8),
                         row_gap: 6,
                         bg_color: ColorToken::SurfaceVariant,
-                        border_radius: 14
+                        border_radius: 18
                     ) {
                         Text (
                             "stacked bars",

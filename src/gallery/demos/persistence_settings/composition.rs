@@ -28,7 +28,7 @@ pub fn build_widgets(settings: model!(SettingsModel)) {
                 ) on Toggled { settings.set_show_details(event.now); }
                 Text ("Show details", grow: 1.0, font_size: 14)
             }
-            Button (id: "settings_preview_toggle", height: 32, border_radius: 8, font_size: 13) [
+            Button (id: "settings_preview_toggle", height: 32, border_radius: 16, font_size: 13) [
                 Text::label("Toggle preview"),
             ] on Tap { settings.toggle_preview(); }
             Column (

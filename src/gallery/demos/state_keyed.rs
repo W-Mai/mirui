@@ -32,7 +32,7 @@ fn deck() -> Vec<Card> {
         Card {
             id: 3,
             name: "Gold",
-            color: ColorToken::Secondary
+            color: ColorToken::OnSurfaceVariant
         },
     ]
 }
@@ -58,7 +58,7 @@ pub fn build_widgets() {
                 width: Dimension::percent(100),
                 max_width: 260,
                 height: 42,
-                border_radius: 10,
+                border_radius: 21,
                 normal_color: ColorToken::Primary,
                 pressed_color: ColorToken::Secondary
             ) [
@@ -79,21 +79,28 @@ pub fn build_widgets() {
                 width: Dimension::percent(100),
                 max_width: 260,
                 max_height: 160,
-                border_radius: 14,
+                border_radius: 18,
                 padding: Padding::all(6),
                 row_gap: 6
             ) {
                 walk ${ rows.get() } with card by card.id {
-                    View (
-                        font_size: 13,
-                        bg_color: card.color,
-                        text_color: ColorToken::OnPrimary,
+                    Row (
+                        bg_color: ColorToken::Outline,
                         width: Dimension::percent(100),
-                        height: 30,
-                        border_radius: 8
-                    ) [
-                        Text::label(card.name),
-                    ]
+                        height: 32,
+                        padding: Padding::all(7),
+                        column_gap: 10,
+                        align: AlignItems::Center,
+                        border_radius: 12
+                    ) {
+                        View (width: 8, height: 8, border_radius: 4, bg_color: card.color)
+                        Text (
+                            text: card.name,
+                            grow: 1.0,
+                            font_size: 14,
+                            text_color: ColorToken::OnSurface
+                        )
+                    }
                 }
             }
         }

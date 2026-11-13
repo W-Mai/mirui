@@ -58,6 +58,12 @@ pub fn appearance_theme_id(active: &str, dark: bool) -> Option<&'static str> {
                 mirui::gallery::showcase_theme::LIGHT_ID
             })
         }
+        mirui::gallery::showcase_theme::SAMPLE_DARK_ID
+        | mirui::gallery::showcase_theme::SAMPLE_LIGHT_ID => Some(if dark {
+            mirui::gallery::showcase_theme::SAMPLE_DARK_ID
+        } else {
+            mirui::gallery::showcase_theme::SAMPLE_LIGHT_ID
+        }),
         mirui::gallery::demos::iris::DARK_ID | mirui::gallery::demos::iris::LIGHT_ID => {
             Some(if dark {
                 mirui::gallery::demos::iris::DARK_ID

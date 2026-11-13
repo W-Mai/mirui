@@ -23,18 +23,18 @@ pub fn build_widgets(count: model!(Signal<i32>)) {
             )
             Row (
                 width: Dimension::percent(100),
-                max_width: 180,
-                height: 50,
-                padding: Padding::all(3),
-                column_gap: 3,
+                max_width: 188,
+                height: 52,
+                padding: Padding::all(4),
+                column_gap: 4,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 13
+                border_radius: 26
             ) {
                 Button (
                     font_size: 26,
                     grow: 1.0,
                     height: 44,
-                    border_radius: 10,
+                    border_radius: 22,
                     normal_color: ColorToken::Outline,
                     pressed_color: ColorToken::SurfaceVariant,
                     text_color: ColorToken::OnSurface
@@ -45,7 +45,7 @@ pub fn build_widgets(count: model!(Signal<i32>)) {
                     font_size: 26,
                     grow: 1.0,
                     height: 44,
-                    border_radius: 10,
+                    border_radius: 22,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary,
                     text_color: ColorToken::OnPrimary

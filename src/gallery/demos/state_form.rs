@@ -43,7 +43,7 @@ pub fn build_widgets() {
                 bg_color: ColorToken::SurfaceVariant,
                 border_color: ColorToken::Outline,
                 border_width: 1,
-                border_radius: 10
+                border_radius: 22
             ) [
                 Placeholder("Your name"),
             ] on TextEditing::Changed { name_changed.set(event.len > 0); }
@@ -64,7 +64,7 @@ pub fn build_widgets() {
                     width: Dimension::percent(100),
                     max_width: 280,
                     height: 44,
-                    border_radius: 10,
+                    border_radius: 22,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary,
                     text_color: ColorToken::OnPrimary
@@ -78,9 +78,9 @@ pub fn build_widgets() {
                     width: Dimension::percent(100),
                     max_width: 280,
                     height: 44,
-                    border_radius: 10,
-                    normal_color: ColorToken::SurfaceVariant,
-                    pressed_color: ColorToken::SurfaceVariant,
+                    border_radius: 22,
+                    normal_color: ColorToken::Outline,
+                    pressed_color: ColorToken::Outline,
                     text_color: ColorToken::OnSurfaceVariant
                 ) [
                     Text::label("Complete the form"),
@@ -173,7 +173,7 @@ mod tests {
             let submit = if expected_ready { ready } else { pending };
             world.get::<Button>(submit).unwrap().normal_color
         };
-        let off = crate::ui::theme::ThemedColor::Token(ColorToken::SurfaceVariant);
+        let off = crate::ui::theme::ThemedColor::Token(ColorToken::Outline);
         let on = crate::ui::theme::ThemedColor::Token(ColorToken::Primary);
 
         assert_eq!(normal(world, false), off, "starts disabled");
