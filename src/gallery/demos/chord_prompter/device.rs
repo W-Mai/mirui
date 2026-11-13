@@ -268,8 +268,8 @@ fn the_end_of_the_song_comes_in_from_the_right_on_the_chord_row() {
     // Three quarters into the first bar: the next chord is in the ink colour.
     session.advance(1_800_000);
     assert_eq!(label(&mut app), 0);
-    // The same moment of the last bar: END, not lit yet, comes in.
-    session.advance(7 * 2_500_000 + 1_800_000);
+    // The same moment of the last bar, the eleventh after the first: END, not lit yet, comes in.
+    session.advance(11 * 2_500_000 + 1_800_000);
     assert!(
         label(&mut app) > 20,
         "END must show before the last bar ends"

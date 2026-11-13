@@ -759,7 +759,8 @@ fn session_preserves_score_on_failed_import_and_stops_at_the_end() {
     assert_eq!(session.chord, "G");
     session.advance(100_000_000);
     assert!(!session.playing);
-    assert_eq!(session.chord, "C");
+    // The song ends on its solo, whose last chord is the one left showing.
+    assert_eq!(session.chord, "G");
     assert_eq!(session.next_chord, "END");
     session.stop();
     assert_eq!(session.bar_phase, 0);
