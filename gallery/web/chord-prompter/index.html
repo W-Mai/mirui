@@ -23,7 +23,7 @@
             <a id="back-to-demo" class="back-link" href="../?demo=chord_prompter" aria-label="Back to Chord Prompter demo" title="Back to demo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6-6 6 6 6M4 12h16"/></svg><span>Demo</span></a>
             <div class="song-heading"><h1 id="song-title">Chord Prompter</h1><span id="mode">Browser preview</span></div>
         </div>
-        <div class="tools"><span id="lamp" class="lamp" aria-hidden="true"></span><span id="connection">Not connected</span><button id="connect">Connect display</button><button id="appearance" class="icon-button" aria-label="Switch to light theme" title="Switch to light theme"><svg class="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg><svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14a8 8 0 0 1-10-10A8 8 0 1 0 20 14Z"/></svg></button><button id="fullscreen" class="icon-button" aria-label="Enter fullscreen" title="Enter fullscreen" aria-pressed="false"><svg class="fullscreen-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg><svg class="fullscreen-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h5V3m8 0v5h5M3 16h5v5m8 0v-5h5"/></svg></button><button id="editor-toggle" class="icon-button" aria-label="Open editor" aria-expanded="false" aria-controls="editor" title="Open editor"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16m3-11h1m-1 4h1"/></svg></button></div>
+        <div class="tools"><span class="status"><span id="lamp" class="lamp" aria-hidden="true"></span><span id="connection">Not connected</span></span><button id="connect">Connect display</button><span class="icon-group"><button id="appearance" class="icon-button" aria-label="Switch to light theme" title="Switch to light theme"><svg class="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg><svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14a8 8 0 0 1-10-10A8 8 0 1 0 20 14Z"/></svg></button><button id="fullscreen" class="icon-button" aria-label="Enter fullscreen" title="Enter fullscreen" aria-pressed="false"><svg class="fullscreen-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg><svg class="fullscreen-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h5V3m8 0v5h5M3 16h5v5m8 0v-5h5"/></svg></button><button id="editor-toggle" class="icon-button" aria-label="Open editor" aria-expanded="false" aria-controls="editor" title="Open editor"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16m3-11h1m-1 4h1"/></svg></button></span></div>
     </header>
     <div class="workspace">
         <main class="stage" aria-label="Chord and lyric prompter">
@@ -31,6 +31,7 @@
                 <div class="section-heading"><span id="section-name"></span><span id="meter">4 / 4</span></div>
                 <div id="beats" class="beats" aria-label="Counted beats"></div>
                 <div class="bar-window">
+                    <i class="playhead" aria-hidden="true"></i>
                     <div class="bar-card" data-offset="-3" aria-hidden="true"><span class="bar-number"></span><div class="sheet"></div></div>
                     <div class="bar-card" data-offset="-2" aria-hidden="true"><span class="bar-number"></span><div class="sheet"></div></div>
                     <div class="bar-card" data-offset="-1" aria-hidden="true"><span class="bar-number"></span><div class="sheet"></div></div>
@@ -39,11 +40,11 @@
                     <div class="bar-card" data-offset="2" aria-hidden="true"><span class="bar-number"></span><div class="sheet"></div></div>
                     <div class="bar-card" data-offset="3" aria-hidden="true"><span class="bar-number"></span><div class="sheet"></div></div>
                 </div>
-                <div id="strum-track" class="strum-track" aria-label="Strumming rhythm"><i id="strum-cursor"></i><div id="attacks"></div></div>
             </div>
             <div class="controller-wrap">
                 <p id="message" role="status" aria-live="polite"></p>
-                <div class="controller glass">
+                <div id="strum-track" class="strum-track" aria-label="Strumming rhythm"><i id="strum-cursor"></i><div id="attacks"></div></div>
+                <div id="controller" class="controller glass">
                     <div id="transfer" class="transfer" hidden><span id="transfer-label"></span><progress id="progress" max="1" value="0" aria-label="Song upload"></progress><span id="transfer-announcement" class="sr-only" role="status" aria-live="polite"></span></div>
                     <div class="controller-row">
                         <div class="transport"><button id="stop" class="icon-button" data-ready aria-label="Stop" title="Stop" disabled><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1" class="solid"/></svg></button><button id="play" class="play-button" data-ready aria-label="Play" aria-pressed="false" title="Play" disabled><svg id="play-icon" viewBox="0 0 24 24"><path class="solid" d="m9 5 11 7-11 7z"/></svg><svg id="pause-icon" viewBox="0 0 24 24"><path d="M9 6v12m6-12v12"/></svg></button></div>

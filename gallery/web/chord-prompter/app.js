@@ -1,6 +1,7 @@
 import { ChordLink, SERVICE, PATTERNS } from './protocol.js';
 import { TICKS_PER_BEAT, barContent, choose, follow, sectionAt, sectionStarts, steer, stripBar } from './presentation.js';
 import { CENTER_GROWTH, fillSheet, fitSheet } from './sheet.js';
+import { mountLens, trackLight } from './glass.js';
 import { DeviceSync } from './sync.js';
 
 const $ = id => document.getElementById(id);
@@ -294,6 +295,11 @@ function refreshBarPreview() {
     }
 }
 const positionRange = $('position-range');
+// The part of the track before the thumb is drawn in the accent colour.
+function paintRange() {
+    const min = Number(positionRange.min), span = Number(positionRange.max) - min;
+    positionRange.style.setProperty('--progress', `${span > 0 ? (Number(positionRange.value) - min) / span * 100 : 0}%`);
+}
 positionRange.setAttribute('aria-describedby', 'bar-preview');
 positionRange.onpointermove = event => {
     const rect = positionRange.getBoundingClientRect();
@@ -308,7 +314,7 @@ positionRange.onpointerdown = () => { scrubPointer = true; };
 positionRange.onfocus = () => showBarPreview(Number(positionRange.value) - 1);
 positionRange.onblur = hideBarPreview;
 positionRange.onkeydown = event => { if (event.key === 'Escape') hideBarPreview(); };
-positionRange.oninput = () => { scrubbing = true; positionKey = ''; $('position').textContent = `Bar ${positionRange.value}`; showBarPreview(Number(positionRange.value) - 1); };
+positionRange.oninput = () => { scrubbing = true; positionKey = ''; paintRange(); $('position').textContent = `Bar ${positionRange.value}`; showBarPreview(Number(positionRange.value) - 1); };
 positionRange.onchange = () => {
     pick(Number(positionRange.value) - 1);
     scrubbing = false;
@@ -443,6 +449,10 @@ function restart(card, name) {
 for (const card of barCards) card.addEventListener('animationend', () => card.classList.remove('swap'));
 // The bars are fitted to the strip's height; a new height fits them again.
 new ResizeObserver(() => { rendered = {key: ''}; }).observe(barWindow);
+// The control bar and the preview of a bar are liquid glass.
+mountLens($('controller'), {bezel: 26, depth: 18});
+trackLight($('controller'));
+mountLens($('bar-preview'), {bezel: 18, depth: 12});
 
 function slotAt(data, tick) {
     let lo = 0, hi = data.slots.length;
@@ -568,6 +578,7 @@ function frame() {
         shown = {identity, bar, jumpBar};
         if (beatCount !== state.beats) {
             $('beats').replaceChildren(...Array.from({length: state.beats}, (_, index) => {const dot = document.createElement('i'); dot.textContent=String(index+1); return dot;})); beatCount = state.beats;
+            $('strum-track').style.setProperty('--beats', String(state.beats));
         }
         // A count-in lights the beats before the music starts.
         let lit = state.stale ? -1 : beat;
@@ -578,7 +589,7 @@ function frame() {
         $('play').setAttribute('aria-pressed', String(state.playing));
         $('play').setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
         $('play').title = state.playing ? 'Pause (Space)' : 'Play (Space)';
-        if (!scrubbing) { showPosition(bar, data, state, jumpBar); $('position-range').max = String(data?.bars ?? 128); $('position-range').value = String(bar + 1); }
+        if (!scrubbing) { showPosition(bar, data, state, jumpBar); $('position-range').max = String(data?.bars ?? 128); $('position-range').value = String(bar + 1); paintRange(); }
         if (document.activeElement !== $('tempo') && !state.pending) $('tempo').value = String(state.bpm / 1000);
         renderStrip(data, data ? slotAt(data, tick) : 0, {identity, bar, trail, jumpBar, ahead});
         currentCard.classList.toggle('running', moving);

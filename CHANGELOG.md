@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Polish the Chord Prompter workspace page and make its control bar liquid glass: Geist type, a quieter topbar with a status pill and segmented tools, round beat markers, a playhead through the bar strip, a range slider with a glass thumb and a tinted glass play button. The control bar is clear glass with a lit rim, a pointer-following highlight and, in Chromium, an SVG displacement lens that bends the beat lines and strum cursor running under it; other browsers keep the material without the bend. It falls back to a plain panel under reduced transparency.
+
 - Show the Chord Prompter workspace's bars as a lead sheet, as the display does: each chord stands over the first letter or character of its words, and the accented words the song brackets are underlined, instead of the whole lyric of the playing chord. The parser sends each lyric cut at its accents with the score, so the page never looks for them in the text; a bar with many chords shrinks to fit the strip, and the hover preview of a bar uses the same sheet.
 
 - Make the Chord Prompter display easier to read on a 128×128 screen without a touch panel: each chord starts over the first letter or character of its lyric, the chord that sounds stays on the needle until the next one pushes it aside, and the top row shows play, pause or stop, the section or the bar a queued jump leads to, the beat at the needle, the bar counter and the connection. A delayed start counts the beats in large digits, an incoming song grows a bar along the top edge, and the end of the song arrives on the chord row. Colours come from the theme and are lifted to a legible contrast.

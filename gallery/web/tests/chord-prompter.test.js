@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { ChordLink, DeviceError, checksum, statusPacket } from '../chord-prompter/protocol.js';
 import { barContent, choose, follow, sectionAt, sectionStarts, steer, stripBar } from '../chord-prompter/presentation.js';
 import { fillSheet, fitSheet, slotNodes } from '../chord-prompter/sheet.js';
+import { displacement } from '../chord-prompter/glass.js';
 import { DeviceSync } from '../chord-prompter/sync.js';
 
 test('bar inspection respects canonical half-open bar intervals and unknown sources', () => {
@@ -321,4 +322,22 @@ describe('bounded device protocol', () => {
         expect(m.writes.at(-1)[0]).toBe(18);
         sync.clear(); link.close();
     });
+});
+
+test('the glass lens leaves the middle alone and pulls the rim toward the centre', () => {
+    const [width, height, radius, bezel, depth] = [200, 80, 40, 26, 18];
+    expect(displacement(100, 40, width, height, radius, bezel, depth)).toEqual([0, 0]);
+    // Past the bezel nothing moves; in the corner outside the rounded box nothing is drawn.
+    expect(displacement(100, 30, width, height, radius, bezel, depth)).toEqual([0, 0]);
+    expect(displacement(0, 0, width, height, radius, bezel, depth)).toEqual([0, 0]);
+    const [leftX, leftY] = displacement(1, 40, width, height, radius, bezel, depth);
+    expect(leftX).toBeGreaterThan(0);
+    expect(Math.abs(leftY)).toBeLessThan(.5);
+    const [topX, topY] = displacement(100, 1, width, height, radius, bezel, depth);
+    expect(topY).toBeGreaterThan(0);
+    expect(Math.abs(topX)).toBeLessThan(1e-9);
+    // At the rim the pull is the full depth; it falls off toward the middle.
+    expect(Math.hypot(...displacement(0, 40, width, height, radius, bezel, depth))).toBeGreaterThan(depth * .9);
+    expect(Math.abs(displacement(12, 40, width, height, radius, bezel, depth)[0]))
+        .toBeLessThan(Math.abs(displacement(2, 40, width, height, radius, bezel, depth)[0]));
 });
