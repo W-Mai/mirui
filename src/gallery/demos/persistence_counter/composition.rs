@@ -24,13 +24,17 @@ pub fn build_widgets(count: model!(Signal<i32>)) {
             Row (
                 width: Dimension::percent(100),
                 max_width: 180,
-                height: 44,
-                column_gap: 12
+                height: 50,
+                padding: Padding::all(3),
+                column_gap: 3,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 13
             ) {
                 Button (
+                    font_size: 26,
                     grow: 1.0,
                     height: 44,
-                    border_radius: 22,
+                    border_radius: 10,
                     normal_color: ColorToken::Outline,
                     pressed_color: ColorToken::SurfaceVariant,
                     text_color: ColorToken::OnSurface
@@ -38,9 +42,10 @@ pub fn build_widgets(count: model!(Signal<i32>)) {
                     Text::label("-"),
                 ] on Tap { count.update(|n| *n -= 1); }
                 Button (
+                    font_size: 26,
                     grow: 1.0,
                     height: 44,
-                    border_radius: 22,
+                    border_radius: 10,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary,
                     text_color: ColorToken::OnPrimary

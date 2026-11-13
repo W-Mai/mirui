@@ -39,6 +39,7 @@ pub fn build_widgets() {
                 width: Dimension::percent(100),
                 max_width: 280,
                 height: 42,
+                font_size: 15,
                 bg_color: ColorToken::SurfaceVariant,
                 border_color: ColorToken::Outline,
                 border_width: 1,
@@ -54,15 +55,16 @@ pub fn build_widgets() {
                 column_gap: 10
             ) {
                 Checkbox (width: 24, height: 24) on Toggled { agreement_changed.set(event.now); }
-                Text ("I agree to continue", grow: 1.0, text_color: ColorToken::OnSurface)
+                Text ("I agree to continue", grow: 1.0, font_size: 14, text_color: ColorToken::OnSurface)
             }
             if $submit_bg {
                 Button (
+                    font_size: 16,
                     id: "state_form_submit_ready",
                     width: Dimension::percent(100),
                     max_width: 280,
                     height: 44,
-                    border_radius: 12,
+                    border_radius: 10,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary,
                     text_color: ColorToken::OnPrimary
@@ -71,11 +73,12 @@ pub fn build_widgets() {
                 ]
             } else {
                 Button (
+                    font_size: 16,
                     id: "state_form_submit_pending",
                     width: Dimension::percent(100),
                     max_width: 280,
                     height: 44,
-                    border_radius: 12,
+                    border_radius: 10,
                     normal_color: ColorToken::SurfaceVariant,
                     pressed_color: ColorToken::SurfaceVariant,
                     text_color: ColorToken::OnSurfaceVariant

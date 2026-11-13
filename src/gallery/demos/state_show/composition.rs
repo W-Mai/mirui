@@ -25,10 +25,11 @@ pub fn build_widgets() {
             ScrollConfig::default(),
         ] {
             Button (
+                font_size: 15,
                 width: Dimension::percent(100),
                 max_width: 220,
                 height: 42,
-                border_radius: 11,
+                border_radius: 10,
                 normal_color: ColorToken::Primary,
                 pressed_color: ColorToken::Secondary,
                 text_color: ColorToken::OnPrimary
@@ -37,45 +38,49 @@ pub fn build_widgets() {
             ] on Tap { toggle.update(|v| *v = !*v); }
             if $cond {
                 View (
+                    font_size: 17,
                     bg_color: ColorToken::Success,
                     width: Dimension::percent(100),
                     max_width: 260,
                     height: 58,
-                    border_radius: 12,
+                    border_radius: 14,
                     text_color: ColorToken::OnPrimary
                 ) [
                     Text::label("now you see me"),
                 ]
             } else {
                 View (
+                    font_size: 17,
                     bg_color: ColorToken::SurfaceVariant,
                     width: Dimension::percent(100),
                     max_width: 260,
                     height: 58,
-                    border_radius: 12,
+                    border_radius: 14,
                     text_color: ColorToken::OnSurfaceVariant
                 ) [
                     Text::label("hidden, tap to show"),
                 ]
             }
             Button (
+                font_size: 15,
                 width: Dimension::percent(100),
                 max_width: 220,
                 height: 42,
-                border_radius: 11,
-                normal_color: ColorToken::Secondary,
-                pressed_color: ColorToken::Primary,
-                text_color: ColorToken::OnSecondary
+                border_radius: 10,
+                normal_color: ColorToken::Outline,
+                pressed_color: ColorToken::SurfaceVariant,
+                text_color: ColorToken::OnSurface
             ) [
                 Text::label("Cycle keyed layout"),
             ] on Tap { cycle.update(|m| *m = (*m + 1) % 3); }
             match $sel {
                 0 => {
                     View (
+                        font_size: 17,
                         width: Dimension::percent(100),
                         max_width: 260,
                         height: 60,
-                        border_radius: 12,
+                        border_radius: 14,
                         bg_color: ColorToken::Primary,
                         text_color: ColorToken::OnPrimary
                     ) [
@@ -94,19 +99,19 @@ pub fn build_widgets() {
                         View (
                             grow: 1.0,
                             height: 60,
-                            border_radius: 12,
+                            border_radius: 14,
                             bg_color: ColorToken::Error
                         )
                         View (
                             grow: 1.0,
                             height: 60,
-                            border_radius: 12,
+                            border_radius: 14,
                             bg_color: ColorToken::Success
                         )
                         View (
                             grow: 1.0,
                             height: 60,
-                            border_radius: 12,
+                            border_radius: 14,
                             bg_color: ColorToken::Primary
                         )
                     }
@@ -119,7 +124,7 @@ pub fn build_widgets() {
                         padding: Padding::all(8),
                         row_gap: 6,
                         bg_color: ColorToken::SurfaceVariant,
-                        border_radius: 12
+                        border_radius: 14
                     ) {
                         Text (
                             "stacked bars",

@@ -53,11 +53,12 @@ pub fn build_widgets() {
             row_gap: 12
         ) {
             Button (
+                font_size: 15,
                 text_color: ColorToken::OnPrimary,
                 width: Dimension::percent(100),
                 max_width: 260,
                 height: 42,
-                border_radius: 11,
+                border_radius: 10,
                 normal_color: ColorToken::Primary,
                 pressed_color: ColorToken::Secondary
             ) [
@@ -78,12 +79,13 @@ pub fn build_widgets() {
                 width: Dimension::percent(100),
                 max_width: 260,
                 max_height: 160,
-                border_radius: 12,
+                border_radius: 14,
                 padding: Padding::all(6),
                 row_gap: 6
             ) {
                 walk ${ rows.get() } with card by card.id {
                     View (
+                        font_size: 13,
                         bg_color: card.color,
                         text_color: ColorToken::OnPrimary,
                         width: Dimension::percent(100),

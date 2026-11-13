@@ -32,10 +32,11 @@ pub fn build_widgets() {
                 paragraph: ParagraphStyle::label()
             )
             Button (
+                font_size: 16,
                 width: Dimension::percent(100),
                 max_width: 180,
                 height: 44,
-                border_radius: 12,
+                border_radius: 10,
                 normal_color: ColorToken::Primary,
                 pressed_color: ColorToken::Secondary,
                 text_color: ColorToken::OnPrimary

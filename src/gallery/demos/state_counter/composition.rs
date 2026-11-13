@@ -32,13 +32,17 @@ pub fn build_widgets(counter: model!(CounterModel)) {
             Row (
                 width: Dimension::percent(100),
                 max_width: 200,
-                height: 44,
-                column_gap: 10
+                height: 50,
+                padding: Padding::all(3),
+                column_gap: 3,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 13
             ) {
                 Button (
+                    font_size: 26,
                     grow: 1.0,
                     height: 44,
-                    border_radius: 22,
+                    border_radius: 10,
                     normal_color: ColorToken::Outline,
                     pressed_color: ColorToken::SurfaceVariant,
                     text_color: ColorToken::OnSurface
@@ -46,9 +50,10 @@ pub fn build_widgets(counter: model!(CounterModel)) {
                     Text::label("-"),
                 ] on Tap { counter.decrement(); }
                 Button (
+                    font_size: 26,
                     grow: 1.0,
                     height: 44,
-                    border_radius: 22,
+                    border_radius: 10,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary,
                     text_color: ColorToken::OnPrimary

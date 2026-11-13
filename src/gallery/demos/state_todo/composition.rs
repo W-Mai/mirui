@@ -58,12 +58,15 @@ pub fn build_widgets(todo: model!(TodoModel)) {
             Row (
                 width: Dimension::percent(100),
                 max_width: 280,
-                height: 32,
-                column_gap: 6
+                height: 38,
+                padding: Padding::all(3),
+                column_gap: 3,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 11
             ) {
                 Button (
                     grow: 1.0,
-                    font_size: 12,
+                    font_size: 13,
                     border_radius: 8,
                     text_color: ColorToken::OnPrimary,
                     normal_color: ColorToken::Primary
@@ -76,15 +79,19 @@ pub fn build_widgets(todo: model!(TodoModel)) {
                 }
                 Button (
                     grow: 1.0,
-                    font_size: 12,
-                    border_radius: 8
+                    font_size: 13,
+                    border_radius: 8,
+                    normal_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
                 ) [
                     Text::label("Rotate"),
                 ] on Tap { todo.rotate(); }
                 Button (
                     grow: 1.0,
-                    font_size: 12,
-                    border_radius: 8
+                    font_size: 13,
+                    border_radius: 8,
+                    normal_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
                 ) [
                     Text::label("Clear"),
                 ] on Tap { todo.clear_completed(); }
