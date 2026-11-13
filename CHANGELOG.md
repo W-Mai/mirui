@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Send a damaged area to the display once: drop damage that lies inside an area scrolled whole, and a scrolled area that damage around it has already sent. The Chord Prompter at 128×128 no longer sends its lyric area twice on the frames that change a beat or a bar.
+
 - Steer Chord Prompter playback from the keyboard and page-turn pedals: arrow and page keys choose the bar that comes next while playing and move by a bar while paused, Shift moves by section, Home returns to the start, Escape cancels a chosen jump and minus and plus change the tempo; Space keeps working after a control was clicked.
 
 - Tap a Chord Prompter bar card to play it next, or swipe the bars to step; the coming card shows a chosen jump, the cards behind keep the bars that were played, and the timeline shows the destination and section starts.

@@ -1923,12 +1923,30 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 .and_then(|(a, b)| b.checked_sub(a));
             let submitted = (|| {
                 crate::trace_span!("frame.flush");
+                // A scrolled area is flushed whole, so damage inside it needs
+                // no second transfer, and neither does a scrolled area that
+                // damage around it has already sent.
+                let in_scrolled = |area: crate::types::PhysicalRect| {
+                    plan.shifts.iter().any(|sop| {
+                        transform
+                            .physical_rect(sop.area)
+                            .is_some_and(|scrolled| scrolled.intersection(area) == Some(area))
+                    })
+                };
                 for &area in physical.as_slice() {
+                    if in_scrolled(area) {
+                        continue;
+                    }
                     self.backend.flush(area)?;
                 }
                 for sop in &plan.shifts {
-                    if let Some(physical) = transform.physical_rect(sop.area) {
-                        self.backend.flush(physical)?;
+                    if let Some(scrolled) = transform.physical_rect(sop.area) {
+                        let sent = physical.as_slice().iter().any(|&area| {
+                            !in_scrolled(area) && area.intersection(scrolled) == Some(scrolled)
+                        });
+                        if !sent {
+                            self.backend.flush(scrolled)?;
+                        }
                     }
                 }
                 self.backend.end_flush()?;
