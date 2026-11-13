@@ -65,7 +65,25 @@ pub struct Session {
     pub bar_label: String,
     #[observe]
     pub slot_index: u8,
+    /// The name of the section that holds the current bar.
+    #[observe]
+    pub section: String,
+    section_index: usize,
+    /// The destination bar of a queued jump, or `NO_JUMP`.
+    #[observe]
+    pub jump: u16,
+    /// The beat being counted before a delayed start, or zero.
+    #[observe]
+    pub count_in: u8,
+    /// Percent of a song received over Bluetooth, while one is arriving.
+    #[observe]
+    pub upload: Option<u8>,
+    #[observe]
+    pub at_start: bool,
 }
+
+/// `Session::jump` when no jump is queued.
+pub(super) const NO_JUMP: u16 = u16::MAX;
 
 impl Session {
     pub fn new(score: Score) -> Self {
@@ -100,6 +118,12 @@ impl Session {
             sheet_scroll: Fixed::ZERO,
             bar_label: String::with_capacity(16),
             slot_index: 0,
+            section: String::with_capacity(64),
+            section_index: usize::MAX,
+            jump: NO_JUMP,
+            count_in: 0,
+            upload: None,
+            at_start: true,
             score,
             current: usize::MAX,
             now_us: 0,
@@ -177,13 +201,36 @@ impl Session {
         if self.transport.pending() != 0 {
             self.tempo.push_str(" *");
         }
+        self.at_start = position == 0;
+        self.jump = self
+            .transport
+            .pending_seek()
+            .map_or(NO_JUMP, |(_, to)| (to / bar_ticks) as u16);
+        let section = self.score.section_at(bar);
+        if self.section_index != section {
+            self.section_index = section;
+            self.section.clear();
+            self.section
+                .push_str(self.score.text(self.score.sections()[section].name.clone()));
+        }
+        // Beats left before a delayed start, counted from the bar's end so
+        // that the last count is always the last beat of the bar.
+        self.count_in = if self.playing && self.now_us < self.transport.starts_at_us() {
+            let beat_us = 60_000_000_000 / u64::from(self.transport.milli_bpm());
+            let left = (self.transport.starts_at_us() - self.now_us)
+                .div_ceil(beat_us)
+                .min(u64::from(self.beats)) as u8;
+            self.beats - left + 1
+        } else {
+            0
+        };
     }
 
     fn rebuild_sheet(&mut self, pages: [Option<u16>; 3]) {
         if self.sheet_needs_prepare {
             self.sheet.prepare(
                 &self.score,
-                self.stage_width.to_int().max(120) as u16,
+                super::sheet::page_width(self.stage_width),
                 self.sheet_view_height,
             );
             self.sheet_needs_prepare = false;
@@ -191,7 +238,7 @@ impl Session {
         self.sheet.rebuild_pages(
             &self.score,
             pages,
-            self.stage_width.to_int().max(120) as u16,
+            super::sheet::page_width(self.stage_width),
             self.sheet_view_height,
         );
         self.sheet_pages = pages;
@@ -204,13 +251,7 @@ impl Session {
         .max(Fixed::ZERO);
         self.sheet_revision = self.sheet_revision.wrapping_add(1);
         self.bar_label.clear();
-        write!(
-            &mut self.bar_label,
-            "{:03}/{:03}",
-            bar + 1,
-            self.score.bars()
-        )
-        .expect("bar label");
+        write!(&mut self.bar_label, "{}/{}", bar + 1, self.score.bars()).expect("bar label");
     }
 }
 
@@ -235,6 +276,13 @@ impl Session {
     }
     pub fn set_connected(&mut self, connected: bool) {
         self.connected = connected;
+        if !connected {
+            self.upload = None;
+        }
+    }
+    /// Progress of a song being received over Bluetooth, in percent.
+    pub fn set_upload(&mut self, progress: Option<u8>) {
+        self.upload = progress;
     }
     pub fn position(&self) -> u64 {
         self.transport.position()

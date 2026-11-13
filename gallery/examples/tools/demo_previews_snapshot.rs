@@ -524,9 +524,41 @@ fn main() {
                         .load(&std::fs::read_to_string(path).expect("Chord source file"))
                         .expect("Chord score");
                 }
-                session.set_connected(true);
-                session.toggle(0);
+                session.set_connected(env::var("CHORD_STATE").as_deref() != Ok("offline"));
+                let state = env::var("CHORD_STATE").unwrap_or_default();
+                if state == "upload" {
+                    session.set_upload(Some(40));
+                }
+                if state == "armed" {
+                    // A start with a count-in delay, as the browser sends it.
+                    let mut packet = [0u8; 20];
+                    packet[0] = 1;
+                    packet[3..7].copy_from_slice(&1u32.to_le_bytes());
+                    packet[8..12].copy_from_slice(&2500u32.to_le_bytes());
+                    let mut link = mirui::gallery::demos::chord_prompter::DeviceLink::new(1);
+                    assert_eq!(link.write(&session, packet, 0)[0], 0, "start rejected");
+                } else if state != "stopped" {
+                    session.toggle(0);
+                }
+                // CHORD_JUMP=BAR@MS queues a jump to a one-based bar at MS,
+                // through the same Bluetooth control the display receives.
+                if let Ok(jump) = env::var("CHORD_JUMP") {
+                    let (bar, at) = jump.split_once('@').expect("Chord jump BAR@MS");
+                    let bar = bar.parse::<u32>().expect("jump bar") - 1;
+                    let at = at.parse::<u64>().expect("jump time") * 1000;
+                    session.advance(at);
+                    let mut packet = [0u8; 20];
+                    packet[0] = 5;
+                    packet[3..7].copy_from_slice(&1u32.to_le_bytes());
+                    packet[7] = 2;
+                    packet[8..12].copy_from_slice(&bar.to_le_bytes());
+                    let mut link = mirui::gallery::demos::chord_prompter::DeviceLink::new(1);
+                    assert_eq!(link.write(&session, packet, at)[0], 0, "jump rejected");
+                }
                 session.advance(millis * 1000);
+                if state == "paused" {
+                    session.pause(millis * 1000);
+                }
                 root
             } else if demo.slug == "nearby"
                 && let Ok(scene) = env::var("NEARBY_SCENE")

@@ -19,12 +19,8 @@ pub(super) fn build_widgets(session: model!(Session)) {
             bg_color: ColorToken::Surface
         ) on SizeChanged { session.resize(event.new.width, event.new.height); } {
             View (
-                id: "prompter_connection", position: Position::Absolute,
-                left: 1, top: 1, width: 3, height: 3,
-                bg_color: ${ if session.connected() { ColorToken::Success } else { ColorToken::OnSurfaceVariant } }
-            ) [ IgnoreHitTest ]
-            Text(id:"prompter_bar",text:${session.bar_label()},width:Dimension::percent(100),height:12,font_size:12,
-                text_color:ColorToken::OnSurfaceVariant,paragraph:ParagraphStyle::label().with_align(crate::ui::widgets::TextAlign::End))
+                id: "prompter_header", width: Dimension::percent(100), height: 12
+            ) [ super::header::Header { model: session.clone() }, IgnoreHitTest ]
             Column(grow:1.0,min_height:62,min_width:0,clip_children:true) {
                 Column (
                     id: "prompter_sheet_viewport", grow: 1.0, min_height: 62,
@@ -45,6 +41,7 @@ pub(super) fn build_widgets(session: model!(Session)) {
                     }
                 }
                 View(position:Position::Absolute,left:${session.stage_width()/2-Fixed::from_int(3)},top:0,width:6,height:Dimension::percent(100)) [super::strips::TimeNeedle{},IgnoreHitTest]
+                View(position:Position::Absolute,left:0,top:0,width:Dimension::percent(100),height:Dimension::percent(100),visible:${session.count_in()!=0}) [super::header::CountIn{model:session.clone()},IgnoreHitTest]
             }
             View (height: 10) [
                 RhythmStrip {

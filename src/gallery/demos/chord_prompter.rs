@@ -2,8 +2,11 @@
 
 mod composition;
 mod font;
+mod header;
+mod label;
 mod link;
 mod motion;
+mod palette;
 mod runtime;
 mod score;
 mod sheet;
@@ -28,5 +31,9 @@ pub const VIEWPORT: (u16, u16) = (320, 240);
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_least(128, 128);
 pub const PRACTICE: &str = include_str!("chord_prompter/chord-practice.md");
 
+#[cfg(test)]
+mod device;
+#[cfg(test)]
+mod profile;
 #[cfg(test)]
 mod tests;

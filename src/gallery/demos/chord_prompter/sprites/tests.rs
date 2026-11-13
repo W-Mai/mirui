@@ -79,7 +79,7 @@ fn layered_heads_match_vector_pixels_and_resource_lifecycle() {
                                     point,
                                     Point::new(9, 12 + tip),
                                     color,
-                                    100 + velocity,
+                                    super::BASE_OPA + velocity,
                                     clip,
                                 );
                                 line(
@@ -87,7 +87,7 @@ fn layered_heads_match_vector_pixels_and_resource_lifecycle() {
                                     point,
                                     Point::new(15, 12 + tip),
                                     color,
-                                    100 + velocity,
+                                    super::BASE_OPA + velocity,
                                     clip,
                                 );
                                 assert!(draw_heads(

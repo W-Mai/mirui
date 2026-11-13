@@ -171,7 +171,7 @@ fn horizontal_pre_reading_and_vertical_follow_remain_independent() {
 }
 
 #[test]
-fn chord_onsets_and_the_fixed_needle_share_the_viewport_center() {
+fn the_sounding_chord_begins_on_the_fixed_needle() {
     use crate::prelude::*;
     use crate::surface::FramebufferAccess;
     let mut app = App::headless(128, 128);
@@ -183,7 +183,7 @@ fn chord_onsets_and_the_fixed_needle_share_the_viewport_center() {
     session.advance(11_250_000);
     app.render().unwrap();
     assert_eq!(session.chord(), "G");
-    let label = app.world.find_by_id("prompter_bar").unwrap();
+    let label = app.world.find_by_id("prompter_header").unwrap();
     let rect = app.world.get::<crate::ui::ComputedRect>(label).unwrap().0;
     assert_eq!(rect.x + rect.w, Fixed::from_int(124));
     let color = app
@@ -209,9 +209,159 @@ fn chord_onsets_and_the_fixed_needle_share_the_viewport_center() {
     let (left, right) = bounds.expect("active rolling chord ink");
     assert!(chord_ink > 4, "the fixed needle alone is not chord ink");
     assert!(
-        (left + right).abs_diff(128) <= 4,
-        "rolling chord must trigger around x=64, got {left}..{right}"
+        left.abs_diff(64) <= 1,
+        "the sounding chord must begin on the needle at x=64, got {left}..{right}"
     );
+}
+
+/// The first of `columns` that holds exactly one of `colors` somewhere in
+/// `rows`.
+fn first_column(
+    pixels: &[u8],
+    stride: usize,
+    rows: core::ops::Range<usize>,
+    mut columns: impl Iterator<Item = usize>,
+    colors: &[crate::prelude::Color],
+) -> Option<usize> {
+    columns.find(|&x| {
+        rows.clone().any(|y| {
+            let at = y * stride + x * 4;
+            colors
+                .iter()
+                .any(|color| pixels[at..at + 3] == [color.r, color.g, color.b])
+        })
+    })
+}
+
+/// The pixels of `rows` and `columns` as text, for assertion messages: the
+/// index in `colors` of each pixel's colour, or `.`.
+fn dump(
+    pixels: &[u8],
+    stride: usize,
+    rows: core::ops::Range<usize>,
+    columns: core::ops::Range<usize>,
+    colors: &[crate::prelude::Color],
+) -> alloc::string::String {
+    let mut text = alloc::string::String::new();
+    for y in rows {
+        for x in columns.clone() {
+            let at = y * stride + x * 4;
+            let found = colors
+                .iter()
+                .position(|color| pixels[at..at + 3] == [color.r, color.g, color.b]);
+            text.push(found.map_or('.', |index| char::from(b'0' + index as u8)));
+        }
+        text.push('\n');
+    }
+    text
+}
+
+#[test]
+fn a_chord_starts_over_the_first_letter_or_character_of_its_lyric() {
+    use crate::prelude::*;
+    use crate::surface::FramebufferAccess;
+    // Short words keep each chord's lyric on one row at 128 px, where the
+    // chord row and the lyric then share their columns. Every chord sits
+    // over a glyph with the same side bearing as its own first letter, so
+    // both must start on the very same pixel. A chord centred on the onset
+    // would start 6px to the left.
+    for lyrics in ["[Come] [Go] | [All] night", "[跟]着[节]拍 | [回]到起点"] {
+        let mut app = App::headless(128, 128);
+        app.with_default_widgets().with_default_systems();
+        app.add_resource(MonoClock::new(|| 0));
+        let root = app.spawn_root().id();
+        let session = install(&mut app, root);
+        session
+            .load(&alloc::format!(
+                "---\ntitle: Align\nkey: C\nbpm: 96\ntime: 4/4\nstrum: pop\n---\n--- Verse ---\n{lyrics} @ 1/5 6m\n"
+            ))
+            .unwrap();
+        session.toggle(0);
+        let colors = super::palette::Palette::of(app.world.resource::<crate::ui::Theme>().unwrap());
+        // The first chord sounds on the needle at the start of the bar. A
+        // quarter of the way in, the second is coming; at 72% the first
+        // chord of the next bar is.
+        for (time, page, slot, color) in [
+            (0, 1, 0, colors.now),
+            (625_000, 1, 1, colors.ink),
+            (1_800_000, 2, 0, colors.ink),
+        ] {
+            session.advance(time);
+            app.render().unwrap();
+            let sheet = app.world.find_by_id("prompter_sheet").unwrap();
+            let (chords, lyric) = {
+                let rows = &app.world.get::<crate::ui::Children>(sheet).unwrap().0;
+                (rows[0], rows[1])
+            };
+            let chords = app.world.get::<crate::ui::ComputedRect>(chords).unwrap().0;
+            let lyric = app.world.get::<crate::ui::ComputedRect>(lyric).unwrap().0;
+            let stage = app.world.find_by_id("prompter_sheet_viewport").unwrap();
+            let stage = app.world.get::<crate::ui::ComputedRect>(stage).unwrap().0;
+            let (cell, needle) = crate::core::model::ModelHandle::read(&session, |data| {
+                let first = if page == 1 {
+                    data.sheet.current_start
+                } else {
+                    data.sheet.current_count
+                };
+                assert_eq!(
+                    data.sheet.slots[first + slot].y,
+                    data.sheet.slots[first].y,
+                    "the bar's lyrics must share a row"
+                );
+                let width = data.stage_width.to_int();
+                let origin = stage.x.to_int() + page * width - data.page_scroll.to_int();
+                (
+                    origin + i32::from(data.sheet.slots[first + slot].x),
+                    stage.x.to_int() + width / 2,
+                )
+            });
+            let texture = app.backend.framebuffer();
+            let pixels = texture.read_pixels().unwrap();
+            let (stride, bytes) = (pixels.stride(), pixels.bytes());
+            let size = usize::from(super::font::CONTENT_SIZE);
+            let window = (cell - 3) as usize..(cell + 16) as usize;
+            // The needle runs over the lyric and blends into the pixels on
+            // both sides of it, which tells nothing about a glyph.
+            let columns = || {
+                window
+                    .clone()
+                    .filter(|&x| x != needle as usize && x + 1 != needle as usize)
+            };
+            let chord_top = chords.y.to_int() as usize;
+            // The needle's arrow head covers the top rows of the lyric.
+            let lyric_top = lyric.y.to_int() as usize + 6;
+            let chord = first_column(
+                bytes,
+                stride,
+                chord_top..chord_top + size,
+                columns(),
+                &[color],
+            )
+            .expect("chord ink");
+            // The first word of each chord's lyric is the accented one.
+            let word = first_column(
+                bytes,
+                stride,
+                lyric_top..lyric_top + size - 4,
+                columns(),
+                &[colors.now, colors.chrome],
+            )
+            .expect("lyric ink");
+            assert_eq!(
+                chord,
+                word,
+                "{lyrics:?} bar {page} slot {slot}: cell {cell}, chord ink {chord}, lyric ink {word}\n{}",
+                dump(
+                    bytes,
+                    stride,
+                    chord_top..lyric_top + size,
+                    window.clone(),
+                    &[colors.now, colors.chrome, colors.ink, colors.needle],
+                )
+            );
+            assert!(chord >= cell as usize, "the chord starts left of its cell");
+        }
+    }
 }
 
 #[test]
@@ -636,7 +786,7 @@ fn shared_composition_renders_small_and_large_without_text_overflow() {
     }
 }
 
-fn packet(opcode: u8, seq: u16, generation: u32, arg: u32) -> [u8; 20] {
+pub(super) fn packet(opcode: u8, seq: u16, generation: u32, arg: u32) -> [u8; 20] {
     let mut packet = [0u8; 20];
     packet[0] = opcode;
     packet[1..3].copy_from_slice(&seq.to_le_bytes());
@@ -866,8 +1016,8 @@ fn connection_feedback_survives_score_replacement_and_uses_binary_pixels() {
         .filter(|(a, b)| a != b)
         .count();
     assert_eq!(
-        changed, 9,
-        "connection state only changes the 3x3 indicator"
+        changed, 25,
+        "connection state only changes the 5x5 indicator"
     );
 }
 

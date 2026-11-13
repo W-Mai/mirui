@@ -17,6 +17,8 @@ use core::{
 };
 
 const TOKEN: &str = "chord-prompter/arrow-heads";
+/// Opacity of the weakest stroke; a stroke's velocity is added to it.
+pub(super) const BASE_OPA: u8 = 150;
 const VELOCITIES: [u8; 8] = [30, 40, 50, 60, 70, 80, 90, 100];
 const TILE: usize = 5;
 const TILE_BYTES: usize = TILE * TILE * 4;
@@ -37,10 +39,8 @@ pub(super) fn install() {
     }
     if !res!(optional Sprites).with(|sprites| sprites.is_some()) {
         let colors = res!(crate::ui::Theme).with(|theme| {
-            [
-                theme.resolve(ColorToken::OnSurfaceVariant),
-                theme.resolve(ColorToken::Primary),
-            ]
+            let palette = super::palette::Palette::of(&theme);
+            [palette.chrome, palette.now]
         });
         let sprites = res!(ResourceManager<Texture<'static>>).with(|images| {
             let sprites = Sprites::new(&images, colors);
@@ -135,7 +135,7 @@ fn bake(colors: [Color; 2]) -> Result<Texture<'static>, crate::render::RenderErr
                     transform: Transform::IDENTITY,
                     color,
                     width: 2.into(),
-                    opa: 100 + velocity,
+                    opa: BASE_OPA + velocity,
                 };
                 match renderer.poll_draw_request(
                     DrawRequest::new(&command, Rect::new(0, y, TILE as i32, TILE as i32)),

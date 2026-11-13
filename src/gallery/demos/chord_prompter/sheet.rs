@@ -8,6 +8,21 @@ use alloc::{string::String, vec::Vec};
 
 const BAR_BYTES: usize = super::ScoreLimits::DEVICE.bytes;
 
+/// Narrowest page the lyrics are laid out for.
+const MIN_PAGE_WIDTH: i32 = 120;
+
+/// Width of one page of lyrics on a stage `stage` wide.
+pub(super) fn page_width(stage: Fixed) -> u16 {
+    stage.to_int().max(MIN_PAGE_WIDTH) as u16
+}
+
+/// The pixel where column `index` of `columns` begins across `width`. A bar
+/// that fits one row has a column per chord, so this is also where the chord
+/// sits in time.
+pub(super) fn column_x(index: usize, columns: usize, width: u16) -> u16 {
+    (index * usize::from(width) / columns.max(1)) as u16
+}
+
 #[derive(Clone, Copy, Default)]
 pub(super) struct Slot {
     pub start: u16,
@@ -199,8 +214,8 @@ impl Sheet {
             let mut group_height = 0;
             for index in group..(group + columns).min(slots.end) {
                 let slot = &mut self.slots[index];
-                slot.x = ((index - group) * usize::from(width) / columns) as u16;
-                let end = ((index - group + 1) * usize::from(width) / columns) as u16;
+                slot.x = column_x(index - group, columns, width);
+                let end = column_x(index - group + 1, columns, width);
                 slot.width = end - slot.x;
                 slot.y = y;
                 slot.first_line = self.lines.len() as u16;
@@ -272,6 +287,7 @@ pub(super) fn sheet_view(
     ),
     fonts: res!(crate::render::font::FontManager),
     theme: res!(crate::ui::Theme),
+    palette: res!(super::palette::PaletteCache),
     paint: paint!(),
 ) {
     let rect = paint.rect();
@@ -281,9 +297,7 @@ pub(super) fn sheet_view(
     let handle = fonts.resolve(crate::render::font::FontToken::Default.cache_key());
     let mut body = handle.as_ref().clone();
     body.size = CONTENT_SIZE;
-    let ink = theme.resolve(ColorToken::OnSurface);
-    let accent = theme.resolve(ColorToken::Primary);
-    let muted = theme.resolve(ColorToken::OnSurfaceVariant);
+    let colors = palette.get(&theme);
     let mut glyphs = [PositionedGlyph::new(GlyphId::new(0), FlowPoint { x: 0, y: 0 }); 32];
     let range = match component.page {
         0 => 0..sheet.current_start,
@@ -291,6 +305,21 @@ pub(super) fn sheet_view(
         _ => sheet.current_count..sheet.count,
     };
     for (index, slot) in sheet.slots[range].iter().enumerate() {
+        // What was played recedes; the chord that sounds is lit; the rest is
+        // ahead and stays bright, with the word each coming chord lands on
+        // only underlined.
+        let (color, accent) = match (component.page, index.cmp(&usize::from(model.slot_index))) {
+            (0, _) | (1, core::cmp::Ordering::Less) => (colors.past, colors.past),
+            (1, core::cmp::Ordering::Equal) => (
+                colors.ink,
+                if model.clock_active {
+                    colors.now
+                } else {
+                    colors.chrome
+                },
+            ),
+            _ => (colors.ink, colors.chrome),
+        };
         let x = rect.x + Fixed::from_int(i32::from(slot.x));
         let y = rect.y + Fixed::from_int(i32::from(slot.y));
         if transform
@@ -323,15 +352,8 @@ pub(super) fn sheet_view(
                     sheet,
                     font: &body,
                     pos,
-                    color: ink,
-                    accent: if model.clock_active
-                        && component.page == 1
-                        && index == usize::from(model.slot_index)
-                    {
-                        accent
-                    } else {
-                        muted
-                    },
+                    color,
+                    accent,
                     transform,
                 },
                 &mut glyphs,

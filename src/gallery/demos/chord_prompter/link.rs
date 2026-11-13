@@ -153,6 +153,7 @@ impl DeviceLink {
                 return Err(LinkError::Transfer);
             }
             self.staging.extend_from_slice(&packet[6..6 + bytes]);
+            session.set_upload(Some((self.staging.len() * 100 / self.expected_bytes) as u8));
             return Ok((session.position(), 0));
         }
         if get32(packet, 3) != self.generation {
@@ -219,8 +220,11 @@ impl DeviceLink {
                 self.expected_bytes = bytes;
                 self.expected_checksum = get32(packet, 12);
                 self.receiving = true;
+                session.set_upload(Some(0));
             }
             0x12 => {
+                // However it ends, the transfer is over.
+                session.set_upload(None);
                 if !self.receiving || self.staging.len() != self.expected_bytes {
                     return Err(LinkError::Transfer);
                 }

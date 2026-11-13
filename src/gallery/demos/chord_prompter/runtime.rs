@@ -26,6 +26,7 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
         super::font::body(),
     );
     app.with_fonts(fonts);
+    app.add_resource(super::palette::PaletteCache::default());
     app.compose(parent, super::sprites::install());
     let session = app
         .add_model(Session::new(
@@ -36,6 +37,8 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
     app.with_widget(super::sheet::sheet_view::view());
     app.with_widget(super::strips::time_needle::view());
     app.with_widget(super::strips::chord_timeline::view());
+    app.with_widget(super::header::header::view());
+    app.with_widget(super::header::count_in::view());
     app.add_system(advance::system(session.clone()));
     app.compose(parent, composition::build_widgets(session.clone()));
     session
