@@ -29,7 +29,7 @@ fn reactive_if_else_swaps_branch() {
             .resolve(w.resource())
             .into_owned()
     };
-    assert_eq!(branch_text(world), "hidden — tap to show");
+    assert_eq!(branch_text(world), "hidden, tap to show");
 
     let btn = world.get::<Children>(col).unwrap().0[0];
     let tap = GestureEvent::Tap {
@@ -53,7 +53,7 @@ fn reactive_if_else_swaps_branch() {
     flush_signal_dirty(world);
     assert_eq!(
         branch_text(world),
-        "hidden — tap to show",
+        "hidden, tap to show",
         "else branch mounted"
     );
 }

@@ -23,7 +23,7 @@ pub fn build_widgets() {
             row_gap: 14
         ) {
             Text (
-                text: ${ alloc::format!("n² = {}", label.get()) },
+                text: ${ alloc::format!("n × n = {}", label.get()) },
                 width: Dimension::percent(100),
                 max_width: 260,
                 height: 58,
@@ -55,6 +55,7 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
+    crate::gallery::showcase_theme::install_sample(app);
     app.compose(parent, build_widgets());
 }
 
@@ -85,7 +86,7 @@ mod tests {
         let label = world.get::<Children>(col).unwrap().0[0];
         let btn = world.get::<Children>(col).unwrap().0[1];
 
-        assert_eq!(label_text(world, label), "n² = 4");
+        assert_eq!(label_text(world, label), "n × n = 4");
 
         let tap = GestureEvent::Tap {
             x: Fixed::ZERO,
@@ -98,6 +99,6 @@ mod tests {
             assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
         };
         flush_signal_dirty(world);
-        assert_eq!(label_text(world, label), "n² = 9");
+        assert_eq!(label_text(world, label), "n × n = 9");
     }
 }

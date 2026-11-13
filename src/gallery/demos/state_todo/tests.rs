@@ -75,15 +75,15 @@ fn row_completed(world: &World, row: Entity) -> bool {
 fn toggling_a_row_updates_remaining_count() {
     let (mut app, summary, rows) = todo_app();
     let world = &mut app.world;
-    assert_eq!(label_text(world, summary), "3 REMAINING");
+    assert_eq!(label_text(world, summary), "3 remaining");
     assert!(!row_completed(world, rows[0]));
 
     tap_row(world, rows[0]);
-    assert_eq!(label_text(world, summary), "2 REMAINING");
+    assert_eq!(label_text(world, summary), "2 remaining");
     assert!(row_completed(world, rows[0]));
 
     tap_row(world, rows[0]);
-    assert_eq!(label_text(world, summary), "3 REMAINING");
+    assert_eq!(label_text(world, summary), "3 remaining");
     assert!(!row_completed(world, rows[0]));
 }
 
@@ -102,7 +102,7 @@ fn row_states_update_independently() {
     assert!(!row_completed(world, rows[0]));
     assert!(row_completed(world, rows[1]));
     assert!(!row_completed(world, rows[2]));
-    assert_eq!(label_text(world, summary), "2 REMAINING");
+    assert_eq!(label_text(world, summary), "2 remaining");
 
     tap_row(world, rows[2]);
     assert_eq!(row_label(world, rows[0]), "Buy milk");
@@ -111,7 +111,7 @@ fn row_states_update_independently() {
     assert!(!row_completed(world, rows[0]));
     assert!(row_completed(world, rows[1]));
     assert!(row_completed(world, rows[2]));
-    assert_eq!(label_text(world, summary), "1 REMAINING");
+    assert_eq!(label_text(world, summary), "1 remaining");
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn collection_controls_preserve_row_identity_and_remove_completed_members() {
     );
     assert!(row_completed(world, original[0]));
     assert_eq!(row_label(world, original[0]), "Buy milk");
-    assert_eq!(label_text(world, summary), "2 REMAINING");
+    assert_eq!(label_text(world, summary), "2 remaining");
 
     tap_row(world, clear);
     assert!(!world.is_alive(original[0]));
@@ -141,11 +141,11 @@ fn collection_controls_preserve_row_identity_and_remove_completed_members() {
     assert_ne!(added, original[0]);
     assert_eq!(row_label(world, added), "Read a book");
     assert!(!row_completed(world, added));
-    assert_eq!(label_text(world, summary), "3 REMAINING");
+    assert_eq!(label_text(world, summary), "3 remaining");
     tap_row(world, added);
     assert!(row_completed(world, added));
     assert!(!row_completed(world, original[1]));
-    assert_eq!(label_text(world, summary), "2 REMAINING");
+    assert_eq!(label_text(world, summary), "2 remaining");
 }
 
 #[test]
@@ -158,11 +158,11 @@ fn collection_controls_handle_capacity_emptying_and_refilling() {
     }
     let full = world.get::<Children>(list).unwrap().0.clone();
     assert_eq!(full.len(), 6);
-    assert_eq!(label_text(world, summary), "6 REMAINING");
+    assert_eq!(label_text(world, summary), "6 remaining");
     for row in &full {
         tap_row(world, *row);
     }
-    assert_eq!(label_text(world, summary), "0 REMAINING");
+    assert_eq!(label_text(world, summary), "0 remaining");
     tap_row(world, clear);
     assert!(world.get::<Children>(list).unwrap().0.is_empty());
     assert!(full.iter().all(|row| !world.is_alive(*row)));
@@ -173,7 +173,7 @@ fn collection_controls_handle_capacity_emptying_and_refilling() {
     assert_eq!(rows.len(), 1);
     assert_eq!(row_label(world, rows[0]), "Buy milk");
     assert!(!row_completed(world, rows[0]));
-    assert_eq!(label_text(world, summary), "1 REMAINING");
+    assert_eq!(label_text(world, summary), "1 remaining");
 }
 
 #[test]
@@ -274,7 +274,7 @@ mod persistence {
             assert_eq!(row_label(&app.world, *row), expected);
         }
         assert!(row_completed(&app.world, original[2]));
-        assert_eq!(label_text(&app.world, summary), "3 REMAINING");
+        assert_eq!(label_text(&app.world, summary), "3 remaining");
 
         todo.clear_completed();
         todo.add().unwrap();
@@ -282,7 +282,7 @@ mod persistence {
         app.persistence().restore(&todo).unwrap();
         flush_signal_dirty(&mut app.world);
         assert_eq!(todo.items().len(), 4);
-        assert_eq!(label_text(&app.world, summary), "3 REMAINING");
+        assert_eq!(label_text(&app.world, summary), "3 remaining");
         assert!(original.iter().all(|row| !app.world.is_alive(*row)));
         let restored = app.world.get::<Children>(list).unwrap().0.clone();
         assert!(!row_completed(&app.world, restored[0]));

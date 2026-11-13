@@ -10,6 +10,7 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
+    crate::gallery::showcase_theme::install_sample(app);
     #[cfg(feature = "persistence")]
     match crate::gallery::play::storage::gallery_storage("mirui_state_todo.bin") {
         Ok(storage) => {

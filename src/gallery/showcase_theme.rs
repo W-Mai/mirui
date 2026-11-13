@@ -69,6 +69,17 @@ where
     app.set_theme(DARK_ID).expect("showcase theme registered");
 }
 
+/// For the small API samples: the showcase palette and the clean typeface of
+/// the other demos, in place of the default theme and the 8-bit pixel face.
+pub(in crate::gallery) fn install_sample<B, F>(app: &mut App<B, F>)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    install(app);
+    app.add_plugin(super::play::font::PlayFontPlugin);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

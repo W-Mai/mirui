@@ -13,7 +13,7 @@ pub fn build_widgets(count: model!(Signal<i32>)) {
             row_gap: 14
         ) {
             Text (
-                text: ${ alloc::format!("SAVED  {}", count.get()) },
+                text: ${ alloc::format!("Saved  {}", count.get()) },
                 width: Dimension::percent(100),
                 max_width: 260,
                 height: 56,
@@ -30,17 +30,17 @@ pub fn build_widgets(count: model!(Signal<i32>)) {
                 Button (
                     grow: 1.0,
                     height: 44,
-                    border_radius: 12,
-                    normal_color: ColorToken::Error,
+                    border_radius: 22,
+                    normal_color: ColorToken::Outline,
                     pressed_color: ColorToken::SurfaceVariant,
-                    text_color: ColorToken::OnPrimary
+                    text_color: ColorToken::OnSurface
                 ) [
-                    Text::label("−"),
+                    Text::label("-"),
                 ] on Tap { count.update(|n| *n -= 1); }
                 Button (
                     grow: 1.0,
                     height: 44,
-                    border_radius: 12,
+                    border_radius: 22,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary,
                     text_color: ColorToken::OnPrimary

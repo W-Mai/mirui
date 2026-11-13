@@ -47,7 +47,7 @@ pub fn build_widgets(todo: model!(TodoModel)) {
             row_gap: 8
         ) {
             Text (
-                text: ${ alloc::format!("{} REMAINING", todo.remaining()) },
+                text: ${ alloc::format!("{} remaining", todo.remaining()) },
                 width: Dimension::percent(100),
                 max_width: 280,
                 height: 30,
@@ -68,7 +68,7 @@ pub fn build_widgets(todo: model!(TodoModel)) {
                     text_color: ColorToken::OnPrimary,
                     normal_color: ColorToken::Primary
                 ) [
-                    Text::label("+ ADD"),
+                    Text::label("Add"),
                 ] on Tap {
                     if let Err(error) = todo.add() {
                         crate::warn!("cannot add task: {:?}", error);
@@ -79,14 +79,14 @@ pub fn build_widgets(todo: model!(TodoModel)) {
                     font_size: 12,
                     border_radius: 8
                 ) [
-                    Text::label("ROTATE"),
+                    Text::label("Rotate"),
                 ] on Tap { todo.rotate(); }
                 Button (
                     grow: 1.0,
                     font_size: 12,
                     border_radius: 8
                 ) [
-                    Text::label("CLEAR"),
+                    Text::label("Clear"),
                 ] on Tap { todo.clear_completed(); }
             }
             Column (

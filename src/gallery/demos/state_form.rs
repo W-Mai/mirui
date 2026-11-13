@@ -27,7 +27,7 @@ pub fn build_widgets() {
             row_gap: 12
         ) {
             Text (
-                "SIGNAL FORM",
+                "Signal form",
                 width: Dimension::percent(100),
                 max_width: 280,
                 height: 34,
@@ -96,6 +96,7 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
+    crate::gallery::showcase_theme::install_sample(app);
     app.compose(parent, build_widgets());
 }
 

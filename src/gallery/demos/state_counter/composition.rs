@@ -11,37 +11,44 @@ pub fn build_widgets(counter: model!(CounterModel)) {
             align: AlignItems::Center,
             justify: JustifyContent::Center,
             padding: Padding::all(20),
-            row_gap: 14
+            row_gap: 6
         ) {
             Text (
-                text: ${ alloc::format!("COUNT  {}", counter.count()) },
+                text: "Count",
                 width: Dimension::percent(100),
-                max_width: 260,
-                height: 56,
-                font_size: 26,
+                height: 16,
+                font_size: 12,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                text: ${ alloc::format!("{}", counter.count()) },
+                width: Dimension::percent(100),
+                height: 76,
+                font_size: 48,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label()
             )
             Row (
                 width: Dimension::percent(100),
-                max_width: 180,
+                max_width: 200,
                 height: 44,
-                column_gap: 12
+                column_gap: 10
             ) {
                 Button (
                     grow: 1.0,
                     height: 44,
-                    border_radius: 12,
-                    normal_color: ColorToken::Error,
+                    border_radius: 22,
+                    normal_color: ColorToken::Outline,
                     pressed_color: ColorToken::SurfaceVariant,
-                    text_color: ColorToken::OnPrimary
+                    text_color: ColorToken::OnSurface
                 ) [
-                    Text::label("−"),
+                    Text::label("-"),
                 ] on Tap { counter.decrement(); }
                 Button (
                     grow: 1.0,
                     height: 44,
-                    border_radius: 12,
+                    border_radius: 22,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary,
                     text_color: ColorToken::OnPrimary

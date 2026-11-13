@@ -15,6 +15,7 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
+    crate::gallery::showcase_theme::install_sample(app);
 
     let count = Signal::new(0i32);
     match pick_storage() {

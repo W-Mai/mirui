@@ -13,6 +13,7 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
+    crate::gallery::showcase_theme::install_sample(app);
     let counter = app.add_model(CounterModel::default()).finish();
     app.compose(parent, build_widgets(counter));
 }

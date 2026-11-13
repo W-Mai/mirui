@@ -24,12 +24,12 @@ fn tap_increments_and_reactive_text_updates() {
     let world = &mut app.world;
 
     let col = world.get::<Children>(parent).unwrap().0[0];
-    let label = world.get::<Children>(col).unwrap().0[0];
-    let row = world.get::<Children>(col).unwrap().0[1];
+    let label = world.get::<Children>(col).unwrap().0[1];
+    let row = world.get::<Children>(col).unwrap().0[2];
     let dec = world.get::<Children>(row).unwrap().0[0];
     let inc = world.get::<Children>(row).unwrap().0[1];
 
-    assert_eq!(label_text(world, label), "COUNT  0");
+    assert_eq!(label_text(world, label), "0");
 
     let tap = GestureEvent::Tap {
         x: Fixed::ZERO,
@@ -42,7 +42,7 @@ fn tap_increments_and_reactive_text_updates() {
         assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
     };
     flush_signal_dirty(world);
-    assert_eq!(label_text(world, label), "COUNT  1");
+    assert_eq!(label_text(world, label), "1");
     assert_eq!(counter.count(), 1);
 
     {
@@ -51,7 +51,7 @@ fn tap_increments_and_reactive_text_updates() {
         assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
     };
     flush_signal_dirty(world);
-    assert_eq!(label_text(world, label), "COUNT  2");
+    assert_eq!(label_text(world, label), "2");
     assert_eq!(counter.count(), 2);
 
     let dec_tap = GestureEvent::Tap {
@@ -65,7 +65,7 @@ fn tap_increments_and_reactive_text_updates() {
         assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
     };
     flush_signal_dirty(world);
-    assert_eq!(label_text(world, label), "COUNT  1");
+    assert_eq!(label_text(world, label), "1");
     assert_eq!(counter.count(), 1);
 }
 

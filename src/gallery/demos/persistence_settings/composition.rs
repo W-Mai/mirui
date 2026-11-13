@@ -10,7 +10,7 @@ pub fn build_widgets(settings: model!(SettingsModel)) {
             padding: Padding::all(20),
             row_gap: 10
         ) {
-            Text ("READER SETTINGS", height: 30, font_size: 18)
+            Text ("Reader settings", height: 30, font_size: 18)
             Text ("Text size", height: 22, font_size: 14)
             Slider (
                 id: "settings_size",

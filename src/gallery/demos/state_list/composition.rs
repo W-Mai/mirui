@@ -23,7 +23,7 @@ pub fn build_widgets() {
             row_gap: 10
         ) {
             Text (
-                text: ${ alloc::format!("{} FRUITS", label.with(| f | f.len())) },
+                text: ${ alloc::format!("{} fruits", label.with(| f | f.len())) },
                 width: Dimension::percent(100),
                 max_width: 260,
                 height: 36,
@@ -38,14 +38,14 @@ pub fn build_widgets() {
                 column_gap: 10
             ) {
                 Button (
-                    text_color: ColorToken::OnPrimary,
+                    text_color: ColorToken::OnSurface,
                     grow: 1.0,
                     height: 40,
-                    border_radius: 10,
-                    normal_color: ColorToken::Error,
+                    border_radius: 20,
+                    normal_color: ColorToken::Outline,
                     pressed_color: ColorToken::SurfaceVariant
                 ) [
-                    Text::label("−"),
+                    Text::label("-"),
                 ] on Tap {
                     dec.update(|f| {
                         f.pop();
@@ -55,7 +55,7 @@ pub fn build_widgets() {
                     text_color: ColorToken::OnPrimary,
                     grow: 1.0,
                     height: 40,
-                    border_radius: 10,
+                    border_radius: 20,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary
                 ) [

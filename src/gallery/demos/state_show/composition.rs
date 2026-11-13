@@ -55,7 +55,7 @@ pub fn build_widgets() {
                     border_radius: 12,
                     text_color: ColorToken::OnSurfaceVariant
                 ) [
-                    Text::label("hidden — tap to show"),
+                    Text::label("hidden, tap to show"),
                 ]
             }
             Button (
@@ -144,5 +144,6 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
+    crate::gallery::showcase_theme::install_sample(app);
     app.compose(parent, build_widgets());
 }

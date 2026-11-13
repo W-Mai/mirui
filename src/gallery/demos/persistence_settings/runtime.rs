@@ -7,6 +7,7 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
+    crate::gallery::showcase_theme::install_sample(app);
     #[cfg(feature = "persistence")]
     match crate::gallery::play::storage::gallery_storage("mirui_reader_settings.bin") {
         Ok(storage) => {

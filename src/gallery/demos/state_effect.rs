@@ -20,7 +20,7 @@ pub fn build_widgets() {
             row_gap: 10
         ) {
             Text (
-                text: ${ alloc::format!("VALUE  {}", vlabel.get()) },
+                text: ${ alloc::format!("Value  {}", vlabel.get()) },
                 width: Dimension::percent(100),
                 max_width: 260,
                 height: 52,
@@ -64,6 +64,7 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
+    crate::gallery::showcase_theme::install_sample(app);
     app.compose(parent, build_widgets());
 }
 
