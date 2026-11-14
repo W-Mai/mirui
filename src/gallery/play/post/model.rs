@@ -1,4 +1,4 @@
-use super::data::{MANIFEST_COUNT, MANIFESTS, SPAWN_PERIOD_HALF_TICKS, STATION_FLASH_TICKS};
+use super::data::{SHIFT_COUNT, SHIFTS, STATION_FLASH_TICKS, Shift};
 use super::route::PostRoute;
 use super::types::{DeliveryEvent, MAX_EVENTS, MAX_PARCELS, PostModal, PostParcel};
 use crate::gallery::play::change::ChangeSet;
@@ -14,7 +14,7 @@ pub(crate) struct PostModel {
     pub(super) flashes: [u8; 3],
     pub(super) switches: [u8; 2],
     pub(super) clock: BoundedClock,
-    pub(super) manifest_id: u8,
+    pub(super) shift: u8,
     pub(super) cursor: u8,
     pub(super) parcel_len: u8,
     pub(super) event_len: u8,
@@ -28,6 +28,10 @@ pub(crate) struct PostModel {
     pub(super) modal: PostModal,
     pub(super) spawn_clock_half_ticks: u16,
     pub(super) score: u16,
+    /// Best finished score of each shift; zero until it is finished once.
+    pub(super) best: [u16; SHIFT_COUNT],
+    /// Shifts finished without a single wrong delivery.
+    pub(super) starred: u8,
 }
 
 impl Default for PostModel {
@@ -39,7 +43,7 @@ impl Default for PostModel {
             flashes: [0; 3],
             switches: [0; 2],
             clock: BoundedClock::new(60, 120, 7),
-            manifest_id: 0,
+            shift: 0,
             cursor: 0,
             parcel_len: 0,
             event_len: 0,
@@ -53,17 +57,24 @@ impl Default for PostModel {
             modal: PostModal::None,
             spawn_clock_half_ticks: 0,
             score: 0,
+            best: [0; SHIFT_COUNT],
+            starred: 0,
         }
     }
 }
 
 impl PostModel {
+    pub(crate) fn current(&self) -> &'static Shift {
+        &SHIFTS[usize::from(self.shift)]
+    }
+
     pub(crate) fn active(&self, index: usize) -> Option<PostParcel> {
         (index < usize::from(self.parcel_len)).then_some(self.parcels[index])
     }
 
     pub(crate) fn queued(&self, index: usize) -> Option<u8> {
-        MANIFESTS[usize::from(self.manifest_id)]
+        self.current()
+            .parcels
             .get(usize::from(self.cursor) + index)
             .copied()
     }
@@ -95,13 +106,19 @@ impl PostModel {
 #[crate::model]
 impl PostModel {
     #[observe]
-    pub(crate) fn manifest_id(&self) -> u8 {
-        self.manifest_id
+    pub(crate) fn shift(&self) -> u8 {
+        self.shift
     }
 
     #[observe]
-    pub(crate) fn manifest_len(&self) -> u8 {
-        MANIFESTS[usize::from(self.manifest_id)].len() as u8
+    pub(crate) fn parcel_count(&self) -> u8 {
+        self.current().parcels.len() as u8
+    }
+
+    /// Parcels the current shift allows on the rails at once.
+    #[observe]
+    pub(crate) fn in_flight(&self) -> u8 {
+        self.current().in_flight
     }
 
     #[observe]
@@ -127,6 +144,27 @@ impl PostModel {
     #[observe]
     pub(crate) fn score(&self) -> u16 {
         self.score
+    }
+
+    #[observe]
+    pub(crate) fn best(&self) -> [u16; SHIFT_COUNT] {
+        self.best
+    }
+
+    /// Best finished score of the current shift.
+    #[observe]
+    pub(crate) fn current_best(&self) -> u16 {
+        self.best[usize::from(self.shift)]
+    }
+
+    #[observe]
+    pub(crate) fn starred(&self) -> u8 {
+        self.starred
+    }
+
+    #[observe]
+    pub(crate) fn has_next(&self) -> bool {
+        usize::from(self.shift) + 1 < SHIFT_COUNT
     }
 
     #[observe]
@@ -173,8 +211,8 @@ impl PostModel {
     pub(crate) fn can_send(&self) -> bool {
         !self.finished
             && self.modal == PostModal::None
-            && self.cursor < self.manifest_len()
-            && usize::from(self.parcel_len) < MAX_PARCELS
+            && self.cursor < self.parcel_count()
+            && self.parcel_len < self.in_flight()
     }
 
     #[observe]
@@ -195,7 +233,7 @@ impl PostModel {
             return ChangeSet::NONE;
         }
         if self.finished {
-            self.load_manifest(self.manifest_id);
+            self.load_shift(self.shift);
         }
         self.running = !self.running;
         self.clock.reset();
@@ -223,10 +261,10 @@ impl PostModel {
         ChangeSet::MODEL
     }
 
-    pub(crate) fn open_manifests(&mut self) -> ChangeSet {
+    pub(crate) fn open_shifts(&mut self) -> ChangeSet {
         self.running = false;
         self.clock.reset();
-        self.modal = PostModal::Manifests;
+        self.modal = PostModal::Shifts;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
@@ -245,19 +283,34 @@ impl PostModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn load_manifest(&mut self, manifest_id: u8) -> ChangeSet {
-        if usize::from(manifest_id) >= MANIFEST_COUNT {
+    /// Starts `shift` from its first parcel. Best scores, stars and the
+    /// chosen speed carry over.
+    pub(crate) fn load_shift(&mut self, shift: u8) -> ChangeSet {
+        if usize::from(shift) >= SHIFT_COUNT {
             return ChangeSet::NONE;
         }
         *self = Self {
-            manifest_id,
+            shift,
+            speed_index: self.speed_index,
+            best: self.best,
+            starred: self.starred,
             ..Self::default()
         };
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
     pub(crate) fn restart(&mut self) -> ChangeSet {
-        self.load_manifest(self.manifest_id)
+        self.load_shift(self.shift)
+    }
+
+    /// Moves on to the shift after this one, or opens the shift list after
+    /// the last.
+    pub(crate) fn next_shift(&mut self) -> ChangeSet {
+        if self.has_next() {
+            self.load_shift(self.shift + 1)
+        } else {
+            self.open_shifts()
+        }
     }
 
     pub(crate) fn advance_ms(&mut self, elapsed_ms: u16) -> ChangeSet {
@@ -276,12 +329,12 @@ impl PostModel {
 impl PostModel {
     pub(super) fn spawn(&mut self) -> bool {
         if self.finished
-            || self.cursor >= self.manifest_len()
-            || usize::from(self.parcel_len) >= MAX_PARCELS
+            || self.cursor >= self.parcel_count()
+            || self.parcel_len >= self.in_flight()
         {
             return false;
         }
-        let target = MANIFESTS[usize::from(self.manifest_id)][usize::from(self.cursor)];
+        let target = self.current().parcels[usize::from(self.cursor)];
         self.parcels[usize::from(self.parcel_len)] = PostParcel::new(self.cursor, target);
         self.parcel_len += 1;
         self.cursor += 1;
@@ -290,16 +343,17 @@ impl PostModel {
 
     pub(super) fn step_fixed(&mut self) -> ChangeSet {
         let speed_x2 = self.speed_x2();
+        let period = self.current().spawn_period;
         self.spawn_clock_half_ticks = self
             .spawn_clock_half_ticks
             .saturating_add(u16::from(speed_x2));
         let mut model_changed = false;
-        if self.spawn_clock_half_ticks >= SPAWN_PERIOD_HALF_TICKS {
+        if self.spawn_clock_half_ticks >= period {
             if self.spawn() {
                 self.spawn_clock_half_ticks = 0;
                 model_changed = true;
             } else {
-                self.spawn_clock_half_ticks = SPAWN_PERIOD_HALF_TICKS;
+                self.spawn_clock_half_ticks = period;
             }
         }
         for flash in &mut self.flashes {
@@ -348,17 +402,28 @@ impl PostModel {
                 index += 1;
             }
         }
-        if self.cursor == self.manifest_len() && self.parcel_len == 0 {
-            self.running = false;
-            self.finished = true;
-            self.modal = PostModal::Summary;
-            self.clock.reset();
+        if self.cursor == self.parcel_count() && self.parcel_len == 0 {
+            self.finish();
             model_changed = true;
         }
         if model_changed {
             ChangeSet::MODEL | ChangeSet::VISUAL
         } else {
             ChangeSet::VISUAL
+        }
+    }
+
+    /// Closes the shift: keeps its best score, stars it when nothing went
+    /// astray, and shows the summary.
+    pub(super) fn finish(&mut self) {
+        self.running = false;
+        self.finished = true;
+        self.modal = PostModal::Summary;
+        self.clock.reset();
+        let shift = usize::from(self.shift);
+        self.best[shift] = self.best[shift].max(self.score);
+        if self.missed == 0 {
+            self.starred |= 1 << shift;
         }
     }
 

@@ -1,8 +1,10 @@
 use super::route::{PostRoute, position_on_route};
 use crate::types::{Fixed, Point};
 
-pub(crate) const MAX_PARCELS: usize = 3;
-pub(crate) const MAX_EVENTS: usize = 12;
+/// Most parcels any shift puts on the rails at once.
+pub(crate) const MAX_PARCELS: usize = 5;
+/// Deliveries logged per shift: one per parcel of the longest shift.
+pub(crate) const MAX_EVENTS: usize = 18;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PostParcel {
@@ -83,7 +85,7 @@ impl DeliveryEvent {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PostModal {
     None,
-    Manifests,
+    Shifts,
     Summary,
     Reset,
 }

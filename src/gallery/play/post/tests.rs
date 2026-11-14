@@ -1,13 +1,51 @@
-use super::data::{MANIFEST_COUNT, SPAWN_PERIOD_HALF_TICKS};
+use super::data::{SHIFT_COUNT, SHIFTS};
 use super::model::PostModel;
 use super::route::PostRoute;
-use super::types::{MAX_PARCELS, PostModal, PostParcel};
+use super::types::{MAX_EVENTS, MAX_PARCELS, PostModal, PostParcel};
 use crate::types::Fixed;
 
 fn run_steps(model: &mut PostModel, count: usize) {
     for _ in 0..count {
         let _ = model.step_fixed();
     }
+}
+
+/// Sets each switch for the parcel that reaches it next, like a player who
+/// never slips.
+fn steer(model: &mut PostModel) {
+    let leader = |model: &PostModel, route: PostRoute| {
+        (0..usize::from(model.active_len()))
+            .filter_map(|index| model.active(index))
+            .filter(|parcel| parcel.route() == route)
+            .max_by_key(|parcel| parcel.distance())
+    };
+    if let Some(parcel) = leader(model, PostRoute::Entry) {
+        model.switches[0] = u8::from(parcel.target() != 0);
+    }
+    if let Some(parcel) = leader(model, PostRoute::ToSecondSwitch) {
+        model.switches[1] = u8::from(parcel.target() == 2);
+    }
+}
+
+/// Plays the current shift to its end, steering every parcel when `steered`.
+fn play_out(model: &mut PostModel, steered: bool) {
+    model.toggle_running();
+    for _ in 0..40_000 {
+        if steered {
+            steer(model);
+        }
+        let _ = model.step_fixed();
+        if model.finished() {
+            return;
+        }
+    }
+    panic!("shift {} never finished", model.shift());
+}
+
+fn perfect_score(parcels: usize) -> u16 {
+    (0..parcels)
+        .map(|index| 100 + 20 * index.min(5) as u16)
+        .sum()
 }
 
 #[test]
@@ -50,18 +88,24 @@ fn residual_distance_survives_a_junction_step() {
 }
 
 #[test]
-fn capacity_is_bounded_without_a_hidden_queue() {
-    let mut model = PostModel::default();
-    assert!(model.spawn());
-    assert!(model.spawn());
-    assert!(model.spawn());
-    assert!(!model.spawn());
-    model.spawn_clock_half_ticks = SPAWN_PERIOD_HALF_TICKS;
-    let cursor = model.cursor();
-    let _ = model.step_fixed();
-    assert_eq!(model.active_len(), MAX_PARCELS as u8);
-    assert_eq!(model.cursor(), cursor);
-    assert_eq!(model.spawn_clock_half_ticks, SPAWN_PERIOD_HALF_TICKS);
+fn the_rails_hold_only_what_the_shift_allows_without_a_hidden_queue() {
+    for shift in 0..SHIFT_COUNT as u8 {
+        let mut model = PostModel::default();
+        model.load_shift(shift);
+        let allowed = model.in_flight();
+        for _ in 0..allowed {
+            assert!(model.spawn());
+        }
+        assert!(!model.spawn());
+        assert!(!model.can_send());
+        let period = SHIFTS[usize::from(shift)].spawn_period;
+        model.spawn_clock_half_ticks = period;
+        let cursor = model.cursor();
+        let _ = model.step_fixed();
+        assert_eq!(model.active_len(), allowed);
+        assert_eq!(model.cursor(), cursor);
+        assert_eq!(model.spawn_clock_half_ticks, period);
+    }
 }
 
 #[test]
@@ -126,31 +170,109 @@ fn speed_changes_dispatch_and_motion_rate_without_rerouting() {
 fn opening_and_closing_a_panel_never_resumes_the_shift() {
     let mut model = PostModel::default();
     model.toggle_running();
-    model.open_manifests();
+    model.open_shifts();
     assert!(!model.running());
-    assert_eq!(model.modal(), PostModal::Manifests);
+    assert_eq!(model.modal(), PostModal::Shifts);
     model.close_modal();
     assert!(!model.running());
     assert_eq!(model.modal(), PostModal::None);
 }
 
 #[test]
-fn each_manifest_finishes_with_a_complete_terminal_partition() {
-    for manifest_id in 0..MANIFEST_COUNT as u8 {
+fn each_shift_finishes_with_a_complete_terminal_partition() {
+    for shift in 0..SHIFT_COUNT as u8 {
         let mut model = PostModel::default();
-        model.load_manifest(manifest_id);
-        model.toggle_running();
-        for _ in 0..20_000 {
-            let _ = model.step_fixed();
-            if model.finished() {
-                break;
-            }
-        }
+        model.load_shift(shift);
+        play_out(&mut model, false);
         assert!(model.finished());
-        assert_eq!(model.event_len(), model.manifest_len());
-        assert_eq!(model.delivered() + model.missed(), model.manifest_len());
+        assert_eq!(model.modal(), PostModal::Summary);
+        assert_eq!(model.event_len(), model.parcel_count());
+        assert_eq!(model.delivered() + model.missed(), model.parcel_count());
         assert_eq!(model.active_len(), 0);
     }
+}
+
+#[test]
+fn the_day_ramps_up_one_shift_at_a_time() {
+    for pair in SHIFTS.windows(2) {
+        let (easier, harder) = (&pair[0], &pair[1]);
+        assert!(easier.parcels.len() <= harder.parcels.len());
+        assert!(easier.spawn_period > harder.spawn_period);
+        assert!(easier.in_flight <= harder.in_flight);
+    }
+    for shift in &SHIFTS {
+        assert!(shift.parcels.len() <= MAX_EVENTS);
+        assert!(usize::from(shift.in_flight) <= MAX_PARCELS);
+        for station in 0..3 {
+            let count = shift
+                .parcels
+                .iter()
+                .filter(|target| **target == station)
+                .count();
+            assert_eq!(
+                count * 3,
+                shift.parcels.len(),
+                "{} station {station}",
+                shift.name
+            );
+        }
+    }
+}
+
+#[test]
+fn a_clean_run_through_the_day_stars_every_shift() {
+    let mut model = PostModel::default();
+    for (index, shift) in SHIFTS.iter().enumerate() {
+        assert_eq!(usize::from(model.shift()), index);
+        play_out(&mut model, true);
+        assert_eq!(model.missed(), 0, "{}", shift.name);
+        let expected = perfect_score(shift.parcels.len());
+        assert_eq!(model.score(), expected);
+        assert_eq!(model.best()[index], expected);
+        assert_eq!(model.starred(), (1 << (index + 1)) - 1);
+        assert_eq!(model.has_next(), index + 1 < SHIFT_COUNT);
+        model.next_shift();
+    }
+    assert_eq!(model.modal(), PostModal::Shifts);
+    assert_eq!(usize::from(model.shift()), SHIFT_COUNT - 1);
+}
+
+#[test]
+fn a_wrong_delivery_finishes_the_shift_without_a_star() {
+    let mut model = PostModel::default();
+    play_out(&mut model, false);
+    assert_eq!(model.delivered(), 2);
+    assert_eq!(model.missed(), 4);
+    assert_eq!(model.starred(), 0);
+    assert_eq!(model.best()[0], 220);
+    model.restart();
+    play_out(&mut model, true);
+    assert_eq!(model.starred(), 1);
+    assert_eq!(model.best()[0], perfect_score(6));
+    model.restart();
+    play_out(&mut model, false);
+    assert_eq!(model.starred(), 1, "a later slip keeps the star");
+    assert_eq!(model.best()[0], perfect_score(6), "and the best score");
+}
+
+#[test]
+fn changing_shift_keeps_stars_best_scores_and_speed() {
+    let mut model = PostModel::default();
+    model.cycle_speed();
+    play_out(&mut model, true);
+    let speed = model.speed_x2();
+    model.load_shift(3);
+    assert_eq!(model.shift(), 3);
+    assert_eq!(model.speed_x2(), speed);
+    assert_eq!(model.starred(), 1);
+    assert_eq!(model.best()[0], perfect_score(6));
+    assert_eq!(model.score(), 0);
+    assert!(!model.started());
+    assert_eq!(
+        model.load_shift(SHIFT_COUNT as u8),
+        crate::gallery::play::change::ChangeSet::NONE
+    );
+    assert_eq!(model.shift(), 3);
 }
 
 #[test]

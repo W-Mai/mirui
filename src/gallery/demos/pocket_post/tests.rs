@@ -43,6 +43,7 @@ fn assert_text(world: &World, id: &'static str, expected: &str) {
 
 fn assert_bounded_text_valid(world: &World) {
     for id in [
+        "post_shift",
         "post_sorted",
         "post_status",
         "post_misses",
@@ -59,9 +60,13 @@ fn assert_bounded_text_valid(world: &World) {
         "post_speed",
         "post_modal_title",
         "post_modal_subtitle",
+        "post_shift_stars",
         "post_summary_score",
+        "post_summary_best",
         "post_summary_correct",
         "post_summary_missed",
+        "post_summary_next",
+        "post_reset_progress",
     ] {
         let entity = world.find_by_id(id).unwrap();
         let text = world.get::<Text>(entity).unwrap();
@@ -129,7 +134,7 @@ fn composition_uses_one_dense_route_surface_and_semantic_controls() {
     let world = fixture(VIEWPORT.0, VIEWPORT.1);
     assert!(world.find_by_id("post_surface").is_some());
     assert!(world.find_by_id("post_run").is_some());
-    assert!(world.find_by_id("post_manifest_2").is_some());
+    assert!(world.find_by_id("post_shift_stars").is_some());
     assert_eq!(world.query::<PostSurface>().collect().len(), 1);
 }
 
@@ -177,38 +182,74 @@ fn observed_state_updates_bounded_text_and_visibility() {
     let mut world = fixture(VIEWPORT.0, VIEWPORT.1);
     let model = model_handle(&world);
 
-    assert_text(&world, "post_status", "准备好，拨动你的第一班轨道");
+    assert_text(&world, "post_status", "按 ▶ 开始，点 S1 S2 拨道岔");
+    assert_text(&world, "post_shift", "01 晨班");
     assert!(is_hidden(&world, "post_modal"));
     assert_bounded_text_valid(&world);
 
-    model.open_manifests();
+    model.open_shifts();
     flush(&mut world);
     assert!(!is_hidden(&world, "post_modal"));
-    assert!(!is_hidden(&world, "post_manifest_0"));
+    assert!(!is_hidden(&world, "post_shift_stars"));
     assert!(is_hidden(&world, "post_summary_score"));
-    assert_text(
-        &world,
-        "post_modal_subtitle",
-        "更换班次会从头开始；没有时间惩罚，可以随时暂停。",
-    );
+    assert_text(&world, "post_modal_title", "选择班次");
+    assert_text(&world, "post_modal_subtitle", "全部送对，这一班得 ★。");
+    assert_text(&world, "post_shift_stars", "★ 0 / 6");
 
-    model.load_manifest(1);
+    model.load_shift(1);
     flush(&mut world);
     assert!(is_hidden(&world, "post_modal"));
-    assert_text(&world, "post_sorted", "SORTED 0 / 12");
+    assert_text(&world, "post_sorted", "SORTED 0 / 9");
+    assert_text(&world, "post_shift", "02 上午班");
 
-    model.load_manifest(2);
+    model.load_shift(0);
     model.spawn_manual();
     model.spawn_manual();
     flush(&mut world);
-    assert_text(&world, "post_status", "已暂停调度");
-    assert_text(&world, "post_in_transit", "2 / 3 在途");
+    assert_text(&world, "post_status", "已暂停");
+    assert_text(&world, "post_in_transit", "2 / 2 在途");
     assert!(!is_hidden(&world, "post_queue_0"));
     assert!(is_hidden(&world, "post_queue_4"));
 
     model.open_reset();
     flush(&mut world);
-    assert!(is_hidden(&world, "post_manifest_0"));
+    assert!(is_hidden(&world, "post_shift_stars"));
     assert!(!is_hidden(&world, "post_reset_confirm"));
+    assert_text(&world, "post_modal_title", "重来这一班？");
+    assert_text(&world, "post_reset_progress", "晨班 · 已送 0 / 6 件 · 0 分");
     assert_bounded_text_valid(&world);
+}
+
+#[test]
+fn finishing_a_shift_offers_the_next_one() {
+    let mut world = fixture(VIEWPORT.0, VIEWPORT.1);
+    let model = model_handle(&world);
+    model.toggle_running();
+    for _ in 0..2_000 {
+        model.advance_ms(120);
+        if model.finished() {
+            break;
+        }
+    }
+    assert!(model.finished());
+    flush(&mut world);
+    assert!(!is_hidden(&world, "post_summary_next"));
+    assert_text(&world, "post_modal_title", "晨班 完成");
+    assert_text(&world, "post_modal_subtitle", "错投 4 件。全部送对才得 ★。");
+    assert_text(&world, "post_summary_best", "最高 0220");
+    assert_text(&world, "post_summary_next", "下一班 · 上午班 →");
+    assert_text(&world, "post_status", "这一班送完了");
+    assert_bounded_text_valid(&world);
+
+    model.next_shift();
+    flush(&mut world);
+    assert!(is_hidden(&world, "post_modal"));
+    assert_text(&world, "post_shift", "02 上午班");
+    assert_text(&world, "post_status", "按 ▶ 开始，点 S1 S2 拨道岔");
+
+    model.load_shift(5);
+    model.open_shifts();
+    model.close_modal();
+    flush(&mut world);
+    assert_text(&world, "post_summary_next", "选班次");
 }

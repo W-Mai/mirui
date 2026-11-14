@@ -93,7 +93,7 @@ mod tests {
             assert!(model.running());
         });
 
-        observer.open_manifests();
+        observer.open_shifts();
         for position in [PhysicalKey::KeyA, PhysicalKey::KeyS, PhysicalKey::Space] {
             dispatch_input(
                 &mut app.world,
@@ -105,7 +105,7 @@ mod tests {
             );
         }
         observer.read(|model| {
-            assert_eq!(model.modal(), PostModal::Manifests);
+            assert_eq!(model.modal(), PostModal::Shifts);
             assert_eq!(model.switch(0), 1);
             assert_eq!(model.switch(1), 1);
             assert!(!model.running());

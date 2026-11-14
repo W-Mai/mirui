@@ -7,7 +7,7 @@ mod types;
 mod tests;
 
 #[allow(unused_imports)]
-pub(crate) use data::MANIFEST_COUNT;
+pub(crate) use data::{SHIFT_COUNT, SHIFTS, Shift};
 pub(crate) use model::PostModel;
 #[cfg(test)]
 pub(crate) use model::PostModelHandle;

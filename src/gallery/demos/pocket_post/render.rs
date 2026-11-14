@@ -328,6 +328,15 @@ pub(super) fn surface_render(
     paint_post_surface(&mut painter, model);
 }
 
+/// The panel a dialog sits on: the shift list needs the most room.
+pub(super) fn modal_frame(modal: PostModal) -> Rect {
+    if modal == PostModal::Shifts {
+        Rect::new(17, 34, 446, 256)
+    } else {
+        Rect::new(17, 65, 446, 206)
+    }
+}
+
 #[crate::view(
     component = PostModalSurface,
     name = "PostModalSurface",
@@ -348,22 +357,15 @@ pub(super) fn modal_render(
         Color::rgba(7, 13, 15, 226),
         Fixed::ZERO,
     );
-    painter.fill(Rect::new(17, 65, 446, 206), HEADER, Fixed::from_int(10));
-    painter.border(
-        Rect::new(17, 65, 446, 206),
-        ACCENT,
-        Fixed::ONE,
-        Fixed::from_int(10),
-    );
+    let frame = modal_frame(model.modal());
+    painter.fill(frame, HEADER, Fixed::from_int(10));
+    painter.border(frame, ACCENT, Fixed::ONE, Fixed::from_int(10));
     if model.modal() == PostModal::Summary {
         painter.line(
             Point::new(239, 113),
-            Point::new(239, 192),
+            Point::new(239, 200),
             Color::rgb(54, 72, 74),
             Fixed::ONE,
         );
-    } else if model.modal() == PostModal::Reset {
-        painter.fill(Rect::new(49, 124, 96, 96), BOARD, Fixed::from_int(48));
-        painter.circle(Point::new(97, 172), Fixed::from_int(8), ACCENT);
     }
 }

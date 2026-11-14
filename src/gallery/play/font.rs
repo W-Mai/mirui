@@ -158,6 +158,7 @@ mod tests {
         include_str!("../demos/moss_study/shell.rs"),
         include_str!("../demos/pocket_post/render.rs"),
         include_str!("../demos/pocket_post/shell.rs"),
+        include_str!("post/data.rs"),
         include_str!("../demos/logic_circuit/render.rs"),
         include_str!("../demos/logic_circuit/shell.rs"),
         include_str!("../demos/module_factory/render.rs"),

@@ -1,5 +1,5 @@
 use super::input::{keyboard, post_tick_system, surface_tap};
-use super::render::{modal_render, surface_render};
+use super::render::{modal_frame, modal_render, surface_render};
 use super::state::{PostModalSurface, PostSurface};
 use super::style::{
     ACCENT, BACKGROUND, BOARD, CONTROL, CONTROL_DISABLED, MUTED, STATION_COLORS, TEXT,
@@ -7,21 +7,22 @@ use super::style::{
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::font::PlayFontPlugin;
-use crate::gallery::play::post::{PostModal, PostModel};
+use crate::gallery::play::post::{PostModal, PostModel, SHIFT_COUNT, SHIFTS};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use core::fmt;
 
 fn status_label(finished: bool, running: bool, started: bool) -> &'static str {
     if finished {
-        "班次完成"
+        "这一班送完了"
     } else if running {
-        "包裹正在路上"
+        "投递中"
     } else if started {
-        "已暂停调度"
+        "已暂停"
     } else {
-        "准备好，拨动你的第一班轨道"
+        "按 ▶ 开始，点 S1 S2 拨道岔"
     }
 }
 
@@ -29,7 +30,7 @@ fn run_label(finished: bool, running: bool, started: bool) -> &'static str {
     if running {
         "Ⅱ 暂停"
     } else if finished {
-        "↻ 再开一班"
+        "↻ 再来一次"
     } else if started {
         "▶ 继续"
     } else {
@@ -80,22 +81,129 @@ fn control_text_color(active: bool, enabled: bool) -> Color {
     }
 }
 
-fn modal_title(modal: PostModal) -> &'static str {
-    match modal {
-        PostModal::Manifests => "选择今天的班次",
-        PostModal::Summary => "本班投递完成",
-        PostModal::Reset => "重新开始这一班？",
-        PostModal::None => "",
+fn starred(mask: u8, shift: u8) -> bool {
+    mask & (1 << shift) != 0
+}
+
+fn tile_text_color(current: bool, starred: bool) -> Color {
+    if current {
+        BACKGROUND
+    } else if starred {
+        STATION_COLORS[0]
+    } else {
+        TEXT
     }
 }
 
-fn modal_subtitle(modal: PostModal) -> &'static str {
-    match modal {
-        PostModal::Manifests => "更换班次会从头开始；没有时间惩罚，可以随时暂停。",
-        PostModal::Summary => "不需要抢时间，准确到达就很棒。",
-        PostModal::Reset => "当前包裹、计分和道岔都会复位。",
-        PostModal::None => "",
+struct ShiftLabel(u8);
+
+impl fmt::Display for ShiftLabel {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            output,
+            "{:02} {}",
+            self.0 + 1,
+            SHIFTS[usize::from(self.0)].name
+        )
     }
+}
+
+/// A shift in the list: name, size and pace, then its star and best score.
+struct ShiftTile {
+    shift: u8,
+    starred: bool,
+    best: u16,
+}
+
+impl fmt::Display for ShiftTile {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let shift = &SHIFTS[usize::from(self.shift)];
+        let tenths = u32::from(shift.spawn_period) * 10 / 120;
+        writeln!(output, "{}", ShiftLabel(self.shift))?;
+        writeln!(
+            output,
+            "{} 件 · 每 {}.{} 秒",
+            shift.parcels.len(),
+            tenths / 10,
+            tenths % 10
+        )?;
+        let star = if self.starred { "★" } else { "☆" };
+        if self.best == 0 {
+            output.write_str(star)
+        } else {
+            write!(output, "{star} 最高 {}", self.best)
+        }
+    }
+}
+
+struct ModalTitle {
+    modal: PostModal,
+    shift: u8,
+}
+
+impl fmt::Display for ModalTitle {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.modal {
+            PostModal::Shifts => output.write_str("选择班次"),
+            PostModal::Summary => write!(output, "{} 完成", SHIFTS[usize::from(self.shift)].name),
+            PostModal::Reset => output.write_str("重来这一班？"),
+            PostModal::None => Ok(()),
+        }
+    }
+}
+
+struct ModalSubtitle {
+    modal: PostModal,
+    missed: u8,
+}
+
+impl fmt::Display for ModalSubtitle {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.modal {
+            PostModal::Shifts => output.write_str("全部送对，这一班得 ★。"),
+            PostModal::Summary if self.missed == 0 => output.write_str("全部送对，得 ★。"),
+            PostModal::Summary => write!(output, "错投 {} 件。全部送对才得 ★。", self.missed),
+            PostModal::Reset => output.write_str("已送出的包裹和分数会清零。"),
+            PostModal::None => Ok(()),
+        }
+    }
+}
+
+/// What a restart would throw away.
+struct ShiftProgress {
+    shift: u8,
+    sent: u8,
+    parcels: u8,
+    score: u16,
+}
+
+impl fmt::Display for ShiftProgress {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            output,
+            "{} · 已送 {} / {} 件 · {} 分",
+            SHIFTS[usize::from(self.shift)].name,
+            self.sent,
+            self.parcels,
+            self.score
+        )
+    }
+}
+
+/// The summary's way forward: the next shift, or the list after the last.
+struct NextLabel(u8);
+
+impl fmt::Display for NextLabel {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match SHIFTS.get(usize::from(self.0) + 1) {
+            Some(next) => write!(output, "下一班 · {} →", next.name),
+            None => output.write_str("选班次"),
+        }
+    }
+}
+
+fn modal_top(modal: PostModal) -> i32 {
+    modal_frame(modal).y.to_int()
 }
 
 #[compose]
@@ -106,7 +214,7 @@ fn compose_header(model: model!(PostModel)) -> Entity {
             position: Position::Absolute,
             left: 35,
             top: 7,
-            width: 240,
+            width: 110,
             height: 22,
             font_size: 14,
             text_color: TEXT,
@@ -115,7 +223,22 @@ fn compose_header(model: model!(PostModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ format_args!("SORTED {} / {}", model.delivered(), model.manifest_len()) },
+            text: ${ ShiftLabel(model.shift()) },
+            capacity: 16,
+            id: "post_shift",
+            position: Position::Absolute,
+            left: 150,
+            top: 9,
+            width: 140,
+            height: 18,
+            font_size: 9,
+            text_color: ACCENT,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("SORTED {} / {}", model.delivered(), model.parcel_count()) },
             capacity: 14,
             id: "post_sorted",
             position: Position::Absolute,
@@ -423,7 +546,7 @@ fn compose_dispatch_queue(model: model!(PostModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ format_args!("{} / 3 在途", model.active_len()) },
+            text: ${ format_args!("{} / {} 在途", model.active_len(), model.in_flight()) },
             capacity: 12,
             id: "post_in_transit",
             position: Position::Absolute,
@@ -451,7 +574,7 @@ fn compose_dispatch_queue(model: model!(PostModel)) -> Entity {
             pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 6
-        ) on Tap { model.open_manifests(); }
+        ) on Tap { model.open_shifts(); }
     }
 }
 
@@ -543,10 +666,20 @@ pub(super) fn build_widgets(model: model!(PostModel)) {
             },
             TouchAction::None,
         ] {
-            compose_header (model)
-            compose_route_summary (model)
-            compose_dispatch_queue (model)
-            compose_footer (model)
+            View (
+                id: "post_page",
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: 480,
+                height: 320,
+                visible: ${ model.modal() == PostModal::None }
+            ) {
+                compose_header (model)
+                compose_route_summary (model)
+                compose_dispatch_queue (model)
+                compose_footer (model)
+            }
             compose_modal (model)
         } on Tap(|event: event!(Tap), rows: query!(PostSurface, ComputedRect)| {
             let Some((surface, rect)) = rows.get(event.target) else {
@@ -556,6 +689,239 @@ pub(super) fn build_widgets(model: model!(PostModel)) {
             surface_tap(surface, rect, event.x, event.y)
         })
     };
+}
+
+#[compose]
+fn shift_tile(model: model!(PostModel), shift: u8, left: i32, top: i32) -> Entity {
+    ui! {
+        Button (
+            text: ${
+                ShiftTile {
+                    shift,
+                    starred: starred(model.starred(), shift),
+                    best: model.best()[usize::from(shift)],
+                }
+            },
+            capacity: 64,
+            visible: ${ model.modal() == PostModal::Shifts },
+            position: Position::Absolute,
+            left: left,
+            top: top,
+            width: 134,
+            height: 92,
+            size: ButtonSize::Compact,
+            font_size: 11,
+            normal_color: ${ control_color(model.shift() == shift, true) },
+            pressed_color: ACCENT,
+            text_color: ${ tile_text_color(model.shift() == shift, starred(model.starred(), shift)) },
+            border_radius: 7
+        ) on Tap { model.load_shift(shift); }
+    }
+}
+
+#[compose]
+fn compose_shift_stars(model: model!(PostModel)) -> Entity {
+    ui! {
+        Text (
+            text: ${ format_args!("★ {} / {SHIFT_COUNT}", model.starred().count_ones()) },
+            capacity: 10,
+            id: "post_shift_stars",
+            visible: ${ model.modal() == PostModal::Shifts },
+            position: Position::Absolute,
+            left: 330,
+            top: 46,
+            width: 88,
+            height: 18,
+            font_size: 10,
+            text_color: STATION_COLORS[0],
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    }
+}
+
+#[compose]
+fn compose_summary(model: model!(PostModel)) -> Entity {
+    ui! {
+        Text (
+            text: ${ format_args!("{:04}", model.score()) },
+            capacity: 5,
+            id: "post_summary_score",
+            visible: ${ model.modal() == PostModal::Summary },
+            position: Position::Absolute,
+            left: 42,
+            top: 119,
+            width: 175,
+            height: 48,
+            font_size: 35,
+            text_color: ACCENT,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            "POST POINTS",
+            id: "post_summary_points",
+            visible: ${ model.modal() == PostModal::Summary },
+            position: Position::Absolute,
+            left: 44,
+            top: 166,
+            width: 130,
+            height: 13,
+            font_size: 8,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("最高 {:04}", model.current_best()) },
+            capacity: 12,
+            id: "post_summary_best",
+            visible: ${ model.modal() == PostModal::Summary },
+            position: Position::Absolute,
+            left: 44,
+            top: 182,
+            width: 130,
+            height: 15,
+            font_size: 9,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("正确 {} 件", model.delivered()) },
+            capacity: 14,
+            id: "post_summary_correct",
+            visible: ${ model.modal() == PostModal::Summary },
+            position: Position::Absolute,
+            left: 270,
+            top: 121,
+            width: 150,
+            height: 22,
+            font_size: 20,
+            text_color: STATION_COLORS[0],
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("错投 {} 件", model.missed()) },
+            capacity: 14,
+            id: "post_summary_missed",
+            visible: ${ model.modal() == PostModal::Summary },
+            position: Position::Absolute,
+            left: 270,
+            top: 150,
+            width: 150,
+            height: 20,
+            font_size: 12,
+            text_color: STATION_COLORS[2],
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Button (
+            "↻ 再来一次",
+            id: "post_summary_again",
+            visible: ${ model.modal() == PostModal::Summary },
+            position: Position::Absolute,
+            left: 29,
+            top: 217,
+            width: 204,
+            height: 34,
+            size: ButtonSize::Compact,
+            font_size: 11,
+            normal_color: CONTROL,
+            pressed_color: ACCENT,
+            pressed_text_color: BOARD,
+            text_color: TEXT,
+            border_radius: 7
+        ) on Tap { model.restart(); }
+    };
+    ui! {
+        Button (
+            text: ${ NextLabel(model.shift()) },
+            capacity: 32,
+            id: "post_summary_next",
+            visible: ${ model.modal() == PostModal::Summary },
+            position: Position::Absolute,
+            left: 245,
+            top: 217,
+            width: 204,
+            height: 34,
+            size: ButtonSize::Compact,
+            font_size: 11,
+            normal_color: ACCENT,
+            pressed_color: ACCENT,
+            text_color: BACKGROUND,
+            border_radius: 7
+        ) on Tap { model.next_shift(); }
+    }
+}
+
+#[compose]
+fn compose_reset(model: model!(PostModel)) -> Entity {
+    ui! {
+        Text (
+            text: ${
+                ShiftProgress {
+                    shift: model.shift(),
+                    sent: model.delivered() + model.missed(),
+                    parcels: model.parcel_count(),
+                    score: model.score(),
+                }
+            },
+            capacity: 48,
+            id: "post_reset_progress",
+            visible: ${ model.modal() == PostModal::Reset },
+            position: Position::Absolute,
+            left: 29,
+            top: 156,
+            width: 420,
+            height: 18,
+            font_size: 11,
+            text_color: TEXT,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Button (
+            "继续这一班",
+            id: "post_reset_cancel",
+            visible: ${ model.modal() == PostModal::Reset },
+            position: Position::Absolute,
+            left: 29,
+            top: 217,
+            width: 204,
+            height: 34,
+            size: ButtonSize::Compact,
+            font_size: 11,
+            normal_color: CONTROL,
+            pressed_color: ACCENT,
+            pressed_text_color: BOARD,
+            text_color: TEXT,
+            border_radius: 7
+        ) on Tap { model.close_modal(); }
+    };
+    ui! {
+        Button (
+            "↻ 重来",
+            id: "post_reset_confirm",
+            visible: ${ model.modal() == PostModal::Reset },
+            position: Position::Absolute,
+            left: 245,
+            top: 217,
+            width: 204,
+            height: 34,
+            size: ButtonSize::Compact,
+            font_size: 11,
+            normal_color: ACCENT,
+            pressed_color: ACCENT,
+            text_color: BACKGROUND,
+            border_radius: 7
+        ) on Tap { model.restart(); }
+    }
 }
 
 #[compose]
@@ -577,26 +943,36 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
             TouchAction::None,
         ] {
             Text (
-                text: ${ modal_title(model.modal()) },
+                text: ${
+                    ModalTitle {
+                        modal: model.modal(),
+                        shift: model.shift(),
+                    }
+                },
                 capacity: 24,
                 id: "post_modal_title",
                 position: Position::Absolute,
                 left: 29,
-                top: 76,
-                width: 390,
+                top: ${ modal_top(model.modal()) + 11 },
+                width: 290,
                 height: 22,
                 font_size: 13,
                 text_color: TEXT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                text: ${ modal_subtitle(model.modal()) },
-                capacity: 72,
+                text: ${
+                    ModalSubtitle {
+                        modal: model.modal(),
+                        missed: model.missed(),
+                    }
+                },
+                capacity: 48,
                 id: "post_modal_subtitle",
                 position: Position::Absolute,
                 left: 29,
-                top: 96,
-                width: 410,
+                top: ${ modal_top(model.modal()) + 31 },
+                width: 390,
                 height: 15,
                 font_size: 8,
                 text_color: MUTED,
@@ -606,7 +982,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
                 "×",
                 position: Position::Absolute,
                 left: 428,
-                top: 73,
+                top: ${ modal_top(model.modal()) + 8 },
                 width: 24,
                 height: 22,
                 size: ButtonSize::Compact,
@@ -617,201 +993,15 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
                 text_color: TEXT,
                 border_radius: 6
             ) on Tap { model.close_modal(); }
-            Button (
-                "晨间邮路 · 9 件",
-                id: "post_manifest_0",
-                visible: ${ model.modal() == PostModal::Manifests },
-                position: Position::Absolute,
-                left: 29,
-                top: 113,
-                width: 420,
-                height: 37,
-                size: ButtonSize::Compact,
-                font_size: 11,
-                normal_color: ${ control_color(model.manifest_id() == 0, model.modal() == PostModal::Manifests) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(model.manifest_id() == 0, model.modal() == PostModal::Manifests) },
-                border_radius: 7
-            ) on Tap { model.load_manifest(0); }
-            Button (
-                "忙碌午后 · 12 件",
-                id: "post_manifest_1",
-                visible: ${ model.modal() == PostModal::Manifests },
-                position: Position::Absolute,
-                left: 29,
-                top: 160,
-                width: 420,
-                height: 37,
-                size: ButtonSize::Compact,
-                font_size: 11,
-                normal_color: ${ control_color(model.manifest_id() == 1, model.modal() == PostModal::Manifests) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(model.manifest_id() == 1, model.modal() == PostModal::Manifests) },
-                border_radius: 7
-            ) on Tap { model.load_manifest(1); }
-            Button (
-                "慢慢练习 · 6 件",
-                id: "post_manifest_2",
-                visible: ${ model.modal() == PostModal::Manifests },
-                position: Position::Absolute,
-                left: 29,
-                top: 207,
-                width: 420,
-                height: 37,
-                size: ButtonSize::Compact,
-                font_size: 11,
-                normal_color: ${ control_color(model.manifest_id() == 2, model.modal() == PostModal::Manifests) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(model.manifest_id() == 2, model.modal() == PostModal::Manifests) },
-                border_radius: 7
-            ) on Tap { model.load_manifest(2); }
-            Text (
-                text: ${ format_args!("{:04}", model.score()) },
-                capacity: 5,
-                id: "post_summary_score",
-                visible: ${ model.modal() == PostModal::Summary },
-                position: Position::Absolute,
-                left: 42,
-                top: 119,
-                width: 175,
-                height: 48,
-                font_size: 35,
-                text_color: ACCENT,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                "POST POINTS",
-                id: "post_summary_points",
-                visible: ${ model.modal() == PostModal::Summary },
-                position: Position::Absolute,
-                left: 44,
-                top: 166,
-                width: 130,
-                height: 13,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                text: ${ format_args!("正确 {} 件", model.delivered()) },
-                capacity: 14,
-                id: "post_summary_correct",
-                visible: ${ model.modal() == PostModal::Summary },
-                position: Position::Absolute,
-                left: 270,
-                top: 121,
-                width: 150,
-                height: 22,
-                font_size: 20,
-                text_color: STATION_COLORS[0],
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                text: ${ format_args!("错投 {} 件", model.missed()) },
-                capacity: 14,
-                id: "post_summary_missed",
-                visible: ${ model.modal() == PostModal::Summary },
-                position: Position::Absolute,
-                left: 270,
-                top: 150,
-                width: 150,
-                height: 20,
-                font_size: 12,
-                text_color: STATION_COLORS[2],
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Button (
-                "再开一班",
-                id: "post_summary_again",
-                visible: ${ model.modal() == PostModal::Summary },
-                position: Position::Absolute,
-                left: 29,
-                top: 217,
-                width: 204,
-                height: 34,
-                size: ButtonSize::Compact,
-                font_size: 11,
-                normal_color: ACCENT,
-                pressed_color: ACCENT,
-                text_color: BACKGROUND,
-                border_radius: 7
-            ) on Tap { model.restart(); }
-            Button (
-                "换个班次",
-                id: "post_summary_choose",
-                visible: ${ model.modal() == PostModal::Summary },
-                position: Position::Absolute,
-                left: 245,
-                top: 217,
-                width: 204,
-                height: 34,
-                size: ButtonSize::Compact,
-                font_size: 11,
-                normal_color: CONTROL,
-                pressed_color: ACCENT,
-                pressed_text_color: BOARD,
-                text_color: TEXT,
-                border_radius: 7
-            ) on Tap { model.open_manifests(); }
-            Text (
-                "只影响当前内存中的进度。",
-                id: "post_reset_note",
-                visible: ${ model.modal() == PostModal::Reset },
-                position: Position::Absolute,
-                left: 171,
-                top: 146,
-                width: 257,
-                height: 16,
-                font_size: 9,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Button (
-                "重新开始",
-                id: "post_reset_confirm",
-                visible: ${ model.modal() == PostModal::Reset },
-                position: Position::Absolute,
-                left: 171,
-                top: 185,
-                width: 257,
-                height: 32,
-                size: ButtonSize::Compact,
-                font_size: 11,
-                normal_color: ACCENT,
-                pressed_color: ACCENT,
-                text_color: BACKGROUND,
-                border_radius: 7
-            ) on Tap { model.restart(); }
-            Button (
-                "保留班次",
-                id: "post_reset_cancel",
-                visible: ${ model.modal() == PostModal::Reset },
-                position: Position::Absolute,
-                left: 171,
-                top: 225,
-                width: 257,
-                height: 25,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: CONTROL,
-                pressed_color: ACCENT,
-                pressed_text_color: BOARD,
-                text_color: TEXT,
-                border_radius: 7
-            ) on Tap { model.close_modal(); }
-            Text (
-                "当前班次",
-                id: "post_reset_badge",
-                visible: ${ model.modal() == PostModal::Reset },
-                position: Position::Absolute,
-                left: 67,
-                top: 226,
-                width: 61,
-                height: 14,
-                font_size: 8,
-                text_color: ACCENT,
-                paragraph: ParagraphStyle::label()
-            )
+            compose_shift_stars (model)
+            shift_tile (model, 0, 29, 90)
+            shift_tile (model, 1, 172, 90)
+            shift_tile (model, 2, 315, 90)
+            shift_tile (model, 3, 29, 189)
+            shift_tile (model, 4, 172, 189)
+            shift_tile (model, 5, 315, 189)
+            compose_summary (model)
+            compose_reset (model)
         } on Tap { }
     }
 }
