@@ -71,14 +71,15 @@ where
     app.set_theme(DARK_ID).expect("showcase theme registered");
 }
 
-/// Graphite for the small API samples: tonal greys with a trace of blue, the
-/// brightest grey as the one action colour and no hue besides two muted signals.
+/// Graphite for the small API samples: tonal greys with a trace of blue, one
+/// teal as the action and its lighter tint for a press, a slate blue and two
+/// muted signals. No purple, and nothing brighter than the text.
 pub fn sample_dark() -> Theme {
     Theme::dark()
         .with_info(ThemeInfo::new(
             SAMPLE_DARK_ID,
             "Sample Dark",
-            "Tonal graphite; the action is the brightest grey",
+            "Tonal graphite with a teal action",
         ))
         .with_many([
             (ColorToken::Surface, Color::rgb(16, 17, 19)),
@@ -86,25 +87,26 @@ pub fn sample_dark() -> Theme {
             (ColorToken::SurfaceVariant, Color::rgb(25, 26, 29)),
             (ColorToken::OnSurfaceVariant, Color::rgb(134, 138, 147)),
             (ColorToken::Outline, Color::rgb(44, 46, 51)),
-            (ColorToken::Primary, Color::rgb(233, 234, 237)),
-            (ColorToken::OnPrimary, Color::rgb(16, 17, 19)),
-            (ColorToken::Secondary, Color::rgb(160, 164, 173)),
-            (ColorToken::OnSecondary, Color::rgb(16, 17, 19)),
-            (ColorToken::Tertiary, Color::rgb(98, 104, 116)),
-            (ColorToken::OnTertiary, Color::rgb(233, 234, 237)),
-            (ColorToken::Success, Color::rgb(104, 196, 150)),
+            (ColorToken::Primary, Color::rgb(68, 204, 188)),
+            (ColorToken::OnPrimary, Color::rgb(7, 27, 25)),
+            (ColorToken::Secondary, Color::rgb(146, 226, 214)),
+            (ColorToken::OnSecondary, Color::rgb(7, 27, 25)),
+            (ColorToken::Tertiary, Color::rgb(112, 130, 158)),
+            (ColorToken::OnTertiary, Color::rgb(236, 238, 242)),
+            (ColorToken::Success, Color::rgb(146, 204, 110)),
             (ColorToken::Error, Color::rgb(238, 122, 112)),
             (ColorToken::Shadow, Color::rgb(0, 0, 0)),
         ])
 }
 
-/// The paper side of the same graphite: white cards on a warm-neutral page.
+/// The paper side of the same graphite: grey cards on a warm-neutral page,
+/// the teal gone deeper so that white text stands on it.
 pub fn sample_light() -> Theme {
     Theme::light()
         .with_info(ThemeInfo::new(
             SAMPLE_LIGHT_ID,
             "Sample Light",
-            "Tonal paper; the action is the darkest grey",
+            "Tonal paper with a deep teal action",
         ))
         .with_many([
             (ColorToken::Surface, Color::rgb(246, 246, 247)),
@@ -112,13 +114,13 @@ pub fn sample_light() -> Theme {
             (ColorToken::SurfaceVariant, Color::rgb(236, 237, 240)),
             (ColorToken::OnSurfaceVariant, Color::rgb(111, 115, 124)),
             (ColorToken::Outline, Color::rgb(216, 218, 224)),
-            (ColorToken::Primary, Color::rgb(23, 24, 27)),
+            (ColorToken::Primary, Color::rgb(8, 124, 110)),
             (ColorToken::OnPrimary, Color::rgb(255, 255, 255)),
-            (ColorToken::Secondary, Color::rgb(88, 92, 101)),
+            (ColorToken::Secondary, Color::rgb(64, 170, 154)),
             (ColorToken::OnSecondary, Color::rgb(255, 255, 255)),
-            (ColorToken::Tertiary, Color::rgb(160, 164, 173)),
-            (ColorToken::OnTertiary, Color::rgb(23, 24, 27)),
-            (ColorToken::Success, Color::rgb(30, 140, 95)),
+            (ColorToken::Tertiary, Color::rgb(92, 114, 148)),
+            (ColorToken::OnTertiary, Color::rgb(255, 255, 255)),
+            (ColorToken::Success, Color::rgb(76, 146, 52)),
             (ColorToken::Error, Color::rgb(205, 60, 50)),
             (ColorToken::Shadow, Color::rgb(57, 66, 76)),
         ])
@@ -169,15 +171,42 @@ mod tests {
     }
 
     #[test]
-    fn sample_palettes_are_graphite_with_the_action_as_the_brightest_grey() {
+    fn sample_palettes_are_neutral_greys_with_a_teal_action_and_no_purple() {
         for theme in [sample_dark(), sample_light()] {
-            let action = theme.resolve(ColorToken::Primary);
-            let on_action = theme.resolve(ColorToken::OnPrimary);
-            // Neutral to the eye: no channel strays far from the others.
-            for color in [action, on_action, theme.resolve(ColorToken::Surface)] {
-                assert!(color.r.abs_diff(color.b) <= 4, "{color:?}");
+            // The surfaces are neutral to the eye: no channel strays far from the others.
+            for token in [
+                ColorToken::Surface,
+                ColorToken::SurfaceVariant,
+                ColorToken::Outline,
+                ColorToken::OnSurface,
+            ] {
+                let color = theme.resolve(token);
+                assert!(color.r.abs_diff(color.b) <= 8, "{token:?} {color:?}");
             }
-            assert_ne!(action, on_action);
+            // The action is teal: green and blue well over red, and green no less than blue.
+            for token in [ColorToken::Primary, ColorToken::Secondary] {
+                let color = theme.resolve(token);
+                assert!(
+                    color.g >= color.b && color.g > color.r + 30,
+                    "{token:?} {color:?}"
+                );
+            }
+            // Purple has red and blue over green.
+            for token in [
+                ColorToken::Primary,
+                ColorToken::Secondary,
+                ColorToken::Tertiary,
+            ] {
+                let color = theme.resolve(token);
+                assert!(
+                    !(color.r > color.g && color.b > color.g),
+                    "{token:?} {color:?}"
+                );
+            }
+            assert_ne!(
+                theme.resolve(ColorToken::Primary),
+                theme.resolve(ColorToken::OnPrimary)
+            );
         }
         let mut app = App::headless(1, 1);
         super::install_sample(&mut app);
