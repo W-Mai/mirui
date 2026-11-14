@@ -12,6 +12,7 @@ where
     F: RendererFactory<B>,
 {
     use crate::app::plugins::StdInstantClockPlugin;
+    app.add_plugin(crate::gallery::play::font::PlayFontPlugin);
     app.add_plugin(StdInstantClockPlugin)
         .with_offscreen_pool_budget(1024 * 1024)
         .add_system(animate_color_flash::system())

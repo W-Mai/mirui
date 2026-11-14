@@ -17,6 +17,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install_sample(app);
     app.request_timings(true);
     // Modal buffer at RGBA8888 = 200×280×4 = 224 KB; the 256 KiB pool
     // fits one buffer with eviction headroom.

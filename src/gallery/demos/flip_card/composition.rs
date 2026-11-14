@@ -9,20 +9,20 @@ pub fn build_widgets() {
     ui! {
         View (grow: 1.0, bg_color: ColorToken::Surface) {
             Text (
-                "PROJECTIVE FLIP · FRONT / BACK",
+                "Projective flip, front and back",
                 position: Position::Absolute,
                 left: 16,
                 top: 12,
                 width: Dimension::percent(100),
                 max_width: 360,
                 height: 26,
-                font_size: 14,
+                font_size: 16,
                 text_color: ColorToken::OnSurface
             )
             Column (
                 position: Position::Absolute,
                 bg_color: ColorToken::Primary,
-                border_radius: 18,
+                border_radius: 24,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center,
                 row_gap: 8,
@@ -38,7 +38,7 @@ pub fn build_widgets() {
                 WidgetTransform3D(Transform3D::IDENTITY),
             ] {
                 Text (
-                    "MIRUI",
+                    "mirui",
                     width: Dimension::percent(100),
                     height: 34,
                     font_size: 22,
@@ -46,10 +46,10 @@ pub fn build_widgets() {
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "2.5D CARD",
+                    "2.5D card",
                     width: Dimension::percent(100),
                     height: 22,
-                    font_size: 10,
+                    font_size: 12,
                     text_color: ColorToken::OnPrimary,
                     paragraph: ParagraphStyle::label()
                 )

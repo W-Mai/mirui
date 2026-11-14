@@ -9,6 +9,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    #[cfg(feature = "std")]
+    crate::gallery::showcase_theme::install_sample(app);
     let model = app.add_model(PinchModel::default()).finish();
     app.compose(parent, build_widgets(model));
 

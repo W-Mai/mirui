@@ -117,6 +117,6 @@ fn readout_updates_content_without_replacing_paragraph_style() {
     scheduler.run_all(world).unwrap();
 
     let text = world.get::<Text>(readout).unwrap();
-    assert!(text.resolve(world.resource()).contains("render avg 77us"));
+    assert!(text.resolve(world.resource()).contains("render avg 77 us"));
     assert_eq!(text.paragraph(), &paragraph);
 }

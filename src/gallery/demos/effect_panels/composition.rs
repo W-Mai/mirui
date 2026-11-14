@@ -18,11 +18,11 @@ pub fn build_widgets() {
             bg_color: ColorToken::Surface
         ) {
             Text (
-                "LIVE EFFECT PIPELINE",
+                "Live effect pipeline",
                 width: Dimension::percent(100),
                 max_width: 900,
                 height: 28,
-                font_size: 16,
+                font_size: 18,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
@@ -43,20 +43,18 @@ pub fn build_widgets() {
                     padding: Padding::all(8),
                     row_gap: 6,
                     bg_color: ColorToken::SurfaceVariant,
-                    border_color: ColorToken::Outline,
-                    border_width: 1,
-                    border_radius: 12
+                    border_radius: 18
                 ) {
                     Text (
-                        "MIRROR",
-                        height: 14,
-                        font_size: 9,
+                        "Mirror",
+                        height: 16,
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Row (grow: 1.0, align: AlignItems::Center, column_gap: 8) {
                         Text (
-                            "SOURCE",
+                            "Source",
                             id: "mirror-src",
                             bg_color: ColorToken::Primary,
                             text_color: ColorToken::OnPrimary,
@@ -64,7 +62,7 @@ pub fn build_widgets() {
                             grow: 1.0,
                             height: Dimension::percent(100),
                             max_height: 96,
-                            font_size: 9,
+                            font_size: 13,
                             paragraph: ParagraphStyle::label()
                         )
                         View (
@@ -85,14 +83,12 @@ pub fn build_widgets() {
                     padding: Padding::all(8),
                     row_gap: 6,
                     bg_color: ColorToken::SurfaceVariant,
-                    border_color: ColorToken::Outline,
-                    border_width: 1,
-                    border_radius: 12
+                    border_radius: 18
                 ) {
                     Text (
-                        "TEMPORAL MIX",
-                        height: 14,
-                        font_size: 9,
+                        "Temporal mix",
+                        height: 16,
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
@@ -124,14 +120,12 @@ pub fn build_widgets() {
                     padding: Padding::all(8),
                     row_gap: 6,
                     bg_color: ColorToken::SurfaceVariant,
-                    border_color: ColorToken::Outline,
-                    border_width: 1,
-                    border_radius: 12
+                    border_radius: 18
                 ) {
                     Text (
-                        "BACKGROUND BLUR",
-                        height: 14,
-                        font_size: 9,
+                        "Background blur",
+                        height: 16,
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
@@ -180,14 +174,12 @@ pub fn build_widgets() {
                     padding: Padding::all(8),
                     row_gap: 6,
                     bg_color: ColorToken::SurfaceVariant,
-                    border_color: ColorToken::Outline,
-                    border_width: 1,
-                    border_radius: 12
+                    border_radius: 18
                 ) {
                     Text (
-                        "SHADOW + GLOW",
-                        height: 14,
-                        font_size: 9,
+                        "Shadow and glow",
+                        height: 16,
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )

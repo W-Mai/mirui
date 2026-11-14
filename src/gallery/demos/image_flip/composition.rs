@@ -9,15 +9,16 @@ pub fn build_widgets() {
         Column (
             grow: 1.0,
             align: AlignItems::Center,
-            padding: Padding::all(12),
-            row_gap: 8
+            padding: Padding::all(16),
+            row_gap: 10,
+            bg_color: ColorToken::Surface
         ) {
             Text (
-                "PROJECTIVE IMAGE",
+                "Projective image",
                 width: Dimension::percent(100),
                 max_width: 440,
                 height: 28,
-                font_size: 17,
+                font_size: 20,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
@@ -26,7 +27,7 @@ pub fn build_widgets() {
                 max_width: 440,
                 grow: 1.0,
                 align: AlignItems::Center,
-                justify: JustifyContent::FlexEnd,
+                justify: JustifyContent::Center,
                 padding: Padding::all(24),
                 bg_color: ColorToken::SurfaceVariant,
                 border_radius: 18,

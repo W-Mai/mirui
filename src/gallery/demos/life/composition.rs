@@ -31,17 +31,17 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
             ) {
                 Column (grow: 1.0, row_gap: 2) {
                     Text (
-                        "CELLULAR FIELD",
+                        "Cellular field",
                         width: Dimension::percent(100),
                         height: 24,
                         font_size: 20,
                         text_color: ColorToken::OnSurface
                     )
                     Text (
-                        "toroidal life / seeded emitters",
+                        "Toroidal life, seeded emitters",
                         width: Dimension::percent(100),
                         height: 16,
-                        font_size: 10,
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant
                     )
                 }
@@ -58,8 +58,6 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                     align: AlignItems::Center,
                     column_gap: 5,
                     bg_color: ColorToken::SurfaceVariant,
-                    border_color: ColorToken::Outline,
-                    border_width: 1,
                     border_radius: 12
                 ) {
                     View (
@@ -69,10 +67,10 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                         border_radius: 3
                     )
                     Text (
-                        "LIVE",
+                        "Live",
                         grow: 1.0,
                         height: 14,
-                        font_size: 9,
+                        font_size: 12,
                         text_color: ColorToken::OnSurface,
                         paragraph: ParagraphStyle::label()
                     )
@@ -86,9 +84,7 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                 grow: 1.0,
                 padding: Padding::all(8),
                 bg_color: ColorToken::SurfaceVariant,
-                border_color: ColorToken::Outline,
-                border_width: 1,
-                border_radius: 16
+                border_radius: 18
             ) {
                 View (
                     id: "life_board",
@@ -102,11 +98,11 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                 ]
             }
             Text (
-                "GOSPER GUN  ·  ACORN  ·  GLIDER FEED",
+                "Gosper gun, acorn, glider feed",
                 width: Dimension::percent(100),
                 max_width: 760,
                 height: 18,
-                font_size: 9,
+                font_size: 12,
                 text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label()
             )
@@ -121,6 +117,8 @@ where
     F: RendererFactory<B>,
 {
     let info = app.backend.display_info();
+    #[cfg(feature = "std")]
+    crate::gallery::showcase_theme::install_sample(app);
     install_runtime(app);
     app.compose(parent, build_widgets(info.width, info.height));
 }

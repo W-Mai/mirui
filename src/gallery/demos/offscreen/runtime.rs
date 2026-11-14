@@ -10,6 +10,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    #[cfg(feature = "std")]
+    crate::gallery::showcase_theme::install_sample(app);
     app.request_timings(true);
     app.with_offscreen_pool_budget(512 * 1024);
     app.add_resource(ModeToggle {

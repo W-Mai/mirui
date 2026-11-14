@@ -17,9 +17,7 @@ pub(super) fn pinch_target(model: model!(PinchModel)) -> Entity {
             width: BASE_W,
             height: BASE_H,
             bg_color: ColorToken::Primary,
-            border_color: ColorToken::OnPrimary,
-            border_width: 2,
-            border_radius: 28,
+            border_radius: 36,
             transform: ${ model.transform() }
         ) [
             PinchTarget {

@@ -1,7 +1,7 @@
 use super::state::Page;
 use crate::prelude::*;
 use crate::types::Transform3D;
-use crate::ui::widgets::{ParagraphStyle, Text, TransformOrigin, WidgetTransform3D};
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign, TransformOrigin, WidgetTransform3D};
 
 #[compose]
 pub fn build_widgets() {
@@ -15,13 +15,13 @@ pub fn build_widgets() {
             bg_color: ColorToken::Surface
         ) {
             Text (
-                "PROJECTIVE BOOK",
+                "Projective book",
                 width: Dimension::percent(100),
                 max_width: 440,
                 height: 28,
-                font_size: 17,
+                font_size: 20,
                 text_color: ColorToken::OnSurface,
-                paragraph: ParagraphStyle::label()
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Row (
                 id: "book_flip_spread",
@@ -40,12 +40,10 @@ pub fn build_widgets() {
                     padding: Padding::all(16),
                     row_gap: 10,
                     bg_color: ColorToken::SurfaceVariant,
-                    border_color: ColorToken::Outline,
-                    border_width: 1,
-                    border_radius: 8
+                    border_radius: 14
                 ) {
                     Text (
-                        "MIRUI",
+                        "mirui",
                         height: 34,
                         font_size: 22,
                         text_color: ColorToken::OnSurface,
@@ -54,14 +52,14 @@ pub fn build_widgets() {
                     Text (
                         "retained geometry\nfixed-point motion",
                         grow: 1.0,
-                        font_size: 11,
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label()
                     )
                     Text (
                         "01",
                         height: 24,
-                        font_size: 10,
+                        font_size: 12,
                         text_color: ColorToken::Secondary,
                         paragraph: ParagraphStyle::label()
                     )
@@ -76,10 +74,8 @@ pub fn build_widgets() {
                     max_height: 240,
                     padding: Padding::all(16),
                     row_gap: 10,
-                    bg_color: ColorToken::Secondary,
-                    border_color: ColorToken::Outline,
-                    border_width: 1,
-                    border_radius: 8
+                    bg_color: ColorToken::Primary,
+                    border_radius: 14
                 ) [
                     TransformOrigin {
                         x: Fixed::ZERO,
@@ -92,24 +88,24 @@ pub fn build_widgets() {
                     WidgetTransform3D(Transform3D::IDENTITY),
                 ] {
                     Text (
-                        "LIVE PAGE",
+                        "Live page",
                         height: 34,
                         font_size: 18,
-                        text_color: ColorToken::OnSecondary,
+                        text_color: ColorToken::OnPrimary,
                         paragraph: ParagraphStyle::label()
                     )
                     Text (
                         "one node\none transform",
                         grow: 1.0,
-                        font_size: 11,
-                        text_color: ColorToken::OnSecondary,
+                        font_size: 12,
+                        text_color: ColorToken::OnPrimary,
                         paragraph: ParagraphStyle::label()
                     )
                     Text (
                         "02",
                         height: 24,
-                        font_size: 10,
-                        text_color: ColorToken::OnSecondary,
+                        font_size: 12,
+                        text_color: ColorToken::OnPrimary,
                         paragraph: ParagraphStyle::label()
                     )
                 }

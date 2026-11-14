@@ -32,30 +32,30 @@ pub fn build_widgets() {
                     column_gap: 10
                 ) {
                     Text (
-                        "TWEEN",
+                        "Tween",
                         grow: 1.0,
                         height: 24,
-                        font_size: 10,
+                        font_size: 12,
                         bg_color: ColorToken::Surface,
                         text_color: ColorToken::Error,
                         border_radius: 12,
                         paragraph: ParagraphStyle::label()
                     )
                     Text (
-                        "SPRING",
+                        "Spring",
                         grow: 1.0,
                         height: 24,
-                        font_size: 10,
+                        font_size: 12,
                         bg_color: ColorToken::Surface,
                         text_color: ColorToken::Success,
                         border_radius: 12,
                         paragraph: ParagraphStyle::label()
                     )
                     Text (
-                        "ELASTIC",
+                        "Elastic",
                         grow: 1.0,
                         height: 24,
-                        font_size: 10,
+                        font_size: 12,
                         bg_color: ColorToken::Surface,
                         text_color: ColorToken::Primary,
                         border_radius: 12,

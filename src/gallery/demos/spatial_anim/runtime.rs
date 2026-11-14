@@ -17,6 +17,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install_sample(app);
     app.add_system(AnimateTweenY::system());
     app.add_system(spring_system::system());
     app.add_plugin(StdInstantClockPlugin)

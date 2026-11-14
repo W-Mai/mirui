@@ -7,6 +7,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    #[cfg(feature = "std")]
+    crate::gallery::showcase_theme::install_sample(app);
     app.add_system(flip_system::system());
     app.compose(parent, build_widgets());
 }

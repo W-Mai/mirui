@@ -60,8 +60,8 @@ pub fn fps_readout_system(
         };
         if let Some(avg_ns) = snapshot {
             let avg_us = avg_ns / 1000;
-            let mode = if offscreen { "offscreen" } else { "inline   " };
-            let label = alloc::format!("MODE={mode}  render avg {avg_us}us");
+            let mode = if offscreen { "offscreen" } else { "inline" };
+            let label = alloc::format!("Mode {mode}, render avg {avg_us} us");
             commands.set::<prop::TextContent>(entity, label);
         }
     }

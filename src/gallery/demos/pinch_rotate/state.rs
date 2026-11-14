@@ -23,7 +23,7 @@ impl Default for PinchModel {
             rotation: Fixed::ZERO,
             pinch_events: 0,
             rotate_events: 0,
-            mode: "IDLE",
+            mode: "Idle",
         }
     }
 }
@@ -55,18 +55,18 @@ impl PinchModel {
         self.scale = (self.scale * scale_delta).clamp(lo, hi);
         self.pinch_events = self.pinch_events.saturating_add(1);
         self.mode = if scale_delta > Fixed64::ONE {
-            "EXPAND"
+            "Expand"
         } else if scale_delta < Fixed64::ONE {
-            "SHRINK"
+            "Shrink"
         } else {
-            "PINCH"
+            "Pinch"
         };
     }
 
     pub(super) fn apply_rotation(&mut self, angle: Fixed) {
         self.rotation += angle;
         self.rotate_events = self.rotate_events.saturating_add(1);
-        self.mode = "ROTATE";
+        self.mode = "Rotate";
     }
 }
 
@@ -83,7 +83,7 @@ impl core::fmt::Display for PinchStatus {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             formatter,
-            "{} · {}% · {} DEG · P{} R{}",
+            "{} · {}% · {} deg · pinch {} · rotate {}",
             self.mode, self.scale_pct, self.rotation_deg, self.pinch_events, self.rotate_events
         )
     }

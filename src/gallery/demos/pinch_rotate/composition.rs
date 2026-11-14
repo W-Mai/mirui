@@ -24,8 +24,8 @@ pub(super) fn build_widgets(model: model!(PinchModel)) {
                     grow: 1.0,
                     width: Dimension::percent(100),
                     height: 32,
-                    font_size: 10,
-                    text_color: ColorToken::Secondary,
+                    font_size: 13,
+                    text_color: ColorToken::OnSurface,
                     paragraph: ParagraphStyle::label(),
                     id: "pinch_status"
                 )
@@ -39,10 +39,10 @@ pub(super) fn build_widgets(model: model!(PinchModel)) {
                 pinch_target (model.clone())
             }
             Text (
-                "TWO-POINTER GESTURE · LIVE TRANSFORM",
+                "Two-pointer gesture, live transform",
                 width: Dimension::percent(100),
                 height: 20,
-                font_size: 9,
+                font_size: 12,
                 text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label()
             )

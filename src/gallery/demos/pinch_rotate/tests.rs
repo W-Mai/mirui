@@ -94,14 +94,14 @@ fn pinch_updates_target_and_status() {
         assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
     };
     assert_eq!(model.status().pinch_events, 1);
-    assert_eq!(model.status().mode, "EXPAND");
+    assert_eq!(model.status().mode, "Expand");
     flush_signal_dirty(&mut app.world);
     assert!(
         app.world
             .get::<Text>(status)
             .expect("status text")
             .resolve(app.world.resource())
-            .contains("EXPAND")
+            .contains("Expand")
     );
     assert_eq!(
         app.world
@@ -153,7 +153,7 @@ fn portrait_layout_reflows_the_target_between_status_and_footer() {
 #[test]
 fn portrait_status_uses_the_compact_vocabulary() {
     let status = PinchStatus {
-        mode: "ROTATE",
+        mode: "Rotate",
         scale_pct: 158,
         rotation_deg: 25,
         pinch_events: 791,
@@ -162,6 +162,6 @@ fn portrait_status_uses_the_compact_vocabulary() {
 
     assert_eq!(
         alloc::format!("{status}"),
-        "ROTATE · 158% · 25 DEG · P791 R3"
+        "Rotate · 158% · 25 deg · pinch 791 · rotate 3"
     );
 }

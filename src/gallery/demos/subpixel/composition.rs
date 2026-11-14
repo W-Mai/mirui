@@ -22,8 +22,6 @@ pub fn build_widgets() {
                 padding: Padding::all(12),
                 direction: FlexDirection::Column,
                 bg_color: ColorToken::SurfaceVariant,
-                border_color: ColorToken::Outline,
-                border_width: 1,
                 border_radius: 18,
                 clip_children: true
             ) {
@@ -39,16 +37,16 @@ pub fn build_widgets() {
                     }
                 ) {
                     Text (
-                        "PIXEL-SNAPPED",
+                        "Pixel-snapped",
                         grow: 1.0,
-                        font_size: 11,
+                        font_size: 13,
                         text_color: ColorToken::Error,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "Q24.8 SUBPIXEL",
+                        "Q24.8 subpixel",
                         grow: 1.0,
-                        font_size: 11,
+                        font_size: 13,
                         text_color: ColorToken::Secondary,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::End)
                     )
