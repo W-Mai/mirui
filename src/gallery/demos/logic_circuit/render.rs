@@ -54,7 +54,23 @@ pub(super) fn gate_input_position(
     Some(Point::new(i32::from(x) - 31, i32::from(y) + dy))
 }
 
-fn draw_wire(painter: &mut PlayPainter<'_, '_>, from: Point, to: Point, on: bool) {
+/// Wires from different sources turn on different lanes, so their vertical
+/// runs never share a column; a fan-out of one source shares its lane.
+fn lane_offset(source: SignalSource) -> i32 {
+    match source {
+        SignalSource::Input(index) => (i32::from(index) - 1) * 4,
+        SignalSource::Gate(id) => (i32::from(id % 3) - 1) * 4,
+        SignalSource::None => 0,
+    }
+}
+
+fn draw_wire(
+    painter: &mut PlayPainter<'_, '_>,
+    from: Point,
+    to: Point,
+    source: SignalSource,
+    on: bool,
+) {
     let color = if on { SIGNAL_ON } else { SIGNAL_OFF };
     let width = if on {
         Fixed::from_ratio(3, 2)
@@ -62,6 +78,13 @@ fn draw_wire(painter: &mut PlayPainter<'_, '_>, from: Point, to: Point, on: bool
         Fixed::ONE
     };
     let middle = (from.x + to.x) / Fixed::from_int(2);
+    let left = from.x.min(to.x) + Fixed::from_int(2);
+    let right = from.x.max(to.x) - Fixed::from_int(2);
+    let middle = if left < right {
+        (middle + Fixed::from_int(lane_offset(source))).clamp(left, right)
+    } else {
+        middle
+    };
     painter.line(
         from,
         Point {
@@ -115,13 +138,13 @@ fn paint_wire_page(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel) {
         if let Some(to) = gate_input_position(&gates, &positions, gate.id, 0)
             && let Some(from) = signal_position(input_count, &gates, &positions, gate.a)
         {
-            draw_wire(painter, from, to, model.source_value(gate.a));
+            draw_wire(painter, from, to, gate.a, model.source_value(gate.a));
         }
         if gate.kind != GateKind::Not
             && let Some(to) = gate_input_position(&gates, &positions, gate.id, 1)
             && let Some(from) = signal_position(input_count, &gates, &positions, gate.b)
         {
-            draw_wire(painter, from, to, model.source_value(gate.b));
+            draw_wire(painter, from, to, gate.b, model.source_value(gate.b));
         }
     }
     if let Some(from) = signal_position(input_count, &gates, &positions, model.output_source()) {
@@ -129,6 +152,7 @@ fn paint_wire_page(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel) {
             painter,
             from,
             Point::new(288, 153),
+            model.output_source(),
             model.source_value(model.output_source()),
         );
     }
@@ -228,7 +252,11 @@ fn paint_wire_page(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel) {
     let evaluation = model.evaluation();
     painter.fill(
         Rect::new(288, 139, 24, 28),
-        if evaluation.value { ACCENT } else { INK },
+        if evaluation.value && evaluation.complete {
+            ACCENT
+        } else {
+            INK
+        },
         Fixed::ZERO,
     );
     painter.circle(Point::new(288, 153), Fixed::from_int(3), PANEL);
@@ -238,6 +266,20 @@ fn paint_wire_page(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel) {
         Fixed::ONE,
         Fixed::from_int(3),
     );
+    // The output the player picked waits for an input: ring it.
+    if let Some(point) = signal_position(input_count, &gates, &positions, model.pending()) {
+        painter.border(
+            Rect {
+                x: point.x - Fixed::from_int(6),
+                y: point.y - Fixed::from_int(6),
+                w: Fixed::from_int(12),
+                h: Fixed::from_int(12),
+            },
+            ACCENT,
+            Fixed::ONE,
+            Fixed::from_int(6),
+        );
+    }
     let rows = 1_u8 << model.input_count();
     let passed = (0..rows)
         .filter(|row| model.truth_row(*row).is_some_and(|row| row.passes()))
@@ -256,12 +298,16 @@ fn paint_wire_page(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel) {
 
 fn paint_truth_page(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel) {
     let rows = 1_u8 << model.input_count();
-    let step = if rows == 8 { 16 } else { 30 };
     for index in 0..rows {
-        if index % 2 == 0 {
+        let fails = model.truth_row(index).is_some_and(|row| !row.passes());
+        if fails || index % 2 == 0 {
             painter.fill(
-                Rect::new(18, 112 + i32::from(index) * step, 276, step),
-                Color::rgb(237, 240, 233),
+                Rect::new(18, 113 + i32::from(index) * 16, 276, 16),
+                if fails {
+                    Color::rgb(246, 225, 216)
+                } else {
+                    Color::rgb(237, 240, 233)
+                },
                 Fixed::ZERO,
             );
         }

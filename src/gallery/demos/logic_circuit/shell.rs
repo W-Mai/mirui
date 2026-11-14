@@ -3,12 +3,13 @@ use super::input::{
 };
 use super::render::{modal_render, surface_render};
 use super::state::{CircuitModalSurface, CircuitSurface};
-use super::style::{ACCENT, BACKGROUND, GREEN, INK, LINE, MUTED, PANEL};
+use super::style::{ACCENT, BACKGROUND, GREEN, INK, LINE, MUTED, PANEL, RED};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::circuit::{
-    CircuitError, CircuitGate, CircuitModal, CircuitModel, CircuitPage, Evaluation, GateKind,
-    MAX_GATES, SignalSource, TruthRow, VerifyResult,
+    CircuitError, CircuitGate, CircuitModal, CircuitModel, CircuitPage, Controls, Evaluation,
+    GateKind, GateSet, MAX_GATES, SET_SIZE, SignalSource, TASK_COUNT, TASKS, TraceSample, TruthRow,
+    VerifyResult,
 };
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::input::event::scroll::TouchAction;
@@ -16,8 +17,20 @@ use crate::prelude::*;
 use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 
+/// Secondary text on the dark header and tiles.
+const DIM: Color = Color::rgb(174, 186, 190);
+
 fn label_style() -> ParagraphStyle {
     ParagraphStyle::label().with_align(TextAlign::Start)
+}
+
+fn centered() -> ParagraphStyle {
+    ParagraphStyle::label().with_align(TextAlign::Center)
+}
+
+/// A column of the truth table: one value per line from the top.
+fn column_style() -> ParagraphStyle {
+    ParagraphStyle::default().with_align(TextAlign::Center)
 }
 
 fn control_color(active: bool, enabled: bool) -> Color {
@@ -34,35 +47,46 @@ fn control_text_color(active: bool, enabled: bool) -> Color {
     if active || enabled { BACKGROUND } else { MUTED }
 }
 
-fn task_name(task: u8) -> &'static str {
-    match task {
-        0 => "不同才亮",
-        1 => "多数表决",
-        _ => "二选一",
+fn solved(mask: u16, task: u8) -> bool {
+    mask & (1 << task) != 0
+}
+
+/// "只用 NAND" for a task that limits the gate kinds; nothing otherwise.
+struct OnlyGates(GateSet);
+
+impl core::fmt::Display for OnlyGates {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.0.is_all() {
+            return Ok(());
+        }
+        formatter.write_str("只用")?;
+        for kind in GateKind::ALL
+            .into_iter()
+            .filter(|kind| self.0.contains(*kind))
+        {
+            write!(formatter, " {}", kind.label())?;
+        }
+        Ok(())
     }
 }
 
-fn target_code(task: u8) -> &'static str {
-    match task {
-        0 => "Y = A XOR B",
-        1 => "Y = AB + AC + BC",
-        _ => "Y = A ? C : B",
-    }
+struct TaskLabel {
+    task: u8,
+    solved: bool,
 }
-
-fn task_description(task: u8) -> &'static str {
-    match task {
-        0 => "A 与 B 不同时，Y 才为 1。",
-        1 => "三个输入中至少两个为 1 时，Y 为 1。",
-        _ => "A 为 0 选 B，A 为 1 选 C。",
-    }
-}
-
-struct TaskLabel(u8);
 
 impl core::fmt::Display for TaskLabel {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(formatter, "任务 0{} · {}", self.0 + 1, task_name(self.0))
+        write!(
+            formatter,
+            "任务 {:02} · {}",
+            self.task + 1,
+            TASKS[usize::from(self.task)].name
+        )?;
+        if self.solved {
+            formatter.write_str(" ★")?;
+        }
+        Ok(())
     }
 }
 
@@ -106,6 +130,56 @@ impl core::fmt::Display for OutputLabel {
     }
 }
 
+/// Input bits of a row, A first: "0 1 0".
+struct Bits {
+    inputs: u8,
+    count: u8,
+}
+
+impl core::fmt::Display for Bits {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for index in 0..self.count {
+            if index > 0 {
+                formatter.write_str(" ")?;
+            }
+            write!(formatter, "{}", u8::from(self.inputs & (1 << index) != 0))?;
+        }
+        Ok(())
+    }
+}
+
+/// Named input bits of a row: "A=1 B=0".
+struct NamedBits {
+    inputs: u8,
+    count: u8,
+}
+
+impl core::fmt::Display for NamedBits {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for index in 0..self.count {
+            if index > 0 {
+                formatter.write_str(" ")?;
+            }
+            write!(
+                formatter,
+                "{}={}",
+                char::from(b'A' + index),
+                u8::from(self.inputs & (1 << index) != 0)
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// The header of the live table. Y sits over the value column of the rows.
+fn live_header(count: u8) -> &'static str {
+    match count {
+        1 => "A         Y / 目标",
+        2 => "A B       Y / 目标",
+        _ => "A B C    Y / 目标",
+    }
+}
+
 struct CompactTruthRow {
     row: Option<TruthRow>,
     count: u8,
@@ -116,98 +190,167 @@ impl core::fmt::Display for CompactTruthRow {
         let Some(row) = self.row else {
             return Ok(());
         };
-        let a = u8::from(row.inputs & 1 != 0);
-        let b = u8::from(row.inputs & 2 != 0);
-        let c = u8::from(row.inputs & 4 != 0);
-        if self.count == 2 {
-            write!(
-                formatter,
-                "{a}  {b}       {} / {}   {}",
-                u8::from(row.actual),
-                u8::from(row.expected),
-                if row.passes() { "☑" } else { "·" }
-            )
+        // Pads every input count to the same width, so the values line up.
+        let pad = usize::from(11 - 2 * self.count.min(3));
+        write!(
+            formatter,
+            "{}{:pad$}",
+            Bits {
+                inputs: row.inputs,
+                count: self.count,
+            },
+            ""
+        )?;
+        if row.complete {
+            write!(formatter, "{}", u8::from(row.actual))?;
         } else {
-            write!(
-                formatter,
-                "{a} {b} {c}     {} / {}   {}",
-                u8::from(row.actual),
-                u8::from(row.expected),
-                if row.passes() { "☑" } else { "·" }
-            )
+            formatter.write_str("?")?;
         }
+        write!(
+            formatter,
+            " / {}   {}",
+            u8::from(row.expected),
+            if row.passes() { "☑" } else { "·" }
+        )
     }
 }
 
-struct ExpandedTruthRow {
-    row: Option<TruthRow>,
+fn row_color(row: Option<TruthRow>) -> Color {
+    if row.is_some_and(TruthRow::passes) {
+        GREEN
+    } else {
+        INK
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Column {
+    Input(u8),
+    Expected,
+    Actual,
+    Verdict,
+}
+
+/// One column of the truth page, a value per line.
+struct TruthColumn {
+    rows: [Option<TruthRow>; 8],
+    column: Column,
+}
+
+impl core::fmt::Display for TruthColumn {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for (index, row) in self.rows.iter().flatten().enumerate() {
+            if index > 0 {
+                formatter.write_str("\n")?;
+            }
+            match self.column {
+                Column::Input(bit) => {
+                    write!(formatter, "{}", u8::from(row.inputs & (1 << bit) != 0))?;
+                }
+                Column::Expected => write!(formatter, "{}", u8::from(row.expected))?,
+                Column::Actual if row.complete => write!(formatter, "{}", u8::from(row.actual))?,
+                Column::Actual => formatter.write_str("?")?,
+                Column::Verdict => {
+                    formatter.write_str(if row.passes() { "PASS" } else { "FAIL" })?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+struct LastSample {
+    sample: Option<TraceSample>,
     count: u8,
 }
 
-impl core::fmt::Display for ExpandedTruthRow {
+impl core::fmt::Display for LastSample {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let Some(row) = self.row else {
+        let Some(sample) = self.sample else {
             return Ok(());
         };
-        let a = u8::from(row.inputs & 1 != 0);
-        let b = u8::from(row.inputs & 2 != 0);
-        let c = u8::from(row.inputs & 4 != 0);
-        if self.count == 2 {
-            write!(
-                formatter,
-                "{a}      {b}          {}          {}        {}",
-                u8::from(row.expected),
-                u8::from(row.actual),
-                if row.passes() { "PASS" } else { "FAIL" }
-            )
-        } else {
-            write!(
-                formatter,
-                "{a}   {b}   {c}       {}          {}       {}",
-                u8::from(row.expected),
-                u8::from(row.actual),
-                if row.passes() { "PASS" } else { "FAIL" }
-            )
-        }
+        write!(
+            formatter,
+            "{} → {}",
+            Bits {
+                inputs: sample.inputs,
+                count: self.count,
+            },
+            u8::from(sample.output)
+        )
     }
 }
 
-struct WireStatus {
+fn sample_header(count: u8) -> &'static str {
+    match count {
+        1 => "A → Y",
+        2 => "A B → Y",
+        _ => "A B C → Y",
+    }
+}
+
+struct StatusLine {
+    notice: Option<CircuitError>,
     verify: Option<VerifyResult>,
     disconnecting: bool,
     pending: SignalSource,
-    notice: Option<CircuitError>,
+    allowed: GateSet,
+    count: u8,
+    task: u8,
 }
 
-impl core::fmt::Display for WireStatus {
+impl core::fmt::Display for StatusLine {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if let Some(notice) = self.notice {
-            formatter.write_str(match notice {
-                CircuitError::Cycle => "这条线会让信号绕回自己，换一个输入端。",
-                CircuitError::Duplicate => "这里已经接着同一个信号。",
-                CircuitError::Full => "最多 6 个逻辑门，先删除一个。",
-                CircuitError::Overlap => "没有空位放新门，先拖开一个。",
-                CircuitError::InvalidGate
-                | CircuitError::InvalidSource
-                | CircuitError::InvalidInput => "先点一个输出端，再点输入端。",
-            })
-        } else if let Some(result) = self.verify {
-            if result.won {
-                formatter.write_str("★ 逻辑验证通过，可以选择下一项任务。")
-            } else {
+            return match notice {
+                CircuitError::Cycle => formatter.write_str("不能接成回路"),
+                CircuitError::Duplicate => formatter.write_str("这里已经接着这个信号"),
+                CircuitError::Full => formatter.write_str("最多 6 个门，先删掉一个"),
+                CircuitError::Overlap => formatter.write_str("没有空位，先拖开一个门"),
+                CircuitError::NotAllowed => write!(formatter, "本题{}", OnlyGates(self.allowed)),
+                CircuitError::InvalidGate => formatter.write_str("先点一个门选中它"),
+                CircuitError::InvalidSource | CircuitError::InvalidInput => {
+                    formatter.write_str("先点输出端，再点输入端")
+                }
+            };
+        }
+        if let Some(result) = self.verify {
+            return if result.won {
+                write!(formatter, "★ 全部 {} 行通过", result.total)
+            } else if !result.wired {
+                formatter.write_str("Y 还没接线")
+            } else if let Some(row) = result.failure.filter(|row| row.complete) {
                 write!(
                     formatter,
-                    "通过 {}/{} 组，请检查真值表。",
-                    result.passed, result.total
+                    "{}/{} 行通过 · {} 时 Y 应为 {}",
+                    result.passed,
+                    result.total,
+                    NamedBits {
+                        inputs: row.inputs,
+                        count: self.count,
+                    },
+                    u8::from(row.expected)
                 )
-            }
-        } else if self.disconnecting {
-            formatter.write_str("断线模式：点输入端取消连线。")
-        } else if self.pending != SignalSource::None {
-            formatter.write_str("正在接线：选择一个输入端。")
-        } else {
-            formatter.write_str("点输出端，再点输入端；拖动模块改变位置。")
+            } else {
+                formatter.write_str("有门的输入端空着")
+            };
         }
+        formatter.write_str(if self.disconnecting {
+            "点一个输入端，拆掉它的线"
+        } else if self.pending != SignalSource::None {
+            "点一个输入端完成接线"
+        } else {
+            TASKS[usize::from(self.task)].hint
+        })
+    }
+}
+
+fn status_color(notice: Option<CircuitError>, verify: Option<VerifyResult>) -> Color {
+    match (notice, verify) {
+        (Some(_), _) => RED,
+        (None, Some(result)) if result.won => GREEN,
+        (None, Some(_)) => INK,
+        (None, None) => MUTED,
     }
 }
 
@@ -229,8 +372,8 @@ fn gate_color(gate: Option<CircuitGate>, selected: u8) -> Color {
 }
 
 fn live_row_top(input_count: u8, index: usize) -> i32 {
-    let step = if input_count == 2 { 30 } else { 15 };
-    118 + index as i32 * step
+    let step = if input_count == 3 { 15 } else { 30 };
+    116 + index as i32 * step
 }
 
 fn trace_label_top(index: usize, input_count: u8) -> i32 {
@@ -242,82 +385,135 @@ fn trace_label_top(index: usize, input_count: u8) -> i32 {
     83 + channel as i32 * (150 / (i32::from(input_count) + 1))
 }
 
-fn footer_label(
-    page: CircuitPage,
-    index: usize,
-    scanning: bool,
-    disconnecting: bool,
-) -> &'static str {
-    if page == CircuitPage::Trace {
+fn add_label(kind: Option<GateKind>) -> &'static str {
+    match kind {
+        Some(GateKind::And) => "＋ AND",
+        Some(GateKind::Or) => "＋ OR",
+        Some(GateKind::Xor) => "＋ XOR",
+        Some(GateKind::Not) => "＋ NOT",
+        Some(GateKind::Nand) => "＋ NAND",
+        None => "＋ 逻辑门",
+    }
+}
+
+fn footer_label(controls: Controls, index: usize) -> &'static str {
+    let check = if !controls.won {
+        "☑ 验证"
+    } else if controls.last_task {
+        "选题"
+    } else {
+        "下一题 →"
+    };
+    if controls.page == CircuitPage::Trace {
         [
             "单步",
-            if scanning { "暂停" } else { "扫描" },
-            "清空记录",
-            "验证",
+            if controls.scanning {
+                "Ⅱ 暂停"
+            } else {
+                "▶ 扫描"
+            },
+            "清空",
+            check,
             "返回布线",
         ][index]
     } else {
         [
-            "＋ 逻辑门",
-            "类型 / 删除",
-            if disconnecting {
+            add_label(controls.single_kind),
+            if controls.single_kind.is_some() {
+                "删除"
+            } else {
+                "类型 / 删除"
+            },
+            if controls.disconnecting {
                 "取消断线"
             } else {
                 "断开连线"
             },
             "↺ 撤销",
-            "☑ 验证",
+            check,
         ][index]
     }
 }
 
-fn footer_enabled(
-    page: CircuitPage,
-    index: usize,
-    trace_len: u8,
-    gate_len: u8,
-    selected: u8,
-    history_len: u8,
-) -> bool {
-    if page == CircuitPage::Trace {
-        index != 2 || trace_len != 0
+fn footer_enabled(controls: Controls, index: usize) -> bool {
+    if controls.page == CircuitPage::Trace {
+        index != 2 || controls.can_clear
     } else {
         match index {
-            0 => usize::from(gate_len) < MAX_GATES,
-            1 => selected != 0,
-            3 => history_len != 0,
+            0 => controls.can_add,
+            1 => controls.can_edit,
+            3 => controls.can_undo,
             _ => true,
         }
     }
 }
 
-fn footer_active(page: CircuitPage, index: usize, scanning: bool, disconnecting: bool) -> bool {
-    (page == CircuitPage::Trace && index == 1 && scanning)
-        || (page != CircuitPage::Trace && index == 2 && disconnecting)
-        || index == 4
-}
-
-fn modal_title(modal: CircuitModal) -> &'static str {
-    match modal {
-        CircuitModal::None => "",
-        CircuitModal::Tasks => "选择逻辑任务",
-        CircuitModal::GateTypes { adding: true } => "添加逻辑门",
-        CircuitModal::GateTypes { adding: false } => "修改逻辑门",
-        CircuitModal::Help => "逻辑工作台 / 操作手册",
+fn footer_active(controls: Controls, index: usize) -> bool {
+    if controls.page == CircuitPage::Trace {
+        index == 3 || (index == 1 && controls.scanning)
+    } else {
+        index == 4 || (index == 2 && controls.disconnecting)
     }
 }
 
-fn modal_subtitle(modal: CircuitModal) -> &'static str {
-    match modal {
-        CircuitModal::None => "",
-        CircuitModal::Tasks => "切换会清空当前网络、时序和撤销记录。",
-        CircuitModal::GateTypes { adding: true } => "选择一个组合逻辑门；最多放置 6 个。",
-        CircuitModal::GateTypes { adding: false } => {
-            "改变类型会保留可用输入；NOT 只保留第一个输入。"
+fn footer_color(controls: Controls, index: usize) -> Color {
+    control_color(
+        footer_active(controls, index),
+        footer_enabled(controls, index),
+    )
+}
+
+fn footer_text_color(controls: Controls, index: usize) -> Color {
+    control_text_color(
+        footer_active(controls, index),
+        footer_enabled(controls, index),
+    )
+}
+
+struct ModalTitle {
+    modal: CircuitModal,
+    selected: u8,
+}
+
+impl core::fmt::Display for ModalTitle {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.modal {
+            CircuitModal::None => Ok(()),
+            CircuitModal::Tasks => formatter.write_str("选择任务"),
+            CircuitModal::GateTypes { adding: true } => formatter.write_str("添加逻辑门"),
+            CircuitModal::GateTypes { adding: false } => {
+                write!(formatter, "修改 G{}", self.selected)
+            }
+            CircuitModal::Help => formatter.write_str("操作说明"),
         }
-        CircuitModal::Help => "输出端 → 输入端接线。真值表枚举全部输入；时序页记录离散状态。",
     }
 }
+
+struct ModalSubtitle {
+    modal: CircuitModal,
+    allowed: GateSet,
+    free: u8,
+}
+
+impl core::fmt::Display for ModalSubtitle {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let CircuitModal::GateTypes { adding } = self.modal else {
+            return Ok(());
+        };
+        if !self.allowed.is_all() {
+            write!(formatter, "本题{}", OnlyGates(self.allowed))?;
+            if adding {
+                formatter.write_str(" · ")?;
+            }
+        }
+        if adding {
+            write!(formatter, "还能再放 {} 个", self.free)?;
+        }
+        Ok(())
+    }
+}
+
+const HELP: &str = "连线：点输出端，再点输入端\n拆线：点 断开连线，再点要拆的输入端\n改门：选中门，点 类型 / 删除\n门可以拖动；点 A B C 切换 0 和 1\n真值表每一行都对，才算通过";
 
 struct ModalButtonLabel {
     modal: CircuitModal,
@@ -326,35 +522,105 @@ struct ModalButtonLabel {
 
 impl core::fmt::Display for ModalButtonLabel {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.modal {
-            CircuitModal::Tasks if self.index % 2 == 1 => formatter.write_str("示范布局"),
-            CircuitModal::Tasks => write!(formatter, "任务 0{}", self.index / 2 + 1),
+        formatter.write_str(match self.modal {
             CircuitModal::GateTypes { .. } if self.index < GateKind::ALL.len() => {
-                formatter.write_str(GateKind::ALL[self.index].label())
+                GateKind::ALL[self.index].label()
             }
-            CircuitModal::GateTypes { adding: false } if self.index == 5 => {
-                formatter.write_str("删除选中门")
-            }
-            CircuitModal::Help if self.index == 0 => formatter.write_str("明白了"),
-            _ => Ok(()),
-        }
+            CircuitModal::GateTypes { adding: false } if self.index == 5 => "删除",
+            CircuitModal::Help if self.index == 3 => "重新开始",
+            CircuitModal::Help if self.index == 4 => "参考解",
+            CircuitModal::Help if self.index == 5 => "明白了",
+            _ => "",
+        })
     }
 }
 
 fn modal_button_visible(modal: CircuitModal, index: usize) -> bool {
     match modal {
-        CircuitModal::Tasks => index < 6,
         CircuitModal::GateTypes { adding } => {
             index < GateKind::ALL.len() || (!adding && index == 5)
         }
-        CircuitModal::Help => index == 0,
-        CircuitModal::None => false,
+        CircuitModal::Help => index >= 3,
+        CircuitModal::Tasks | CircuitModal::None => false,
     }
 }
 
-fn modal_button_active(modal: CircuitModal, index: usize, task: u8) -> bool {
-    matches!(modal, CircuitModal::Tasks) && index % 2 == 0 && index / 2 == usize::from(task)
-        || matches!(modal, CircuitModal::Help) && index == 0
+/// Help keeps its buttons below the instructions.
+fn lower_row_top(modal: CircuitModal) -> i32 {
+    if modal == CircuitModal::Help {
+        208
+    } else {
+        183
+    }
+}
+
+fn selected_kind(gates: [Option<CircuitGate>; MAX_GATES], selected: u8) -> Option<GateKind> {
+    gates
+        .into_iter()
+        .flatten()
+        .find(|gate| gate.id == selected)
+        .map(|gate| gate.kind)
+}
+
+/// The gate's current kind while editing it, and the close button of help.
+fn modal_button_active(modal: CircuitModal, index: usize, kind: Option<GateKind>) -> bool {
+    match modal {
+        CircuitModal::GateTypes { adding: false } => {
+            index < GateKind::ALL.len() && kind == Some(GateKind::ALL[index])
+        }
+        CircuitModal::Help => index == 5,
+        _ => false,
+    }
+}
+
+fn modal_button_enabled(modal: CircuitModal, index: usize, allowed: GateSet) -> bool {
+    !matches!(modal, CircuitModal::GateTypes { .. })
+        || index >= GateKind::ALL.len()
+        || allowed.contains(GateKind::ALL[index])
+}
+
+fn modal_button_color(
+    modal: CircuitModal,
+    index: usize,
+    allowed: GateSet,
+    kind: Option<GateKind>,
+) -> Color {
+    control_color(
+        modal_button_active(modal, index, kind),
+        modal_button_enabled(modal, index, allowed),
+    )
+}
+
+fn modal_button_text_color(
+    modal: CircuitModal,
+    index: usize,
+    allowed: GateSet,
+    kind: Option<GateKind>,
+) -> Color {
+    control_text_color(
+        modal_button_active(modal, index, kind),
+        modal_button_enabled(modal, index, allowed),
+    )
+}
+
+const TASK_NUMBERS: [&str; TASK_COUNT] = [
+    "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
+];
+
+fn tile_left(task: u8) -> i32 {
+    101 + (i32::from(task) % SET_SIZE as i32) * 86
+}
+
+fn tile_top(task: u8) -> i32 {
+    106 + (i32::from(task) / SET_SIZE as i32) * 53
+}
+
+struct SolvedCount(u16);
+
+impl core::fmt::Display for SolvedCount {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(formatter, "★ {} / {}", self.0.count_ones(), TASK_COUNT)
+    }
 }
 
 #[compose]
@@ -383,7 +649,7 @@ fn compose_header(model: model!(CircuitModel)) -> Entity {
             width: 130,
             height: 16,
             font_size: 9,
-            text_color: Color::rgb(174, 186, 190),
+            text_color: DIM,
             paragraph: ParagraphStyle::label().with_align(TextAlign::End)
         )
     };
@@ -460,8 +726,13 @@ fn compose_header(model: model!(CircuitModel)) -> Entity {
     };
     ui! {
         Button (
-            text: ${ TaskLabel(model.task()) },
-            capacity: 32,
+            text: ${
+                TaskLabel {
+                    task: model.task(),
+                    solved: solved(model.solved_mask(), model.task()),
+                }
+            },
+            capacity: 40,
             id: "circuit_task",
             position: Position::Absolute,
             left: 310,
@@ -523,7 +794,8 @@ fn compose_wire_inputs(model: model!(CircuitModel)) -> Entity {
             normal_color: ${ control_color(model.input_values()[1], true) },
             pressed_color: ACCENT,
             text_color: ${ control_text_color(model.input_values()[1], true) },
-            border_radius: 0
+            border_radius: 0,
+            visible: ${ model.input_count() >= 2 }
         ) on Tap { model.toggle_input(1); }
     };
     ui! {
@@ -678,11 +950,11 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
 fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
-            "LIVE TRUTH TABLE",
+            "TRUTH TABLE",
             position: Position::Absolute,
             left: 334,
-            top: 74,
-            width: 125,
+            top: 72,
+            width: 70,
             height: 12,
             font_size: 8,
             text_color: MUTED,
@@ -691,12 +963,28 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ target_code(model.task()) },
-            capacity: 16,
+            text: ${ OnlyGates(model.allowed()) },
+            capacity: 32,
+            id: "circuit_live_gates",
+            position: Position::Absolute,
+            left: 404,
+            top: 72,
+            width: 56,
+            height: 12,
+            font_size: 8,
+            text_color: ACCENT,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End),
+            visible: ${ !model.allowed().is_all() }
+        )
+    };
+    ui! {
+        Text (
+            text: ${ TASKS[usize::from(model.task())].code },
+            capacity: 24,
             id: "circuit_live_code",
             position: Position::Absolute,
             left: 334,
-            top: 88,
+            top: 86,
             width: 125,
             height: 13,
             font_size: 9,
@@ -706,11 +994,11 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ if model.input_count() == 2 { "A B → Y / 目标" } else { "A B C → Y / 目标" } },
+            text: ${ live_header(model.input_count()) },
             capacity: 24,
             position: Position::Absolute,
             left: 334,
-            top: 103,
+            top: 101,
             width: 125,
             height: 12,
             font_size: 8,
@@ -734,7 +1022,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
             width: 126,
             height: 13,
             font_size: 7,
-            text_color: GREEN,
+            text_color: ${ row_color(model.truth_rows()[0]) },
             paragraph: label_style(),
             visible: ${ model.truth_rows()[0].is_some() }
         )
@@ -755,7 +1043,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
             width: 126,
             height: 13,
             font_size: 7,
-            text_color: GREEN,
+            text_color: ${ row_color(model.truth_rows()[1]) },
             paragraph: label_style(),
             visible: ${ model.truth_rows()[1].is_some() }
         )
@@ -776,7 +1064,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
             width: 126,
             height: 13,
             font_size: 7,
-            text_color: GREEN,
+            text_color: ${ row_color(model.truth_rows()[2]) },
             paragraph: label_style(),
             visible: ${ model.truth_rows()[2].is_some() }
         )
@@ -797,7 +1085,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
             width: 126,
             height: 13,
             font_size: 7,
-            text_color: GREEN,
+            text_color: ${ row_color(model.truth_rows()[3]) },
             paragraph: label_style(),
             visible: ${ model.truth_rows()[3].is_some() }
         )
@@ -818,7 +1106,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
             width: 126,
             height: 13,
             font_size: 7,
-            text_color: GREEN,
+            text_color: ${ row_color(model.truth_rows()[4]) },
             paragraph: label_style(),
             visible: ${ model.truth_rows()[4].is_some() }
         )
@@ -839,7 +1127,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
             width: 126,
             height: 13,
             font_size: 7,
-            text_color: GREEN,
+            text_color: ${ row_color(model.truth_rows()[5]) },
             paragraph: label_style(),
             visible: ${ model.truth_rows()[5].is_some() }
         )
@@ -860,7 +1148,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
             width: 126,
             height: 13,
             font_size: 7,
-            text_color: GREEN,
+            text_color: ${ row_color(model.truth_rows()[6]) },
             paragraph: label_style(),
             visible: ${ model.truth_rows()[6].is_some() }
         )
@@ -881,7 +1169,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
             width: 126,
             height: 13,
             font_size: 7,
-            text_color: GREEN,
+            text_color: ${ row_color(model.truth_rows()[7]) },
             paragraph: label_style(),
             visible: ${ model.truth_rows()[7].is_some() }
         )
@@ -889,15 +1177,18 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
 }
 
 #[compose]
-fn compose_wire_status(model: model!(CircuitModel)) -> Entity {
+fn compose_status(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${
-                WireStatus {
+                StatusLine {
+                    notice: model.notice(),
                     verify: model.verify_result(),
                     disconnecting: model.disconnecting(),
                     pending: model.pending(),
-                    notice: model.notice(),
+                    allowed: model.allowed(),
+                    count: model.input_count(),
+                    task: model.task(),
                 }
             },
             capacity: 128,
@@ -908,8 +1199,9 @@ fn compose_wire_status(model: model!(CircuitModel)) -> Entity {
             width: 447,
             height: 18,
             font_size: 8,
-            text_color: MUTED,
-            paragraph: label_style()
+            text_color: ${ status_color(model.notice(), model.verify_result()) },
+            paragraph: label_style(),
+            visible: ${ model.modal() == CircuitModal::None }
         )
     }
 }
@@ -924,13 +1216,224 @@ fn compose_wire_page(model: model!(CircuitModel)) -> Entity {
             top: 0,
             width: 480,
             height: 282,
-            visible: ${ model.page() == CircuitPage::Wire }
+            visible: ${ model.page() == CircuitPage::Wire && model.modal() == CircuitModal::None }
         ) {
             compose_wire_inputs (model)
             compose_wire_gates (model)
             compose_wire_live_truth (model)
-            compose_wire_status (model)
         }
+    }
+}
+
+#[compose]
+fn compose_truth_table(model: model!(CircuitModel)) -> Entity {
+    ui! {
+        Text (
+            "A",
+            position: Position::Absolute,
+            left: 20,
+            top: 96,
+            width: 20,
+            height: 13,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: centered()
+        )
+    };
+    ui! {
+        Text (
+            "B",
+            position: Position::Absolute,
+            left: 44,
+            top: 96,
+            width: 20,
+            height: 13,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: centered(),
+            visible: ${ model.input_count() >= 2 }
+        )
+    };
+    ui! {
+        Text (
+            "C",
+            position: Position::Absolute,
+            left: 68,
+            top: 96,
+            width: 20,
+            height: 13,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: centered(),
+            visible: ${ model.input_count() == 3 }
+        )
+    };
+    ui! {
+        Text (
+            "EXPECT",
+            position: Position::Absolute,
+            left: 100,
+            top: 96,
+            width: 50,
+            height: 13,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: centered()
+        )
+    };
+    ui! {
+        Text (
+            "ACTUAL",
+            position: Position::Absolute,
+            left: 160,
+            top: 96,
+            width: 50,
+            height: 13,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: centered()
+        )
+    };
+    ui! {
+        Text (
+            "RESULT",
+            position: Position::Absolute,
+            left: 222,
+            top: 96,
+            width: 50,
+            height: 13,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: centered()
+        )
+    };
+    ui! {
+        Text (
+            text: ${
+                TruthColumn {
+                    rows: model.truth_rows(),
+                    column: Column::Input(0),
+                }
+            },
+            capacity: 16,
+            id: "circuit_truth_a",
+            position: Position::Absolute,
+            left: 20,
+            top: 113,
+            width: 20,
+            height: 130,
+            font_size: 7,
+            text_color: INK,
+            line_height: 16,
+            paragraph: column_style()
+        )
+    };
+    ui! {
+        Text (
+            text: ${
+                TruthColumn {
+                    rows: model.truth_rows(),
+                    column: Column::Input(1),
+                }
+            },
+            capacity: 16,
+            id: "circuit_truth_b",
+            position: Position::Absolute,
+            left: 44,
+            top: 113,
+            width: 20,
+            height: 130,
+            font_size: 7,
+            text_color: INK,
+            line_height: 16,
+            paragraph: column_style(),
+            visible: ${ model.input_count() >= 2 }
+        )
+    };
+    ui! {
+        Text (
+            text: ${
+                TruthColumn {
+                    rows: model.truth_rows(),
+                    column: Column::Input(2),
+                }
+            },
+            capacity: 16,
+            id: "circuit_truth_c",
+            position: Position::Absolute,
+            left: 68,
+            top: 113,
+            width: 20,
+            height: 130,
+            font_size: 7,
+            text_color: INK,
+            line_height: 16,
+            paragraph: column_style(),
+            visible: ${ model.input_count() == 3 }
+        )
+    };
+    ui! {
+        Text (
+            text: ${
+                TruthColumn {
+                    rows: model.truth_rows(),
+                    column: Column::Expected,
+                }
+            },
+            capacity: 16,
+            id: "circuit_truth_expected",
+            position: Position::Absolute,
+            left: 100,
+            top: 113,
+            width: 50,
+            height: 130,
+            font_size: 7,
+            text_color: INK,
+            line_height: 16,
+            paragraph: column_style()
+        )
+    };
+    ui! {
+        Text (
+            text: ${
+                TruthColumn {
+                    rows: model.truth_rows(),
+                    column: Column::Actual,
+                }
+            },
+            capacity: 16,
+            id: "circuit_truth_actual",
+            position: Position::Absolute,
+            left: 160,
+            top: 113,
+            width: 50,
+            height: 130,
+            font_size: 7,
+            text_color: INK,
+            line_height: 16,
+            paragraph: column_style()
+        )
+    };
+    ui! {
+        Text (
+            text: ${
+                TruthColumn {
+                    rows: model.truth_rows(),
+                    column: Column::Verdict,
+                }
+            },
+            capacity: 40,
+            id: "circuit_truth_result",
+            position: Position::Absolute,
+            left: 222,
+            top: 113,
+            width: 50,
+            height: 130,
+            font_size: 7,
+            text_color: INK,
+            line_height: 16,
+            paragraph: column_style()
+        )
     }
 }
 
@@ -944,187 +1447,27 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
             top: 0,
             width: 480,
             height: 282,
-            visible: ${ model.page() == CircuitPage::Truth }
+            visible: ${ model.page() == CircuitPage::Truth && model.modal() == CircuitModal::None }
         ) {
             Text (
-                "EXHAUSTIVE INPUT TEST",
+                text: ${ format_args!("TRUTH TABLE · {} ROWS", 1_u8 << model.input_count()) },
+                capacity: 24,
+                id: "circuit_truth_rows",
                 position: Position::Absolute,
                 left: 23,
-                top: 77,
+                top: 76,
                 width: 250,
                 height: 13,
                 font_size: 8,
                 text_color: MUTED,
                 paragraph: label_style()
             )
+            compose_truth_table (model)
             Text (
-                "A   B   C      EXPECT     ACTUAL     RESULT",
-                position: Position::Absolute,
-                left: 27,
-                top: 98,
-                width: 265,
-                height: 13,
-                font_size: 7,
-                text_color: MUTED,
-                paragraph: label_style()
-            )
-            Text (
-                text: ${
-                    ExpandedTruthRow {
-                        row: model.truth_rows()[0],
-                        count: model.input_count(),
-                    }
-                },
-                capacity: 48,
-                id: "circuit_truth_0",
-                position: Position::Absolute,
-                left: 27,
-                top: 115,
-                width: 265,
-                height: 16,
-                font_size: 7,
-                text_color: INK,
-                paragraph: label_style(),
-                visible: ${ model.truth_rows()[0].is_some() }
-            )
-            Text (
-                text: ${
-                    ExpandedTruthRow {
-                        row: model.truth_rows()[1],
-                        count: model.input_count(),
-                    }
-                },
-                capacity: 48,
-                id: "circuit_truth_1",
-                position: Position::Absolute,
-                left: 27,
-                top: 131,
-                width: 265,
-                height: 16,
-                font_size: 7,
-                text_color: INK,
-                paragraph: label_style(),
-                visible: ${ model.truth_rows()[1].is_some() }
-            )
-            Text (
-                text: ${
-                    ExpandedTruthRow {
-                        row: model.truth_rows()[2],
-                        count: model.input_count(),
-                    }
-                },
-                capacity: 48,
-                id: "circuit_truth_2",
-                position: Position::Absolute,
-                left: 27,
-                top: 147,
-                width: 265,
-                height: 16,
-                font_size: 7,
-                text_color: INK,
-                paragraph: label_style(),
-                visible: ${ model.truth_rows()[2].is_some() }
-            )
-            Text (
-                text: ${
-                    ExpandedTruthRow {
-                        row: model.truth_rows()[3],
-                        count: model.input_count(),
-                    }
-                },
-                capacity: 48,
-                id: "circuit_truth_3",
-                position: Position::Absolute,
-                left: 27,
-                top: 163,
-                width: 265,
-                height: 16,
-                font_size: 7,
-                text_color: INK,
-                paragraph: label_style(),
-                visible: ${ model.truth_rows()[3].is_some() }
-            )
-            Text (
-                text: ${
-                    ExpandedTruthRow {
-                        row: model.truth_rows()[4],
-                        count: model.input_count(),
-                    }
-                },
-                capacity: 48,
-                id: "circuit_truth_4",
-                position: Position::Absolute,
-                left: 27,
-                top: 179,
-                width: 265,
-                height: 16,
-                font_size: 7,
-                text_color: INK,
-                paragraph: label_style(),
-                visible: ${ model.truth_rows()[4].is_some() }
-            )
-            Text (
-                text: ${
-                    ExpandedTruthRow {
-                        row: model.truth_rows()[5],
-                        count: model.input_count(),
-                    }
-                },
-                capacity: 48,
-                id: "circuit_truth_5",
-                position: Position::Absolute,
-                left: 27,
-                top: 195,
-                width: 265,
-                height: 16,
-                font_size: 7,
-                text_color: INK,
-                paragraph: label_style(),
-                visible: ${ model.truth_rows()[5].is_some() }
-            )
-            Text (
-                text: ${
-                    ExpandedTruthRow {
-                        row: model.truth_rows()[6],
-                        count: model.input_count(),
-                    }
-                },
-                capacity: 48,
-                id: "circuit_truth_6",
-                position: Position::Absolute,
-                left: 27,
-                top: 211,
-                width: 265,
-                height: 16,
-                font_size: 7,
-                text_color: INK,
-                paragraph: label_style(),
-                visible: ${ model.truth_rows()[6].is_some() }
-            )
-            Text (
-                text: ${
-                    ExpandedTruthRow {
-                        row: model.truth_rows()[7],
-                        count: model.input_count(),
-                    }
-                },
-                capacity: 48,
-                id: "circuit_truth_7",
-                position: Position::Absolute,
-                left: 27,
-                top: 227,
-                width: 265,
-                height: 16,
-                font_size: 7,
-                text_color: INK,
-                paragraph: label_style(),
-                visible: ${ model.truth_rows()[7].is_some() }
-            )
-            Text (
-                "TARGET SPECIFICATION",
+                "TARGET",
                 position: Position::Absolute,
                 left: 334,
-                top: 78,
+                top: 76,
                 width: 125,
                 height: 13,
                 font_size: 8,
@@ -1132,25 +1475,38 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
                 paragraph: label_style()
             )
             Text (
-                text: ${ task_name(model.task()) },
+                text: ${ TASKS[usize::from(model.task())].name },
                 capacity: 24,
                 id: "circuit_truth_title",
                 position: Position::Absolute,
                 left: 334,
-                top: 100,
+                top: 96,
                 width: 125,
-                height: 22,
+                height: 18,
                 font_size: 13,
                 text_color: INK,
                 paragraph: label_style()
             )
             Text (
-                text: ${ task_description(model.task()) },
+                text: ${ TASKS[usize::from(model.task())].code },
+                capacity: 24,
+                id: "circuit_truth_code",
+                position: Position::Absolute,
+                left: 334,
+                top: 116,
+                width: 125,
+                height: 13,
+                font_size: 9,
+                text_color: INK,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ TASKS[usize::from(model.task())].goal },
                 capacity: 64,
                 id: "circuit_truth_desc",
                 position: Position::Absolute,
                 left: 334,
-                top: 132,
+                top: 136,
                 width: 120,
                 height: 54,
                 font_size: 9,
@@ -1158,15 +1514,18 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
                 paragraph: ParagraphStyle::default()
             )
             Text (
-                "未连接输入按 0 求值，但不会通过完整性验证。",
+                text: ${ OnlyGates(model.allowed()) },
+                capacity: 32,
+                id: "circuit_truth_gates",
                 position: Position::Absolute,
                 left: 334,
-                top: 190,
+                top: 206,
                 width: 120,
-                height: 48,
+                height: 13,
                 font_size: 8,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::default()
+                text_color: ACCENT,
+                paragraph: label_style(),
+                visible: ${ !model.allowed().is_all() }
             )
         }
     }
@@ -1182,7 +1541,7 @@ fn compose_trace_page(model: model!(CircuitModel)) -> Entity {
             top: 0,
             width: 480,
             height: 282,
-            visible: ${ model.page() == CircuitPage::Trace }
+            visible: ${ model.page() == CircuitPage::Trace && model.modal() == CircuitModal::None }
         ) {
             Text (
                 "A",
@@ -1206,7 +1565,8 @@ fn compose_trace_page(model: model!(CircuitModel)) -> Entity {
                 height: 14,
                 font_size: 9,
                 text_color: Color::rgb(182, 204, 211),
-                paragraph: label_style()
+                paragraph: label_style(),
+                visible: ${ model.input_count() >= 2 }
             )
             Text (
                 "C",
@@ -1234,7 +1594,7 @@ fn compose_trace_page(model: model!(CircuitModel)) -> Entity {
                 paragraph: label_style()
             )
             Text (
-                "LAST 32 SAMPLES / LOGICAL TIME",
+                "LAST 32 STEPS",
                 position: Position::Absolute,
                 left: 22,
                 top: 240,
@@ -1245,7 +1605,7 @@ fn compose_trace_page(model: model!(CircuitModel)) -> Entity {
                 paragraph: label_style()
             )
             Text (
-                "SIGNAL SCANNER",
+                "SCANNER",
                 position: Position::Absolute,
                 left: 334,
                 top: 78,
@@ -1256,12 +1616,12 @@ fn compose_trace_page(model: model!(CircuitModel)) -> Entity {
                 paragraph: label_style()
             )
             Text (
-                text: ${ if model.scanning() { "AUTO / ON" } else { "STEP / READY" } },
+                text: ${ if model.scanning() { "AUTO ▶" } else { "STEP" } },
                 capacity: 12,
                 id: "circuit_trace_mode",
                 position: Position::Absolute,
                 left: 334,
-                top: 103,
+                top: 100,
                 width: 125,
                 height: 16,
                 font_size: 10,
@@ -1274,7 +1634,7 @@ fn compose_trace_page(model: model!(CircuitModel)) -> Entity {
                 id: "circuit_trace_count",
                 position: Position::Absolute,
                 left: 334,
-                top: 127,
+                top: 124,
                 width: 125,
                 height: 28,
                 font_size: 18,
@@ -1282,15 +1642,36 @@ fn compose_trace_page(model: model!(CircuitModel)) -> Entity {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "扫描按顺序遍历输入组合，记录 A/B/C/Y。它不模拟传播延迟。",
+                text: ${ sample_header(model.input_count()) },
+                capacity: 16,
                 position: Position::Absolute,
                 left: 334,
-                top: 164,
-                width: 120,
-                height: 70,
+                top: 176,
+                width: 125,
+                height: 12,
                 font_size: 8,
                 text_color: MUTED,
-                paragraph: ParagraphStyle::default()
+                paragraph: label_style(),
+                visible: ${ model.last_sample().is_some() }
+            )
+            Text (
+                text: ${
+                    LastSample {
+                        sample: model.last_sample(),
+                        count: model.input_count(),
+                    }
+                },
+                capacity: 16,
+                id: "circuit_trace_last",
+                position: Position::Absolute,
+                left: 334,
+                top: 192,
+                width: 125,
+                height: 14,
+                font_size: 9,
+                text_color: INK,
+                paragraph: label_style(),
+                visible: ${ model.last_sample().is_some() }
             )
         }
     }
@@ -1300,7 +1681,7 @@ fn compose_trace_page(model: model!(CircuitModel)) -> Entity {
 fn compose_footer(model: model!(CircuitModel)) -> Entity {
     ui! {
         Button (
-            text: ${ footer_label(model.page(), 0, model.scanning(), model.disconnecting()) },
+            text: ${ footer_label(model.controls(), 0) },
             capacity: 32,
             id: "circuit_footer_0",
             position: Position::Absolute,
@@ -1310,48 +1691,21 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
             height: 27,
             size: ButtonSize::Compact,
             font_size: 8,
-            normal_color: ${
-                control_color(
-                    footer_active(model.page(), 0, model.scanning(), model.disconnecting()),
-                    footer_enabled(
-                        model.page(),
-                        0,
-                        model.trace_len(),
-                        model.gate_len(),
-                        model.selected(),
-                        model.history_len(),
-                    ),
-                )
-            },
+            normal_color: ${ footer_color(model.controls(), 0) },
             pressed_color: ACCENT,
-            text_color: ${
-                control_text_color(
-                    footer_active(model.page(), 0, model.scanning(), model.disconnecting()),
-                    footer_enabled(
-                        model.page(),
-                        0,
-                        model.trace_len(),
-                        model.gate_len(),
-                        model.selected(),
-                        model.history_len(),
-                    ),
-                )
-            },
+            text_color: ${ footer_text_color(model.controls(), 0) },
             border_radius: 0
         ) on Tap {
             if model.page() == CircuitPage::Trace {
                 model.step_trace();
             } else {
-                model
-                    .open_modal(CircuitModal::GateTypes {
-                        adding: true,
-                    });
+                model.start_add_gate();
             }
         }
     };
     ui! {
         Button (
-            text: ${ footer_label(model.page(), 1, model.scanning(), model.disconnecting()) },
+            text: ${ footer_label(model.controls(), 1) },
             capacity: 32,
             id: "circuit_footer_1",
             position: Position::Absolute,
@@ -1361,48 +1715,21 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
             height: 27,
             size: ButtonSize::Compact,
             font_size: 8,
-            normal_color: ${
-                control_color(
-                    footer_active(model.page(), 1, model.scanning(), model.disconnecting()),
-                    footer_enabled(
-                        model.page(),
-                        1,
-                        model.trace_len(),
-                        model.gate_len(),
-                        model.selected(),
-                        model.history_len(),
-                    ),
-                )
-            },
+            normal_color: ${ footer_color(model.controls(), 1) },
             pressed_color: ACCENT,
-            text_color: ${
-                control_text_color(
-                    footer_active(model.page(), 1, model.scanning(), model.disconnecting()),
-                    footer_enabled(
-                        model.page(),
-                        1,
-                        model.trace_len(),
-                        model.gate_len(),
-                        model.selected(),
-                        model.history_len(),
-                    ),
-                )
-            },
+            text_color: ${ footer_text_color(model.controls(), 1) },
             border_radius: 0
         ) on Tap {
             if model.page() == CircuitPage::Trace {
                 model.toggle_scanning();
             } else {
-                model
-                    .open_modal(CircuitModal::GateTypes {
-                        adding: false,
-                    });
+                model.start_edit_gate();
             }
         }
     };
     ui! {
         Button (
-            text: ${ footer_label(model.page(), 2, model.scanning(), model.disconnecting()) },
+            text: ${ footer_label(model.controls(), 2) },
             capacity: 32,
             id: "circuit_footer_2",
             position: Position::Absolute,
@@ -1412,33 +1739,9 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
             height: 27,
             size: ButtonSize::Compact,
             font_size: 8,
-            normal_color: ${
-                control_color(
-                    footer_active(model.page(), 2, model.scanning(), model.disconnecting()),
-                    footer_enabled(
-                        model.page(),
-                        2,
-                        model.trace_len(),
-                        model.gate_len(),
-                        model.selected(),
-                        model.history_len(),
-                    ),
-                )
-            },
+            normal_color: ${ footer_color(model.controls(), 2) },
             pressed_color: ACCENT,
-            text_color: ${
-                control_text_color(
-                    footer_active(model.page(), 2, model.scanning(), model.disconnecting()),
-                    footer_enabled(
-                        model.page(),
-                        2,
-                        model.trace_len(),
-                        model.gate_len(),
-                        model.selected(),
-                        model.history_len(),
-                    ),
-                )
-            },
+            text_color: ${ footer_text_color(model.controls(), 2) },
             border_radius: 0
         ) on Tap {
             if model.page() == CircuitPage::Trace {
@@ -1450,7 +1753,7 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
     };
     ui! {
         Button (
-            text: ${ footer_label(model.page(), 3, model.scanning(), model.disconnecting()) },
+            text: ${ footer_label(model.controls(), 3) },
             capacity: 32,
             id: "circuit_footer_3",
             position: Position::Absolute,
@@ -1460,37 +1763,13 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
             height: 27,
             size: ButtonSize::Compact,
             font_size: 8,
-            normal_color: ${
-                control_color(
-                    footer_active(model.page(), 3, model.scanning(), model.disconnecting()),
-                    footer_enabled(
-                        model.page(),
-                        3,
-                        model.trace_len(),
-                        model.gate_len(),
-                        model.selected(),
-                        model.history_len(),
-                    ),
-                )
-            },
+            normal_color: ${ footer_color(model.controls(), 3) },
             pressed_color: ACCENT,
-            text_color: ${
-                control_text_color(
-                    footer_active(model.page(), 3, model.scanning(), model.disconnecting()),
-                    footer_enabled(
-                        model.page(),
-                        3,
-                        model.trace_len(),
-                        model.gate_len(),
-                        model.selected(),
-                        model.history_len(),
-                    ),
-                )
-            },
+            text_color: ${ footer_text_color(model.controls(), 3) },
             border_radius: 0
         ) on Tap {
             if model.page() == CircuitPage::Trace {
-                model.verify();
+                model.verify_or_next();
             } else {
                 model.undo();
             }
@@ -1498,7 +1777,7 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
     };
     ui! {
         Button (
-            text: ${ footer_label(model.page(), 4, model.scanning(), model.disconnecting()) },
+            text: ${ footer_label(model.controls(), 4) },
             capacity: 32,
             id: "circuit_footer_4",
             position: Position::Absolute,
@@ -1508,40 +1787,144 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
             height: 27,
             size: ButtonSize::Compact,
             font_size: 8,
-            normal_color: ${
-                control_color(
-                    footer_active(model.page(), 4, model.scanning(), model.disconnecting()),
-                    footer_enabled(
-                        model.page(),
-                        4,
-                        model.trace_len(),
-                        model.gate_len(),
-                        model.selected(),
-                        model.history_len(),
-                    ),
-                )
-            },
+            normal_color: ${ footer_color(model.controls(), 4) },
             pressed_color: ACCENT,
-            text_color: ${
-                control_text_color(
-                    footer_active(model.page(), 4, model.scanning(), model.disconnecting()),
-                    footer_enabled(
-                        model.page(),
-                        4,
-                        model.trace_len(),
-                        model.gate_len(),
-                        model.selected(),
-                        model.history_len(),
-                    ),
-                )
-            },
+            text_color: ${ footer_text_color(model.controls(), 4) },
             border_radius: 0
         ) on Tap {
             if model.page() == CircuitPage::Trace {
                 model.set_page(CircuitPage::Wire);
             } else {
-                model.verify();
+                model.verify_or_next();
             }
+        }
+    }
+}
+
+/// One tile of the task picker: number, name and a star once solved.
+#[compose]
+fn compose_task_tile(model: model!(CircuitModel), task: u8) -> Entity {
+    ui! {
+        Button (
+            "",
+            position: Position::Absolute,
+            left: tile_left(task),
+            top: tile_top(task),
+            width: 80,
+            height: 46,
+            size: ButtonSize::Custom,
+            normal_color: ${ control_color(model.task() == task, true) },
+            pressed_color: ACCENT,
+            border_radius: 0
+        ) {
+            Text (
+                TASK_NUMBERS[usize::from(task)],
+                position: Position::Absolute,
+                left: 7,
+                top: 5,
+                width: 20,
+                height: 12,
+                font_size: 8,
+                text_color: ${ if model.task() == task { INK } else { DIM } },
+                paragraph: label_style()
+            )
+            Text (
+                "★",
+                position: Position::Absolute,
+                left: 62,
+                top: 5,
+                width: 12,
+                height: 12,
+                font_size: 8,
+                text_color: ${ if model.task() == task { INK } else { ACCENT } },
+                paragraph: label_style(),
+                visible: ${ solved(model.solved_mask(), task) }
+            )
+            Text (
+                TASKS[usize::from(task)].name,
+                position: Position::Absolute,
+                left: 7,
+                top: 25,
+                width: 70,
+                height: 14,
+                font_size: 9,
+                text_color: BACKGROUND,
+                paragraph: label_style()
+            )
+        } on Tap { model.choose_task(usize::from(task)); }
+    }
+}
+
+#[compose]
+fn compose_task_grid(model: model!(CircuitModel)) -> Entity {
+    ui! {
+        View (
+            id: "circuit_task_grid",
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 320,
+            visible: ${ model.modal() == CircuitModal::Tasks }
+        ) {
+            Text (
+                text: ${ SolvedCount(model.solved_mask()) },
+                capacity: 16,
+                id: "circuit_task_solved",
+                position: Position::Absolute,
+                left: 300,
+                top: 74,
+                width: 106,
+                height: 16,
+                font_size: 9,
+                text_color: DIM,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            )
+            Text (
+                "入门",
+                position: Position::Absolute,
+                left: 41,
+                top: 123,
+                width: 56,
+                height: 12,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "只用 NAND",
+                position: Position::Absolute,
+                left: 41,
+                top: 176,
+                width: 56,
+                height: 12,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "三输入",
+                position: Position::Absolute,
+                left: 41,
+                top: 229,
+                width: 56,
+                height: 12,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            compose_task_tile (model, 0)
+            compose_task_tile (model, 1)
+            compose_task_tile (model, 2)
+            compose_task_tile (model, 3)
+            compose_task_tile (model, 4)
+            compose_task_tile (model, 5)
+            compose_task_tile (model, 6)
+            compose_task_tile (model, 7)
+            compose_task_tile (model, 8)
+            compose_task_tile (model, 9)
+            compose_task_tile (model, 10)
+            compose_task_tile (model, 11)
         }
     }
 }
@@ -1565,21 +1948,32 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
             TouchAction::None,
         ] {
             Text (
-                text: ${ modal_title(model.modal()) },
-                capacity: 48,
+                text: ${
+                    ModalTitle {
+                        modal: model.modal(),
+                        selected: model.selected(),
+                    }
+                },
+                capacity: 24,
                 id: "circuit_modal_title",
                 position: Position::Absolute,
                 left: 43,
                 top: 72,
-                width: 330,
+                width: 250,
                 height: 20,
                 font_size: 12,
                 text_color: BACKGROUND,
                 paragraph: label_style()
             )
             Text (
-                text: ${ modal_subtitle(model.modal()) },
-                capacity: 128,
+                text: ${
+                    ModalSubtitle {
+                        modal: model.modal(),
+                        allowed: model.allowed(),
+                        free: MAX_GATES as u8 - model.gate_len(),
+                    }
+                },
+                capacity: 64,
                 id: "circuit_modal_subtitle",
                 position: Position::Absolute,
                 left: 43,
@@ -1588,7 +1982,22 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 height: 18,
                 font_size: 8,
                 text_color: MUTED,
-                paragraph: label_style()
+                paragraph: label_style(),
+                visible: ${ matches!(model.modal(), CircuitModal::GateTypes { .. }) }
+            )
+            Text (
+                HELP,
+                id: "circuit_modal_help",
+                position: Position::Absolute,
+                left: 43,
+                top: 108,
+                width: 380,
+                height: 84,
+                font_size: 8,
+                text_color: INK,
+                line_height: 17,
+                paragraph: ParagraphStyle::default(),
+                visible: ${ model.modal() == CircuitModal::Help }
             )
             Button (
                 "×",
@@ -1621,10 +2030,24 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 height: 42,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: ${ control_color(modal_button_active(model.modal(), 0, model.task()), true) },
+                normal_color: ${
+                    modal_button_color(
+                        model.modal(),
+                        0,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 pressed_color: ACCENT,
                 pressed_text_color: INK,
-                text_color: BACKGROUND,
+                text_color: ${
+                    modal_button_text_color(
+                        model.modal(),
+                        0,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 0) }
             ) on Tap { model.choose_modal_option(0); }
@@ -1644,10 +2067,24 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 height: 42,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: ${ control_color(modal_button_active(model.modal(), 1, model.task()), true) },
+                normal_color: ${
+                    modal_button_color(
+                        model.modal(),
+                        1,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 pressed_color: ACCENT,
                 pressed_text_color: INK,
-                text_color: BACKGROUND,
+                text_color: ${
+                    modal_button_text_color(
+                        model.modal(),
+                        1,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 1) }
             ) on Tap { model.choose_modal_option(1); }
@@ -1667,10 +2104,24 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 height: 42,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: ${ control_color(modal_button_active(model.modal(), 2, model.task()), true) },
+                normal_color: ${
+                    modal_button_color(
+                        model.modal(),
+                        2,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 pressed_color: ACCENT,
                 pressed_text_color: INK,
-                text_color: BACKGROUND,
+                text_color: ${
+                    modal_button_text_color(
+                        model.modal(),
+                        2,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 2) }
             ) on Tap { model.choose_modal_option(2); }
@@ -1685,15 +2136,29 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 id: "circuit_modal_3",
                 position: Position::Absolute,
                 left: 43,
-                top: 183,
+                top: ${ lower_row_top(model.modal()) },
                 width: 120,
                 height: 42,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: ${ control_color(modal_button_active(model.modal(), 3, model.task()), true) },
+                normal_color: ${
+                    modal_button_color(
+                        model.modal(),
+                        3,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 pressed_color: ACCENT,
                 pressed_text_color: INK,
-                text_color: BACKGROUND,
+                text_color: ${
+                    modal_button_text_color(
+                        model.modal(),
+                        3,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 3) }
             ) on Tap { model.choose_modal_option(3); }
@@ -1708,15 +2173,29 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 id: "circuit_modal_4",
                 position: Position::Absolute,
                 left: 173,
-                top: 183,
+                top: ${ lower_row_top(model.modal()) },
                 width: 120,
                 height: 42,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: ${ control_color(modal_button_active(model.modal(), 4, model.task()), true) },
+                normal_color: ${
+                    modal_button_color(
+                        model.modal(),
+                        4,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 pressed_color: ACCENT,
                 pressed_text_color: INK,
-                text_color: BACKGROUND,
+                text_color: ${
+                    modal_button_text_color(
+                        model.modal(),
+                        4,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 4) }
             ) on Tap { model.choose_modal_option(4); }
@@ -1731,18 +2210,33 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 id: "circuit_modal_5",
                 position: Position::Absolute,
                 left: 303,
-                top: 183,
+                top: ${ lower_row_top(model.modal()) },
                 width: 120,
                 height: 42,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: ${ control_color(modal_button_active(model.modal(), 5, model.task()), true) },
+                normal_color: ${
+                    modal_button_color(
+                        model.modal(),
+                        5,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 pressed_color: ACCENT,
                 pressed_text_color: INK,
-                text_color: BACKGROUND,
+                text_color: ${
+                    modal_button_text_color(
+                        model.modal(),
+                        5,
+                        model.allowed(),
+                        selected_kind(model.gates(), model.selected()),
+                    )
+                },
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 5) }
             ) on Tap { model.choose_modal_option(5); }
+            compose_task_grid (model)
         } on Tap { }
     }
 }
@@ -1760,6 +2254,7 @@ pub(super) fn build_widgets(model: model!(CircuitModel)) {
             compose_wire_page (model)
             compose_truth_page (model)
             compose_trace_page (model)
+            compose_status (model)
             compose_footer (model)
             compose_modal (model)
         } on Tap(|event: event!(Tap), rows: query!(CircuitSurface, ComputedRect)| {

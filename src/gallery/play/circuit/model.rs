@@ -1,6 +1,7 @@
+use super::tasks::{Board, TASK_COUNT, TASKS, Task};
 use super::types::{
-    CircuitError, CircuitGate, CircuitModal, CircuitPage, Evaluation, GateKind, MAX_GATES,
-    MAX_TRACE, MAX_UNDO, SignalSource, TASK_COUNT, TraceSample, TruthRow, VerifyResult,
+    CircuitError, CircuitGate, CircuitModal, CircuitPage, Controls, Evaluation, GateKind, GateSet,
+    MAX_GATES, MAX_TRACE, MAX_UNDO, SignalSource, TraceSample, TruthRow, VerifyResult,
 };
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::clock::BoundedClock;
@@ -20,6 +21,24 @@ impl CircuitSnapshot {
         output: SignalSource::None,
         next_id: 1,
     };
+
+    fn from_board(board: Board) -> Self {
+        let mut snapshot = Self::EMPTY;
+        for (slot, spec) in snapshot.gates.iter_mut().zip(board.gates) {
+            *slot = CircuitGate {
+                id: snapshot.next_id,
+                kind: spec.kind,
+                x: spec.x,
+                y: spec.y,
+                a: spec.a,
+                b: spec.b,
+            };
+            snapshot.next_id += 1;
+            snapshot.gate_len += 1;
+        }
+        snapshot.output = board.output;
+        snapshot
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -45,6 +64,12 @@ pub(crate) struct CircuitModel {
     page: CircuitPage,
     modal: CircuitModal,
     scan_clock: BoundedClock,
+    /// The board the player left in each task, restored on return.
+    boards: [CircuitSnapshot; TASK_COUNT],
+    /// One bit per task whose entry in `boards` holds the player's board.
+    visited: u16,
+    /// One bit per task that has passed verification.
+    solved: u16,
     gate_len: u8,
     history_len: u8,
     trace_start: u8,
@@ -73,6 +98,9 @@ impl Default for CircuitModel {
             page: CircuitPage::Wire,
             modal: CircuitModal::None,
             scan_clock: BoundedClock::new(2, 120, 1),
+            boards: [CircuitSnapshot::EMPTY; TASK_COUNT],
+            visited: 0,
+            solved: 0,
             gate_len: 0,
             history_len: 0,
             trace_start: 0,
@@ -100,7 +128,18 @@ impl CircuitModel {
 
     #[observe]
     pub(crate) fn input_count(&self) -> u8 {
-        if self.task == 0 { 2 } else { 3 }
+        self.spec().inputs
+    }
+
+    /// The gate kinds this task lets the player place.
+    #[observe]
+    pub(crate) fn allowed(&self) -> GateSet {
+        self.spec().gates
+    }
+
+    #[observe]
+    pub(crate) fn solved_mask(&self) -> u16 {
+        self.solved
     }
 
     #[observe]
@@ -169,8 +208,31 @@ impl CircuitModel {
     }
 
     #[observe]
+    pub(crate) fn last_sample(&self) -> Option<TraceSample> {
+        self.trace_len
+            .checked_sub(1)
+            .and_then(|index| self.trace(usize::from(index)))
+    }
+
+    #[observe]
     pub(crate) fn verify_result(&self) -> Option<VerifyResult> {
         self.verify
+    }
+
+    #[observe]
+    pub(crate) fn controls(&self) -> Controls {
+        Controls {
+            page: self.page,
+            scanning: self.scanning,
+            disconnecting: self.disconnecting,
+            won: self.verify.is_some_and(|result| result.won),
+            last_task: usize::from(self.task) + 1 == TASK_COUNT,
+            single_kind: self.allowed().single(),
+            can_add: usize::from(self.gate_len) < MAX_GATES,
+            can_edit: self.gate_by_id(self.selected).is_some(),
+            can_undo: self.history_len != 0,
+            can_clear: self.trace_len != 0,
+        }
     }
 
     pub(crate) fn input(&self, index: u8) -> bool {
@@ -205,8 +267,11 @@ impl CircuitModel {
         core::array::from_fn(|index| self.truth_row(index as u8))
     }
 
+    /// Whether `source` carries a 1 for the current inputs. A signal that
+    /// depends on an open pin is not lit.
     pub(crate) fn source_value(&self, source: SignalSource) -> bool {
-        self.evaluate_source(source, self.inputs).value
+        let evaluation = self.evaluate_source(source, self.inputs);
+        evaluation.value && evaluation.complete
     }
 
     pub(crate) fn visual_gate_position(&self, id: u8) -> Option<(i16, i16)> {
@@ -222,6 +287,7 @@ impl CircuitModel {
         }
         self.page = page;
         self.pending = SignalSource::None;
+        self.disconnecting = false;
         self.drag = None;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
@@ -246,24 +312,14 @@ impl CircuitModel {
         self.notice
     }
 
-    /// Keeps the refusal of a player action for the status line, or clears
-    /// the last one when the action went through.
-    fn report(&mut self, result: Result<ChangeSet, CircuitError>) -> ChangeSet {
-        match result {
-            Ok(change) if self.notice.take().is_some() => change | ChangeSet::VISUAL,
-            Ok(change) => change,
-            Err(error) => {
-                self.notice = Some(error);
-                ChangeSet::MODEL | ChangeSet::VISUAL
-            }
-        }
-    }
-
-    /// `select_modal_option` for a tap. A gate that cannot be added closes
-    /// the picker, so the status line can say why.
+    /// `select_modal_option` for a tap. A gate that cannot be added or used
+    /// closes the picker, so the status line can say why.
     pub(crate) fn choose_modal_option(&mut self, index: usize) -> ChangeSet {
         let result = self.select_modal_option(index);
-        let closed = if matches!(result, Err(CircuitError::Full | CircuitError::Overlap)) {
+        let closed = if matches!(
+            result,
+            Err(CircuitError::Full | CircuitError::Overlap | CircuitError::NotAllowed)
+        ) {
             self.close_modal()
         } else {
             ChangeSet::NONE
@@ -277,9 +333,38 @@ impl CircuitModel {
         self.report(result)
     }
 
+    /// The add button: a task with one gate kind places it straight away,
+    /// any other opens the gate picker.
+    pub(crate) fn start_add_gate(&mut self) -> ChangeSet {
+        if usize::from(self.gate_len) >= MAX_GATES {
+            return self.report(Err(CircuitError::Full));
+        }
+        match self.allowed().single() {
+            Some(kind) => {
+                let result = self.add_gate(kind);
+                self.report(result)
+            }
+            None => self.open_modal(CircuitModal::GateTypes { adding: true }),
+        }
+    }
+
+    /// The edit button: with one gate kind there is nothing to change, so
+    /// it removes the selected gate; otherwise it opens the picker.
+    pub(crate) fn start_edit_gate(&mut self) -> ChangeSet {
+        if self.gate_by_id(self.selected).is_none() {
+            return self.report(Err(CircuitError::InvalidGate));
+        }
+        if self.allowed().single().is_some() {
+            let result = self.remove_selected();
+            self.report(result)
+        } else {
+            self.open_modal(CircuitModal::GateTypes { adding: false })
+        }
+    }
+
     pub(crate) fn select_modal_option(&mut self, index: usize) -> Result<ChangeSet, CircuitError> {
         match self.modal {
-            CircuitModal::Tasks => Ok(self.load_task((index / 2) as u8, index % 2 == 1)),
+            CircuitModal::Tasks => Ok(self.choose_task(index)),
             CircuitModal::GateTypes { adding } if index < GateKind::ALL.len() => {
                 let mutation = if adding {
                     self.add_gate(GateKind::ALL[index])
@@ -292,11 +377,55 @@ impl CircuitModel {
                 let mutation = self.remove_selected()?;
                 Ok(mutation | self.close_modal())
             }
-            CircuitModal::Help => Ok(self.close_modal()),
+            CircuitModal::Help => Ok(match index {
+                3 => self.restart_task(),
+                4 => self.show_reference(),
+                _ => self.close_modal(),
+            }),
             _ => Ok(ChangeSet::NONE),
         }
     }
 
+    /// Opens `task` with the board the player left there, or its starter.
+    /// Picking the open task only closes the picker.
+    pub(crate) fn choose_task(&mut self, task: usize) -> ChangeSet {
+        if task == usize::from(self.task) {
+            return self.close_modal();
+        }
+        self.switch_task(task)
+    }
+
+    /// After a pass: the next task, or the picker after the last one.
+    pub(crate) fn next_task(&mut self) -> ChangeSet {
+        let next = usize::from(self.task) + 1;
+        if next < TASK_COUNT {
+            self.switch_task(next)
+        } else {
+            self.open_modal(CircuitModal::Tasks)
+        }
+    }
+
+    /// The verify button turns into "next task" once the board passes.
+    pub(crate) fn verify_or_next(&mut self) -> ChangeSet {
+        if self.verify.is_some_and(|result| result.won) {
+            self.next_task()
+        } else {
+            self.verify()
+        }
+    }
+
+    /// Puts the starter board back. Undo returns to the player's board.
+    pub(crate) fn restart_task(&mut self) -> ChangeSet {
+        self.replace_board(self.spec().starter)
+    }
+
+    /// Loads the reference board. Undo returns to the player's board.
+    pub(crate) fn show_reference(&mut self) -> ChangeSet {
+        self.replace_board(self.spec().reference)
+    }
+
+    /// Opens `task` fresh, from its starter or its reference board.
+    #[cfg(test)]
     pub(crate) fn load_task(&mut self, task: u8, reference: bool) -> ChangeSet {
         if usize::from(task) >= TASK_COUNT {
             return ChangeSet::NONE;
@@ -305,192 +434,12 @@ impl CircuitModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    #[model(local)]
-    fn load_task_state(&mut self, task: u8, reference: bool) {
-        self.gates = [CircuitGate::EMPTY; MAX_GATES];
-        self.history = [CircuitSnapshot::EMPTY; MAX_UNDO];
-        self.trace = [TraceSample::EMPTY; MAX_TRACE];
-        self.gate_len = 0;
-        self.history_len = 0;
-        self.trace_start = 0;
-        self.trace_len = 0;
-        self.output = SignalSource::None;
-        self.pending = SignalSource::None;
-        self.drag = None;
-        self.verify = None;
-        self.page = CircuitPage::Wire;
-        self.modal = CircuitModal::None;
-        self.task = task.min(2);
-        self.inputs = 0;
-        self.next_id = 1;
-        self.selected = 0;
-        self.scan_cursor = 0;
-        self.scanning = false;
-        self.disconnecting = false;
-        self.scan_clock.reset();
-        match self.task {
-            0 => {
-                self.seed_gate(
-                    if reference {
-                        GateKind::Xor
-                    } else {
-                        GateKind::Or
-                    },
-                    145,
-                    150,
-                    SignalSource::input(0),
-                    SignalSource::input(1),
-                );
-                self.output = SignalSource::gate(1);
-            }
-            1 if reference => {
-                self.seed_gate(
-                    GateKind::And,
-                    105,
-                    95,
-                    SignalSource::input(0),
-                    SignalSource::input(1),
-                );
-                self.seed_gate(
-                    GateKind::And,
-                    105,
-                    151,
-                    SignalSource::input(0),
-                    SignalSource::input(2),
-                );
-                self.seed_gate(
-                    GateKind::And,
-                    105,
-                    207,
-                    SignalSource::input(1),
-                    SignalSource::input(2),
-                );
-                self.seed_gate(
-                    GateKind::Or,
-                    214,
-                    119,
-                    SignalSource::gate(1),
-                    SignalSource::gate(2),
-                );
-                self.seed_gate(
-                    GateKind::Or,
-                    214,
-                    193,
-                    SignalSource::gate(4),
-                    SignalSource::gate(3),
-                );
-                self.output = SignalSource::gate(5);
-            }
-            1 => {
-                self.seed_gate(
-                    GateKind::And,
-                    110,
-                    96,
-                    SignalSource::input(0),
-                    SignalSource::input(1),
-                );
-                self.seed_gate(
-                    GateKind::Or,
-                    215,
-                    150,
-                    SignalSource::gate(1),
-                    SignalSource::None,
-                );
-                self.output = SignalSource::gate(2);
-            }
-            _ if reference => {
-                self.seed_gate(
-                    GateKind::Not,
-                    105,
-                    94,
-                    SignalSource::input(0),
-                    SignalSource::None,
-                );
-                self.seed_gate(
-                    GateKind::And,
-                    105,
-                    206,
-                    SignalSource::input(0),
-                    SignalSource::input(2),
-                );
-                self.seed_gate(
-                    GateKind::And,
-                    203,
-                    94,
-                    SignalSource::gate(1),
-                    SignalSource::input(1),
-                );
-                self.seed_gate(
-                    GateKind::Or,
-                    213,
-                    187,
-                    SignalSource::gate(2),
-                    SignalSource::gate(3),
-                );
-                self.output = SignalSource::gate(4);
-            }
-            _ => {
-                self.seed_gate(
-                    GateKind::And,
-                    115,
-                    149,
-                    SignalSource::input(0),
-                    SignalSource::input(2),
-                );
-                self.output = SignalSource::gate(1);
-            }
-        }
-        self.selected = self.gates[0].id;
-    }
-
-    #[model(local)]
-    fn seed_gate(&mut self, kind: GateKind, x: i16, y: i16, a: SignalSource, b: SignalSource) {
-        let id = self.next_id;
-        self.next_id = self.next_id.saturating_add(1);
-        self.gates[usize::from(self.gate_len)] = CircuitGate {
-            id,
-            kind,
-            x,
-            y,
-            a,
-            b,
-        };
-        self.gate_len += 1;
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn snapshot(&self) -> CircuitSnapshot {
-        CircuitSnapshot {
-            gates: self.gates,
-            gate_len: self.gate_len,
-            output: self.output,
-            next_id: self.next_id,
-        }
-    }
-
-    #[model(local)]
-    fn remember(&mut self) {
-        let snapshot = self.snapshot();
-        if usize::from(self.history_len) == MAX_UNDO {
-            self.history.copy_within(1..MAX_UNDO, 0);
-            self.history[MAX_UNDO - 1] = snapshot;
-        } else {
-            self.history[usize::from(self.history_len)] = snapshot;
-            self.history_len += 1;
-        }
-        self.verify = None;
-    }
-
     pub(crate) fn undo(&mut self) -> ChangeSet {
         if self.history_len == 0 {
             return ChangeSet::NONE;
         }
         self.history_len -= 1;
-        let snapshot = self.history[usize::from(self.history_len)];
-        self.gates = snapshot.gates;
-        self.gate_len = snapshot.gate_len;
-        self.output = snapshot.output;
-        self.next_id = snapshot.next_id;
+        self.restore(self.history[usize::from(self.history_len)]);
         self.verify = None;
         self.pending = SignalSource::None;
         self.drag = None;
@@ -501,6 +450,9 @@ impl CircuitModel {
     }
 
     pub(crate) fn add_gate(&mut self, kind: GateKind) -> Result<ChangeSet, CircuitError> {
+        if !self.allowed().contains(kind) {
+            return Err(CircuitError::NotAllowed);
+        }
         if usize::from(self.gate_len) >= MAX_GATES {
             return Err(CircuitError::Full);
         }
@@ -529,6 +481,9 @@ impl CircuitModel {
         let Some(index) = self.gate_index(self.selected) else {
             return Err(CircuitError::InvalidGate);
         };
+        if !self.allowed().contains(kind) {
+            return Err(CircuitError::NotAllowed);
+        }
         if self.gates[index].kind == kind {
             return Ok(ChangeSet::NONE);
         }
@@ -662,45 +617,12 @@ impl CircuitModel {
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
     }
 
-    #[allow(dead_code)]
-    fn disconnect(&mut self, gate_id: Option<u8>, pin: u8) -> Result<ChangeSet, CircuitError> {
-        let old = if let Some(id) = gate_id {
-            let index = self.gate_index(id).ok_or(CircuitError::InvalidGate)?;
-            if pin > 1 || (pin == 1 && self.gates[index].kind == GateKind::Not) {
-                return Err(CircuitError::InvalidInput);
-            }
-            if pin == 0 {
-                self.gates[index].a
-            } else {
-                self.gates[index].b
-            }
-        } else {
-            self.output
-        };
-        if old == SignalSource::None {
-            return Err(CircuitError::InvalidSource);
-        }
-        self.remember();
-        if let Some(id) = gate_id {
-            let index = self.gate_index(id).ok_or(CircuitError::InvalidGate)?;
-            if pin == 0 {
-                self.gates[index].a = SignalSource::None;
-            } else {
-                self.gates[index].b = SignalSource::None;
-            }
-        } else {
-            self.output = SignalSource::None;
-        }
-        self.disconnecting = false;
-        Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
-    }
-
+    /// Flips one input. The verdict stays: it covers every input row.
     pub(crate) fn toggle_input(&mut self, index: u8) -> ChangeSet {
         if index >= self.input_count() || self.modal != CircuitModal::None {
             return ChangeSet::NONE;
         }
         self.inputs ^= 1 << index;
-        self.verify = None;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
@@ -770,32 +692,46 @@ impl CircuitModel {
         }
     }
 
+    /// Checks every input row. A pass marks the task solved.
     pub(crate) fn verify(&mut self) -> ChangeSet {
         let total = 1_u8 << self.input_count();
         let mut passed = 0;
+        let mut failure = None;
         for row in 0..total {
-            passed += u8::from(self.truth_row(row).is_some_and(TruthRow::passes));
+            let Some(truth) = self.truth_row(row) else {
+                continue;
+            };
+            if truth.passes() {
+                passed += 1;
+            } else if failure.is_none() {
+                failure = Some(truth);
+            }
+        }
+        let won = passed == total;
+        if won {
+            self.solved |= 1 << self.task;
         }
         self.verify = Some(VerifyResult {
             passed,
             total,
-            won: passed == total,
+            won,
+            wired: self.output != SignalSource::None,
+            failure,
         });
         self.scanning = false;
         self.scan_clock.reset();
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
+    /// Row `row` of the truth table, which lists A as its leftmost column.
     pub(crate) fn truth_row(&self, row: u8) -> Option<TruthRow> {
         let count = self.input_count();
         if row >= 1 << count {
             return None;
         }
-        let inputs = if count == 2 {
-            ((row & 0b10) >> 1) | ((row & 0b01) << 1)
-        } else {
-            ((row & 0b100) >> 2) | (row & 0b010) | ((row & 0b001) << 2)
-        };
+        let inputs = (0..count)
+            .filter(|index| row & (1 << (count - 1 - index)) != 0)
+            .fold(0, |inputs, index| inputs | (1 << index));
         let result = self.evaluate_source(self.output, inputs);
         Some(TruthRow {
             inputs,
@@ -850,8 +786,159 @@ impl CircuitModel {
         }
         changes
     }
+}
 
-    #[model(local)]
+impl CircuitModel {
+    fn spec(&self) -> &'static Task {
+        &TASKS[usize::from(self.task)]
+    }
+
+    pub(super) fn snapshot(&self) -> CircuitSnapshot {
+        CircuitSnapshot {
+            gates: self.gates,
+            gate_len: self.gate_len,
+            output: self.output,
+            next_id: self.next_id,
+        }
+    }
+
+    fn restore(&mut self, snapshot: CircuitSnapshot) {
+        self.gates = snapshot.gates;
+        self.gate_len = snapshot.gate_len;
+        self.output = snapshot.output;
+        self.next_id = snapshot.next_id;
+    }
+
+    /// Keeps the refusal of a player action for the status line, or clears
+    /// the last one when the action went through.
+    fn report(&mut self, result: Result<ChangeSet, CircuitError>) -> ChangeSet {
+        match result {
+            Ok(change) if self.notice.take().is_some() => change | ChangeSet::VISUAL,
+            Ok(change) => change,
+            Err(error) => {
+                self.notice = Some(error);
+                ChangeSet::MODEL | ChangeSet::VISUAL
+            }
+        }
+    }
+
+    fn load_task_state(&mut self, task: u8, reference: bool) {
+        self.history = [CircuitSnapshot::EMPTY; MAX_UNDO];
+        self.trace = [TraceSample::EMPTY; MAX_TRACE];
+        self.history_len = 0;
+        self.trace_start = 0;
+        self.trace_len = 0;
+        self.pending = SignalSource::None;
+        self.drag = None;
+        self.verify = None;
+        self.page = CircuitPage::Wire;
+        self.modal = CircuitModal::None;
+        self.task = task.min(TASK_COUNT as u8 - 1);
+        self.inputs = 0;
+        self.scan_cursor = 0;
+        self.scanning = false;
+        self.disconnecting = false;
+        self.notice = None;
+        self.scan_clock.reset();
+        let spec = self.spec();
+        let board = if reference {
+            spec.reference
+        } else {
+            spec.starter
+        };
+        self.restore(CircuitSnapshot::from_board(board));
+        self.selected = self.gate(0).map_or(0, |gate| gate.id);
+    }
+
+    /// Keeps the current board for a later visit and opens `task`.
+    fn switch_task(&mut self, task: usize) -> ChangeSet {
+        if task >= TASK_COUNT {
+            return ChangeSet::NONE;
+        }
+        let current = usize::from(self.task);
+        self.boards[current] = self.snapshot();
+        self.visited |= 1 << current;
+        self.load_task_state(task as u8, false);
+        if self.visited & (1 << task) != 0 {
+            self.restore(self.boards[task]);
+            self.selected = self.gate(0).map_or(0, |gate| gate.id);
+        }
+        ChangeSet::MODEL | ChangeSet::VISUAL
+    }
+
+    /// Swaps in a prepared board as one undoable edit and closes the modal.
+    fn replace_board(&mut self, board: Board) -> ChangeSet {
+        let next = CircuitSnapshot::from_board(board);
+        if next != self.snapshot() {
+            self.remember();
+            self.restore(next);
+            self.pending = SignalSource::None;
+            self.drag = None;
+            self.disconnecting = false;
+            self.notice = None;
+            self.selected = self.gate(0).map_or(0, |gate| gate.id);
+        }
+        ChangeSet::MODEL | ChangeSet::VISUAL | self.close_modal()
+    }
+
+    fn seed_gate(&mut self, kind: GateKind, x: i16, y: i16, a: SignalSource, b: SignalSource) {
+        let id = self.next_id;
+        self.next_id = self.next_id.saturating_add(1);
+        self.gates[usize::from(self.gate_len)] = CircuitGate {
+            id,
+            kind,
+            x,
+            y,
+            a,
+            b,
+        };
+        self.gate_len += 1;
+    }
+
+    fn remember(&mut self) {
+        let snapshot = self.snapshot();
+        if usize::from(self.history_len) == MAX_UNDO {
+            self.history.copy_within(1..MAX_UNDO, 0);
+            self.history[MAX_UNDO - 1] = snapshot;
+        } else {
+            self.history[usize::from(self.history_len)] = snapshot;
+            self.history_len += 1;
+        }
+        self.verify = None;
+    }
+
+    fn disconnect(&mut self, gate_id: Option<u8>, pin: u8) -> Result<ChangeSet, CircuitError> {
+        let old = if let Some(id) = gate_id {
+            let index = self.gate_index(id).ok_or(CircuitError::InvalidGate)?;
+            if pin > 1 || (pin == 1 && self.gates[index].kind == GateKind::Not) {
+                return Err(CircuitError::InvalidInput);
+            }
+            if pin == 0 {
+                self.gates[index].a
+            } else {
+                self.gates[index].b
+            }
+        } else {
+            self.output
+        };
+        if old == SignalSource::None {
+            return Err(CircuitError::InvalidSource);
+        }
+        self.remember();
+        if let Some(id) = gate_id {
+            let index = self.gate_index(id).ok_or(CircuitError::InvalidGate)?;
+            if pin == 0 {
+                self.gates[index].a = SignalSource::None;
+            } else {
+                self.gates[index].b = SignalSource::None;
+            }
+        } else {
+            self.output = SignalSource::None;
+        }
+        self.disconnecting = false;
+        Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
+    }
+
     fn push_trace(&mut self, sample: TraceSample) {
         if usize::from(self.trace_len) < MAX_TRACE {
             let slot = (usize::from(self.trace_start) + usize::from(self.trace_len)) % MAX_TRACE;
@@ -863,25 +950,10 @@ impl CircuitModel {
         }
     }
 
-    #[allow(dead_code)]
     fn expected(&self, inputs: u8) -> bool {
-        let a = inputs & 1 != 0;
-        let b = inputs & 2 != 0;
-        let c = inputs & 4 != 0;
-        match self.task {
-            0 => a != b,
-            1 => u8::from(a) + u8::from(b) + u8::from(c) >= 2,
-            _ => {
-                if a {
-                    c
-                } else {
-                    b
-                }
-            }
-        }
+        (self.spec().rule)(inputs & 1 != 0, inputs & 2 != 0, inputs & 4 != 0)
     }
 
-    #[allow(dead_code)]
     fn evaluate_source(&self, source: SignalSource, inputs: u8) -> Evaluation {
         let mut memo = [false; MAX_GATES];
         let mut ready = [false; MAX_GATES];
@@ -898,7 +970,6 @@ impl CircuitModel {
         Evaluation { value, complete }
     }
 
-    #[allow(dead_code)]
     fn evaluate_recursive(
         &self,
         source: SignalSource,
@@ -950,7 +1021,6 @@ impl CircuitModel {
         }
     }
 
-    #[allow(dead_code)]
     fn valid_source(&self, source: SignalSource) -> bool {
         match source {
             SignalSource::None => false,
@@ -959,21 +1029,18 @@ impl CircuitModel {
         }
     }
 
-    #[allow(dead_code)]
     fn gate_index(&self, id: u8) -> Option<usize> {
         self.gates[..usize::from(self.gate_len)]
             .iter()
             .position(|gate| gate.id == id)
     }
 
-    #[allow(dead_code)]
     fn overlaps(&self, ignored_id: u8, x: i16, y: i16) -> bool {
         self.gates[..usize::from(self.gate_len)]
             .iter()
             .any(|gate| gate.id != ignored_id && (gate.x - x).abs() < 62 && (gate.y - y).abs() < 38)
     }
 
-    #[allow(dead_code)]
     fn has_cycle(&self) -> bool {
         let mut states = [0_u8; MAX_GATES];
         for index in 0..usize::from(self.gate_len) {
@@ -984,7 +1051,6 @@ impl CircuitModel {
         false
     }
 
-    #[allow(dead_code)]
     fn visit_cycle(&self, index: usize, states: &mut [u8; MAX_GATES]) -> bool {
         if states[index] == 1 {
             return true;
