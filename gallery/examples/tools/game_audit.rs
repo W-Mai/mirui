@@ -226,6 +226,54 @@ fn tour(slug: &str, out: &Path, steps: u32) -> String {
     let mut stale = Vec::new();
     let mut fallback = Rng(0x0bad_cafe);
     advance(&mut app, 20);
+    let mut overflows = std::collections::BTreeSet::new();
+    let mut note_overflows = |app: &AuditApp, step: u32| {
+        let fits = mirui::gallery::demos::text_fits(&app.world);
+        let ink = |fit: &mirui::gallery::demos::TextFit| {
+            // Trim the line box to the glyphs: two pixels of leading above,
+            // the descent below.
+            let mut lines = fit.lines;
+            lines.y += mirui::types::Fixed::from_int(2);
+            lines.h -= mirui::types::Fixed::from_int(5);
+            lines
+        };
+        let place = |rect: mirui::types::Rect| {
+            format!(
+                "({},{} {}x{})",
+                rect.x.to_int(),
+                rect.y.to_int(),
+                rect.w.to_int(),
+                rect.h.to_int()
+            )
+        };
+        for (index, fit) in fits.iter().enumerate() {
+            if fit.overflows(4) {
+                overflows.insert(format!(
+                    "  overflow {:?} box {} lines {}w x {}h first step {step}",
+                    fit.text,
+                    place(fit.rect),
+                    fit.lines.w.to_int(),
+                    fit.lines.h.to_int(),
+                ));
+            }
+            for other in &fits[index + 1..] {
+                let (a, b) = (ink(fit), ink(other));
+                if fit.text.trim().is_empty() || other.text.trim().is_empty() {
+                    continue;
+                }
+                if a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h {
+                    overflows.insert(format!(
+                        "  overlap {:?} {} with {:?} {} first step {step}",
+                        fit.text,
+                        place(a),
+                        other.text,
+                        place(b),
+                    ));
+                }
+            }
+        }
+    };
+    note_overflows(&app, 0);
     let mut screen = hash(&pixels(&mut app));
     screens.insert(screen);
     write_png(
@@ -265,19 +313,31 @@ fn tour(slug: &str, out: &Path, steps: u32) -> String {
             );
             stale.push(format!("step{step}@{point:?}:{count}px{bbox:?}"));
         }
+        note_overflows(&app, step);
         screen = hash(&full);
         if screens.insert(screen) {
             write_png(&out.join(format!("{slug}_tour_{step:03}.png")), size, &full);
         }
     }
+    let mut seen = HashSet::new();
+    let overflows: Vec<_> = overflows
+        .into_iter()
+        .filter(|line| seen.insert(line.split(" first step").next().unwrap_or(line).to_string()))
+        .collect();
     format!(
-        "{slug:<18} tour: {} screens, stale {}",
+        "{slug:<18} tour: {} screens, stale {}, {} text issues
+{}",
         screens.len(),
         if stale.is_empty() {
             "none".to_string()
         } else {
             stale.join(" ")
-        }
+        },
+        overflows.len(),
+        overflows.join(
+            "
+"
+        )
     )
 }
 

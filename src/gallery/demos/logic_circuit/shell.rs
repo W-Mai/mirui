@@ -125,7 +125,7 @@ impl core::fmt::Display for CompactTruthRow {
                 "{a}  {b}       {} / {}   {}",
                 u8::from(row.actual),
                 u8::from(row.expected),
-                if row.passes() { "✓" } else { "·" }
+                if row.passes() { "☑" } else { "·" }
             )
         } else {
             write!(
@@ -133,7 +133,7 @@ impl core::fmt::Display for CompactTruthRow {
                 "{a} {b} {c}     {} / {}   {}",
                 u8::from(row.actual),
                 u8::from(row.expected),
-                if row.passes() { "✓" } else { "·" }
+                if row.passes() { "☑" } else { "·" }
             )
         }
     }
@@ -182,7 +182,7 @@ impl core::fmt::Display for WireStatus {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if let Some(result) = self.verify {
             if result.won {
-                formatter.write_str("✓ 逻辑验证通过，可以选择下一项任务。")
+                formatter.write_str("★ 逻辑验证通过，可以选择下一项任务。")
             } else {
                 write!(
                     formatter,
@@ -206,7 +206,7 @@ fn gate_left(positions: [Option<(i16, i16)>; MAX_GATES], index: usize) -> i32 {
 
 /// The label's two lines sit in the gate body, below its header band.
 fn gate_top(positions: [Option<(i16, i16)>; MAX_GATES], index: usize) -> i32 {
-    positions[index].map_or(0, |(_, y)| i32::from(y) - 5)
+    positions[index].map_or(0, |(_, y)| i32::from(y) - 8)
 }
 
 fn gate_color(gate: Option<CircuitGate>, selected: u8) -> Color {
@@ -218,8 +218,8 @@ fn gate_color(gate: Option<CircuitGate>, selected: u8) -> Color {
 }
 
 fn live_row_top(input_count: u8, index: usize) -> i32 {
-    let step = if input_count == 2 { 30 } else { 16 };
-    115 + index as i32 * step
+    let step = if input_count == 2 { 30 } else { 15 };
+    118 + index as i32 * step
 }
 
 fn trace_label_top(index: usize, input_count: u8) -> i32 {
@@ -247,15 +247,15 @@ fn footer_label(
         ][index]
     } else {
         [
-            "+ 逻辑门",
+            "＋ 逻辑门",
             "类型 / 删除",
             if disconnecting {
                 "取消断线"
             } else {
                 "断开连线"
             },
-            "撤销",
-            "✓ 验证",
+            "↺ 撤销",
+            "☑ 验证",
         ][index]
     }
 }
@@ -299,12 +299,12 @@ fn modal_title(modal: CircuitModal) -> &'static str {
 fn modal_subtitle(modal: CircuitModal) -> &'static str {
     match modal {
         CircuitModal::None => "",
-        CircuitModal::Tasks => "切换会清空当前电路、时序和撤销记录。",
+        CircuitModal::Tasks => "切换会清空当前网络、时序和撤销记录。",
         CircuitModal::GateTypes { adding: true } => "选择一个组合逻辑门；最多放置 6 个。",
         CircuitModal::GateTypes { adding: false } => {
             "改变类型会保留可用输入；NOT 只保留第一个输入。"
         }
-        CircuitModal::Help => "输出端 → 输入端接线。真值表枚举全部输入；时序页记录每一步状态。",
+        CircuitModal::Help => "输出端 → 输入端接线。真值表枚举全部输入；时序页记录离散状态。",
     }
 }
 
@@ -324,7 +324,7 @@ impl core::fmt::Display for ModalButtonLabel {
             CircuitModal::GateTypes { adding: false } if self.index == 5 => {
                 formatter.write_str("删除选中门")
             }
-            CircuitModal::Help if self.index == 0 => formatter.write_str("知道了"),
+            CircuitModal::Help if self.index == 0 => formatter.write_str("明白了"),
             _ => Ok(()),
         }
     }
@@ -552,10 +552,10 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 0) },
             top: ${ gate_top(model.gate_positions(), 0) },
             width: 58,
-            height: 22,
+            height: 26,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[0], model.selected()) },
-            line_height: 9,
+            line_height: 12,
             paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
             visible: ${ model.gates()[0].is_some() }
         )
@@ -569,10 +569,10 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 1) },
             top: ${ gate_top(model.gate_positions(), 1) },
             width: 58,
-            height: 22,
+            height: 26,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[1], model.selected()) },
-            line_height: 9,
+            line_height: 12,
             paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
             visible: ${ model.gates()[1].is_some() }
         )
@@ -586,10 +586,10 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 2) },
             top: ${ gate_top(model.gate_positions(), 2) },
             width: 58,
-            height: 22,
+            height: 26,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[2], model.selected()) },
-            line_height: 9,
+            line_height: 12,
             paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
             visible: ${ model.gates()[2].is_some() }
         )
@@ -603,10 +603,10 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 3) },
             top: ${ gate_top(model.gate_positions(), 3) },
             width: 58,
-            height: 22,
+            height: 26,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[3], model.selected()) },
-            line_height: 9,
+            line_height: 12,
             paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
             visible: ${ model.gates()[3].is_some() }
         )
@@ -620,10 +620,10 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 4) },
             top: ${ gate_top(model.gate_positions(), 4) },
             width: 58,
-            height: 22,
+            height: 26,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[4], model.selected()) },
-            line_height: 9,
+            line_height: 12,
             paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
             visible: ${ model.gates()[4].is_some() }
         )
@@ -637,10 +637,10 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 5) },
             top: ${ gate_top(model.gate_positions(), 5) },
             width: 58,
-            height: 22,
+            height: 26,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[5], model.selected()) },
-            line_height: 9,
+            line_height: 12,
             paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
             visible: ${ model.gates()[5].is_some() }
         )
@@ -657,7 +657,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             height: 28,
             font_size: 8,
             text_color: BACKGROUND,
-            line_height: 10,
+            line_height: 12,
             paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
         )
     }
@@ -670,7 +670,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
             "LIVE TRUTH TABLE",
             position: Position::Absolute,
             left: 334,
-            top: 76,
+            top: 74,
             width: 125,
             height: 12,
             font_size: 8,
@@ -685,7 +685,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
             id: "circuit_live_code",
             position: Position::Absolute,
             left: 334,
-            top: 94,
+            top: 88,
             width: 125,
             height: 13,
             font_size: 9,
@@ -695,10 +695,11 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
     };
     ui! {
         Text (
-            "A B C → Y / 目标",
+            text: ${ if model.input_count() == 2 { "A B → Y / 目标" } else { "A B C → Y / 目标" } },
+            capacity: 24,
             position: Position::Absolute,
             left: 334,
-            top: 108,
+            top: 103,
             width: 125,
             height: 12,
             font_size: 8,

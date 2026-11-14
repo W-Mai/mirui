@@ -200,14 +200,14 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
     };
     ui! {
         Button (
-            text: ${ format_args!("{} 帧/秒", model.fps()) },
+            text: ${ format_args!("{} 帧/秒 ↻", model.fps()) },
             capacity: 13,
             id: "pixel_fps",
             position: Position::Absolute,
             left: 327,
-            top: 109,
+            top: 112,
             width: 127,
-            height: 27,
+            height: 25,
             size: ButtonSize::Compact,
             font_size: 10,
             normal_color: Color::rgb(58, 52, 72),
@@ -524,7 +524,7 @@ fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
     };
     ui! {
         Button (
-            "撤销",
+            "↺ 撤销",
             id: "pixel_undo",
             position: Position::Absolute,
             left: 77,
@@ -601,8 +601,8 @@ fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
     };
     ui! {
         Button (
-            text: ${ if model.playing() { "暂停预览" } else { "播放动画" } },
-            capacity: 12,
+            text: ${ if model.playing() { "Ⅱ 暂停预览" } else { "▶ 播放动画" } },
+            capacity: 20,
             id: "pixel_play",
             position: Position::Absolute,
             left: 337,
@@ -642,7 +642,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                     if model.modal() == PixelModal::Templates {
                         "先借一颗灵感"
                     } else {
-                        "清空这一帧"
+                        "清空这一帧？"
                     }
                 },
                 capacity: 18,

@@ -181,9 +181,6 @@ fn paint_orders_page(painter: &mut PlayPainter<'_, '_>, model: &FactoryModel) {
     painter.border(Rect::new(309, 65, 160, 188), LINE, Fixed::ONE, Fixed::ZERO);
     let target_y = 92 + i32::from(model.mission_index()) * 56;
     painter.fill(Rect::new(16, target_y, 4, 45), ACCENT, Fixed::ZERO);
-    painter.line(Point::new(327, 115), Point::new(447, 115), LINE, Fixed::ONE);
-    painter.line(Point::new(327, 146), Point::new(447, 146), LINE, Fixed::ONE);
-    painter.line(Point::new(327, 177), Point::new(447, 177), LINE, Fixed::ONE);
     painter.line(Point::new(327, 208), Point::new(447, 208), LINE, Fixed::ONE);
 }
 

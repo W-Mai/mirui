@@ -47,7 +47,7 @@ impl fmt::Display for NodeText {
         };
         write!(
             out,
-            "0{}  T+{}  dv {}.{}  {}°",
+            "0{}  T+{}  Δv {}.{}  {}°",
             self.number,
             Decimal1(node.at),
             node.dv_tenths / 10,
@@ -84,7 +84,7 @@ fn modal_title(modal: OrbitModal) -> &'static str {
     match modal {
         OrbitModal::None => "",
         OrbitModal::Missions => "选择轨道任务",
-        OrbitModal::Confirm(_) => "重新装载任务",
+        OrbitModal::Confirm(_) => "重新装载任务？",
         OrbitModal::Help => "轨道任务台 / 操作手册",
     }
 }
@@ -115,7 +115,7 @@ fn modal_button(modal: OrbitModal, index: usize, mission: u8) -> (&'static str, 
             _ => ("", false, false),
         },
         OrbitModal::Help => (
-            if index == 0 { "知道了" } else { "" },
+            if index == 0 { "明白了" } else { "" },
             index == 0,
             index == 0,
         ),
@@ -345,7 +345,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "BURN DV",
+                "BURN ΔV",
                 position: Position::Absolute,
                 left: 318,
                 top: 172,
@@ -619,7 +619,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
                 paragraph: label_style()
             )
             Button (
-                "-1 s",
+                "－1 s",
                 position: Position::Absolute,
                 left: 326,
                 top: 186,
@@ -634,7 +634,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
                 border_radius: 0
             ) on Tap { model.adjust_delay(-1); }
             Button (
-                "+1 s",
+                "＋1 s",
                 position: Position::Absolute,
                 left: 391,
                 top: 186,
@@ -751,7 +751,7 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
                 top: 92,
                 width: 45,
                 height: 20,
-                font_size: 14,
+                font_size: 20,
                 text_color: INK,
                 paragraph: label_style()
             )
@@ -764,7 +764,7 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
                 top: 92,
                 width: 45,
                 height: 20,
-                font_size: 14,
+                font_size: 20,
                 text_color: INK,
                 paragraph: label_style()
             )
@@ -776,8 +776,8 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
                 left: 325,
                 top: 134,
                 width: 112,
-                height: 18,
-                font_size: 12,
+                height: 22,
+                font_size: 20,
                 text_color: ORANGE,
                 paragraph: label_style()
             )
@@ -789,8 +789,8 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
                 left: 325,
                 top: 158,
                 width: 112,
-                height: 18,
-                font_size: 12,
+                height: 22,
+                font_size: 20,
                 text_color: CYAN,
                 paragraph: label_style()
             )
@@ -828,7 +828,7 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
 fn compose_footer(model: model!(OrbitModel)) -> Entity {
     ui! {
         Button (
-            text: ${ if model.status() == OrbitStatus::Running { "暂停" } else { "滑行" } },
+            text: ${ if model.status() == OrbitStatus::Running { "Ⅱ 暂停" } else { "▶ 滑行" } },
             capacity: 16,
             id: "orbit_footer_run",
             position: Position::Absolute,
@@ -871,7 +871,7 @@ fn compose_footer(model: model!(OrbitModel)) -> Entity {
     };
     ui! {
         Button (
-            text: ${ if model.eligible() { "立即采样" } else { "采样" } },
+            text: ${ if model.eligible() { "● 立即采样" } else { "采样" } },
             capacity: 16,
             id: "orbit_footer_scan",
             position: Position::Absolute,
@@ -893,7 +893,7 @@ fn compose_footer(model: model!(OrbitModel)) -> Entity {
     };
     ui! {
         Button (
-            "+ 节点",
+            "＋ 节点",
             id: "orbit_footer_schedule",
             position: Position::Absolute,
             left: 270,

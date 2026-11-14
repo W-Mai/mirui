@@ -116,18 +116,22 @@ struct MapLevelLabel {
 impl fmt::Display for MapLevelLabel {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.progress.completed(self.level) {
-            write!(
-                output,
-                "{:02}\n{} STAR",
-                self.level + 1,
-                self.progress.stars(self.level)
-            )
+            writeln!(output, "{:02}", self.level + 1)?;
+            write_stars(output, self.progress.stars(self.level))
         } else if self.level == self.current {
             write!(output, "{:02}\nPLAY", self.level + 1)
         } else {
             write!(output, "{:02}\nOPEN", self.level + 1)
         }
     }
+}
+
+/// Three stars, the earned ones filled.
+fn write_stars(output: &mut fmt::Formatter<'_>, stars: u8) -> fmt::Result {
+    for slot in 0..3 {
+        output.write_str(if slot < stars { "★" } else { "☆" })?;
+    }
+    Ok(())
 }
 
 struct LockedLevelLabel(u8);
@@ -219,7 +223,7 @@ fn map_level_button(
                             level: expedition.chapter() * 6 + slot,
                         }
                     },
-                    capacity: 10,
+                    capacity: 16,
                     grow: 1.0,
                     height: 57,
                     size: ButtonSize::Compact,
@@ -405,7 +409,7 @@ fn compose_controls(game: model!(TwinModel), hints: TwinHintService) -> Entity {
     };
     ui! {
         Button (
-            "UNDO",
+            "↺ UNDO",
             position: Position::Absolute,
             left: 327,
             top: 214,
@@ -479,7 +483,7 @@ fn compose_footer(game: model!(TwinModel), expedition: model!(ExpeditionUiModel)
     };
     ui! {
         Button (
-            "RESTART",
+            "↻ RESTART",
             position: Position::Absolute,
             left: 16,
             top: 276,

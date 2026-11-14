@@ -359,7 +359,7 @@ fn compose_controls(model: model!(EchoModel)) -> Entity {
     };
     ui! {
         Button (
-            "UNDO",
+            "↺ UNDO",
             id: "echo_undo",
             position: Position::Absolute,
             left: 305,
@@ -376,7 +376,7 @@ fn compose_controls(model: model!(EchoModel)) -> Entity {
     };
     ui! {
         Button (
-            "RETRY",
+            "↻ RETRY",
             id: "echo_restart",
             position: Position::Absolute,
             left: 360,

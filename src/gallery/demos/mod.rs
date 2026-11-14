@@ -86,6 +86,83 @@ pub mod widgets_compact;
 
 pub(super) const PROJECTIVE_SPIN_PHASE: crate::types::Fixed = crate::types::Fixed::from_ratio(1, 4);
 
+/// Where a visible text sits and how much room its laid out lines take.
+#[derive(Clone, Debug)]
+pub struct TextFit {
+    pub entity: crate::ecs::Entity,
+    pub text: alloc::string::String,
+    /// The box the layout gave the text.
+    pub rect: crate::types::Rect,
+    /// The laid out lines, placed in the box by the paragraph alignment. It
+    /// can reach outside `rect` when the text does not fit.
+    pub lines: crate::types::Rect,
+}
+
+impl TextFit {
+    /// Whether the lines are wider than the box, or taller by more than
+    /// `slack` pixels (a line box is taller than its glyphs by the descent).
+    pub fn overflows(&self, slack: i32) -> bool {
+        self.lines.w > self.rect.w
+            || self.lines.h > self.rect.h + crate::types::Fixed::from_int(slack)
+    }
+}
+
+/// Measures every visible text of `world`, for the Gallery audit tools.
+pub fn text_fits(world: &crate::ecs::World) -> alloc::vec::Vec<TextFit> {
+    use alloc::vec::Vec;
+
+    use crate::text::{TextGeometry, TextLayoutHandle};
+    use crate::types::Fixed;
+    use crate::types::fixed::from_textflow;
+    use crate::ui::ComputedRect;
+    use crate::ui::outputs::Outputs;
+    use crate::ui::widgets::{Text, TextAlign, TextVerticalAlign};
+
+    let Some(outputs) = world.resource::<Outputs<TextGeometry>>() else {
+        return Vec::new();
+    };
+    let storage = outputs.storage();
+    let entities: Vec<_> = world.query::<Text>().collect();
+    let mut fits = Vec::new();
+    for entity in entities {
+        if crate::ui::branch::is_hidden_in_tree(world, entity)
+            || world.has::<crate::text::TextPath>(entity)
+        {
+            continue;
+        }
+        let (Some(rect), Some(handle)) = (
+            world.get::<ComputedRect>(entity).map(|value| value.0),
+            world.get::<TextLayoutHandle>(entity).copied(),
+        ) else {
+            continue;
+        };
+        let Some(layout) = storage.layouts.get(handle) else {
+            continue;
+        };
+        let text = world.get::<Text>(entity).expect("text entity");
+        let w = from_textflow(layout.measure().width);
+        let h = from_textflow(layout.measure().height);
+        let half = |room: Fixed| room / Fixed::from_int(2);
+        let x = match text.paragraph().align {
+            TextAlign::Center => rect.x + half(rect.w - w),
+            TextAlign::End => rect.x + rect.w - w,
+            TextAlign::Start | TextAlign::Justify => rect.x,
+        };
+        let y = match text.paragraph().vertical_align {
+            TextVerticalAlign::Center => rect.y + half(rect.h - h),
+            TextVerticalAlign::End => rect.y + rect.h - h,
+            TextVerticalAlign::Start => rect.y,
+        };
+        fits.push(TextFit {
+            entity,
+            text: text.resolve(world.resource()).as_ref().into(),
+            rect,
+            lines: crate::types::Rect { x, y, w, h },
+        });
+    }
+    fits
+}
+
 #[cfg(test)]
 pub(super) fn assert_text_layouts_fit(world: &crate::ecs::World) {
     use alloc::vec::Vec;

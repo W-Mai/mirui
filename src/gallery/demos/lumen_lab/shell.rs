@@ -57,7 +57,7 @@ fn mirror_top(level: usize, mirror: usize) -> i32 {
     LEVELS[level]
         .mirrors
         .get(mirror)
-        .map_or(0, |spec| 10 + i32::from(spec.position.y) * 38)
+        .map_or(0, |spec| 8 + i32::from(spec.position.y) * 38)
 }
 
 fn level_completed(mask: u8, level: usize) -> bool {
@@ -82,8 +82,8 @@ fn mirror_labels(model: model!(LumenModel)) -> Entity {
                 left: ${ mirror_left(model.level_index(), 0) },
                 top: ${ mirror_top(model.level_index(), 0) },
                 visible: ${ mirror_visible(model.level_index(), 0) },
-                width: 7,
-                height: 8,
+                width: 8,
+                height: 12,
                 font_size: 6,
                 text_color: Color::rgb(187, 203, 192),
                 paragraph: ParagraphStyle::label()
@@ -94,8 +94,8 @@ fn mirror_labels(model: model!(LumenModel)) -> Entity {
                 left: ${ mirror_left(model.level_index(), 1) },
                 top: ${ mirror_top(model.level_index(), 1) },
                 visible: ${ mirror_visible(model.level_index(), 1) },
-                width: 7,
-                height: 8,
+                width: 8,
+                height: 12,
                 font_size: 6,
                 text_color: Color::rgb(187, 203, 192),
                 paragraph: ParagraphStyle::label()
@@ -106,8 +106,8 @@ fn mirror_labels(model: model!(LumenModel)) -> Entity {
                 left: ${ mirror_left(model.level_index(), 2) },
                 top: ${ mirror_top(model.level_index(), 2) },
                 visible: ${ mirror_visible(model.level_index(), 2) },
-                width: 7,
-                height: 8,
+                width: 8,
+                height: 12,
                 font_size: 6,
                 text_color: Color::rgb(187, 203, 192),
                 paragraph: ParagraphStyle::label()
@@ -118,8 +118,8 @@ fn mirror_labels(model: model!(LumenModel)) -> Entity {
                 left: ${ mirror_left(model.level_index(), 3) },
                 top: ${ mirror_top(model.level_index(), 3) },
                 visible: ${ mirror_visible(model.level_index(), 3) },
-                width: 7,
-                height: 8,
+                width: 8,
+                height: 12,
                 font_size: 6,
                 text_color: Color::rgb(187, 203, 192),
                 paragraph: ParagraphStyle::label()
@@ -130,8 +130,8 @@ fn mirror_labels(model: model!(LumenModel)) -> Entity {
                 left: ${ mirror_left(model.level_index(), 4) },
                 top: ${ mirror_top(model.level_index(), 4) },
                 visible: ${ mirror_visible(model.level_index(), 4) },
-                width: 7,
-                height: 8,
+                width: 8,
+                height: 12,
                 font_size: 6,
                 text_color: Color::rgb(187, 203, 192),
                 paragraph: ParagraphStyle::label()
@@ -142,8 +142,8 @@ fn mirror_labels(model: model!(LumenModel)) -> Entity {
                 left: ${ mirror_left(model.level_index(), 5) },
                 top: ${ mirror_top(model.level_index(), 5) },
                 visible: ${ mirror_visible(model.level_index(), 5) },
-                width: 7,
-                height: 8,
+                width: 8,
+                height: 12,
                 font_size: 6,
                 text_color: Color::rgb(187, 203, 192),
                 paragraph: ParagraphStyle::label()
@@ -154,8 +154,8 @@ fn mirror_labels(model: model!(LumenModel)) -> Entity {
                 left: ${ mirror_left(model.level_index(), 6) },
                 top: ${ mirror_top(model.level_index(), 6) },
                 visible: ${ mirror_visible(model.level_index(), 6) },
-                width: 7,
-                height: 8,
+                width: 8,
+                height: 12,
                 font_size: 6,
                 text_color: Color::rgb(187, 203, 192),
                 paragraph: ParagraphStyle::label()
@@ -383,7 +383,7 @@ fn compose_footer(model: model!(LumenModel)) -> Entity {
                 border_radius: 7
             ) on Tap { model.open_levels(); }
             Button (
-                "撤销",
+                "↺ 撤销",
                 id: "lumen_undo",
                 size: ButtonSize::Compact,
                 width: 93,
@@ -408,7 +408,7 @@ fn compose_footer(model: model!(LumenModel)) -> Entity {
                 border_radius: 7
             ) on Tap { model.toggle_scan(); }
             Button (
-                "下一关",
+                "下一关 →",
                 id: "lumen_next",
                 size: ButtonSize::Compact,
                 grow: 1.0,
@@ -541,7 +541,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                     border_radius: 6
                 ) on Tap { model.select_level(4); }
                 Text (
-                    "✓",
+                    "★",
                     id: "lumen_level_check_1",
                     position: Position::Absolute,
                     left: 388,
@@ -554,7 +554,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "✓",
+                    "★",
                     id: "lumen_level_check_2",
                     position: Position::Absolute,
                     left: 388,
@@ -567,7 +567,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "✓",
+                    "★",
                     id: "lumen_level_check_3",
                     position: Position::Absolute,
                     left: 388,
@@ -580,7 +580,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "✓",
+                    "★",
                     id: "lumen_level_check_4",
                     position: Position::Absolute,
                     left: 388,
@@ -593,7 +593,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "✓",
+                    "★",
                     id: "lumen_level_check_5",
                     position: Position::Absolute,
                     left: 388,

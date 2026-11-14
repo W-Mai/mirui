@@ -3,8 +3,12 @@ use crate::app::{App, RendererFactory};
 use crate::render::font::{Font, FontManager, FontToken};
 use crate::surface::Surface;
 
-/// Shared with demos that need full ASCII punctuation, such as Iris readouts.
-pub(in crate::gallery) const FONT_BYTES: &[u8] = include_bytes!("../demos/assets/play_ui.mirx");
+/// Fusion Pixel 10 px (OFL, see `assets/licenses/Play-Fusion-Pixel-OFL.txt`),
+/// baked at 10, 20 and 30 px. Shared with demos that need full ASCII
+/// punctuation, such as Iris readouts.
+pub(in crate::gallery) const FONT_BYTES: &[u8] = include_bytes!("../demos/assets/play_pixel.mirx");
+/// The pixel grid of the face: it draws only at multiples of this size.
+const GRID: u16 = 10;
 #[cfg(test)]
 const FONT_CHARSET: &str = include_str!("../demos/assets/play_charset.txt");
 
@@ -27,11 +31,12 @@ where
         };
         let base = Font::from_mirx(
             "MIRUI Play",
-            12,
+            GRID,
             FONT_BYTES,
             &mirx::reader::PayloadLimits::HOST,
         )
-        .expect("MIRUI Play font must decode");
+        .expect("MIRUI Play font must decode")
+        .with_pixel_grid(GRID);
         manager.add_static(FontToken::Default.cache_key(), base.clone());
         manager.add_static(FontToken::Heading.cache_key(), base.clone());
         manager.add_static(FontToken::Mono.cache_key(), base);
@@ -232,7 +237,7 @@ mod tests {
         for token in [FontToken::Default, FontToken::Heading, FontToken::Mono] {
             let font = manager.resolve(token.cache_key());
             assert_eq!(font.family, "MIRUI Play");
-            assert_eq!(font.size, 12);
+            assert_eq!(font.size, GRID);
         }
     }
 
@@ -255,13 +260,31 @@ mod tests {
             }
         }
         let glyph = provider.map_char('光').unwrap();
-        for size in [10, 12] {
+        for size in [10, 20, 30] {
             let raster = provider.raster(glyph, size, size).unwrap();
             assert_eq!(
                 raster.representation.kind(),
-                FontRepresentationKind::Coverage { bits: 8 }
+                FontRepresentationKind::Coverage { bits: 1 }
             );
             assert_eq!(raster.representation.design_ppem(), size);
+        }
+    }
+
+    #[test]
+    fn play_font_draws_every_size_from_a_whole_strike() {
+        let mut app = App::headless(32, 32);
+        app.add_plugin(PlayFontPlugin);
+        let manager = app.world.resource::<FontManager>().unwrap();
+        let font = manager.resolve(FontToken::Default.cache_key());
+        let glyph = font.map_char('光').unwrap();
+        for (asked, drawn) in [(7, 10), (9, 10), (13, 10), (18, 20), (34, 30)] {
+            assert_eq!(font.ppem_for(Some(asked)), drawn);
+            let raster = font.raster(glyph, asked).unwrap();
+            assert_eq!(raster.representation.design_ppem(), drawn);
+            assert_eq!(
+                font.glyph_advance(glyph, asked),
+                font.glyph_advance(glyph, drawn)
+            );
         }
     }
 }

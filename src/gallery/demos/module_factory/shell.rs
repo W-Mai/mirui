@@ -60,7 +60,7 @@ struct StatusText {
 impl fmt::Display for StatusText {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.status {
-            FactoryStatus::Won => out.write_str("✓ 订单完成。可在订单页选择下一条产线。"),
+            FactoryStatus::Won => out.write_str("★ 订单完成！可在订单页选择下一条产线。"),
             FactoryStatus::Timeout => out.write_str("试运行到期；请修改布局后重试。"),
             FactoryStatus::Running => write!(
                 out,
@@ -103,10 +103,10 @@ fn modal_title(modal: FactoryModal) -> &'static str {
         FactoryModal::Tools => "建造模块",
         FactoryModal::Confirm {
             reference: true, ..
-        } => "装载示范布局",
+        } => "装载示范布局？",
         FactoryModal::Confirm {
             reference: false, ..
-        } => "切换订单",
+        } => "切换订单？",
         FactoryModal::Help => "模块工厂 / 操作手册",
     }
 }
@@ -131,7 +131,7 @@ fn modal_button_label(modal: FactoryModal, index: usize) -> &'static str {
             "拆除模块",
         ][index],
         FactoryModal::Confirm { .. } => ["取消", "确认装载", "", "", "", ""][index],
-        FactoryModal::Help => ["知道了", "", "", "", "", ""][index],
+        FactoryModal::Help => ["明白了", "", "", "", "", ""][index],
         FactoryModal::None => "",
     }
 }
@@ -524,12 +524,12 @@ fn compose_orders_page(model: model!(FactoryModel)) -> Entity {
                 position: Position::Absolute,
                 left: 98,
                 top: 97,
-                width: 188,
-                height: 35,
+                width: 190,
+                height: 34,
                 font_size: 7,
                 line_height: 11,
                 text_color: BACKGROUND,
-                paragraph: label_style()
+                paragraph: ParagraphStyle::default()
             )
             Text (
                 text: ${ MissionDescription(1) },
@@ -538,12 +538,12 @@ fn compose_orders_page(model: model!(FactoryModel)) -> Entity {
                 position: Position::Absolute,
                 left: 98,
                 top: 153,
-                width: 188,
-                height: 35,
+                width: 190,
+                height: 34,
                 font_size: 7,
                 line_height: 11,
                 text_color: BACKGROUND,
-                paragraph: label_style()
+                paragraph: ParagraphStyle::default()
             )
             Text (
                 text: ${ MissionDescription(2) },
@@ -552,12 +552,12 @@ fn compose_orders_page(model: model!(FactoryModel)) -> Entity {
                 position: Position::Absolute,
                 left: 98,
                 top: 209,
-                width: 188,
-                height: 35,
+                width: 190,
+                height: 34,
                 font_size: 7,
                 line_height: 11,
                 text_color: BACKGROUND,
-                paragraph: label_style()
+                paragraph: ParagraphStyle::default()
             )
             Text (
                 "MATERIAL FLOW",
@@ -774,7 +774,7 @@ fn compose_telemetry_page(model: model!(FactoryModel)) -> Entity {
 fn compose_footer(model: model!(FactoryModel)) -> Entity {
     ui! {
         Button (
-            "+ 建造",
+            "＋ 建造",
             id: "factory_footer_0",
             position: Position::Absolute,
             left: 8,
@@ -792,7 +792,7 @@ fn compose_footer(model: model!(FactoryModel)) -> Entity {
     };
     ui! {
         Button (
-            "旋转",
+            "旋转 ↻",
             id: "factory_footer_1",
             position: Position::Absolute,
             left: 101,
@@ -829,7 +829,7 @@ fn compose_footer(model: model!(FactoryModel)) -> Entity {
     };
     ui! {
         Button (
-            "撤销",
+            "↺ 撤销",
             id: "factory_footer_2",
             position: Position::Absolute,
             left: 194,
@@ -863,7 +863,7 @@ fn compose_footer(model: model!(FactoryModel)) -> Entity {
     };
     ui! {
         Button (
-            text: ${ if model.running() { "暂停" } else { "运行" } },
+            text: ${ if model.running() { "Ⅱ 暂停" } else { "▶ 运行" } },
             capacity: 12,
             id: "factory_footer_4",
             position: Position::Absolute,

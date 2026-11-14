@@ -60,6 +60,14 @@ impl fmt::Display for StatusLabel {
     }
 }
 
+/// Three stars, the earned ones filled.
+fn write_stars(output: &mut fmt::Formatter<'_>, stars: u8) -> fmt::Result {
+    for slot in 0..3 {
+        output.write_str(if slot < stars { "★" } else { "☆" })?;
+    }
+    Ok(())
+}
+
 struct MapLevelLabel {
     level: u8,
     current: u8,
@@ -69,7 +77,8 @@ struct MapLevelLabel {
 impl fmt::Display for MapLevelLabel {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.stars != 0 {
-            write!(out, "{:02}\n{} STAR", self.level + 1, self.stars)
+            writeln!(out, "{:02}", self.level + 1)?;
+            write_stars(out, self.stars)
         } else if self.level == self.current {
             write!(out, "{:02}\nPLAY", self.level + 1)
         } else {
@@ -752,7 +761,7 @@ fn compose_tools(model: model!(PictureModel)) -> Entity {
     };
     ui! {
         Button (
-            "UNDO",
+            "↺ UNDO",
             position: Position::Absolute,
             left: 336,
             top: 126,
@@ -833,7 +842,7 @@ fn compose_footer(model: model!(PictureModel), expedition: model!(ExpeditionUiMo
             position: Position::Absolute,
             left: 18,
             top: 274,
-            width: 126,
+            width: 134,
             height: 18,
             font_size: 8,
             text_color: TEXT,
@@ -876,7 +885,7 @@ fn compose_footer(model: model!(PictureModel), expedition: model!(ExpeditionUiMo
     };
     ui! {
         Button (
-            "RESET",
+            "↻ RESET",
             position: Position::Absolute,
             left: 324,
             top: 269,

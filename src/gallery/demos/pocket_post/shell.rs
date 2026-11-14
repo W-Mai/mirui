@@ -27,13 +27,13 @@ fn status_label(finished: bool, running: bool, started: bool) -> &'static str {
 
 fn run_label(finished: bool, running: bool, started: bool) -> &'static str {
     if running {
-        "暂停"
+        "Ⅱ 暂停"
     } else if finished {
-        "再开一班"
+        "↻ 再开一班"
     } else if started {
-        "继续"
+        "▶ 继续"
     } else {
-        "开始"
+        "▶ 开始"
     }
 }
 
@@ -84,7 +84,7 @@ fn modal_title(modal: PostModal) -> &'static str {
     match modal {
         PostModal::Manifests => "选择今天的班次",
         PostModal::Summary => "本班投递完成",
-        PostModal::Reset => "重新开始这一班",
+        PostModal::Reset => "重新开始这一班？",
         PostModal::None => "",
     }
 }
@@ -441,9 +441,9 @@ fn compose_dispatch_queue(model: model!(PostModel)) -> Entity {
             "班次",
             position: Position::Absolute,
             left: 387,
-            top: 242,
+            top: 248,
             width: 66,
-            height: 22,
+            height: 20,
             size: ButtonSize::Compact,
             font_size: 9,
             normal_color: Color::rgb(49, 72, 76),
@@ -460,7 +460,7 @@ fn compose_footer(model: model!(PostModel)) -> Entity {
     ui! {
         Button (
             text: ${ run_label(model.finished(), model.running(), model.started()) },
-            capacity: 12,
+            capacity: 20,
             id: "post_run",
             position: Position::Absolute,
             left: 12,
@@ -517,7 +517,7 @@ fn compose_footer(model: model!(PostModel)) -> Entity {
     };
     ui! {
         Button (
-            "重来",
+            "↻ 重来",
             position: Position::Absolute,
             left: 370,
             top: 288,
@@ -702,7 +702,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
                 top: 121,
                 width: 150,
                 height: 22,
-                font_size: 14,
+                font_size: 20,
                 text_color: STATION_COLORS[0],
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
