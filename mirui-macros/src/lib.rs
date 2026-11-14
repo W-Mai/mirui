@@ -285,7 +285,7 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
         "height" => Some("Height"),
         "left" => Some("Left"),
         "top" => Some("Top"),
-        "paragraph" if widget == "Text" => Some("Paragraph"),
+        "paragraph" if widget == "Text" || widget == "Button" => Some("Paragraph"),
         "path" if widget == "Text" => Some("TextPath"),
         "value" if widget == "ProgressBar" => Some("ProgressValue"),
         "value" if widget == "Slider" => Some("SliderValue"),
@@ -373,7 +373,7 @@ fn responsive_property(widget: &str, attr: &str) -> Option<&'static str> {
         "normal_color" if widget == "Button" => Some("ButtonNormalColor"),
         "font_size" => Some("FontSize"),
         "direction" => Some("Direction"),
-        "paragraph" if widget == "Text" => Some("Paragraph"),
+        "paragraph" if widget == "Text" || widget == "Button" => Some("Paragraph"),
         "width" => Some("Width"),
         "min_width" => Some("MinWidth"),
         "max_width" => Some("MaxWidth"),
@@ -713,7 +713,7 @@ impl MiruiRune {
                 continue;
             }
 
-            if is_text_widget && name == "paragraph" {
+            if (is_text_widget || is_button_widget) && name == "paragraph" {
                 text_paragraph_value = Some(quote! { #value });
                 continue;
             }
@@ -1204,20 +1204,35 @@ impl MiruiRune {
                     };
                 });
                 if cmd.name == "Button" {
+                    let paragraph = cmd.text_paragraph_value.clone().unwrap_or_else(
+                        || quote! { ::mirui::ui::widgets::ParagraphStyle::label() },
+                    );
                     if let Some(capacity) = &cmd.capacity {
                         tokens.extend(quote! {
                             (#world).insert(
                                 #var,
                                 ::mirui::ui::widgets::Text::new_bounded(#capacity)
                                     .expect("Button capacity could not be reserved")
-                                    .with_paragraph(::mirui::ui::widgets::ParagraphStyle::label()),
+                                    .with_paragraph(#paragraph),
                             );
                         });
                     } else if let Some(text_value) = &cmd.text_tuple_value {
+                        let text = match &cmd.text_paragraph_value {
+                            Some(paragraph) => quote! {
+                                ::mirui::ui::widgets::Text::new(#text_value)
+                                    .with_paragraph(#paragraph)
+                            },
+                            None => quote! { ::mirui::ui::widgets::Text::label(#text_value) },
+                        };
+                        tokens.extend(quote! {
+                            (#world).insert(#var, #text);
+                        });
+                    } else if cmd.text_paragraph_value.is_some() {
+                        // A reactive label fills this Text in on its first run.
                         tokens.extend(quote! {
                             (#world).insert(
                                 #var,
-                                ::mirui::ui::widgets::Text::label(#text_value),
+                                ::mirui::ui::widgets::Text::new("").with_paragraph(#paragraph),
                             );
                         });
                     }

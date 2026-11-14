@@ -1272,4 +1272,38 @@ mod tests {
         assert_eq!(text.resolve(world.resource()).as_ref(), "Saved");
         assert_eq!(text.paragraph(), &ParagraphStyle::label());
     }
+
+    #[test]
+    fn button_paragraph_replaces_the_centred_label_style() {
+        use crate::ui::widgets::TextAlign;
+
+        let mut world = World::new();
+        world.insert_resource(crate::ui::IdMap::new());
+        let root = crate::ui::builder::WidgetBuilder::new(&mut world).id();
+        let label = Signal::new(alloc::string::String::from("Idle"));
+        let bound_label = label.clone();
+        let bounded_label = label.clone();
+        let start = ParagraphStyle::label().with_align(TextAlign::Start);
+
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            crate::ui! {
+                Column () {
+                    Button ("Save", paragraph: start.clone())
+                    Button (text: ${ bound_label.get() }, paragraph: start.clone())
+                    Button (text: ${ bounded_label.get() }, capacity: 8, paragraph: start.clone())
+                }
+            }
+        };
+
+        let column = world.get::<Children>(root).unwrap().0[0];
+        let buttons = world.get::<Children>(column).unwrap().0.clone();
+        label.set(alloc::string::String::from("Saved"));
+        flush_signal_dirty(&mut world);
+        for (entity, expected) in buttons.into_iter().zip(["Save", "Saved", "Saved"]) {
+            let text = world.get::<Text>(entity).expect("Button owns Text");
+            assert_eq!(text.resolve(world.resource()).as_ref(), expected);
+            assert_eq!(text.paragraph(), &start);
+        }
+    }
 }
