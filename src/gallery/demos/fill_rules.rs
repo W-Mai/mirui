@@ -13,4 +13,4 @@ pub use render::{FillRules, fill_rules_view};
 #[cfg(feature = "std")]
 pub use runtime::setup_app;
 
-pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(400, 240);
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(400, 320);

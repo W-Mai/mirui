@@ -9,6 +9,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install_sample(app);
     app.add_plugin(StdInstantClockPlugin);
     app.with_widget(shapes_view());
     app.add_system(shapes_anim_system::system());

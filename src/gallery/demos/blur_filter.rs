@@ -14,4 +14,4 @@ pub use render::{BlurFilter, blur_filter_view};
 #[cfg(feature = "std")]
 pub use runtime::setup_app;
 
-pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(480, 240);
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(480, 300);

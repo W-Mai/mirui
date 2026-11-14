@@ -18,20 +18,20 @@ pub fn build_widgets() {
             bg_color: ColorToken::Surface
         ) {
             Text (
-                "CUSTOM VECTOR VIEW",
+                "Custom vector view",
                 width: Dimension::percent(100),
                 max_width: 480,
                 height: 28,
-                font_size: 18,
+                font_size: 20,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "STATIC PATH · TAP ANY TILE TO RECOLOR",
+                "Static path, tap a tile to recolour",
                 width: Dimension::percent(100),
                 max_width: 480,
                 height: 18,
-                font_size: 9,
+                font_size: 12,
                 text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
@@ -49,7 +49,7 @@ pub fn build_widgets() {
                     width: 88,
                     height: 88,
                     bg_color: ColorToken::SurfaceVariant,
-                    border_radius: 18
+                    border_radius: 28
                 ) on Tap(|event: event!(Tap), rows: query!(Diamond), commands: commands!()| {
                     let next = rows.get(event.target).copied().map(Diamond::next_color);
                     if let Some(next) = next {
@@ -62,7 +62,7 @@ pub fn build_widgets() {
                     width: 88,
                     height: 88,
                     bg_color: ColorToken::SurfaceVariant,
-                    border_radius: 18
+                    border_radius: 28
                 ) on Tap(|event: event!(Tap), rows: query!(Diamond), commands: commands!()| {
                     let next = rows.get(event.target).copied().map(Diamond::next_color);
                     if let Some(next) = next {
@@ -75,7 +75,7 @@ pub fn build_widgets() {
                     width: 88,
                     height: 88,
                     bg_color: ColorToken::SurfaceVariant,
-                    border_radius: 18
+                    border_radius: 28
                 ) on Tap(|event: event!(Tap), rows: query!(Diamond), commands: commands!()| {
                     let next = rows.get(event.target).copied().map(Diamond::next_color);
                     if let Some(next) = next {

@@ -9,15 +9,16 @@ pub fn build_widgets() {
         Column (
             grow: 1.0,
             align: AlignItems::Center,
-            padding: Padding::all(12),
-            row_gap: 10
+            padding: Padding::all(16),
+            row_gap: 10,
+            bg_color: ColorToken::Surface
         ) {
             Text (
-                "AFFINE TRANSFORMS",
+                "Affine transforms",
                 width: Dimension::percent(100),
                 max_width: 440,
                 height: 28,
-                font_size: 17,
+                font_size: 20,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
@@ -35,8 +36,8 @@ pub fn build_widgets() {
                     View (
                         width: 76,
                         height: 76,
-                        bg_color: Color::rgb(248, 81, 73),
-                        border_radius: 14
+                        bg_color: ColorToken::Primary,
+                        border_radius: 22
                     ) [
                         Spinner {
                             angle: Fixed::ZERO,
@@ -45,10 +46,10 @@ pub fn build_widgets() {
                         WidgetTransform(Transform::IDENTITY),
                     ]
                     Text (
-                        "VIEW",
+                        "View",
                         width: 76,
                         height: 22,
-                        font_size: 10,
+                        font_size: 13,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label()
                     )
@@ -66,10 +67,10 @@ pub fn build_widgets() {
                         WidgetTransform(Transform::IDENTITY),
                     ]
                     Text (
-                        "IMAGE",
+                        "Image",
                         width: 76,
                         height: 22,
-                        font_size: 10,
+                        font_size: 13,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label()
                     )

@@ -8,6 +8,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    #[cfg(feature = "std")]
+    crate::gallery::showcase_theme::install_sample(app);
     app.with_widget(diamond_render::view());
     app.compose(parent, build_widgets());
 }

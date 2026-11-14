@@ -8,6 +8,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install_sample(app);
     app.add_plugin(crate::gallery::SceneReplayWorkspacePlugin);
     app.with_widget(blur_filter_view());
     app.compose(parent, build_widgets());

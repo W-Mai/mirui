@@ -12,16 +12,16 @@ pub fn build_widgets() {
             bg_color: ColorToken::Surface
         ) {
             Text (
-                "BLUR FILTER",
+                "Blur filter",
                 height: 28,
-                font_size: 18,
+                font_size: 20,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "Isolated group / RGBA workspace",
-                height: 20,
-                font_size: 11,
+                "Left blurred by 3 px, right as drawn",
+                height: 18,
+                font_size: 12,
                 text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )

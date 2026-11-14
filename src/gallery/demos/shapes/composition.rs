@@ -40,22 +40,20 @@ pub fn build_widgets() {
                     align: AlignItems::Center
                 ) {
                     Text (
-                        "VECTOR CLOCK",
+                        "Vector clock",
                         grow: 1.0,
-                        font_size: 14,
+                        font_size: 16,
                         text_color: ColorToken::OnSurface,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "ARC · LINE",
-                        width: 88,
-                        height: 22,
-                        font_size: 9,
+                        "Arc and line",
+                        width: 92,
+                        height: 24,
+                        font_size: 12,
                         bg_color: ColorToken::Surface,
-                        text_color: ColorToken::Secondary,
-                        border_color: ColorToken::Secondary,
-                        border_width: 1,
-                        border_radius: 11,
+                        text_color: ColorToken::OnSurfaceVariant,
+                        border_radius: 12,
                         paragraph: ParagraphStyle::label()
                     )
                 }

@@ -12,16 +12,16 @@ pub fn build_widgets() {
             bg_color: ColorToken::Surface
         ) {
             Text (
-                "GRADIENTS",
+                "Gradients",
                 height: 28,
-                font_size: 18,
+                font_size: 20,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "object-space linear + focal radial",
-                height: 20,
-                font_size: 11,
+                "Object-space linear, focal radial",
+                height: 18,
+                font_size: 12,
                 text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )

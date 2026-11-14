@@ -5,16 +5,20 @@ use crate::prelude::*;
 use crate::render::scene::{LineCap, LineJoin, Paint};
 use crate::types::Transform;
 use crate::ui::Theme;
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
+/// One row of samples; `kind` picks caps, joins, dashes or widths.
 #[crate::component]
 #[derive(Default)]
-pub struct StrokeStyles;
+pub struct StrokeStyles {
+    pub kind: u8,
+}
 
 static LINE: Path = path!(M 0 0 L 100 0);
-static ELBOW: Path = path!(M 0 42 L 42 0 L 84 42);
-static GUIDE: Path = path!(M 0 0 H 448 V 320 H 0 Z);
+static ELBOW: Path = path!(M 0 30 L 30 0 L 60 30);
 const LOGICAL_WIDTH: i32 = 480;
-const LOGICAL_HEIGHT: i32 = 360;
+const LOGICAL_HEIGHT: i32 = 48;
+const CENTRES: [i32; 3] = [80, 240, 400];
 
 #[allow(clippy::too_many_arguments)]
 fn stroke(
@@ -41,11 +45,11 @@ fn stroke(
 }
 
 #[crate::view(component = StrokeStyles, name = "StrokeStyles", priority = 60)]
-fn stroke_styles_render(theme: res!(Theme), paint_ctx: paint!()) {
-    let paint = Paint::Color(theme.resolve(ColorToken::Primary).into());
-    let hot = Paint::Color(theme.resolve(ColorToken::Error).into());
-    let green = Paint::Color(theme.resolve(ColorToken::Success).into());
-    let violet = Paint::Color(theme.resolve(ColorToken::Tertiary).into());
+fn stroke_styles_render(row: component!(), theme: res!(Theme), paint_ctx: paint!()) {
+    let caps = Paint::Color(theme.resolve(ColorToken::Primary).into());
+    let joins = Paint::Color(theme.resolve(ColorToken::Error).into());
+    let dashes = Paint::Color(theme.resolve(ColorToken::Success).into());
+    let widths = Paint::Color(theme.resolve(ColorToken::Tertiary).into());
     let empty: [Fixed; 0] = [];
     let canvas = crate::gallery::fit_logical_canvas(
         paint_ctx.rect(),
@@ -53,109 +57,95 @@ fn stroke_styles_render(theme: res!(Theme), paint_ctx: paint!()) {
         LOGICAL_WIDTH,
         LOGICAL_HEIGHT,
     );
+    let at = |x: i32, y: i32| {
+        canvas.compose(&Transform::translate(
+            Fixed::from_int(x),
+            Fixed::from_int(y),
+        ))
+    };
 
-    for (i, cap) in [LineCap::Butt, LineCap::Round, LineCap::Square]
-        .into_iter()
-        .enumerate()
-    {
-        let x = 44 + i as i32 * 144;
-        stroke(
-            paint_ctx,
-            &LINE,
-            canvas.compose(
-                &Transform::translate(Fixed::from_int(x), Fixed::from_int(54))
-                    .compose(&Transform::scale(Fixed::from_ratio(92, 100), Fixed::ONE)),
-            ),
-            &paint,
-            Fixed::from_int(10),
-            cap,
-            LineJoin::Miter,
-            &empty,
-        );
+    match row.kind {
+        0 => {
+            for (centre, cap) in
+                CENTRES
+                    .into_iter()
+                    .zip([LineCap::Butt, LineCap::Round, LineCap::Square])
+            {
+                stroke(
+                    paint_ctx,
+                    &LINE,
+                    at(centre - 40, 24)
+                        .compose(&Transform::scale(Fixed::from_ratio(8, 10), Fixed::ONE)),
+                    &caps,
+                    Fixed::from_int(12),
+                    cap,
+                    LineJoin::Miter,
+                    &empty,
+                );
+            }
+        }
+        1 => {
+            for (centre, join) in
+                CENTRES
+                    .into_iter()
+                    .zip([LineJoin::Miter, LineJoin::Round, LineJoin::Bevel])
+            {
+                stroke(
+                    paint_ctx,
+                    &ELBOW,
+                    at(centre - 30, 14),
+                    &joins,
+                    Fixed::from_int(11),
+                    LineCap::Butt,
+                    join,
+                    &empty,
+                );
+            }
+        }
+        2 => {
+            let dash_a = [Fixed::from_int(10), Fixed::from_int(5)];
+            let dash_b = [Fixed::from_int(5), Fixed::from_int(10), Fixed::from_int(15)];
+            let dash_c = [
+                Fixed::from_int(20),
+                Fixed::from_int(5),
+                Fixed::from_int(5),
+                Fixed::from_int(5),
+            ];
+            for (centre, dash) in CENTRES
+                .into_iter()
+                .zip([&dash_a[..], &dash_b[..], &dash_c[..]])
+            {
+                stroke(
+                    paint_ctx,
+                    &LINE,
+                    at(centre - 50, 24),
+                    &dashes,
+                    Fixed::from_int(6),
+                    LineCap::Round,
+                    LineJoin::Round,
+                    dash,
+                );
+            }
+        }
+        _ => {
+            for (centre, width) in
+                CENTRES
+                    .into_iter()
+                    .zip([Fixed::ONE, Fixed::from_int(3), Fixed::from_int(8)])
+            {
+                stroke(
+                    paint_ctx,
+                    &LINE,
+                    at(centre - 50, 24),
+                    &widths,
+                    width,
+                    LineCap::Round,
+                    LineJoin::Round,
+                    &empty,
+                );
+            }
+        }
     }
-
-    for (i, join) in [LineJoin::Miter, LineJoin::Round, LineJoin::Bevel]
-        .into_iter()
-        .enumerate()
-    {
-        stroke(
-            paint_ctx,
-            &ELBOW,
-            canvas.compose(&Transform::translate(
-                Fixed::from_int(38 + i as i32 * 146),
-                Fixed::from_int(108),
-            )),
-            &hot,
-            Fixed::from_int(11),
-            LineCap::Butt,
-            join,
-            &empty,
-        );
-    }
-
-    let dash_a = [Fixed::from_int(10), Fixed::from_int(5)];
-    let dash_b = [Fixed::from_int(5), Fixed::from_int(10), Fixed::from_int(15)];
-    let dash_c = [
-        Fixed::from_int(20),
-        Fixed::from_int(5),
-        Fixed::from_int(5),
-        Fixed::from_int(5),
-    ];
-    for (i, dash) in [&dash_a[..], &dash_b[..], &dash_c[..]]
-        .into_iter()
-        .enumerate()
-    {
-        let x = 42 + i as i32 * 146;
-        stroke(
-            paint_ctx,
-            &LINE,
-            canvas.compose(&Transform::translate(
-                Fixed::from_int(x),
-                Fixed::from_int(214),
-            )),
-            &green,
-            Fixed::from_int(6),
-            LineCap::Round,
-            LineJoin::Round,
-            dash,
-        );
-    }
-
-    for (i, width) in [Fixed::ONE, Fixed::from_int(3), Fixed::from_int(8)]
-        .into_iter()
-        .enumerate()
-    {
-        let x = 46 + i as i32 * 146;
-        stroke(
-            paint_ctx,
-            &LINE,
-            canvas.compose(
-                &Transform::translate(Fixed::from_int(x), Fixed::from_int(304))
-                    .compose(&Transform::scale(Fixed::from_ratio(98, 100), Fixed::ONE)),
-            ),
-            &violet,
-            width,
-            LineCap::Round,
-            LineJoin::Round,
-            &empty,
-        );
-    }
-
-    let guide_paint = Paint::Color(theme.resolve(ColorToken::Outline).into());
-    paint_ctx.draw(&DrawCommand::StrokePath {
-        path: &GUIDE,
-        transform: canvas.compose(&Transform::translate(
-            Fixed::from_int(16),
-            Fixed::from_int(20),
-        )),
-        paint: &guide_paint,
-        width: Fixed::ONE,
-        opa: 180,
-        line_cap: LineCap::Butt,
-        line_join: LineJoin::Bevel,
-        miter_limit: Fixed::from_int(4),
-        dash: &empty,
-    });
 }
 
 pub use stroke_styles_render::view as stroke_styles_view;
@@ -163,7 +153,69 @@ pub use stroke_styles_render::view as stroke_styles_view;
 #[compose]
 pub fn build_widgets() {
     ui! {
-        StrokeStyles (grow: 1.0)
+        Column (
+            grow: 1.0,
+            padding: Padding::all(16),
+            row_gap: 6,
+            bg_color: ColorToken::Surface
+        ) {
+            Text (
+                "Stroke styles",
+                height: 28,
+                font_size: 20,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                "Caps, joins, dashes and widths",
+                height: 18,
+                font_size: 12,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Column (
+                grow: 1.0,
+                width: Dimension::percent(100),
+                padding: Padding::all(14),
+                row_gap: 2,
+                justify: JustifyContent::SpaceBetween,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 18
+            ) {
+                Text (
+                    "Line caps: butt, round, square",
+                    height: 18,
+                    font_size: 12,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                StrokeStyles (kind: 0, width: Dimension::percent(100), height: 48)
+                Text (
+                    "Line joins: miter, round, bevel",
+                    height: 18,
+                    font_size: 12,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                StrokeStyles (kind: 1, width: Dimension::percent(100), height: 48)
+                Text (
+                    "Dashes: three patterns",
+                    height: 18,
+                    font_size: 12,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                StrokeStyles (kind: 2, width: Dimension::percent(100), height: 48)
+                Text (
+                    "Widths: 1, 3 and 8",
+                    height: 18,
+                    font_size: 12,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                StrokeStyles (kind: 3, width: Dimension::percent(100), height: 48)
+            }
+        }
     };
 }
 
@@ -173,11 +225,12 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install_sample(app);
     app.with_widget(stroke_styles_view());
     app.compose(parent, build_widgets());
 }
 
-pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(480, 360);
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(480, 440);
 
 #[cfg(test)]
 mod tests {
@@ -187,7 +240,6 @@ mod tests {
     fn stroke_geometry_stays_in_static_storage() {
         assert!(LINE.is_borrowed());
         assert!(ELBOW.is_borrowed());
-        assert!(GUIDE.is_borrowed());
     }
 
     #[test]

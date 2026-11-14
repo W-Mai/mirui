@@ -60,7 +60,7 @@ pub fn diamond_render(component: component!(), paint: paint!()) {
 }
 
 pub const PALETTE: [Color; 3] = [
-    Color::rgb(244, 167, 89),
-    Color::rgb(140, 211, 255),
-    Color::rgb(190, 240, 140),
+    Color::rgb(68, 204, 188),
+    Color::rgb(242, 184, 64),
+    Color::rgb(238, 122, 112),
 ];

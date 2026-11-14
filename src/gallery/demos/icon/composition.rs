@@ -19,16 +19,16 @@ pub fn build_widgets() {
             bg_color: ColorToken::Surface
         ) {
             Text (
-                "VECTOR ICONS",
-                height: 24,
-                font_size: 18,
+                "Vector icons",
+                height: 26,
+                font_size: 20,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "STATIC PATHS · LIVE THEME · RETAINED MOTION",
+                "Static paths, live theme, retained motion",
                 height: 18,
-                font_size: 9,
+                font_size: 12,
                 text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
@@ -51,14 +51,14 @@ pub fn build_widgets() {
                         height: 44,
                         grow: 0.0,
                         bg_color: ColorToken::SurfaceVariant,
-                        border_radius: 10
+                        border_radius: 14
                     )
                 }
             }
             Text (
-                "MOTION PRESETS",
+                "Motion presets",
                 height: 18,
-                font_size: 9,
+                font_size: 12,
                 text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )

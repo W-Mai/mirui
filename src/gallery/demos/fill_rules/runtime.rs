@@ -8,6 +8,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install_sample(app);
     app.with_widget(fill_rules_view());
     app.compose(parent, build_widgets());
 }

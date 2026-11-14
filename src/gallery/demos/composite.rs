@@ -39,7 +39,8 @@ pub fn build_widgets() {
             Text (
                 "Each tile blends the same image over red, green, blue, and black bands.",
                 width: Dimension::percent(100),
-                height: 38,
+                height: 34,
+                font_size: 12,
                 text_color: ColorToken::OnSurfaceVariant
             )
             Row (
@@ -61,14 +62,12 @@ pub fn build_widgets() {
                         align: AlignItems::Center,
                         row_gap: 4,
                         bg_color: ColorToken::SurfaceVariant,
-                        border_color: ColorToken::Outline,
-                        border_width: 1,
-                        border_radius: 10
+                        border_radius: 14
                     ) {
                         View (
                             width: CELL_W,
                             height: CELL_H,
-                            border_radius: 7,
+                            border_radius: 10,
                             direction: FlexDirection::Row,
                             clip_children: true
                         ) {
@@ -106,7 +105,7 @@ pub fn build_widgets() {
                             cell.0,
                             width: Dimension::percent(100),
                             height: 18,
-                            font_size: 8,
+                            font_size: 11,
                             text_color: ColorToken::OnSurface,
                             paragraph: ParagraphStyle::label()
                         )
@@ -124,6 +123,7 @@ where
     F: crate::app::RendererFactory<B>,
 {
     use crate::app::plugins::{ImageResourcesPlugin, StdInstantClockPlugin};
+    crate::gallery::showcase_theme::install_sample(app);
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(ImageResourcesPlugin::default());
     app.compose(parent, build_widgets());

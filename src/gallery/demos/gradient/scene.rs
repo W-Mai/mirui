@@ -30,15 +30,15 @@ pub(super) static RADIAL_DISC: Path = path!(
 pub(super) static LINEAR_STOPS: [GradientStop; 3] = [
     GradientStop {
         offset: mirx::types::Fixed::ZERO,
-        color: mirx::types::Color::rgb(50, 120, 255),
+        color: mirx::types::Color::rgb(52, 196, 176),
     },
     GradientStop {
         offset: mirx::types::Fixed::from_ratio(55, 100),
-        color: mirx::types::Color::rgb(125, 90, 255),
+        color: mirx::types::Color::rgb(68, 138, 224),
     },
     GradientStop {
         offset: mirx::types::Fixed::ONE,
-        color: mirx::types::Color::rgb(255, 70, 90),
+        color: mirx::types::Color::rgb(246, 176, 72),
     },
 ];
 
@@ -49,10 +49,10 @@ pub(super) static RADIAL_STOPS: [GradientStop; 3] = [
     },
     GradientStop {
         offset: mirx::types::Fixed::from_ratio(42, 100),
-        color: mirx::types::Color::rgb(90, 190, 255),
+        color: mirx::types::Color::rgb(112, 218, 206),
     },
     GradientStop {
         offset: mirx::types::Fixed::ONE,
-        color: mirx::types::Color::rgb(20, 70, 190),
+        color: mirx::types::Color::rgb(14, 92, 104),
     },
 ];

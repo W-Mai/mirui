@@ -13,4 +13,4 @@ pub use motion::{Spinner, spin_system};
 #[cfg(feature = "std")]
 pub use runtime::setup_app;
 
-pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(480, 320);
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(480, 240);

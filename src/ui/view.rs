@@ -1869,7 +1869,7 @@ mod tests {
         world.insert(butterfly_node, butterfly::Butterfly::default());
         world.insert(fill_rules_node, fill_rules::FillRules);
         world.insert(clip_path_node, clip_path::ClipPath);
-        world.insert(stroke_styles_node, stroke_styles::StrokeStyles);
+        world.insert(stroke_styles_node, stroke_styles::StrokeStyles::default());
         let fixtures = [
             (
                 shapes::shapes_view().render().unwrap(),

@@ -5,8 +5,7 @@ pub(super) const LOGICAL_WIDTH: i32 = 480;
 pub(super) const LOGICAL_HEIGHT: i32 = 240;
 
 pub(super) const SCENE: &[SceneOp] = scene! {
-    rect 0 0 480 240 0 18 20 28 255 255;
-
+    rect 0 0 480 240 0 0 0 0 0 0;
     group filter "blur:3:3" disjoint;
     rect 28 58 118 58 14 255 80 110 255 220;
     rect 82 104 92 60 14 90 210 255 255 220;
