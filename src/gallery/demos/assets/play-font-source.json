@@ -15,7 +15,7 @@
   "tool": "icu 0.11.1 bake-font",
   "format": "gray",
   "bit_depth": 1,
-  "charset_count": 903,
+  "charset_count": 908,
   "charset_file": "play_charset.txt",
   "outputs": [
     {
@@ -26,8 +26,8 @@
         30
       ],
       "charset": "play_charset.txt",
-      "output_sha256": "85de1369d27ca5d16f8aedb4380650a45979480a98bb05e77b72693170c3b21f",
-      "output_size": 363296
+      "output_sha256": "e6c457201bd1ac0d0f94deaf36f1be3cb5db1b077b2cffcd4deecd10f8227668",
+      "output_size": 368348
     }
   ],
   "merge_tool": "gallery/examples/tools/merge_font_strikes.rs"
