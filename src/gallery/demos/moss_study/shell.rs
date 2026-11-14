@@ -24,8 +24,8 @@ impl fmt::Display for ModalSubtitle {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Hidden => Ok(()),
-            Self::Seeds => out.write_str("载入会暂停演化；新种子可以撤销。"),
-            Self::Clear(live) => write!(out, "当前有 {live} 个活细胞；清空后代数归零。"),
+            Self::Seeds => out.write_str("载入后先暂停，可以撤销。"),
+            Self::Clear(live) => write!(out, "{live} 个活细胞会被清除，代数归零。"),
         }
     }
 }
@@ -67,8 +67,8 @@ fn compose_header_tools(model: model!(MossModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ if model.running() { "B3 / S23 · RUN" } else { "B3 / S23 · PAUSE" } },
-            capacity: 17,
+            text: ${ if model.running() { "B3 / S23 · RUNNING" } else { "B3 / S23 · PAUSED" } },
+            capacity: 24,
             id: "moss_status",
             position: Position::Absolute,
             left: 300,
@@ -133,7 +133,7 @@ fn compose_header_tools(model: model!(MossModel)) -> Entity {
     };
     ui! {
         Button (
-            text: ${ format_args!("{} 度旋转", model.rotation() * 90) },
+            text: ${ format_args!("旋转 {}°", model.rotation() * 90) },
             capacity: 13,
             id: "moss_rotate",
             position: Position::Absolute,
@@ -247,7 +247,7 @@ fn compose_metrics(model: model!(MossModel)) -> Entity {
     };
     ui! {
         Text (
-            "边缘之外为空",
+            "三个邻居：长出",
             position: Position::Absolute,
             left: 371,
             top: 242,
@@ -260,7 +260,7 @@ fn compose_metrics(model: model!(MossModel)) -> Entity {
     };
     ui! {
         Text (
-            "不是生物模拟",
+            "两三个邻居：存活",
             position: Position::Absolute,
             left: 371,
             top: 257,
@@ -277,8 +277,8 @@ fn compose_metrics(model: model!(MossModel)) -> Entity {
 fn compose_footer(model: model!(MossModel)) -> Entity {
     ui! {
         Button (
-            text: ${ if model.running() { "暂停" } else { "运行" } },
-            capacity: 6,
+            text: ${ if model.running() { "Ⅱ 暂停" } else { "▶ 运行" } },
+            capacity: 12,
             id: "moss_run",
             position: Position::Absolute,
             left: 12,
@@ -365,13 +365,7 @@ fn compose_modal(model: model!(MossModel)) -> Entity {
             TouchAction::None,
         ] {
             Text (
-                text: ${
-                    if model.modal() == MossModal::Seeds {
-                        "给花园一种新的开始"
-                    } else {
-                        "让花园重新开始？"
-                    }
-                },
+                text: ${ if model.modal() == MossModal::Seeds { "选一个种子" } else { "清空花园？" } },
                 capacity: 27,
                 id: "moss_modal_title",
                 position: Position::Absolute,
@@ -418,6 +412,48 @@ fn compose_modal(model: model!(MossModel)) -> Entity {
                 border_radius: 6
             ) on Tap { model.close_modal(); }
             Button (
+                "",
+                id: "moss_seed_card_0",
+                visible: ${ model.modal() == MossModal::Seeds },
+                position: Position::Absolute,
+                left: 29,
+                top: 112,
+                width: 135,
+                height: 104,
+                size: ButtonSize::Custom,
+                normal_color: Color::rgba(0, 0, 0, 0),
+                pressed_color: Color::rgba(208, 236, 157, 40),
+                border_radius: 7
+            ) on Tap { model.load_seed(0); }
+            Button (
+                "",
+                id: "moss_seed_card_1",
+                visible: ${ model.modal() == MossModal::Seeds },
+                position: Position::Absolute,
+                left: 171,
+                top: 112,
+                width: 135,
+                height: 104,
+                size: ButtonSize::Custom,
+                normal_color: Color::rgba(0, 0, 0, 0),
+                pressed_color: Color::rgba(208, 236, 157, 40),
+                border_radius: 7
+            ) on Tap { model.load_seed(1); }
+            Button (
+                "",
+                id: "moss_seed_card_2",
+                visible: ${ model.modal() == MossModal::Seeds },
+                position: Position::Absolute,
+                left: 313,
+                top: 112,
+                width: 135,
+                height: 104,
+                size: ButtonSize::Custom,
+                normal_color: Color::rgba(0, 0, 0, 0),
+                pressed_color: Color::rgba(208, 236, 157, 40),
+                border_radius: 7
+            ) on Tap { model.load_seed(2); }
+            Button (
                 "漂流花园",
                 id: "moss_seed_0",
                 visible: ${ model.modal() == MossModal::Seeds },
@@ -450,7 +486,7 @@ fn compose_modal(model: model!(MossModel)) -> Entity {
                 border_radius: 7
             ) on Tap { model.load_seed(1); }
             Button (
-                "固定随机种子",
+                "随机花园",
                 id: "moss_seed_2",
                 visible: ${ model.modal() == MossModal::Seeds },
                 position: Position::Absolute,
@@ -459,32 +495,19 @@ fn compose_modal(model: model!(MossModel)) -> Entity {
                 width: 135,
                 height: 29,
                 size: ButtonSize::Compact,
-                font_size: 9,
+                font_size: 10,
                 normal_color: ${ control_color(model.seed_id() == 2, model.modal() == MossModal::Seeds) },
                 pressed_color: ACTIVE,
                 text_color: ${ control_text_color(model.seed_id() == 2, model.modal() == MossModal::Seeds) },
                 border_radius: 7
             ) on Tap { model.load_seed(2); }
-            Text (
-                "清空后可以重新播种，也可以撤销。",
-                id: "moss_clear_note",
-                visible: ${ model.modal() == MossModal::Clear },
-                position: Position::Absolute,
-                left: 171,
-                top: 139,
-                width: 257,
-                height: 18,
-                font_size: 9,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
             Button (
-                "清空花园",
+                "清空",
                 id: "moss_clear_confirm",
                 visible: ${ model.modal() == MossModal::Clear },
                 position: Position::Absolute,
                 left: 171,
-                top: 190,
+                top: 140,
                 width: 257,
                 height: 32,
                 size: ButtonSize::Compact,
@@ -495,12 +518,12 @@ fn compose_modal(model: model!(MossModel)) -> Entity {
                 border_radius: 7
             ) on Tap { model.confirm_clear(); }
             Button (
-                "保留花园",
+                "取消",
                 id: "moss_clear_cancel",
                 visible: ${ model.modal() == MossModal::Clear },
                 position: Position::Absolute,
                 left: 171,
-                top: 230,
+                top: 180,
                 width: 257,
                 height: 25,
                 size: ButtonSize::Compact,

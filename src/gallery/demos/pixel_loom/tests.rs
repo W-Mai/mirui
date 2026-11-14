@@ -279,3 +279,58 @@ fn delayed_clipboard_edits_reject_changed_selection_and_replaced_sources() {
     assert_eq!(with_model(&world, |model| *model.frames()), original);
     assert_eq!(with_model(&world, PixelModel::history_len), 0);
 }
+
+fn text_of(world: &World, id: &'static str) -> alloc::string::String {
+    let text = world.get::<Text>(world.find_by_id(id).unwrap()).unwrap();
+    assert!(text.has_valid_content(), "{id}");
+    assert_eq!(text.last_content_error(), None, "{id}");
+    text.resolve(world.resource()).into_owned()
+}
+
+#[test]
+fn template_cards_load_their_template_and_modals_say_what_happens() {
+    use crate::gallery::play::pixel::{PixelModal, PixelTool};
+
+    let mut world = fixture();
+    let surface = world.find_by_id("pixel_surface").unwrap();
+    let model = world.get::<PixelSurface>(surface).unwrap().model.clone();
+    assert_eq!(
+        text_of(&world, "pixel_mode_status"),
+        "点格子上色，拖动可连续画"
+    );
+    model.set_tool(PixelTool::Erase);
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(
+        text_of(&world, "pixel_mode_status"),
+        "点格子擦除，拖动可连续擦"
+    );
+
+    model.open_templates();
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(text_of(&world, "pixel_modal_title"), "选一个模板");
+    assert_eq!(
+        text_of(&world, "pixel_modal_subtitle"),
+        "会替换现在的四帧，可以撤销。"
+    );
+    let card = world.find_by_id("pixel_template_card_2").unwrap();
+    assert!(trigger(
+        &mut world,
+        &GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target: card,
+        }
+    ));
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(with_model(&world, PixelModel::template_id), 2);
+    assert_eq!(with_model(&world, PixelModel::modal), PixelModal::None);
+    assert_eq!(text_of(&world, "pixel_template_name"), "会飞的信");
+
+    model.open_clear();
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(text_of(&world, "pixel_modal_title"), "清空这一帧？");
+    assert_eq!(
+        text_of(&world, "pixel_modal_subtitle"),
+        "只清空这一帧，可以撤销。"
+    );
+}

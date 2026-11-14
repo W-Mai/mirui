@@ -1,9 +1,16 @@
 use super::style::{MUTED, TEXT};
-use crate::gallery::play::marble::{MarbleModel, PAD_PITCHES};
+use crate::gallery::play::marble::{MarbleModel, PAD_PITCHES, PALETTE};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::types::Fixed64;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Slider, Text, TextAlign};
+
+/// A ring around the swatch of the selected pad's colour.
+const SWATCH_RING: Color = Color::rgb(225, 233, 214);
+
+fn swatch_border(selected: u32, index: usize) -> i32 {
+    if selected == PALETTE[index] { 2 } else { 0 }
+}
 
 fn pitch_label(pitch: u8) -> &'static str {
     const LABELS: [&str; 10] = ["C4", "D4", "E4", "G4", "A4", "C5", "D5", "E5", "G5", "A5"];
@@ -52,7 +59,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Button (
-                        "X",
+                        "×",
                         id: "marble_inspector_close",
                         size: ButtonSize::Compact,
                         width: 24,
@@ -80,6 +87,8 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         height: 20,
                         normal_color: Color::rgb(180, 234, 189),
                         pressed_color: Color::rgb(180, 234, 189),
+                        border_color: SWATCH_RING,
+                        border_width: ${ swatch_border(model.selected_color(), 0) },
                         border_radius: 5
                     ) on Tap { model.set_color(0); }
                     Button (
@@ -89,6 +98,8 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         height: 20,
                         normal_color: Color::rgb(198, 176, 239),
                         pressed_color: Color::rgb(198, 176, 239),
+                        border_color: SWATCH_RING,
+                        border_width: ${ swatch_border(model.selected_color(), 1) },
                         border_radius: 5
                     ) on Tap { model.set_color(1); }
                     Button (
@@ -98,6 +109,8 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         height: 20,
                         normal_color: Color::rgb(238, 217, 132),
                         pressed_color: Color::rgb(238, 217, 132),
+                        border_color: SWATCH_RING,
+                        border_width: ${ swatch_border(model.selected_color(), 2) },
                         border_radius: 5
                     ) on Tap { model.set_color(2); }
                     Button (
@@ -107,6 +120,8 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         height: 20,
                         normal_color: Color::rgb(238, 172, 139),
                         pressed_color: Color::rgb(238, 172, 139),
+                        border_color: SWATCH_RING,
+                        border_width: ${ swatch_border(model.selected_color(), 3) },
                         border_radius: 5
                     ) on Tap { model.set_color(3); }
                     Button (
@@ -116,6 +131,8 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         height: 20,
                         normal_color: Color::rgb(160, 210, 232),
                         pressed_color: Color::rgb(160, 210, 232),
+                        border_color: SWATCH_RING,
+                        border_width: ${ swatch_border(model.selected_color(), 4) },
                         border_radius: 5
                     ) on Tap { model.set_color(4); }
                 }

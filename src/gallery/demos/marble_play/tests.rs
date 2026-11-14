@@ -133,13 +133,13 @@ fn composition_uses_real_text_and_button_widgets() {
     assert_eq!(world.query::<MarbleBoard>().collect().len(), 1);
     for (id, capacity) in [
         ("marble_pause", 4),
-        ("marble_audio", 5),
+        ("marble_audio", 8),
         ("marble_record", 4),
-        ("marble_status", 32),
+        ("marble_status", 40),
         ("marble_marble_count", 9),
         ("marble_pad_count", 6),
         ("marble_setting_bpm", 16),
-        ("marble_readout", 34),
+        ("marble_readout", 40),
         ("marble_pitch", 4),
         ("marble_timbre", 6),
     ] {
@@ -893,7 +893,7 @@ fn audio_display_tracks_shared_controls() {
     assert!(world.get::<Hidden>(audio).is_none());
     assert_eq!(
         world.get::<Text>(audio).unwrap().resolve(world.resource()),
-        "WAIT"
+        "♪ …"
     );
 
     world
@@ -903,14 +903,14 @@ fn audio_display_tracks_shared_controls() {
     crate::core::reactive::flush_signal_dirty(world);
     assert_eq!(
         world.get::<Text>(audio).unwrap().resolve(world.resource()),
-        "ON"
+        "♪ ON"
     );
 
     world.resource::<AudioHandle>().unwrap().set_muted(true);
     crate::core::reactive::flush_signal_dirty(world);
     assert_eq!(
         world.get::<Text>(audio).unwrap().resolve(world.resource()),
-        "SOUND"
+        "♪ OFF"
     );
 }
 
@@ -1132,4 +1132,69 @@ fn scene_card_tap_loads_selected_preset() {
     let model = world.resource::<MarbleModelHandle>().unwrap();
     assert_eq!(model.scene(), 2);
     assert_eq!(model.page(), Page::Play);
+}
+
+#[test]
+fn toasts_replace_the_status_line_and_fit_the_embedded_layout() {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_default_widgets();
+    app.with_text_layout_limits(crate::text::TextLayoutLimits::EMBEDDED);
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    app.prepare_text_layout().unwrap();
+    app.render().unwrap();
+    let model = app
+        .world
+        .query::<MarbleBoard>()
+        .iter()
+        .next()
+        .unwrap()
+        .1
+        .model
+        .clone();
+    let status = |app: &TestApp| {
+        app.world
+            .get::<Text>(app.world.find_by_id("marble_status").unwrap())
+            .unwrap()
+            .resolve(app.world.resource())
+            .into_owned()
+    };
+    assert_eq!(status(&app), "DRAG TO TILT · TAP A PAD");
+
+    let mut seen = alloc::vec::Vec::new();
+    let mut record = |app: &mut TestApp| {
+        crate::core::reactive::flush_signal_dirty(&mut app.world);
+        app.render_dirty().unwrap();
+        assert_eq!(app.last_text_layout_failure(), None);
+        seen.push(status(app));
+    };
+    for _ in 0..8 {
+        model.drop_ball();
+    }
+    record(&mut app);
+    model.toggle_recording();
+    record(&mut app);
+    model.set_page(Page::Edit);
+    model.toggle_add_mode();
+    record(&mut app);
+    while model.pad_count() > 1 {
+        model.remove_selected();
+    }
+    model.remove_selected();
+    record(&mut app);
+    assert_eq!(
+        seen,
+        [
+            "MAXIMUM 8 MARBLES",
+            "RECORDING 4 BARS · TAP THE PADS",
+            "RECORDING 4 BARS · TAP THE PADS",
+            "KEEP AT LEAST ONE PAD",
+        ]
+    );
+
+    for _ in 0..30 {
+        model.advance_ms(60);
+    }
+    crate::core::reactive::flush_signal_dirty(&mut app.world);
+    assert_eq!(status(&app), "TAP EMPTY SPACE TO PLACE A PAD");
 }

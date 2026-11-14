@@ -475,3 +475,109 @@ fn first_picture_matches_reference_geometry() {
         (112, 81, 26, 130)
     );
 }
+
+fn text_of(world: &World, id: &'static str) -> alloc::string::String {
+    let text = world.get::<Text>(world.find_by_id(id).unwrap()).unwrap();
+    assert!(text.has_valid_content(), "{id}");
+    assert_eq!(text.last_content_error(), None, "{id}");
+    text.resolve(world.resource()).into_owned()
+}
+
+#[test]
+fn hints_name_the_cell_and_a_clean_solve_earns_three_stars() {
+    use crate::gallery::play::picture::PictureTool;
+
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    app.set_root(root);
+    app.render().unwrap();
+    let (model, _expedition) = handles(&app.world);
+    assert_eq!(text_of(&app.world, "picture_status"), "按边上的数字填格子");
+    assert_eq!(text_of(&app.world, "picture_next"), "下一幅");
+
+    model.reveal_hint();
+    flush(&mut app.world);
+    let status = text_of(&app.world, "picture_status");
+    assert!(
+        status.starts_with("已标出第 ") && status.ends_with(" 列"),
+        "{status}"
+    );
+    model.undo();
+    model.restart();
+
+    model.set_tool(PictureTool::Fill);
+    let (size, cells) = ModelHandle::read(&model, |model| {
+        let level = model.level();
+        let size = level.size();
+        let mut cells = alloc::vec::Vec::new();
+        for cell in 0..size * size {
+            if level.target(cell) && !level.is_given(cell) {
+                cells.push(cell);
+            }
+        }
+        (size, cells)
+    });
+    for cell in cells {
+        model.apply_cell(cell);
+    }
+    flush(&mut app.world);
+    app.render().unwrap();
+    assert_eq!(text_of(&app.world, "picture_status"), "图谱已复原");
+    assert_eq!(
+        text_of(&app.world, "picture_result_stats"),
+        alloc::format!("★★★   提示 0 次   {size}×{size}")
+    );
+    for fit in crate::gallery::demos::text_fits(&app.world) {
+        assert!(!fit.overflows(4), "{:?} in {:?}", fit.text, fit.rect);
+    }
+}
+
+#[test]
+fn every_picture_size_fits_its_clues_and_readouts() {
+    use crate::gallery::play::picture::PictureTool;
+
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    app.set_root(root);
+    let (model, expedition) = handles(&app.world);
+    for level in 0..36u8 {
+        assert_eq!(model.level_index(), level);
+        flush(&mut app.world);
+        app.render().unwrap();
+        for fit in crate::gallery::demos::text_fits(&app.world) {
+            assert!(
+                !fit.overflows(4),
+                "A{:02}: {:?} in {:?}",
+                level + 1,
+                fit.text,
+                fit.rect
+            );
+        }
+        model.set_tool(PictureTool::Fill);
+        let cells = ModelHandle::read(&model, |model| {
+            let level = model.level();
+            let size = level.size();
+            (0..size * size)
+                .filter(|cell| level.target(*cell) && !level.is_given(*cell))
+                .collect::<alloc::vec::Vec<_>>()
+        });
+        for cell in cells {
+            model.apply_cell(cell);
+        }
+        let final_level = level == 35;
+        assert_eq!(
+            model.modal(),
+            if final_level {
+                ExpeditionModal::Final
+            } else {
+                ExpeditionModal::Result
+            }
+        );
+        model.continue_campaign();
+        expedition.close();
+    }
+}

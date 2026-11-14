@@ -56,12 +56,12 @@ impl Direction4 {
         }
     }
 
-    pub(crate) const fn label(self) -> &'static str {
+    pub(crate) const fn arrow(self) -> &'static str {
         match self {
-            Self::Up => "UP",
-            Self::Right => "RIGHT",
-            Self::Down => "DOWN",
-            Self::Left => "LEFT",
+            Self::Up => "↑",
+            Self::Right => "→",
+            Self::Down => "↓",
+            Self::Left => "←",
         }
     }
 }

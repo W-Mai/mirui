@@ -20,11 +20,11 @@ impl PixelClipboardStatus {
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Ready => "",
-            Self::Copied => "Copied",
-            Self::Cut => "Cut",
-            Self::Pasted => "Pasted",
-            Self::Changed => "Copied; frame changed",
-            Self::Unavailable => "Clipboard unavailable",
+            Self::Copied => "已复制",
+            Self::Cut => "已剪切",
+            Self::Pasted => "已粘贴",
+            Self::Changed => "已复制，本帧未清空",
+            Self::Unavailable => "剪贴板不可用",
         }
     }
 }

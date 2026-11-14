@@ -9,7 +9,7 @@ use crate::gallery::play::expeditions::{
 };
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::twin::{
-    CHAPTER_MECHANICS, CHAPTER_NAMES, TwinMessage, TwinModel, TwinProgress,
+    CHAPTER_MECHANICS, CHAPTER_NAMES, CHAPTER_TIPS, TwinMessage, TwinModel, TwinProgress, mapped,
 };
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
@@ -21,12 +21,16 @@ fn level_par(level: u8) -> u8 {
     twin_level(level).map_or(0, |level| level.par())
 }
 
+fn level_mode(level: u8) -> u8 {
+    twin_level(level).map_or(0, |level| level.mode())
+}
+
 fn next_label(modal: ExpeditionModal, level: u8, unlocked: u8) -> &'static str {
     match modal {
         ExpeditionModal::Result => "下一站",
         ExpeditionModal::Final => "再航行",
-        ExpeditionModal::None if level < unlocked => "换一站",
-        ExpeditionModal::None => "第一站",
+        ExpeditionModal::None if level >= unlocked && level > 0 => "回第一站",
+        ExpeditionModal::None => "下一站",
     }
 }
 
@@ -42,7 +46,21 @@ fn result_title(modal: ExpeditionModal, level: u8) -> &'static str {
     } else if level % 6 == 5 {
         "章节完成"
     } else {
-        "两座信标已同步"
+        "本站完成"
+    }
+}
+
+/// Where station B goes for ↑ → ↓ ← under the level's rule, lined up
+/// under the fixed row for A.
+struct BRoute(u8);
+
+impl fmt::Display for BRoute {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        output.write_str("B")?;
+        for direction in Direction4::ALL {
+            write!(output, "  {}", mapped(direction, self.0).arrow())?;
+        }
+        Ok(())
     }
 }
 
@@ -67,16 +85,16 @@ struct StatusText(TwinMessage);
 impl fmt::Display for StatusText {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
-            TwinMessage::Ready => output.write_str("双站同步，单次输入驱动两边"),
-            TwinMessage::Blocked => output.write_str("路径受阻；另一座信标也保持原位"),
-            TwinMessage::KeyCollected => output.write_str("访问密钥已同步，闸门开放"),
-            TwinMessage::Undone => output.write_str("已撤回上一条指令"),
+            TwinMessage::Ready => output.write_str("让 A 和 B 同时停在各自的圆环上"),
+            TwinMessage::Blocked => output.write_str("两边都被挡住了"),
+            TwinMessage::KeyCollected => output.write_str("A 取到钥片，闸门打开了"),
+            TwinMessage::Undone => output.write_str("已撤回一步"),
             TwinMessage::Hint(direction, remaining) => write!(
                 output,
-                "提示 {} · 最短还需 {remaining} 步",
-                direction.label()
+                "提示 {} · 最少还需 {remaining} 步",
+                direction.arrow()
             ),
-            TwinMessage::Complete => output.write_str("两座信标已同时归位"),
+            TwinMessage::Complete => output.write_str("A 和 B 同时到站"),
         }
     }
 }
@@ -156,11 +174,8 @@ struct ResultStats {
 
 impl fmt::Display for ResultStats {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            output,
-            "星级 {} / 3   完成 {:02} 步   最短 {:02} 步",
-            self.stars, self.steps, self.par
-        )
+        write_stars(output, self.stars)?;
+        write!(output, "   {:02} 步 · 最少 {:02} 步", self.steps, self.par)
     }
 }
 
@@ -330,15 +345,31 @@ fn compose_hud(game: model!(TwinModel)) -> Entity {
     };
     ui! {
         Text (
-            "One command\nTwo mirrored routes",
+            "A  ↑  →  ↓  ←",
+            id: "twin_route_a",
             position: Position::Absolute,
             left: 329,
-            top: 94,
+            top: 95,
             width: 124,
-            height: 29,
+            height: 13,
             font_size: 7,
-            text_color: MUTED,
-            paragraph: ParagraphStyle::default().with_align(TextAlign::Start)
+            text_color: MINT,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ BRoute(level_mode(game.level_index())) },
+            capacity: 24,
+            id: "twin_route_b",
+            position: Position::Absolute,
+            left: 329,
+            top: 110,
+            width: 124,
+            height: 13,
+            font_size: 7,
+            text_color: LAVENDER,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
         )
     }
 }
@@ -633,7 +664,7 @@ fn compose_result_overlay(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "下一条航路已经开放；当前最优记录会保留。",
+                    "不用提示、按最少步数到站得 ★★★",
                     height: 18,
                     font_size: 9,
                     text_color: MUTED,
@@ -665,7 +696,14 @@ fn compose_result_overlay(
                         border_radius: 7
                     ) on Tap { expedition.open(game.level_index()); }
                     Button (
-                        "继续远征 →",
+                        text: ${
+                            if game.modal() == ExpeditionModal::Final {
+                                "查看档案 →"
+                            } else {
+                                "继续远征 →"
+                            }
+                        },
+                        capacity: 20,
                         size: ButtonSize::Compact,
                         grow: 1.0,
                         height: 33,
@@ -858,7 +896,7 @@ fn compose_map_overlay(game: model!(TwinModel), expedition: model!(ExpeditionUiM
                     }
                 }
                 Text (
-                    "6 CHAPTERS × 6 LEVELS · COMPLETE TO UNLOCK",
+                    "CLEAR A LEVEL TO OPEN THE NEXT",
                     height: 16,
                     font_size: 7,
                     text_color: MUTED,
@@ -927,28 +965,28 @@ fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "02  必须同时停在各自的双圆环信标；到站后仍会移动。",
+                    "02  A 和 B 要同时停在各自的圆环上；先到的一方还会继续走。",
                     height: 20,
                     font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "03  后续章节会改变 B 站方向，屏幕右侧会完整标注。",
+                    "03  后面的章节里 B 的方向会变，右侧面板会标出来。",
                     height: 20,
                     font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "04  钥片由 A 取得；取到后的下一步起可通过闸门。",
+                    "04  钥片只有 A 能取；取到后，下一步起两边闸门都能通过。",
                     height: 20,
                     font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "05  用墙壁制造错位，再让两位探索者汇合。",
+                    "05  让一方撞墙停住，就能改变两人的相对位置。",
                     height: 20,
                     font_size: 10,
                     text_color: TEXT,
@@ -1005,13 +1043,6 @@ fn compose_briefing_overlay(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "新机制解锁 · 先理解规则，再启程",
-                    height: 17,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::label()
-                )
-                Text (
                     text: ${ CHAPTER_MECHANICS[usize::from(game.level_index() / 6)] },
                     capacity: 48,
                     id: "twin_briefing_mechanic",
@@ -1021,14 +1052,18 @@ fn compose_briefing_overlay(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "留意 B 站的新指令方向；撞墙可制造相对位移。",
+                    text: ${ CHAPTER_TIPS[usize::from(game.level_index() / 6)][0] },
+                    capacity: 64,
+                    id: "twin_briefing_tip_0",
                     height: 17,
                     font_size: 9,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "出现钥片时，先让 A 取得，再穿过两站闸门。",
+                    text: ${ CHAPTER_TIPS[usize::from(game.level_index() / 6)][1] },
+                    capacity: 64,
+                    id: "twin_briefing_tip_1",
                     height: 17,
                     font_size: 9,
                     text_color: MUTED,
@@ -1089,7 +1124,7 @@ fn compose_summary_overlay(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "36 关全部完成；每章记录保留，可随时重访。",
+                    "36 站全部完成。点章节编号可以重新挑战。",
                     height: 16,
                     font_size: 9,
                     text_color: MUTED,

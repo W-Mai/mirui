@@ -679,7 +679,12 @@ impl TideModel {
 
     #[observe]
     pub(crate) fn cumulative_score(&self) -> u16 {
-        self.state.total.saturating_add(self.state.score)
+        // The last island's score is already in `total` once the voyage ends.
+        if self.state.complete {
+            self.state.total
+        } else {
+            self.state.total.saturating_add(self.state.score)
+        }
     }
 
     #[observe]

@@ -187,12 +187,12 @@ pub(super) fn modal_render(model: model!(component.model, watch(modal, seed_id))
         for seed_id in 0..3_u8 {
             let left = 29 + i32::from(seed_id) * 142;
             painter.fill(
-                Rect::new(left, 104, 135, 111),
+                Rect::new(left, 112, 135, 104),
                 Color::rgb(32, 50, 37),
                 Fixed::from_int(7),
             );
             painter.border(
-                Rect::new(left, 104, 135, 111),
+                Rect::new(left, 112, 135, 104),
                 if model.seed_id() == seed_id {
                     ACTIVE
                 } else {
@@ -202,7 +202,7 @@ pub(super) fn modal_render(model: model!(component.model, watch(modal, seed_id))
                 Fixed::from_int(7),
             );
             let cells = MossCells::seed(seed_id).expect("built-in seed");
-            paint_seed_preview(&mut painter, &cells, left + 8, 122);
+            paint_seed_preview(&mut painter, &cells, left + 8, 128);
         }
     } else {
         painter.fill(

@@ -44,19 +44,44 @@ impl fmt::Display for ClueLabel {
     }
 }
 
-struct StatusLabel(PictureMessage);
+struct StatusLabel {
+    message: PictureMessage,
+    size: u8,
+}
 
 impl fmt::Display for StatusLabel {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            PictureMessage::Ready => out.write_str("读出行列线索，修复失落图谱"),
-            PictureMessage::Observed => out.write_str("观测点已锁定，不能覆盖"),
+        match self.message {
+            PictureMessage::Ready => out.write_str("按边上的数字填格子"),
+            PictureMessage::Observed => out.write_str("青点是给定的，不能改"),
             PictureMessage::Undone => out.write_str("已撤回上一笔"),
-            PictureMessage::Hint(cell) => write!(out, "提示已校准格点 {}", cell + 1),
-            PictureMessage::Checked(0) => out.write_str("当前标记没有冲突"),
-            PictureMessage::Checked(errors) => write!(out, "发现 {errors} 个冲突标记"),
-            PictureMessage::Complete => out.write_str("图谱修复完成"),
+            PictureMessage::Hint(cell) => write!(
+                out,
+                "已标出第 {} 行第 {} 列",
+                cell / self.size + 1,
+                cell % self.size + 1
+            ),
+            PictureMessage::Checked(0) => out.write_str("目前没有填错"),
+            PictureMessage::Checked(errors) => write!(out, "有 {errors} 格填错了"),
+            PictureMessage::Complete => out.write_str("图谱已复原"),
         }
+    }
+}
+
+struct ResultStats {
+    stars: u8,
+    hints: u16,
+    size: u8,
+}
+
+impl fmt::Display for ResultStats {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_stars(out, self.stars)?;
+        write!(
+            out,
+            "   提示 {} 次   {}×{}",
+            self.hints, self.size, self.size
+        )
     }
 }
 
@@ -135,8 +160,8 @@ fn next_label(modal: ExpeditionModal, level: u8, unlocked: u8) -> &'static str {
     match modal {
         ExpeditionModal::Result => "下一幅",
         ExpeditionModal::Final => "重新观测",
-        ExpeditionModal::None if level < unlocked => "换一幅",
-        ExpeditionModal::None => "第一幅",
+        ExpeditionModal::None if level >= unlocked && level > 0 => "回第一幅",
+        ExpeditionModal::None => "下一幅",
     }
 }
 
@@ -820,8 +845,8 @@ fn compose_tools(model: model!(PictureModel)) -> Entity {
         Text (
             text: ${
                 format_args!(
-                    "{}×{}   UNDO {:02}   HINT {}", level_size(model.level_index()),
-                    level_size(model.level_index()), model.history_len(), model.hints()
+                    "{}×{}   HINT {}", level_size(model.level_index()), level_size(model
+                    .level_index()), model.hints()
                 )
             },
             capacity: 48,
@@ -842,13 +867,18 @@ fn compose_tools(model: model!(PictureModel)) -> Entity {
 fn compose_footer(model: model!(PictureModel), expedition: model!(ExpeditionUiModel)) -> Entity {
     ui! {
         Text (
-            text: ${ StatusLabel(model.message()) },
+            text: ${
+                StatusLabel {
+                    message: model.message(),
+                    size: level_size(model.level_index()),
+                }
+            },
             capacity: 48,
             id: "picture_status",
             position: Position::Absolute,
             left: 18,
             top: 274,
-            width: 134,
+            width: 126,
             height: 18,
             font_size: 8,
             text_color: TEXT,
@@ -1003,11 +1033,11 @@ fn compose_result_modal(
                 )
                 Text (
                     text: ${
-                        format_args!(
-                            "星级 {} / 3   提示 {} 次   图纸 {}×{}", model.progress().stars(model
-                            .level_index()), model.hints(), level_size(model.level_index()), level_size(model
-                            .level_index())
-                        )
+                        ResultStats {
+                            stars: model.progress().stars(model.level_index()),
+                            hints: model.hints(),
+                            size: level_size(model.level_index()),
+                        }
                     },
                     capacity: 64,
                     id: "picture_result_stats",
@@ -1017,7 +1047,7 @@ fn compose_result_modal(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "下一幅图已经开放；提示不会影响关卡解锁。",
+                    "不用提示完成得 ★★★",
                     height: 18,
                     font_size: 9,
                     text_color: MUTED,
@@ -1049,7 +1079,14 @@ fn compose_result_modal(
                         border_radius: 7
                     ) on Tap { expedition.open(model.level_index()); }
                     Button (
-                        "继续远征 →",
+                        text: ${
+                            if model.modal() == ExpeditionModal::Final {
+                                "查看档案 →"
+                            } else {
+                                "继续远征 →"
+                            }
+                        },
+                        capacity: 20,
                         size: ButtonSize::Compact,
                         grow: 1.0,
                         height: 33,
@@ -1257,7 +1294,7 @@ fn compose_map_panel(model: model!(PictureModel), expedition: model!(ExpeditionU
                     }
                 }
                 Text (
-                    "6 CHAPTERS × 6 LEVELS · COMPLETE TO UNLOCK",
+                    "CLEAR A LEVEL TO OPEN THE NEXT",
                     height: 16,
                     font_size: 7,
                     text_color: MUTED,
@@ -1333,14 +1370,14 @@ fn compose_rules_panel(expedition: model!(ExpeditionUiModel)) -> Entity {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "03  选择填色或标空，按住拖动；同一笔画可一次撤销。",
+                    "03  选填色或标空，按住拖动可以连着画；一次撤销撤回一整笔。",
                     height: 20,
                     font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "04  青点是固定观测点，不可修改；空格不必全部标叉。",
+                    "04  青点是给定的格子，不能修改；空格不必全部标叉。",
                     height: 20,
                     font_size: 10,
                     text_color: TEXT,
@@ -1404,13 +1441,6 @@ fn compose_briefing_panel(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "新机制解锁 · 先理解规则，再启程",
-                    height: 17,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::label()
-                )
-                Text (
                     text: ${ CHAPTER_MECHANICS[usize::from(model.level_index() / 6)] },
                     capacity: 64,
                     id: "picture_briefing_mechanic",
@@ -1420,14 +1450,14 @@ fn compose_briefing_panel(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "尺寸增加时优先处理大数字与完整行。",
+                    "数字大的行和列最好先填。",
                     height: 17,
                     font_size: 9,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "段与段之间至少隔一个空格；青点观测不可修改。",
+                    "两段之间至少空一格；青点是给定的，不能改。",
                     height: 17,
                     font_size: 9,
                     text_color: MUTED,
@@ -1488,7 +1518,7 @@ fn compose_summary_panel(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "36 关全部完成；每章记录保留，可随时重访。",
+                    "36 幅图谱全部复原。点章节编号可以重新挑战。",
                     height: 16,
                     font_size: 9,
                     text_color: MUTED,

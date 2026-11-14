@@ -9,19 +9,19 @@ use crate::gallery::play::marble::{MarbleSound, PadTimbre};
 pub(super) fn audio_label(state: &Option<AudioStateSignal>) -> &'static str {
     if let Some(state) = state.as_ref().map(AudioStateSignal::get) {
         return if state.muted {
-            "SOUND"
+            "♪ OFF"
         } else if state.output == AudioOutputState::Ready {
-            "ON"
+            "♪ ON"
         } else {
-            "WAIT"
+            "♪ …"
         };
     }
-    "SOUND"
+    "♪ OFF"
 }
 
 #[cfg(not(feature = "audio"))]
 pub(super) fn audio_label(_: &bool) -> &'static str {
-    "SOUND"
+    "♪ OFF"
 }
 
 #[cfg(feature = "audio")]

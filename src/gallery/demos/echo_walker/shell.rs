@@ -23,33 +23,57 @@ fn action_text_color(enabled: bool) -> Color {
     if enabled { TEXT } else { MUTED }
 }
 
-fn modal_title(modal: EchoModal, complete: bool) -> &'static str {
-    if modal == EchoModal::Tapes {
-        "ECHO TAPES"
-    } else if complete {
-        "TWELVE ROOMS RESTORED"
-    } else {
-        "ARCHIVE RESTORED"
+struct ModalTitle {
+    modal: EchoModal,
+    complete: bool,
+    level: u8,
+}
+
+impl core::fmt::Display for ModalTitle {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.modal == EchoModal::Tapes {
+            formatter.write_str("ECHO TAPES")
+        } else if self.complete {
+            formatter.write_str("ALL 12 ROOMS SOLVED")
+        } else {
+            write!(formatter, "ROOM {:02} SOLVED", self.level + 1)
+        }
     }
 }
 
-fn modal_subtitle(modal: EchoModal, complete: bool) -> &'static str {
+fn modal_subtitle(modal: EchoModal, complete: bool, echoes: u8) -> &'static str {
     if modal == EchoModal::Tapes {
-        "Inspect each route. An echo holds its final cell."
+        if echoes == 0 {
+            "No echoes yet. RECORD ECHO saves your route as one."
+        } else {
+            "Tap a tape to show only that echo's route."
+        }
     } else if complete {
-        "All twelve rooms are restored."
+        "Totals for the whole archive."
     } else {
-        "Past and present completed the route together."
+        "Exit reached with every memory fragment."
     }
 }
 
-fn primary_label(complete: bool, result_len: u8) -> &'static str {
-    if complete {
-        "ARCHIVE COMPLETE"
-    } else if result_len == 11 {
-        "COMPLETE ARCHIVE"
+fn primary_label(result_len: u8) -> &'static str {
+    if result_len == 11 {
+        "FINISH"
     } else {
         "NEXT ROOM"
+    }
+}
+
+/// `count` followed by the singular or the plural noun.
+struct Count(u16, &'static str, &'static str);
+
+impl core::fmt::Display for Count {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            formatter,
+            "{} {}",
+            self.0,
+            if self.0 == 1 { self.1 } else { self.2 }
+        )
     }
 }
 
@@ -59,30 +83,29 @@ impl core::fmt::Display for MessageLabel {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.0 {
             EchoMessage::Ready => {
-                formatter.write_str("Reach a plate, rewind, and let the past replay the route.")
+                formatter.write_str("STEP ON A PLATE, THEN RECORD AN ECHO TO KEEP IT DOWN")
             }
             EchoMessage::Plate(index) => write!(
                 formatter,
-                "PLATE {} HELD · RECORD THIS ROUTE",
+                "PLATE {} IS DOWN · RECORD AN ECHO TO HOLD IT",
                 char::from(b'A' + index)
             ),
-            EchoMessage::Fragment => formatter.write_str("MEMORY FRAGMENT STORED ACROSS REWINDS"),
+            EchoMessage::Fragment => formatter.write_str("MEMORY FOUND · IT STAYS WITH YOU"),
+            EchoMessage::Missing(1) => formatter.write_str("EXIT LOCKED · 1 MEMORY LEFT TO FIND"),
             EchoMessage::Missing(count) => {
-                write!(formatter, "EXIT NEEDS {count} MORE MEMORY FRAGMENTS")
+                write!(formatter, "EXIT LOCKED · {count} MEMORIES LEFT TO FIND")
             }
-            EchoMessage::BeatLimit => {
-                formatter.write_str("48 BEATS USED · RECORD OR RESTART THIS ROUTE")
-            }
+            EchoMessage::BeatLimit => formatter.write_str("OUT OF BEATS · RECORD AN ECHO OR RETRY"),
             EchoMessage::Recorded => {
-                formatter.write_str("ECHO RECORDED · IT WILL HOLD THE FINAL CELL")
+                formatter.write_str("ECHO RECORDED · IT WAITS WHERE YOU STOPPED")
             }
             EchoMessage::Restarted => {
-                formatter.write_str("ROUTE RESTARTED · ECHOES AND MEMORY REMAIN")
+                formatter.write_str("ROUTE RESTARTED · ECHOES AND MEMORY KEPT")
             }
-            EchoMessage::Cleared => formatter.write_str("ROOM RESET · SEED AND GEOMETRY PRESERVED"),
-            EchoMessage::Undone => formatter.write_str("UNDO RESTORED TIME, MEMORY, AND ECHOES"),
-            EchoMessage::Won => formatter.write_str("ARCHIVE RESTORED · CONTINUE TO THE NEXT ROOM"),
-            EchoMessage::Complete => formatter.write_str("ALL TWELVE ROOMS RESTORED"),
+            EchoMessage::Cleared => formatter.write_str("ROOM RESET · ECHOES AND MEMORY ERASED"),
+            EchoMessage::Undone => formatter.write_str("LAST ACTION UNDONE"),
+            EchoMessage::Won => formatter.write_str("EXIT REACHED · ROOM SOLVED"),
+            EchoMessage::Complete => formatter.write_str("ALL 12 ROOMS SOLVED"),
         }
     }
 }
@@ -96,18 +119,30 @@ struct ResultStats {
 impl core::fmt::Display for ResultStats {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if self.complete {
-            write!(
-                formatter,
-                "TOTAL {} STEPS · {} REWINDS",
-                self.steps, self.loops
-            )
-        } else {
-            write!(
-                formatter,
-                "ROOM {} STEPS · {} REWINDS",
-                self.steps, self.loops
-            )
+            formatter.write_str("TOTAL ")?;
         }
+        write!(
+            formatter,
+            "{} · {}",
+            Count(self.steps, "STEP", "STEPS"),
+            Count(self.loops, "ECHO", "ECHOES")
+        )
+    }
+}
+
+struct RouteStats {
+    steps: u16,
+    echoes: u8,
+}
+
+impl core::fmt::Display for RouteStats {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            formatter,
+            "{} / {}",
+            Count(self.steps, "STEP", "STEPS"),
+            Count(self.echoes.into(), "ECHO", "ECHOES")
+        )
     }
 }
 
@@ -159,7 +194,7 @@ fn compose_header(model: model!(EchoModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ format_args!("ARCHIVE {:02} / 12", model.level() + 1) },
+            text: ${ format_args!("ROOM {:02} / 12", model.level() + 1) },
             capacity: 15,
             id: "echo_room",
             position: Position::Absolute,
@@ -208,7 +243,7 @@ fn compose_header(model: model!(EchoModel)) -> Entity {
 fn compose_controls(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
-            "THE PRESENT",
+            "TIME",
             position: Position::Absolute,
             left: 305,
             top: 66,
@@ -249,7 +284,7 @@ fn compose_controls(model: model!(EchoModel)) -> Entity {
     };
     ui! {
         Text (
-            "PAST MOVES ON EVERY BEAT",
+            "ECHOES MOVE WHEN YOU MOVE",
             position: Position::Absolute,
             left: 305,
             top: 119,
@@ -427,7 +462,12 @@ fn compose_route_status(model: model!(EchoModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ format_args!("{} STEPS / {} ECHOES", model.steps(), model.loops()) },
+            text: ${
+                RouteStats {
+                    steps: model.steps(),
+                    echoes: model.loops(),
+                }
+            },
             capacity: 22,
             id: "echo_run",
             position: Position::Absolute,
@@ -475,7 +515,13 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
             },
         ] {
             Text (
-                text: ${ modal_title(model.modal(), model.complete()) },
+                text: ${
+                    ModalTitle {
+                        modal: model.modal(),
+                        complete: model.complete(),
+                        level: model.level(),
+                    }
+                },
                 capacity: 23,
                 id: "echo_modal_title",
                 position: Position::Absolute,
@@ -488,8 +534,8 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
                 paragraph: label()
             )
             Text (
-                text: ${ modal_subtitle(model.modal(), model.complete()) },
-                capacity: 52,
+                text: ${ modal_subtitle(model.modal(), model.complete(), model.ghost_count()) },
+                capacity: 56,
                 id: "echo_modal_subtitle",
                 position: Position::Absolute,
                 left: 35,
@@ -608,7 +654,7 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
                 visible: ${ model.modal() == EchoModal::Result }
             )
             Button (
-                text: ${ primary_label(model.complete(), model.result_len()) },
+                text: ${ primary_label(model.result_len()) },
                 capacity: 16,
                 id: "echo_modal_primary",
                 position: Position::Absolute,
@@ -622,10 +668,10 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
                 pressed_color: RUST,
                 text_color: BACKGROUND,
                 border_radius: 4,
-                visible: ${ model.modal() == EchoModal::Result }
+                visible: ${ model.modal() == EchoModal::Result && !model.complete() }
             ) on Tap { model.continue_archive(); }
             Button (
-                "CLEAR ROOM",
+                "RESET ROOM",
                 id: "echo_modal_secondary",
                 position: Position::Absolute,
                 left: 303,
@@ -680,4 +726,20 @@ where
         .with_widget(modal_render::view());
     app.on_event(Key::EVENT, keyboard::callback(model.clone()));
     app.compose(parent, build_widgets(model));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EchoMessage, MessageLabel, RouteStats};
+    use alloc::format;
+
+    #[test]
+    fn counts_use_the_singular_for_one() {
+        let route = |steps, echoes| format!("{}", RouteStats { steps, echoes });
+        assert_eq!(route(1, 1), "1 STEP / 1 ECHO");
+        assert_eq!(route(0, 2), "0 STEPS / 2 ECHOES");
+        let missing = |count| format!("{}", MessageLabel(EchoMessage::Missing(count)));
+        assert_eq!(missing(1), "EXIT LOCKED · 1 MEMORY LEFT TO FIND");
+        assert_eq!(missing(3), "EXIT LOCKED · 3 MEMORIES LEFT TO FIND");
+    }
 }

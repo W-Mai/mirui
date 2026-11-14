@@ -196,9 +196,9 @@ pub(super) fn modal_render(
     if model.modal() == PixelModal::Templates {
         for template in 0..3_u8 {
             let x = 29 + i32::from(template) * 142;
-            painter.fill(Rect::new(x, 104, 135, 111), PANEL, Fixed::from_int(7));
+            painter.fill(Rect::new(x, 112, 135, 104), PANEL, Fixed::from_int(7));
             painter.border(
-                Rect::new(x, 104, 135, 111),
+                Rect::new(x, 112, 135, 104),
                 Color::rgb(89, 80, 104),
                 Fixed::ONE,
                 Fixed::from_int(7),
@@ -208,7 +208,7 @@ pub(super) fn modal_render(
                 &mut painter,
                 &frames,
                 0,
-                Point::new(x + 32, 113),
+                Point::new(x + 32, 121),
                 Fixed::from_int(6),
                 false,
             );

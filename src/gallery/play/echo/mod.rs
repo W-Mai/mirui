@@ -3,7 +3,7 @@ mod model;
 mod types;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 #[allow(unused_imports)]
 pub(crate) use generation::generate_room;

@@ -32,6 +32,23 @@ impl fmt::Display for FrameStatus {
     }
 }
 
+struct ModeStatus {
+    playing: bool,
+    tool: PixelTool,
+}
+
+impl fmt::Display for ModeStatus {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        out.write_str(if self.playing {
+            "正在播放"
+        } else if self.tool == PixelTool::Erase {
+            "点格子擦除，拖动可连续擦"
+        } else {
+            "点格子上色，拖动可连续画"
+        })
+    }
+}
+
 fn control_color(active: bool, enabled: bool) -> Color {
     if active {
         ACTIVE
@@ -83,7 +100,7 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
     ui! {
         Text (
             text: ${ model.clipboard_status().label() },
-            capacity: 24,
+            capacity: 32,
             id: "pixel_clipboard_status",
             position: Position::Absolute,
             left: 150,
@@ -131,8 +148,13 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ if model.playing() { "正在播放" } else { "画一格，就改变一点" } },
-            capacity: 27,
+            text: ${
+                ModeStatus {
+                    playing: model.playing(),
+                    tool: model.tool(),
+                }
+            },
+            capacity: 40,
             id: "pixel_mode_status",
             position: Position::Absolute,
             left: 17,
@@ -187,7 +209,7 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
     };
     ui! {
         Text (
-            "四帧小小剧场",
+            "4 帧循环",
             position: Position::Absolute,
             left: 327,
             top: 94,
@@ -541,7 +563,7 @@ fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
     };
     ui! {
         Button (
-            "Copy",
+            "复制",
             id: "pixel_copy",
             position: Position::Absolute,
             left: 142,
@@ -561,7 +583,7 @@ fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
     };
     ui! {
         Button (
-            "Cut",
+            "剪切",
             id: "pixel_cut",
             position: Position::Absolute,
             left: 207,
@@ -581,7 +603,7 @@ fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
     };
     ui! {
         Button (
-            "Paste",
+            "粘贴",
             id: "pixel_paste",
             position: Position::Absolute,
             left: 272,
@@ -601,7 +623,7 @@ fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
     };
     ui! {
         Button (
-            text: ${ if model.playing() { "Ⅱ 暂停预览" } else { "▶ 播放动画" } },
+            text: ${ if model.playing() { "Ⅱ 暂停" } else { "▶ 播放" } },
             capacity: 20,
             id: "pixel_play",
             position: Position::Absolute,
@@ -640,7 +662,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
             Text (
                 text: ${
                     if model.modal() == PixelModal::Templates {
-                        "先借一颗灵感"
+                        "选一个模板"
                     } else {
                         "清空这一帧？"
                     }
@@ -659,9 +681,9 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
             Text (
                 text: ${
                     if model.modal() == PixelModal::Templates {
-                        "载入模板会替换四帧；可以撤销，不会写入存储。"
+                        "会替换现在的四帧，可以撤销。"
                     } else {
-                        "其他三帧不受影响；清空以后也能撤销。"
+                        "只清空这一帧，可以撤销。"
                     }
                 },
                 capacity: 66,
@@ -691,7 +713,49 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 border_radius: 6
             ) on Tap { model.close_modal(); }
             Button (
-                "星际来客",
+                "",
+                id: "pixel_template_card_0",
+                visible: ${ model.modal() == PixelModal::Templates },
+                position: Position::Absolute,
+                left: 29,
+                top: 112,
+                width: 135,
+                height: 104,
+                size: ButtonSize::Custom,
+                normal_color: Color::rgba(0, 0, 0, 0),
+                pressed_color: Color::rgba(203, 179, 240, 48),
+                border_radius: 7
+            ) on Tap { model.load_template(0); }
+            Button (
+                "",
+                id: "pixel_template_card_1",
+                visible: ${ model.modal() == PixelModal::Templates },
+                position: Position::Absolute,
+                left: 171,
+                top: 112,
+                width: 135,
+                height: 104,
+                size: ButtonSize::Custom,
+                normal_color: Color::rgba(0, 0, 0, 0),
+                pressed_color: Color::rgba(203, 179, 240, 48),
+                border_radius: 7
+            ) on Tap { model.load_template(1); }
+            Button (
+                "",
+                id: "pixel_template_card_2",
+                visible: ${ model.modal() == PixelModal::Templates },
+                position: Position::Absolute,
+                left: 313,
+                top: 112,
+                width: 135,
+                height: 104,
+                size: ButtonSize::Custom,
+                normal_color: Color::rgba(0, 0, 0, 0),
+                pressed_color: Color::rgba(203, 179, 240, 48),
+                border_radius: 7
+            ) on Tap { model.load_template(2); }
+            Button (
+                "小外星人",
                 id: "pixel_template_0",
                 visible: ${ model.modal() == PixelModal::Templates },
                 position: Position::Absolute,
@@ -725,7 +789,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 border_radius: 7
             ) on Tap { model.load_template(1); }
             Button (
-                "纸上飞行",
+                "会飞的信",
                 id: "pixel_template_2",
                 visible: ${ model.modal() == PixelModal::Templates },
                 position: Position::Absolute,
@@ -742,7 +806,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 border_radius: 7
             ) on Tap { model.load_template(2); }
             Text (
-                "当前帧预览",
+                "当前帧",
                 id: "pixel_clear_preview",
                 visible: ${ model.modal() == PixelModal::Clear },
                 position: Position::Absolute,
@@ -755,7 +819,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 paragraph: ParagraphStyle::label()
             )
             Button (
-                "清空这一帧",
+                "清空",
                 id: "pixel_clear_confirm",
                 visible: ${ model.modal() == PixelModal::Clear },
                 position: Position::Absolute,
@@ -771,7 +835,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 border_radius: 7
             ) on Tap { model.confirm_clear(); }
             Button (
-                "保留作品",
+                "取消",
                 id: "pixel_clear_cancel",
                 visible: ${ model.modal() == PixelModal::Clear },
                 position: Position::Absolute,

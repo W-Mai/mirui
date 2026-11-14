@@ -4,7 +4,9 @@ use super::types::{
 };
 use crate::gallery::play::change::ChangeSet;
 
-fn best_move(model: &TideModel) -> (u8, u8) {
+/// The placement that raises the next harvest the most, nudged towards
+/// the island's goal tile.
+pub(crate) fn best_move(model: &TideModel) -> (u8, u8) {
     let mut best = None;
     for index in 0..BOARD_SIZE {
         for choice in 0..3 {
@@ -175,6 +177,7 @@ fn full_campaign_completes_without_unbounded_state() {
     }
     assert!(model.complete());
     assert_eq!(model.state.result_len, 4);
+    assert_eq!(model.cumulative_score(), model.total());
     assert_eq!(
         model.total(),
         model

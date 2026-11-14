@@ -2,7 +2,9 @@ use super::types::{HISTORY_CAPACITY, ROOM_COUNT};
 use super::*;
 use crate::gallery::play::change::ChangeSet;
 
-fn path_to(model: &EchoModel, target: u8) -> [Option<Direction>; BEAT_LIMIT as usize] {
+/// A shortest route from the player to `target` through the doors and
+/// clocks as they stand now, or all `None` when there is none.
+pub(crate) fn path_to(model: &EchoModel, target: u8) -> [Option<Direction>; BEAT_LIMIT as usize] {
     #[derive(Clone, Copy)]
     struct Node {
         cell: u8,

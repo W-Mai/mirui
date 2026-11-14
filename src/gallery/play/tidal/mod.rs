@@ -3,7 +3,7 @@ mod model;
 mod types;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 pub(crate) use model::TideModelHandle;

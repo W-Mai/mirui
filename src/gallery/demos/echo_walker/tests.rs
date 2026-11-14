@@ -3,6 +3,7 @@ use super::render::{cell_origin, map_box};
 use super::setup_app;
 use super::state::EchoSurface;
 use crate::ecs::World;
+use crate::gallery::play::echo::tests::path_to;
 use crate::gallery::play::echo::{Direction, EchoModal, EchoModel, EchoModelHandle};
 #[cfg(feature = "persistence")]
 use crate::gallery::play::storage::{EchoReplayLog, ReplayKind};
@@ -126,7 +127,7 @@ fn observed_text_and_tape_visibility_follow_the_model() {
     flush(&mut world);
 
     assert_text(&world, "echo_ghosts", "ECHOES 1/3");
-    assert_text(&world, "echo_run", "1 STEPS / 1 ECHOES");
+    assert_text(&world, "echo_run", "1 STEP / 1 ECHO");
     assert_text(&world, "echo_tape_0", "ECHO 1 · 01 BEATS");
     assert!(!world.has::<Hidden>(world.find_by_id("echo_tape_0").unwrap()));
     assert!(world.has::<Hidden>(world.find_by_id("echo_tape_1").unwrap()));
@@ -134,7 +135,7 @@ fn observed_text_and_tape_visibility_follow_the_model() {
     assert_text(
         &world,
         "echo_modal_subtitle",
-        "Inspect each route. An echo holds its final cell.",
+        "Tap a tape to show only that echo's route.",
     );
 
     model.toggle_peek_ghost(0);
@@ -161,4 +162,88 @@ fn observed_text_and_tape_visibility_follow_the_model() {
         assert!(text.has_valid_content(), "{id}");
         assert_eq!(text.last_content_error(), None, "{id}");
     }
+}
+
+fn walk(model: &EchoModelHandle, target: u8) {
+    let route = crate::core::model::ModelHandle::read(model, |model| path_to(model, target));
+    for direction in route.into_iter().flatten() {
+        model.step(direction);
+    }
+}
+
+/// Holds every plate with an echo, picks up the fragments still lying
+/// around and walks out.
+fn solve_room(model: &EchoModelHandle) {
+    let room = crate::core::model::ModelHandle::read(model, |model| *model.room());
+    for plate in &room.plates[..usize::from(room.gate_count)] {
+        walk(model, *plate);
+        model.rewind();
+    }
+    for (gem, cell) in room.gems[..usize::from(room.gem_count)].iter().enumerate() {
+        if !crate::core::model::ModelHandle::read(model, |model| model.collected(gem)) {
+            walk(model, *cell);
+        }
+    }
+    walk(model, room.end);
+}
+
+#[test]
+fn empty_tapes_say_how_to_record_one() {
+    let mut world = fixture();
+    let model = model_handle(&world);
+    model.set_modal(EchoModal::Tapes);
+    flush(&mut world);
+    assert_text(
+        &world,
+        "echo_modal_subtitle",
+        "No echoes yet. RECORD ECHO saves your route as one.",
+    );
+    assert_text(
+        &world,
+        "echo_message",
+        "STEP ON A PLATE, THEN RECORD AN ECHO TO KEEP IT DOWN",
+    );
+}
+
+#[test]
+fn the_archive_ends_on_totals_without_a_button_that_does_nothing() {
+    let mut world = fixture();
+    let model = model_handle(&world);
+    for room in 1..=12 {
+        solve_room(&model);
+        flush(&mut world);
+        assert_text(
+            &world,
+            "echo_modal_title",
+            &alloc::format!("ROOM {room:02} SOLVED"),
+        );
+        assert_text(&world, "echo_message", "EXIT REACHED · ROOM SOLVED");
+        assert_text(
+            &world,
+            "echo_modal_primary",
+            if room == 12 { "FINISH" } else { "NEXT ROOM" },
+        );
+        let primary = world.find_by_id("echo_modal_primary").unwrap();
+        assert!(!world.has::<Hidden>(primary), "room {room}");
+        model.continue_archive();
+    }
+    flush(&mut world);
+    assert_text(&world, "echo_modal_title", "ALL 12 ROOMS SOLVED");
+    assert_text(
+        &world,
+        "echo_modal_subtitle",
+        "Totals for the whole archive.",
+    );
+    assert_text(&world, "echo_message", "ALL 12 ROOMS SOLVED");
+    let primary = world.find_by_id("echo_modal_primary").unwrap();
+    assert!(world.has::<Hidden>(primary));
+    let stats = world
+        .get::<Text>(world.find_by_id("echo_result_stats").unwrap())
+        .unwrap()
+        .resolve(world.resource())
+        .into_owned();
+    assert!(
+        stats.starts_with("TOTAL ") && stats.ends_with(" ECHOES"),
+        "{stats}"
+    );
 }

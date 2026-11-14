@@ -14,14 +14,17 @@ use super::scenes::marble_scenes_page;
 use super::settings::marble_settings_page;
 use super::style::{MUTED, TEXT, symmetric_padding};
 
-fn marble_status(page: Page, paused: bool, add_mode: bool) -> &'static str {
+fn marble_status(page: Page, paused: bool, add_mode: bool, toast: &'static str) -> &'static str {
+    if !toast.is_empty() {
+        return toast;
+    }
     match page {
-        Page::Play if paused => "HOLD · PHYSICS PAUSED",
-        Page::Play => "LIVE · DRAG EMPTY SPACE TO TILT",
-        Page::Edit if add_mode => "EDIT · TAP EMPTY SPACE TO ADD",
-        Page::Edit => "EDIT · DRAG A PAD TO MOVE",
-        Page::Scenes => "SCENES · CHOOSE A LITTLE WORLD",
-        Page::Settings => "SETTINGS · SESSION ONLY",
+        Page::Play if paused => "PAUSED",
+        Page::Play => "DRAG TO TILT · TAP A PAD",
+        Page::Edit if add_mode => "TAP EMPTY SPACE TO PLACE A PAD",
+        Page::Edit => "DRAG A PAD TO MOVE IT",
+        Page::Scenes => "PICK A SCENE",
+        Page::Settings => "SETTINGS",
     }
 }
 
@@ -32,6 +35,7 @@ fn marble_readout(
     hits: u32,
     radius: Fixed,
     bounce: Fixed,
+    bpm: u16,
 ) -> MarbleReadout {
     MarbleReadout {
         page,
@@ -40,6 +44,7 @@ fn marble_readout(
         hits,
         radius,
         bounce,
+        bpm,
     }
 }
 
@@ -50,6 +55,7 @@ struct MarbleReadout {
     hits: u32,
     radius: Fixed,
     bounce: Fixed,
+    bpm: u16,
 }
 
 impl fmt::Display for MarbleReadout {
@@ -70,8 +76,13 @@ impl fmt::Display for MarbleReadout {
                 self.radius.to_int(),
                 self.bounce.to_f32()
             ),
-            Page::Scenes => out.write_str("PRESETS RESET LAYOUT AND MARBLES"),
-            Page::Settings => out.write_str("GRAVITY · TRAILS · FEEDBACK"),
+            Page::Scenes => out.write_str("A SCENE RESETS PADS AND MARBLES"),
+            Page::Settings => write!(
+                out,
+                "GRAVITY {:.2} g · TEMPO {} BPM",
+                self.gravity.to_f32(),
+                self.bpm
+            ),
         }
     }
 }
@@ -154,14 +165,14 @@ fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Button (
-                text: ${ if model.paused() { "PLAY" } else { "HOLD" } },
+                text: ${ if model.paused() { "▶" } else { "Ⅱ" } },
                 capacity: 4,
                 id: "marble_pause",
                 size: ButtonSize::Compact,
                 width: 52,
                 height: 22,
                 font_size: 9,
-                normal_color: Color::rgb(34, 47, 37),
+                normal_color: Color::rgb(45, 61, 48),
                 pressed_color: Color::rgb(217, 248, 138),
                 pressed_text_color: Color::rgb(23, 34, 28),
                 text_color: TEXT,
@@ -173,12 +184,12 @@ fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
                 width: 50,
                 height: 22,
                 font_size: 8,
-                normal_color: Color::rgb(34, 47, 37),
+                normal_color: Color::rgb(45, 61, 48),
                 pressed_color: Color::rgb(217, 248, 138),
                 pressed_text_color: Color::rgb(23, 34, 28),
                 text_color: TEXT,
                 text: ${ audio_label(&audio_label_state) },
-                capacity: 5,
+                capacity: 8,
                 visible: ${ audio_visible(&audio_button_state) },
                 border_radius: 6
             ) on Tap {
@@ -206,7 +217,7 @@ fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
                 width: 44,
                 height: 22,
                 font_size: 8,
-                normal_color: Color::rgb(34, 47, 37),
+                normal_color: Color::rgb(45, 61, 48),
                 pressed_color: Color::rgb(238, 172, 139),
                 pressed_text_color: Color::rgb(23, 34, 28),
                 text_color: TEXT,
@@ -214,12 +225,13 @@ fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
                 border_radius: 6
             ) on Tap { model.toggle_recording(); }
             Button (
-                "+",
+                "+ MARBLE",
+                id: "marble_drop",
                 size: ButtonSize::Compact,
-                width: 54,
+                width: 62,
                 height: 22,
-                font_size: 12,
-                normal_color: Color::rgb(34, 47, 37),
+                font_size: 8,
+                normal_color: Color::rgb(45, 61, 48),
                 pressed_color: Color::rgb(217, 248, 138),
                 pressed_text_color: Color::rgb(23, 34, 28),
                 text_color: TEXT,
@@ -239,8 +251,8 @@ fn compose_status(model: model!(MarbleModel)) -> Entity {
             column_gap: 10
         ) {
             Text (
-                text: ${ marble_status(model.page(), model.paused(), model.add_mode()) },
-                capacity: 32,
+                text: ${ marble_status(model.page(), model.paused(), model.add_mode(), model.toast()) },
+                capacity: 40,
                 id: "marble_status",
                 grow: 1.0,
                 height: 17,
@@ -290,9 +302,10 @@ fn compose_readout(model: model!(MarbleModel)) -> Entity {
                         model.hits(),
                         model.selected_radius().to_fixed(),
                         model.selected_bounce().to_fixed(),
+                        model.bpm(),
                     )
                 },
-                capacity: 34,
+                capacity: 40,
                 id: "marble_readout",
                 grow: 1.0,
                 height: 22,

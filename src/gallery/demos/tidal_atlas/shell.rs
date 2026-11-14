@@ -6,7 +6,7 @@ use super::state::{TideModalSurface, TideSurface};
 use super::style::{ACCENT, BACKGROUND, CONTROL, DARK, MUTED, PANEL, PAPER, TEXT};
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::tidal::{
-    IslandResult, Perk, TideMessage, TideModal, TideModel, TidePreview,
+    Goal, IslandResult, Perk, TideMessage, TideModal, TideModel, TidePreview, Tile,
 };
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
@@ -55,22 +55,17 @@ impl fmt::Display for PreviewText {
     }
 }
 
-struct HarvestText {
+/// The season harvests of this island, or the four island scores once the
+/// voyage is over.
+struct ModalDetailText {
+    complete: bool,
     values: [u16; 4],
     len: u8,
 }
 
-struct ModalDetailText(HarvestText);
-
 impl fmt::Display for ModalDetailText {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        out.write_str("四季 ")?;
-        self.0.fmt(out)
-    }
-}
-
-impl fmt::Display for HarvestText {
-    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        out.write_str(if self.complete { "四岛 " } else { "四季 " })?;
         for (index, value) in self.values[..usize::from(self.len)].iter().enumerate() {
             if index != 0 {
                 out.write_str(" / ")?;
@@ -123,16 +118,74 @@ impl fmt::Display for VoyageRowText {
     }
 }
 
-fn message_text(message: TideMessage) -> &'static str {
-    match message {
-        TideMessage::Ready => "选一张地块，再点相邻海域。每 6 次落子结算一次。",
-        TideMessage::Placed(_) => "地块已落位，候选与下一季预估已更新。",
-        TideMessage::Harvest(_, _) => "季节结算完成；继续扩建群岛。",
-        TideMessage::Rerolled => "换一手地块；不会消耗落子回合。",
-        TideMessage::Undone => "已撤销；候选、积分与随机状态完整恢复。",
-        TideMessage::Settled(true) => "委托达成，追加 45 分。",
-        TideMessage::Settled(false) => "本岛结算；未完成委托不影响继续远航。",
-        TideMessage::Complete => "四岛航行完成。",
+struct MessageText(TideMessage);
+
+impl fmt::Display for MessageText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            TideMessage::Ready => {
+                out.write_str("选一张地块，点地块边上的空海放下。每落 6 块结算一季。")
+            }
+            TideMessage::Placed(tile) => write!(out, "{}已落位。", tile.name()),
+            TideMessage::Harvest(season, gained) => {
+                write!(out, "第 {season} 季结算 +{gained} 分。")
+            }
+            TideMessage::Rerolled => out.write_str("已换牌，不占落子次数。"),
+            TideMessage::Undone => out.write_str("已撤销上一步。"),
+            TideMessage::Settled(true) => out.write_str("委托达成，加 45 分。"),
+            TideMessage::Settled(false) => out.write_str("本岛结算，委托未完成。"),
+            TideMessage::Complete => out.write_str("四岛航行完成。"),
+        }
+    }
+}
+
+struct UntilText {
+    settled: bool,
+    turn: u8,
+    target: u16,
+}
+
+/// The coming harvest, left blank once the island has no harvest left.
+struct EstimateText {
+    settled: bool,
+    score: u16,
+}
+
+impl fmt::Display for EstimateText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.settled {
+            Ok(())
+        } else {
+            write!(out, "预计 +{}", self.score)
+        }
+    }
+}
+
+impl fmt::Display for UntilText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.settled {
+            write!(out, "本岛已结算 · 目标 {}", self.target)
+        } else {
+            write!(
+                out,
+                "再落 {} 块结算 · 目标 {}",
+                6 - self.turn % 6,
+                self.target
+            )
+        }
+    }
+}
+
+struct GoalText(Goal);
+
+impl fmt::Display for GoalText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let wanted = if self.0.tile == Tile::Sea {
+            "地块种类"
+        } else {
+            self.0.tile.name()
+        };
+        write!(out, "{} · {}", self.0.name, wanted)
     }
 }
 
@@ -204,9 +257,9 @@ fn compose_header(model: model!(TideModel)) -> Entity {
             capacity: 20,
             id: "tide_total",
             position: Position::Absolute,
-            left: 171,
+            left: 366,
             top: 39,
-            width: 85,
+            width: 100,
             height: 16,
             font_size: 9,
             text_color: TEXT,
@@ -253,7 +306,12 @@ fn compose_forecast(model: model!(TideModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ format_args!("预计 +{}", model.forecast_score()) },
+            text: ${
+                EstimateText {
+                    settled: model.settled(),
+                    score: model.forecast_score(),
+                }
+            },
             capacity: 20,
             id: "tide_estimate",
             position: Position::Absolute,
@@ -269,10 +327,11 @@ fn compose_forecast(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${
-                format_args!(
-                    "再落 {} 块结算 · 进阶参考线 {}", if model.settled() { 0 } else { 6 -
-                    model.turn() % 6 }, model.target()
-                )
+                UntilText {
+                    settled: model.settled(),
+                    turn: model.turn(),
+                    target: model.target(),
+                }
             },
             capacity: 56,
             id: "tide_until",
@@ -529,18 +588,9 @@ fn compose_actions(model: model!(TideModel)) -> Entity {
     };
     ui! {
         Button (
-            text: ${
-                if model.pending().is_some() {
-                    "取消"
-                } else if model.complete() {
-                    "航行完成 · 查看总览"
-                } else {
-                    "本岛结算 · 选择新学说"
-                }
-            },
-            capacity: 40,
-            id: "tide_cancel_result",
-            visible: ${ model.pending().is_some() || model.settled() || model.complete() },
+            "取消",
+            id: "tide_cancel",
+            visible: ${ model.pending().is_some() },
             position: Position::Absolute,
             left: 397,
             top: 258,
@@ -553,13 +603,34 @@ fn compose_actions(model: model!(TideModel)) -> Entity {
             pressed_text_color: BACKGROUND,
             text_color: TEXT,
             border_radius: 5
-        ) on Tap {
-            if model.settled() || model.complete() {
-                model.set_modal(TideModal::Result);
-            } else {
-                model.cancel_preview();
-            }
-        }
+        ) on Tap { model.cancel_preview(); }
+    };
+    ui! {
+        Button (
+            text: ${
+                if model.complete() {
+                    "航行完成 · 查看总览"
+                } else if model.chapter() == 3 {
+                    "本岛结算 · 完成航行"
+                } else {
+                    "本岛结算 · 选择新学说"
+                }
+            },
+            capacity: 40,
+            id: "tide_result",
+            visible: ${ model.settled() || model.complete() },
+            position: Position::Absolute,
+            left: 237,
+            top: 252,
+            width: 229,
+            height: 28,
+            size: ButtonSize::Compact,
+            font_size: 9,
+            normal_color: ACCENT,
+            pressed_color: PAPER,
+            text_color: DARK,
+            border_radius: 5
+        ) on Tap { model.set_modal(TideModal::Result); }
     }
 }
 
@@ -567,8 +638,8 @@ fn compose_actions(model: model!(TideModel)) -> Entity {
 fn compose_footer(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
-            text: ${ model.goal().name },
-            capacity: 24,
+            text: ${ GoalText(model.goal()) },
+            capacity: 40,
             id: "tide_goal",
             position: Position::Absolute,
             left: 14,
@@ -597,7 +668,7 @@ fn compose_footer(model: model!(TideModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ message_text(model.message()) },
+            text: ${ MessageText(model.message()) },
             capacity: 96,
             id: "tide_message",
             position: Position::Absolute,
@@ -620,7 +691,7 @@ fn compose_modal_header(model: model!(TideModel)) -> Entity {
                 if model.modal() == TideModal::Voyage {
                     "四岛航行图"
                 } else if model.complete() {
-                    "四岛远航 / 完成"
+                    "远航完成"
                 } else {
                     "本岛结算"
                 }
@@ -641,9 +712,13 @@ fn compose_modal_header(model: model!(TideModel)) -> Entity {
         Text (
             text: ${
                 if model.modal() == TideModal::Voyage {
-                    "96 次落子 / 16 次季节结算 / 3 次学说选择"
+                    "每岛落 24 块、结算四季，两岛之间选一项学说。"
+                } else if model.complete() {
+                    "四座岛的总分。"
+                } else if model.chapter() == 3 {
+                    "最后一座岛已结算。"
                 } else {
-                    "评级不锁关。选择学说，继续前往下一座岛。"
+                    "选一项学说，带去下一座岛。"
                 }
             },
             capacity: 128,
@@ -681,7 +756,11 @@ fn compose_modal_header(model: model!(TideModel)) -> Entity {
 fn compose_modal_result(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
-            text: ${ format_args!("{}", model.score()) },
+            text: ${
+                format_args!(
+                    "{}", if model.complete() { model.cumulative_score() } else { model.score() }
+                )
+            },
             capacity: 6,
             id: "tide_modal_score",
             visible: ${ model.modal() == TideModal::Result },
@@ -698,10 +777,19 @@ fn compose_modal_result(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${
-                ModalDetailText(HarvestText {
-                    values: model.harvests(),
-                    len: model.harvest_len(),
-                })
+                if model.complete() {
+                    ModalDetailText {
+                        complete: true,
+                        values: model.results().map(|result| result.score),
+                        len: 4,
+                    }
+                } else {
+                    ModalDetailText {
+                        complete: false,
+                        values: model.harvests(),
+                        len: model.harvest_len(),
+                    }
+                }
             },
             capacity: 48,
             id: "tide_modal_detail",

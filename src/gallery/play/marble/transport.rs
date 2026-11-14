@@ -135,7 +135,7 @@ impl MarbleModel {
         self.recording = false;
         if self.recorded_len == 0 {
             self.stop_recording();
-            self.notify("NO NOTES RECORDED / TAP A PAD");
+            self.notify("NO NOTES RECORDED");
             return;
         }
         self.loop_length_steps = if early {
@@ -146,7 +146,7 @@ impl MarbleModel {
         self.looping = true;
         self.loop_start_step = current.div_ceil(4) * 4;
         self.last_audio_step = current;
-        self.notify("LOOP PLAYING / LIVE NOTES STAY ACTIVE");
+        self.notify("LOOP PLAYING");
     }
 
     pub(super) fn stop_recording(&mut self) {

@@ -17,4 +17,4 @@ pub(super) const PALETTE: [Color; 7] = [
     Color::rgb(167, 212, 236),
     Color::rgb(242, 238, 224),
 ];
-pub(super) const TEMPLATE_NAMES: [&str; 3] = ["星际来客", "风中绿芽", "纸上飞行"];
+pub(super) const TEMPLATE_NAMES: [&str; 3] = ["小外星人", "风中绿芽", "会飞的信"];

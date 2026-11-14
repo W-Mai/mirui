@@ -101,6 +101,11 @@ impl FoldModel {
     }
 
     #[observe]
+    pub(crate) fn seals_collected(&self) -> u8 {
+        self.state.seals.count_ones() as u8
+    }
+
+    #[observe]
     pub(crate) fn steps(&self) -> u16 {
         self.actions.len()
     }

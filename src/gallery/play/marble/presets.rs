@@ -116,6 +116,6 @@ pub(super) fn reset_scene(model: &mut MarbleModel, index: usize) -> ChangeSet {
     model.page = super::types::Page::Play;
     model.inspector = false;
     model.add_mode = false;
-    model.notify("SCENE LOADED / EDITS RESET");
+    model.notify("SCENE LOADED");
     ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
 }

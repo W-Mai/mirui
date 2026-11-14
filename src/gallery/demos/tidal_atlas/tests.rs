@@ -172,3 +172,94 @@ fn persistent_actions_append_inside_the_model_update() {
         assert_eq!(model.turn(), 1);
     });
 }
+
+fn settle_island(model: &TideModelHandle) {
+    use crate::gallery::play::tidal::tests::best_move;
+    while !ModelHandle::read(model, TideModel::settled) {
+        let (index, choice) = ModelHandle::read(model, best_move);
+        model.place(index, choice);
+    }
+}
+
+fn assert_texts_fit(world: &World) {
+    for fit in crate::gallery::demos::text_fits(world) {
+        assert!(!fit.overflows(4), "{:?} in {:?}", fit.text, fit.rect);
+    }
+}
+
+#[test]
+fn a_whole_voyage_reads_and_fits_from_first_tile_to_the_totals() {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    app.set_root(root);
+    app.render().unwrap();
+    let model = model_handle(&app.world);
+    assert_text(&app.world, "tide_goal", "邻里计划 · 聚落");
+    assert_text(&app.world, "tide_until", "再落 6 块结算 · 目标 430");
+
+    for island in 0..4 {
+        settle_island(&model);
+        flush(&mut app.world);
+        app.render().unwrap();
+        assert_texts_fit(&app.world);
+        assert!(!is_hidden(&app.world, "tide_result"));
+        assert!(is_hidden(&app.world, "tide_cancel"));
+        assert!(is_hidden(&app.world, "tide_reroll"));
+        assert_text(
+            &app.world,
+            "tide_result",
+            if island == 3 {
+                "本岛结算 · 完成航行"
+            } else {
+                "本岛结算 · 选择新学说"
+            },
+        );
+        assert_text(
+            &app.world,
+            "tide_until",
+            &alloc::format!("本岛已结算 · 目标 {}", 430 + island * 55),
+        );
+        assert_text(&app.world, "tide_estimate", "");
+
+        model.set_modal(TideModal::Result);
+        flush(&mut app.world);
+        app.render().unwrap();
+        assert_texts_fit(&app.world);
+        assert_text(
+            &app.world,
+            "tide_modal_subtitle",
+            if island == 3 {
+                "最后一座岛已结算。"
+            } else {
+                "选一项学说，带去下一座岛。"
+            },
+        );
+        let perk = (island < 3).then(|| model.perk_offers()[0]);
+        model.continue_voyage(perk);
+    }
+
+    flush(&mut app.world);
+    app.render().unwrap();
+    assert_texts_fit(&app.world);
+    let (total, scores) = with_model(&app.world, |model| {
+        (model.total(), model.results().map(|result| result.score))
+    });
+    assert_text(&app.world, "tide_modal_title", "远航完成");
+    assert_text(&app.world, "tide_modal_subtitle", "四座岛的总分。");
+    assert_text(&app.world, "tide_modal_score", &alloc::format!("{total}"));
+    assert_text(&app.world, "tide_total", &alloc::format!("累计 {total}"));
+    assert_text(
+        &app.world,
+        "tide_modal_detail",
+        &alloc::format!(
+            "四岛 {} / {} / {} / {}",
+            scores[0],
+            scores[1],
+            scores[2],
+            scores[3]
+        ),
+    );
+    assert_text(&app.world, "tide_message", "四岛航行完成。");
+}

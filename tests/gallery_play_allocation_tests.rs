@@ -326,7 +326,7 @@ fn marble_scene_cards_ignore_gaps_and_margins_but_load_a_selected_scene() {
             .get::<Text>(status)
             .unwrap()
             .resolve(app.world.resource()),
-        "SCENES · CHOOSE A LITTLE WORLD"
+        "PICK A SCENE"
     );
 
     let board_rect = app.world.get::<ComputedRect>(scene_board).unwrap().0;
@@ -363,7 +363,7 @@ fn marble_scene_cards_ignore_gaps_and_margins_but_load_a_selected_scene() {
                 .get::<Text>(status)
                 .unwrap()
                 .resolve(app.world.resource()),
-            "SCENES · CHOOSE A LITTLE WORLD",
+            "PICK A SCENE",
             "x={local_x} loaded a scene from outside its card"
         );
     }
@@ -403,7 +403,7 @@ fn marble_scene_cards_ignore_gaps_and_margins_but_load_a_selected_scene() {
             .get::<Text>(status)
             .unwrap()
             .resolve(app.world.resource()),
-        "LIVE · DRAG EMPTY SPACE TO TILT"
+        "SCENE LOADED"
     );
 
     let settings_nav = app.world.find_by_id("marble_nav_settings").unwrap();

@@ -1,5 +1,5 @@
 use super::shell;
-use super::state::{TwinHintService, TwinSurface, select_map_level};
+use super::state::{TwinHintService, TwinSurface, next, select_map_level};
 use crate::core::model::{Model, ModelHandle};
 use crate::ecs::World;
 use crate::gallery::play::change::ChangeSet;
@@ -295,7 +295,7 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     let status = world
         .get::<Text>(world.find_by_id("twin_status").unwrap())
         .unwrap();
-    assert!(status.resolve(world.resource()).contains("路径受阻"));
+    assert!(status.resolve(world.resource()).contains("两边都被挡住"));
 
     let changes = game.request_hint(&mut ExpeditionHintWorkspace::new());
     assert!(changes.contains(ChangeSet::MODEL));
@@ -314,4 +314,79 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
         .get::<Text>(world.find_by_id("twin_steps").unwrap())
         .unwrap();
     assert!(steps.resolve(world.resource()).contains("HINT 1"));
+}
+
+fn text_of(world: &World, id: &'static str) -> alloc::string::String {
+    let text = world.get::<Text>(world.find_by_id(id).unwrap()).unwrap();
+    assert!(text.has_valid_content(), "{id}");
+    assert_eq!(text.last_content_error(), None, "{id}");
+    text.resolve(world.resource()).into_owned()
+}
+
+fn assert_texts_fit(world: &World) {
+    for fit in crate::gallery::demos::text_fits(world) {
+        assert!(
+            !fit.overflows(4),
+            "{:?} needs {:?} in {:?}",
+            fit.text,
+            fit.lines,
+            fit.rect
+        );
+    }
+}
+
+#[test]
+fn the_side_panel_shows_where_b_goes_and_chapter_two_is_briefed() {
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let (game, expedition) = shell::setup_test_app(&mut app, root);
+    app.set_root(root);
+    app.render().unwrap();
+    assert_texts_fit(&app.world);
+    assert_eq!(text_of(&app.world, "twin_route_b"), "B  ↑  →  ↓  ←");
+    assert_eq!(text_of(&app.world, "twin_next"), "下一站");
+
+    for level in 0..6 {
+        let len = with_game(&game, |model| model.level().solution_len());
+        for step in 0..len {
+            let direction = with_game(&game, |model| model.level().solution(step).unwrap());
+            game.move_direction(direction);
+        }
+        flush(&mut app.world);
+        app.render().unwrap();
+        assert_texts_fit(&app.world);
+        assert_eq!(
+            text_of(&app.world, "twin_result_title"),
+            if level == 5 {
+                "章节完成"
+            } else {
+                "本站完成"
+            }
+        );
+        assert!(text_of(&app.world, "twin_result_stats").starts_with("★★★"));
+        next(&game, &expedition);
+        flush(&mut app.world);
+        app.render().unwrap();
+        assert_texts_fit(&app.world);
+    }
+
+    assert_eq!(game.level_index(), 6);
+    assert_eq!(expedition.panel(), ExpeditionPanel::Briefing);
+    assert_eq!(
+        text_of(&app.world, "twin_briefing_title"),
+        "第 2 章 · MIRROR ROUTE"
+    );
+    assert_eq!(
+        text_of(&app.world, "twin_briefing_tip_0"),
+        "按 ← 时 B 向右，按 → 时 B 向左。"
+    );
+    assert_eq!(text_of(&app.world, "twin_route_b"), "B  ↑  ←  ↓  →");
+    expedition.close();
+    game.select_level(3);
+    flush(&mut app.world);
+    assert_eq!(text_of(&app.world, "twin_next"), "下一站");
+    game.select_level(6);
+    flush(&mut app.world);
+    assert_eq!(text_of(&app.world, "twin_next"), "回第一站");
 }

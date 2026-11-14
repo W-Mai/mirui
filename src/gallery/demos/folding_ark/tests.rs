@@ -1,5 +1,5 @@
 use super::shell;
-use super::state::{FoldHintService, FoldSurface, select_map_level};
+use super::state::{FoldHintService, FoldSurface, next, select_map_level};
 use crate::core::model::{Model, ModelHandle};
 use crate::ecs::World;
 use crate::gallery::play::change::ChangeSet;
@@ -339,4 +339,91 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
         .get::<Text>(world.find_by_id("fold_status").unwrap())
         .unwrap();
     assert!(status.resolve(world.resource()).contains("提示"));
+}
+
+fn text_of(world: &World, id: &'static str) -> alloc::string::String {
+    let text = world.get::<Text>(world.find_by_id(id).unwrap()).unwrap();
+    assert!(text.has_valid_content(), "{id}");
+    assert_eq!(text.last_content_error(), None, "{id}");
+    text.resolve(world.resource()).into_owned()
+}
+
+fn assert_texts_fit(world: &World) {
+    for fit in crate::gallery::demos::text_fits(world) {
+        assert!(
+            !fit.overflows(4),
+            "{:?} needs {:?} in {:?}",
+            fit.text,
+            fit.lines,
+            fit.rect
+        );
+    }
+}
+
+#[test]
+fn chapters_brief_their_rule_and_the_footer_counts_seals() {
+    use crate::gallery::play::fold::{CHAPTER_MECHANICS, CHAPTER_TIPS};
+
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let (game, expedition) = shell::setup_test_app(&mut app, root);
+    app.set_root(root);
+    app.render().unwrap();
+    assert_texts_fit(&app.world);
+    assert_eq!(text_of(&app.world, "fold_rule"), CHAPTER_MECHANICS[0]);
+    assert_eq!(
+        text_of(&app.world, "fold_steps"),
+        "UPRIGHT  STEP 00  PAR 05"
+    );
+
+    for level in 0..12 {
+        let len = with_game(&game, |model| model.level().solution_len());
+        for step in 0..len {
+            let direction = with_game(&game, |model| model.level().solution(step).unwrap());
+            game.move_direction(direction);
+        }
+        flush(&mut app.world);
+        app.render().unwrap();
+        assert_texts_fit(&app.world);
+        assert!(text_of(&app.world, "fold_result_stats").starts_with("★★★"));
+        next(&game, &expedition);
+        flush(&mut app.world);
+        app.render().unwrap();
+        assert_texts_fit(&app.world);
+        if level % 6 == 5 {
+            let chapter = usize::from(game.level_index() / 6);
+            assert_eq!(expedition.panel(), ExpeditionPanel::Briefing);
+            assert_eq!(
+                text_of(&app.world, "fold_briefing_tip_0"),
+                CHAPTER_TIPS[chapter][0]
+            );
+            expedition.close();
+        }
+    }
+
+    assert_eq!(game.level_index(), 12);
+    assert_eq!(text_of(&app.world, "fold_next"), "回第一关");
+    assert_eq!(text_of(&app.world, "fold_rule"), CHAPTER_MECHANICS[2]);
+    assert!(text_of(&app.world, "fold_steps").ends_with("SEAL 0/1"));
+    let len = with_game(&game, |model| model.level().solution_len());
+    for step in 0..len {
+        let direction = with_game(&game, |model| model.level().solution(step).unwrap());
+        game.move_direction(direction);
+    }
+    flush(&mut app.world);
+    assert!(text_of(&app.world, "fold_steps").ends_with("SEAL 1/1"));
+
+    // A lying hull makes the footer longest; it still fits.
+    game.restart();
+    let mut lying = false;
+    for step in 0..len {
+        let direction = with_game(&game, |model| model.level().solution(step).unwrap());
+        game.move_direction(direction);
+        flush(&mut app.world);
+        app.render().unwrap();
+        assert_texts_fit(&app.world);
+        lying |= !text_of(&app.world, "fold_steps").starts_with("UPRIGHT");
+    }
+    assert!(lying);
 }

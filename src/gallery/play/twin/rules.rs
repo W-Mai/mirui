@@ -9,7 +9,9 @@ pub(super) fn initial(level: TwinLevelRef) -> TwinState {
     }
 }
 
-const fn mapped(direction: Direction4, mode: u8) -> Direction4 {
+/// The direction station B moves when the player presses `direction` in a
+/// level of `mode`; station A always moves as pressed.
+pub(crate) const fn mapped(direction: Direction4, mode: u8) -> Direction4 {
     match mode {
         1 => match direction {
             Direction4::Left => Direction4::Right,

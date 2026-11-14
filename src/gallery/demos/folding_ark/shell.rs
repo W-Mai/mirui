@@ -8,7 +8,7 @@ use crate::gallery::play::expeditions::{
     Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, fold_level,
 };
 use crate::gallery::play::fold::{
-    CHAPTER_MECHANICS, CHAPTER_NAMES, FoldMessage, FoldModel, FoldProgress, HullPose,
+    CHAPTER_MECHANICS, CHAPTER_NAMES, CHAPTER_TIPS, FoldMessage, FoldModel, FoldProgress, HullPose,
 };
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::input::event::scroll::TouchAction;
@@ -21,12 +21,16 @@ fn level_par(level: u8) -> u8 {
     fold_level(level).map_or(0, |level| level.par())
 }
 
+fn level_seals(level: u8) -> u8 {
+    fold_level(level).map_or(0, |level| level.seal_count())
+}
+
 fn next_label(modal: ExpeditionModal, level: u8, unlocked: u8) -> &'static str {
     match modal {
         ExpeditionModal::Result => "下一海域",
         ExpeditionModal::Final => "再次启航",
-        ExpeditionModal::None if level < unlocked => "换一关",
-        ExpeditionModal::None => "第一关",
+        ExpeditionModal::None if level >= unlocked && level > 0 => "回第一关",
+        ExpeditionModal::None => "下一关",
     }
 }
 
@@ -67,20 +71,20 @@ struct StatusText(FoldMessage);
 impl fmt::Display for StatusText {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
-            FoldMessage::Ready => output.write_str("翻滚船体，让它直立停靠终点"),
-            FoldMessage::Unsupported => output.write_str("船体失去支撑；这一步没有执行"),
-            FoldMessage::Seal => output.write_str("航标封印已收集"),
-            FoldMessage::Bridge(true) => output.write_str("潮桥已经升起"),
-            FoldMessage::Bridge(false) => output.write_str("潮桥已经收回"),
-            FoldMessage::Undone => output.write_str("已撤回上一段翻滚"),
+            FoldMessage::Ready => output.write_str("翻滚船体，让它直立停进终点"),
+            FoldMessage::Unsupported => output.write_str("这一步会落水，没有执行"),
+            FoldMessage::Seal => output.write_str("收下一枚徽记"),
+            FoldMessage::Bridge(true) => output.write_str("桥已升起"),
+            FoldMessage::Bridge(false) => output.write_str("桥已收起"),
+            FoldMessage::Undone => output.write_str("已撤回一步"),
             FoldMessage::Hint(direction, remaining) => {
                 write!(
                     output,
-                    "提示 {} · 最短还需 {remaining} 步",
-                    direction.label()
+                    "提示 {} · 最少还需 {remaining} 步",
+                    direction.arrow()
                 )
             }
-            FoldMessage::Complete => output.write_str("船体已直立归港"),
+            FoldMessage::Complete => output.write_str("方舟直立入港"),
         }
     }
 }
@@ -89,6 +93,7 @@ struct StepText {
     pose: HullPose,
     steps: u16,
     par: u8,
+    seals: (u8, u8),
 }
 
 impl fmt::Display for StepText {
@@ -100,9 +105,14 @@ impl fmt::Display for StepText {
         };
         write!(
             output,
-            "{pose}   STEP {:02}   PAR {:02}",
+            "{pose}  STEP {:02}  PAR {:02}",
             self.steps, self.par
-        )
+        )?;
+        let (collected, total) = self.seals;
+        if total != 0 {
+            write!(output, "  SEAL {collected}/{total}")?;
+        }
+        Ok(())
     }
 }
 
@@ -165,11 +175,8 @@ struct ResultStats {
 
 impl fmt::Display for ResultStats {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            output,
-            "星级 {} / 3   完成 {:02} 步   最短 {:02} 步",
-            self.stars, self.steps, self.par
-        )
+        write_stars(output, self.stars)?;
+        write!(output, "   {:02} 步 · 最少 {:02} 步", self.steps, self.par)
     }
 }
 
@@ -313,12 +320,14 @@ fn compose_hud(game: model!(FoldModel)) -> Entity {
     };
     ui! {
         Text (
-            "Roll across the chart.\nFragile tiles reject\nan upright hull.",
+            text: ${ CHAPTER_MECHANICS[usize::from(game.level_index() / 6)] },
+            capacity: 48,
+            id: "fold_rule",
             position: Position::Absolute,
             left: 330,
             top: 98,
             width: 122,
-            height: 50,
+            height: 40,
             font_size: 7,
             text_color: MUTED,
             paragraph: ParagraphStyle::default().with_align(TextAlign::Start)
@@ -456,6 +465,7 @@ fn compose_footer(game: model!(FoldModel), expedition: model!(ExpeditionUiModel)
                     pose: game.pose(),
                     steps: game.steps(),
                     par: level_par(game.level_index()),
+                    seals: (game.seals_collected(), level_seals(game.level_index())),
                 }
             },
             capacity: 40,
@@ -603,7 +613,7 @@ fn compose_result_overlay(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "下一片海域已经开放；当前最优记录会保留。",
+                    "不用提示、按最少步数入港得 ★★★",
                     height: 18,
                     font_size: 9,
                     text_color: MUTED,
@@ -635,7 +645,14 @@ fn compose_result_overlay(
                         border_radius: 7
                     ) on Tap { expedition.open(game.level_index()); }
                     Button (
-                        "继续远征 →",
+                        text: ${
+                            if game.modal() == ExpeditionModal::Final {
+                                "查看档案 →"
+                            } else {
+                                "继续远征 →"
+                            }
+                        },
+                        capacity: 20,
                         size: ButtonSize::Compact,
                         grow: 1.0,
                         height: 33,
@@ -828,7 +845,7 @@ fn compose_map_overlay(game: model!(FoldModel), expedition: model!(ExpeditionUiM
                     }
                 }
                 Text (
-                    "6 CHAPTERS × 6 LEVELS · COMPLETE TO UNLOCK",
+                    "CLEAR A LEVEL TO OPEN THE NEXT",
                     height: 16,
                     font_size: 7,
                     text_color: MUTED,
@@ -897,7 +914,7 @@ fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "02  所有占用格都要有支撑；裂纹板不能承受直立船体。",
+                    "02  船体压到的每一格都要有地面；薄冰不能承受直立船体。",
                     height: 20,
                     font_size: 10,
                     text_color: TEXT,
@@ -911,14 +928,14 @@ fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "04  直立压 P 会切换桥梁；平躺经过不会触发。",
+                    "04  直立压在紫色开关上会升降桥；平躺经过不会触发。",
                     height: 20,
                     font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "05  危险移动会被拦住，不计步数，可以直接改走其他方向。",
+                    "05  会落水的一步不会执行，也不计步数。",
                     height: 20,
                     font_size: 10,
                     text_color: TEXT,
@@ -975,13 +992,6 @@ fn compose_briefing_overlay(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "新机制解锁 · 先理解规则，再启程",
-                    height: 17,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::label()
-                )
-                Text (
                     text: ${ CHAPTER_MECHANICS[usize::from(game.level_index() / 6)] },
                     capacity: 48,
                     id: "fold_briefing_mechanic",
@@ -991,14 +1001,18 @@ fn compose_briefing_overlay(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "薄冰可以躺着经过，但不能直立；开关只响应直立船体。",
+                    text: ${ CHAPTER_TIPS[usize::from(game.level_index() / 6)][0] },
+                    capacity: 64,
+                    id: "fold_briefing_tip_0",
                     height: 17,
                     font_size: 9,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "收齐全部金色徽记，再直立到达菱形归港点。",
+                    text: ${ CHAPTER_TIPS[usize::from(game.level_index() / 6)][1] },
+                    capacity: 64,
+                    id: "fold_briefing_tip_1",
                     height: 17,
                     font_size: 9,
                     text_color: MUTED,
@@ -1059,7 +1073,7 @@ fn compose_summary_overlay(
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "36 关全部完成；每章记录保留，可随时重访。",
+                    "36 关全部完成。点章节编号可以重新挑战。",
                     height: 16,
                     font_size: 9,
                     text_color: MUTED,

@@ -2,7 +2,7 @@ use super::input::{local_cell, moss_tick_system};
 use super::state::MossSurface;
 use super::{VIEWPORT, setup_app};
 use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
-use crate::gallery::play::moss::MossModel;
+use crate::gallery::play::moss::{MossModal, MossModel};
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::view::ViewRegistry;
@@ -121,7 +121,7 @@ fn observed_text_and_modal_branches_follow_the_model() {
     let surface = world.find_by_id("moss_surface").unwrap();
     let modal = world.find_by_id("moss_modal").unwrap();
     let seed = world.find_by_id("moss_seed_0").unwrap();
-    let clear = world.find_by_id("moss_clear_note").unwrap();
+    let clear = world.find_by_id("moss_clear_confirm").unwrap();
     let model = world.get::<MossSurface>(surface).unwrap().model.clone();
 
     assert_text(&world, "moss_rate", "4 代/秒 ↻");
@@ -135,23 +135,43 @@ fn observed_text_and_modal_branches_follow_the_model() {
     assert!(!world.has::<Hidden>(modal));
     assert!(!world.has::<Hidden>(seed));
     assert!(world.has::<Hidden>(clear));
-    assert_text(&world, "moss_modal_title", "给花园一种新的开始");
-    assert_text(
-        &world,
-        "moss_modal_subtitle",
-        "载入会暂停演化；新种子可以撤销。",
-    );
+    assert_text(&world, "moss_modal_title", "选一个种子");
+    assert_text(&world, "moss_modal_subtitle", "载入后先暂停，可以撤销。");
 
     model.open_clear();
     crate::core::reactive::flush_signal_dirty(&mut world);
     assert!(world.has::<Hidden>(seed));
     assert!(!world.has::<Hidden>(clear));
-    assert_text(&world, "moss_modal_title", "让花园重新开始？");
+    assert_text(&world, "moss_modal_title", "清空花园？");
     assert_text(
         &world,
         "moss_modal_subtitle",
-        "当前有 15 个活细胞；清空后代数归零。",
+        "15 个活细胞会被清除，代数归零。",
     );
+}
+
+#[test]
+fn seed_cards_load_their_seed() {
+    let mut world = fixture();
+    let surface = world.find_by_id("moss_surface").unwrap();
+    let model = world.get::<MossSurface>(surface).unwrap().model.clone();
+    model.open_seeds();
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    let card = world.find_by_id("moss_seed_card_1").unwrap();
+    assert!(!world.has::<Hidden>(card));
+    assert!(trigger(
+        &mut world,
+        &GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target: card,
+        }
+    ));
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(with_model(&world, MossModel::seed_id), 1);
+    assert_eq!(with_model(&world, MossModel::modal), MossModal::None);
+    assert_text(&world, "moss_rotate", "旋转 0°");
+    assert_text(&world, "moss_status", "B3 / S23 · PAUSED");
 }
 
 #[test]

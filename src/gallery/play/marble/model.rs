@@ -53,6 +53,7 @@ pub(crate) struct MarbleModel {
     pub(crate) looping: bool,
     #[observe]
     pub(crate) bpm: u16,
+    #[observe]
     pub(crate) toast: &'static str,
     pub(crate) toast_left: Fixed64,
     pub(super) sim_time: Fixed64,
@@ -228,6 +229,11 @@ impl MarbleModel {
     }
 
     #[observe]
+    pub(crate) fn selected_color(&self) -> u32 {
+        self.selected_pad().color
+    }
+
+    #[observe]
     pub(crate) fn selected_timbre(&self) -> PadTimbre {
         self.selected_pad().timbre
     }
@@ -258,7 +264,7 @@ impl MarbleModel {
             self.finish_recording(true);
         } else if self.looping {
             self.stop_recording();
-            self.notify("LOOP STOPPED / FREE PLAY");
+            self.notify("LOOP STOPPED");
         } else {
             if self.page != Page::Play {
                 let _ = self.set_page(Page::Play);
@@ -269,7 +275,7 @@ impl MarbleModel {
             self.recording = true;
             self.looping = false;
             self.record_start_step = self.current_audio_step();
-            self.notify("RECORD 4 BARS / PLAY THE PADS");
+            self.notify("RECORDING 4 BARS · TAP THE PADS");
         }
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
@@ -316,7 +322,7 @@ impl MarbleModel {
             Vec2::fixed(other.pos.x - pad.pos.x, other.pos.y - pad.pos.y).length()
                 < other.radius + pad.radius + Fixed64::from_int(5)
         }) {
-            self.notify("TOO CLOSE / CHOOSE EMPTY SPACE");
+            self.notify("TOO CLOSE TO ANOTHER PAD");
             return ChangeSet::VISUAL;
         }
         self.next_id = self.next_id.saturating_add(1);

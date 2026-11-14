@@ -83,7 +83,7 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "TRAILS · 6 POINTS PER MARBLE",
+                "TRAILS",
                 id: "marble_setting_trails",
                 position: Position::Absolute,
                 left: 42,
@@ -95,7 +95,7 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "FEEDBACK · RINGS / PARTICLES",
+                "HIT EFFECTS",
                 id: "marble_setting_feedback",
                 position: Position::Absolute,
                 left: 42,
