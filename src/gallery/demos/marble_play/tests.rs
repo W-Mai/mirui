@@ -765,7 +765,7 @@ fn bound_readout_tracks_visual_only_hit_changes() {
             .get::<Text>(readout)
             .unwrap()
             .resolve(world.resource())
-            .contains("1 HITS")
+            .contains("1 HIT")
     );
 }
 

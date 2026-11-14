@@ -383,3 +383,31 @@ fn collision_audio_is_scheduled_on_the_even_step_grid() {
         Some(MarbleSound::Pad { delay_ms, .. }) if delay_ms > 200 && delay_ms < 250
     ));
 }
+
+#[test]
+fn a_new_transport_beat_repaints_a_resting_board() {
+    let mut model = MarbleModel::new();
+    // Editing stops the marbles, but the board still shows the playing beat.
+    model.page = Page::Edit;
+    for _ in 0..200 {
+        model.advance_ms(16);
+    }
+    let mut changes = 0;
+    let mut beats = 0;
+    for _ in 0..200 {
+        let beat = model.transport_beat();
+        let change = model.advance_ms(16);
+        if model.transport_beat() != beat {
+            beats += 1;
+            assert!(
+                change.contains(ChangeSet::VISUAL),
+                "beat {beat} moved without a repaint"
+            );
+        }
+        if change.contains(ChangeSet::VISUAL) {
+            changes += 1;
+        }
+    }
+    assert!(beats > 0, "the transport keeps time");
+    assert!(changes >= beats);
+}

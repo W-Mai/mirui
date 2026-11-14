@@ -1,7 +1,7 @@
 use super::board::{LumenBoard, board_tap};
 use super::style::{
-    ACCENT, BACKGROUND, CONTROL, CONTROL_PRESSED, HEADER, MUTED, PANEL, PANEL_BORDER, SUCCESS,
-    TEXT, padding,
+    ACCENT, BACKGROUND, BOARD, CONTROL, CONTROL_PRESSED, HEADER, MUTED, PANEL, PANEL_BORDER,
+    SUCCESS, TEXT, padding,
 };
 use crate::gallery::play::lumen::{LEVELS, LumenModel};
 use crate::input::event::scroll::TouchAction;
@@ -328,6 +328,7 @@ fn compose_playfield(model: model!(LumenModel)) -> Entity {
                     font_size: 10,
                     normal_color: CONTROL,
                     pressed_color: CONTROL_PRESSED,
+                    pressed_text_color: BOARD,
                     text_color: TEXT,
                     border_radius: 8
                 ) on Tap { model.reveal_hint(); }
@@ -339,6 +340,7 @@ fn compose_playfield(model: model!(LumenModel)) -> Entity {
                     font_size: 10,
                     normal_color: CONTROL,
                     pressed_color: CONTROL_PRESSED,
+                    pressed_text_color: BOARD,
                     text_color: TEXT,
                     border_radius: 8
                 ) on Tap { model.reset(); }
@@ -376,6 +378,7 @@ fn compose_footer(model: model!(LumenModel)) -> Entity {
                 font_size: 10,
                 normal_color: CONTROL,
                 pressed_color: CONTROL_PRESSED,
+                pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.open_levels(); }
@@ -465,6 +468,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                         font_size: 12,
                         normal_color: CONTROL,
                         pressed_color: CONTROL_PRESSED,
+                        pressed_text_color: BOARD,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { model.close_levels(); }
@@ -484,6 +488,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                     font_size: 10,
                     normal_color: CONTROL,
                     pressed_color: CONTROL_PRESSED,
+                    pressed_text_color: BOARD,
                     text_color: TEXT,
                     border_radius: 6
                 ) on Tap { model.select_level(0); }
@@ -495,6 +500,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                     font_size: 10,
                     normal_color: CONTROL,
                     pressed_color: CONTROL_PRESSED,
+                    pressed_text_color: BOARD,
                     text_color: TEXT,
                     border_radius: 6
                 ) on Tap { model.select_level(1); }
@@ -506,6 +512,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                     font_size: 10,
                     normal_color: CONTROL,
                     pressed_color: CONTROL_PRESSED,
+                    pressed_text_color: BOARD,
                     text_color: TEXT,
                     border_radius: 6
                 ) on Tap { model.select_level(2); }
@@ -517,6 +524,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                     font_size: 10,
                     normal_color: CONTROL,
                     pressed_color: CONTROL_PRESSED,
+                    pressed_text_color: BOARD,
                     text_color: TEXT,
                     border_radius: 6
                 ) on Tap { model.select_level(3); }
@@ -528,6 +536,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                     font_size: 10,
                     normal_color: CONTROL,
                     pressed_color: CONTROL_PRESSED,
+                    pressed_text_color: BOARD,
                     text_color: TEXT,
                     border_radius: 6
                 ) on Tap { model.select_level(4); }

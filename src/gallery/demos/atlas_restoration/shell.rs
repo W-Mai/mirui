@@ -762,6 +762,7 @@ fn compose_tools(model: model!(PictureModel)) -> Entity {
             font_size: 8,
             normal_color: CELL,
             pressed_color: LAVENDER,
+            pressed_text_color: BG,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { model.undo(); }
@@ -778,6 +779,7 @@ fn compose_tools(model: model!(PictureModel)) -> Entity {
             font_size: 8,
             normal_color: CELL,
             pressed_color: APRICOT,
+            pressed_text_color: BG,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { model.reveal_hint(); }
@@ -794,6 +796,7 @@ fn compose_tools(model: model!(PictureModel)) -> Entity {
             font_size: 8,
             normal_color: CELL,
             pressed_color: MINT,
+            pressed_text_color: BG,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { model.check(); }
@@ -849,6 +852,7 @@ fn compose_footer(model: model!(PictureModel), expedition: model!(ExpeditionUiMo
             font_size: 7,
             normal_color: CELL,
             pressed_color: APRICOT,
+            pressed_text_color: BG,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { expedition.open(model.level_index()); }
@@ -865,6 +869,7 @@ fn compose_footer(model: model!(PictureModel), expedition: model!(ExpeditionUiMo
             font_size: 7,
             normal_color: CELL,
             pressed_color: APRICOT,
+            pressed_text_color: BG,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { expedition.open_rules(); }
@@ -881,6 +886,7 @@ fn compose_footer(model: model!(PictureModel), expedition: model!(ExpeditionUiMo
             font_size: 7,
             normal_color: CELL,
             pressed_color: APRICOT,
+            pressed_text_color: BG,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { model.restart(); }
@@ -999,6 +1005,7 @@ fn compose_result_modal(
                         font_size: 9,
                         normal_color: CELL,
                         pressed_color: APRICOT,
+                        pressed_text_color: BG,
                         text_color: TEXT,
                         border_radius: 7
                     ) on Tap { model.restart(); }
@@ -1010,6 +1017,7 @@ fn compose_result_modal(
                         font_size: 9,
                         normal_color: CELL,
                         pressed_color: APRICOT,
+                        pressed_text_color: BG,
                         text_color: TEXT,
                         border_radius: 7
                     ) on Tap { expedition.open(model.level_index()); }
@@ -1090,6 +1098,7 @@ fn compose_map_panel(model: model!(PictureModel), expedition: model!(ExpeditionU
                         font_size: 12,
                         normal_color: CELL,
                         pressed_color: APRICOT,
+                        pressed_text_color: BG,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.close(); }
@@ -1277,6 +1286,7 @@ fn compose_rules_panel(expedition: model!(ExpeditionUiModel)) -> Entity {
                         font_size: 12,
                         normal_color: CELL,
                         pressed_color: APRICOT,
+                        pressed_text_color: BG,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.close(); }
@@ -1520,6 +1530,7 @@ fn compose_summary_panel(
                         font_size: 7,
                         normal_color: CELL,
                         pressed_color: APRICOT,
+                        pressed_text_color: BG,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(0); }
@@ -1531,6 +1542,7 @@ fn compose_summary_panel(
                         font_size: 7,
                         normal_color: CELL,
                         pressed_color: APRICOT,
+                        pressed_text_color: BG,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(6); }
@@ -1542,6 +1554,7 @@ fn compose_summary_panel(
                         font_size: 7,
                         normal_color: CELL,
                         pressed_color: APRICOT,
+                        pressed_text_color: BG,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(12); }
@@ -1553,6 +1566,7 @@ fn compose_summary_panel(
                         font_size: 7,
                         normal_color: CELL,
                         pressed_color: APRICOT,
+                        pressed_text_color: BG,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(18); }
@@ -1564,6 +1578,7 @@ fn compose_summary_panel(
                         font_size: 7,
                         normal_color: CELL,
                         pressed_color: APRICOT,
+                        pressed_text_color: BG,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(24); }
@@ -1575,6 +1590,7 @@ fn compose_summary_panel(
                         font_size: 7,
                         normal_color: CELL,
                         pressed_color: APRICOT,
+                        pressed_text_color: BG,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(30); }

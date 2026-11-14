@@ -291,6 +291,11 @@ path = "examples/tools/demo_previews_snapshot.rs"
 required-features = ["snapshot"]
 
 [[example]]
+name = "game_audit"
+path = "examples/tools/game_audit.rs"
+required-features = ["snapshot"]
+
+[[example]]
 name = "lifecycle_suspend"
 path = "examples/tools/lifecycle_suspend.rs"
 required-features = ["sdl"]

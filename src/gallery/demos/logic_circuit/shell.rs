@@ -204,8 +204,9 @@ fn gate_left(positions: [Option<(i16, i16)>; MAX_GATES], index: usize) -> i32 {
     positions[index].map_or(0, |(x, _)| i32::from(x) - 29)
 }
 
+/// The label's two lines sit in the gate body, below its header band.
 fn gate_top(positions: [Option<(i16, i16)>; MAX_GATES], index: usize) -> i32 {
-    positions[index].map_or(0, |(_, y)| i32::from(y) - 14)
+    positions[index].map_or(0, |(_, y)| i32::from(y) - 5)
 }
 
 fn gate_color(gate: Option<CircuitGate>, selected: u8) -> Color {
@@ -362,8 +363,8 @@ fn compose_header(model: model!(CircuitModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ format_args!("NET / {}:6 GATES", model.gate_len()) },
-            capacity: 15,
+            text: ${ format_args!("NET · {} / 6 GATES", model.gate_len()) },
+            capacity: 20,
             id: "circuit_gate_count",
             position: Position::Absolute,
             left: 320,
@@ -387,6 +388,7 @@ fn compose_header(model: model!(CircuitModel)) -> Entity {
             font_size: 12,
             normal_color: INK,
             pressed_color: ACCENT,
+            pressed_text_color: INK,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.open_modal(CircuitModal::Help); }
@@ -404,6 +406,7 @@ fn compose_header(model: model!(CircuitModel)) -> Entity {
             font_size: 10,
             normal_color: ${ control_color(model.page() == CircuitPage::Wire, true) },
             pressed_color: ACCENT,
+            pressed_text_color: INK,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.set_page(CircuitPage::Wire); }
@@ -421,6 +424,7 @@ fn compose_header(model: model!(CircuitModel)) -> Entity {
             font_size: 10,
             normal_color: ${ control_color(model.page() == CircuitPage::Truth, true) },
             pressed_color: ACCENT,
+            pressed_text_color: INK,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.set_page(CircuitPage::Truth); }
@@ -438,6 +442,7 @@ fn compose_header(model: model!(CircuitModel)) -> Entity {
             font_size: 10,
             normal_color: ${ control_color(model.page() == CircuitPage::Trace, true) },
             pressed_color: ACCENT,
+            pressed_text_color: INK,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.set_page(CircuitPage::Trace); }
@@ -547,7 +552,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 0) },
             top: ${ gate_top(model.gate_positions(), 0) },
             width: 58,
-            height: 28,
+            height: 22,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[0], model.selected()) },
             line_height: 9,
@@ -564,7 +569,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 1) },
             top: ${ gate_top(model.gate_positions(), 1) },
             width: 58,
-            height: 28,
+            height: 22,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[1], model.selected()) },
             line_height: 9,
@@ -581,7 +586,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 2) },
             top: ${ gate_top(model.gate_positions(), 2) },
             width: 58,
-            height: 28,
+            height: 22,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[2], model.selected()) },
             line_height: 9,
@@ -598,7 +603,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 3) },
             top: ${ gate_top(model.gate_positions(), 3) },
             width: 58,
-            height: 28,
+            height: 22,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[3], model.selected()) },
             line_height: 9,
@@ -615,7 +620,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 4) },
             top: ${ gate_top(model.gate_positions(), 4) },
             width: 58,
-            height: 28,
+            height: 22,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[4], model.selected()) },
             line_height: 9,
@@ -632,7 +637,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
             left: ${ gate_left(model.gate_positions(), 5) },
             top: ${ gate_top(model.gate_positions(), 5) },
             width: 58,
-            height: 28,
+            height: 22,
             font_size: 8,
             text_color: ${ gate_color(model.gates()[5], model.selected()) },
             line_height: 9,
@@ -1583,6 +1588,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 font_size: 13,
                 normal_color: INK,
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.close_modal(); }
@@ -1604,6 +1610,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), 0, model.task()), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 0) }
@@ -1626,6 +1633,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), 1, model.task()), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 1) }
@@ -1648,6 +1656,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), 2, model.task()), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 2) }
@@ -1670,6 +1679,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), 3, model.task()), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 3) }
@@ -1692,6 +1702,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), 4, model.task()), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 4) }
@@ -1714,6 +1725,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), 5, model.task()), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 5) }

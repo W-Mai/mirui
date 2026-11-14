@@ -3,7 +3,7 @@ use super::input::{
 };
 use super::render::{modal_render, surface_render};
 use super::state::{PixelModalSurface, PixelSurface};
-use super::style::{ACTIVE, BACKGROUND, CONTROL, MUTED, PALETTE, TEMPLATE_NAMES, TEXT};
+use super::style::{ACTIVE, BACKGROUND, BOARD, CONTROL, MUTED, PALETTE, TEMPLATE_NAMES, TEXT};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::font::PlayFontPlugin;
@@ -86,11 +86,11 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
             capacity: 24,
             id: "pixel_clipboard_status",
             position: Position::Absolute,
-            left: 230,
-            top: 37,
-            width: 238,
-            height: 15,
-            font_size: 9,
+            left: 150,
+            top: 7,
+            width: 190,
+            height: 22,
+            font_size: 10,
             text_color: ACTIVE,
             paragraph: ParagraphStyle::label().with_align(TextAlign::End)
         )
@@ -212,6 +212,7 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
             font_size: 10,
             normal_color: Color::rgb(58, 52, 72),
             pressed_color: ACTIVE,
+            pressed_text_color: BOARD,
             text_color: MUTED,
             border_radius: 7
         ) on Tap { model.cycle_fps(); }
@@ -478,6 +479,7 @@ fn compose_edit_actions(model: model!(PixelModel)) -> Entity {
             font_size: 9,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 6
         ) on Tap { model.copy_previous(); }
@@ -494,6 +496,7 @@ fn compose_edit_actions(model: model!(PixelModel)) -> Entity {
             font_size: 9,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 6
         ) on Tap { model.open_clear(); }
@@ -514,6 +517,7 @@ fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { model.open_templates(); }
@@ -548,6 +552,7 @@ fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 7
         ) [
@@ -567,6 +572,7 @@ fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 7
         ) [
@@ -586,6 +592,7 @@ fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 7
         ) [
@@ -679,6 +686,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 font_size: 12,
                 normal_color: CONTROL,
                 pressed_color: ACTIVE,
+                pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 6
             ) on Tap { model.close_modal(); }
@@ -695,6 +703,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 font_size: 10,
                 normal_color: CONTROL,
                 pressed_color: ACTIVE,
+                pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.load_template(0); }
@@ -711,6 +720,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 font_size: 10,
                 normal_color: CONTROL,
                 pressed_color: ACTIVE,
+                pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.load_template(1); }
@@ -727,6 +737,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 font_size: 10,
                 normal_color: CONTROL,
                 pressed_color: ACTIVE,
+                pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.load_template(2); }
@@ -772,6 +783,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 font_size: 10,
                 normal_color: CONTROL,
                 pressed_color: ACTIVE,
+                pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.close_modal(); }

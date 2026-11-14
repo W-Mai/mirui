@@ -57,10 +57,11 @@ impl fmt::Display for MarbleReadout {
         match self.page {
             Page::Play => write!(
                 out,
-                "PAD {} · {:.2} g · {} HITS",
+                "PAD {} · {:.2} g · {} {}",
                 self.pad_letter as char,
                 self.gravity.to_f32(),
-                self.hits
+                self.hits,
+                if self.hits == 1 { "HIT" } else { "HITS" }
             ),
             Page::Edit => write!(
                 out,
@@ -162,6 +163,7 @@ fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
                 font_size: 9,
                 normal_color: Color::rgb(34, 47, 37),
                 pressed_color: Color::rgb(217, 248, 138),
+                pressed_text_color: Color::rgb(23, 34, 28),
                 text_color: TEXT,
                 border_radius: 6
             ) on Tap { model.toggle_pause(); }
@@ -173,6 +175,7 @@ fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
                 font_size: 8,
                 normal_color: Color::rgb(34, 47, 37),
                 pressed_color: Color::rgb(217, 248, 138),
+                pressed_text_color: Color::rgb(23, 34, 28),
                 text_color: TEXT,
                 text: ${ audio_label(&audio_label_state) },
                 capacity: 5,
@@ -205,6 +208,7 @@ fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
                 font_size: 8,
                 normal_color: Color::rgb(34, 47, 37),
                 pressed_color: Color::rgb(238, 172, 139),
+                pressed_text_color: Color::rgb(23, 34, 28),
                 text_color: TEXT,
                 visible: ${ audio_visible(&audio_state) },
                 border_radius: 6
@@ -217,6 +221,7 @@ fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
                 font_size: 12,
                 normal_color: Color::rgb(34, 47, 37),
                 pressed_color: Color::rgb(217, 248, 138),
+                pressed_text_color: Color::rgb(23, 34, 28),
                 text_color: TEXT,
                 border_radius: 6
             ) on Tap { model.drop_ball(); }
@@ -305,6 +310,7 @@ fn compose_readout(model: model!(MarbleModel)) -> Entity {
                     font_size: 8,
                     normal_color: Color::rgb(34, 47, 37),
                     pressed_color: Color::rgb(217, 248, 138),
+                    pressed_text_color: Color::rgb(23, 34, 28),
                     text_color: TEXT,
                     border_radius: 6
                 ) on Tap { model.set_inspector(true); }
@@ -317,6 +323,7 @@ fn compose_readout(model: model!(MarbleModel)) -> Entity {
                     font_size: 8,
                     normal_color: Color::rgb(34, 47, 37),
                     pressed_color: Color::rgb(217, 248, 138),
+                    pressed_text_color: Color::rgb(23, 34, 28),
                     text_color: TEXT,
                     border_radius: 6
                 ) on Tap { model.toggle_add_mode(); }
@@ -329,6 +336,7 @@ fn compose_readout(model: model!(MarbleModel)) -> Entity {
                     font_size: 8,
                     normal_color: Color::rgb(34, 47, 37),
                     pressed_color: Color::rgb(238, 172, 139),
+                    pressed_text_color: Color::rgb(23, 34, 28),
                     text_color: TEXT,
                     border_radius: 6
                 ) on Tap { model.remove_selected(); }

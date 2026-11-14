@@ -204,7 +204,7 @@ fn observed_state_drives_bounded_text_and_page_visibility() {
     let mut world = fixture();
     let model = model_handle(&world);
 
-    assert_text(&world, "circuit_gate_count", "NET / 1:6 GATES");
+    assert_text(&world, "circuit_gate_count", "NET · 1 / 6 GATES");
     assert_text(&world, "circuit_task", "任务 01 · 不同才亮");
     assert!(!world.has::<Hidden>(world.find_by_id("circuit_wire_page").unwrap()));
 

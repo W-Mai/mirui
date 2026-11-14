@@ -172,7 +172,7 @@ fn compose_header(model: model!(FactoryModel)) -> Entity {
         Text (
             text: ${
                 format_args!(
-                    "ORDER 0{} / {}:{}", model.mission_index() + 1, model.delivered(), model
+                    "ORDER 0{} · {} / {}", model.mission_index() + 1, model.delivered(), model
                     .mission().goal,
                 )
             },
@@ -200,6 +200,7 @@ fn compose_header(model: model!(FactoryModel)) -> Entity {
             font_size: 12,
             normal_color: INK,
             pressed_color: ACCENT,
+            pressed_text_color: INK,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.open_modal(FactoryModal::Help); }
@@ -217,6 +218,7 @@ fn compose_header(model: model!(FactoryModel)) -> Entity {
             font_size: 10,
             normal_color: ${ control_color(model.page() == FactoryPage::Line, true) },
             pressed_color: ACCENT,
+            pressed_text_color: INK,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.set_page(FactoryPage::Line); }
@@ -234,6 +236,7 @@ fn compose_header(model: model!(FactoryModel)) -> Entity {
             font_size: 10,
             normal_color: ${ control_color(model.page() == FactoryPage::Orders, true) },
             pressed_color: ACCENT,
+            pressed_text_color: INK,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.set_page(FactoryPage::Orders); }
@@ -251,6 +254,7 @@ fn compose_header(model: model!(FactoryModel)) -> Entity {
             font_size: 10,
             normal_color: ${ control_color(model.page() == FactoryPage::Telemetry, true) },
             pressed_color: ACCENT,
+            pressed_text_color: INK,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.set_page(FactoryPage::Telemetry); }
@@ -463,6 +467,7 @@ fn compose_orders_page(model: model!(FactoryModel)) -> Entity {
                 font_size: 10,
                 normal_color: ${ control_color(model.mission_index() == 0, true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.request_mission(0, false); }
@@ -478,6 +483,7 @@ fn compose_orders_page(model: model!(FactoryModel)) -> Entity {
                 font_size: 10,
                 normal_color: ${ control_color(model.mission_index() == 1, true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.request_mission(1, false); }
@@ -493,6 +499,7 @@ fn compose_orders_page(model: model!(FactoryModel)) -> Entity {
                 font_size: 10,
                 normal_color: ${ control_color(model.mission_index() == 2, true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.request_mission(2, false); }
@@ -764,6 +771,7 @@ fn compose_footer(model: model!(FactoryModel)) -> Entity {
             font_size: 9,
             normal_color: ${ control_color(model.modal() == FactoryModal::Tools, true) },
             pressed_color: ACCENT,
+            pressed_text_color: INK,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.open_modal(FactoryModal::Tools); }
@@ -915,6 +923,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 0), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.select_modal_option(0); }
@@ -932,6 +941,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 1), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.select_modal_option(1); }
@@ -949,6 +959,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 2), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.select_modal_option(2); }
@@ -966,6 +977,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 3), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.select_modal_option(3); }
@@ -983,6 +995,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 4), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.select_modal_option(4); }
@@ -1000,6 +1013,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 5), true) },
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.select_modal_option(5); }
@@ -1014,6 +1028,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
                 font_size: 12,
                 normal_color: INK,
                 pressed_color: ACCENT,
+                pressed_text_color: INK,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.close_modal(); }

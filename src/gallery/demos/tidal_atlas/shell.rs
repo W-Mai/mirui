@@ -500,6 +500,7 @@ fn compose_actions(model: model!(TideModel)) -> Entity {
             font_size: 9,
             normal_color: CONTROL,
             pressed_color: ACCENT,
+            pressed_text_color: BACKGROUND,
             text_color: TEXT,
             border_radius: 5
         ) on Tap { model.set_modal(TideModal::Voyage); }
@@ -549,6 +550,7 @@ fn compose_actions(model: model!(TideModel)) -> Entity {
             font_size: 9,
             normal_color: CONTROL,
             pressed_color: ACCENT,
+            pressed_text_color: BACKGROUND,
             text_color: TEXT,
             border_radius: 5
         ) on Tap {
@@ -668,6 +670,7 @@ fn compose_modal_header(model: model!(TideModel)) -> Entity {
             font_size: 14,
             normal_color: CONTROL,
             pressed_color: ACCENT,
+            pressed_text_color: BACKGROUND,
             text_color: TEXT,
             border_radius: 5
         ) on Tap { model.set_modal(TideModal::None); }
@@ -731,6 +734,7 @@ fn compose_modal_result(model: model!(TideModel)) -> Entity {
             font_size: 8,
             normal_color: BACKGROUND,
             pressed_color: ACCENT,
+            pressed_text_color: BACKGROUND,
             text_color: TEXT,
             border_radius: 5
         ) on Tap { model.continue_voyage(Some(model.perk_offers()[0])); }
@@ -753,6 +757,7 @@ fn compose_modal_result(model: model!(TideModel)) -> Entity {
             font_size: 8,
             normal_color: BACKGROUND,
             pressed_color: ACCENT,
+            pressed_text_color: BACKGROUND,
             text_color: TEXT,
             border_radius: 5
         ) on Tap { model.continue_voyage(Some(model.perk_offers()[1])); }
@@ -775,6 +780,7 @@ fn compose_modal_result(model: model!(TideModel)) -> Entity {
             font_size: 8,
             normal_color: BACKGROUND,
             pressed_color: ACCENT,
+            pressed_text_color: BACKGROUND,
             text_color: TEXT,
             border_radius: 5
         ) on Tap { model.continue_voyage(Some(model.perk_offers()[2])); }

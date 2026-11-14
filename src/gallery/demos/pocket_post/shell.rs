@@ -1,7 +1,9 @@
 use super::input::{keyboard, post_tick_system, surface_tap};
 use super::render::{modal_render, surface_render};
 use super::state::{PostModalSurface, PostSurface};
-use super::style::{ACCENT, BACKGROUND, CONTROL, CONTROL_DISABLED, MUTED, STATION_COLORS, TEXT};
+use super::style::{
+    ACCENT, BACKGROUND, BOARD, CONTROL, CONTROL_DISABLED, MUTED, STATION_COLORS, TEXT,
+};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::font::PlayFontPlugin;
@@ -446,6 +448,7 @@ fn compose_dispatch_queue(model: model!(PostModel)) -> Entity {
             font_size: 9,
             normal_color: Color::rgb(49, 72, 76),
             pressed_color: ACCENT,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 6
         ) on Tap { model.open_manifests(); }
@@ -524,6 +527,7 @@ fn compose_footer(model: model!(PostModel)) -> Entity {
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACCENT,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { model.open_reset(); }
@@ -609,6 +613,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
                 font_size: 12,
                 normal_color: CONTROL,
                 pressed_color: ACCENT,
+                pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 6
             ) on Tap { model.close_modal(); }
@@ -744,6 +749,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
                 font_size: 11,
                 normal_color: CONTROL,
                 pressed_color: ACCENT,
+                pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.open_manifests(); }
@@ -789,6 +795,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
                 font_size: 10,
                 normal_color: CONTROL,
                 pressed_color: ACCENT,
+                pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.close_modal(); }

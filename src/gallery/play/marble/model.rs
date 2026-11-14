@@ -580,8 +580,12 @@ impl MarbleModel {
         if elapsed_ms == 0 {
             return ChangeSet::NONE;
         }
+        let beat = self.transport_beat();
         self.transport_steps +=
             Fixed64::from_ratio(i64::from(elapsed_ms) * i64::from(self.bpm), 15_000);
+        // The board shows the playing beat, so a new beat needs a repaint
+        // even when nothing else moves.
+        let beat_moved = self.transport_beat() != beat;
         let active = self.running();
         let steps = self.clock.steps(elapsed_ms, active);
         for _ in 0..steps {
@@ -619,7 +623,7 @@ impl MarbleModel {
         let audio_model_changed = self.advance_audio();
         if audio_model_changed {
             ChangeSet::MODEL | ChangeSet::VISUAL
-        } else if animated {
+        } else if animated || beat_moved {
             ChangeSet::VISUAL
         } else {
             ChangeSet::NONE

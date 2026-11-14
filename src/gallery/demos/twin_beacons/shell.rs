@@ -3,7 +3,7 @@ use super::input::keyboard;
 use super::persistence::install_persistence;
 use super::render::surface_render;
 use super::state::{TwinHintService, TwinSurface, next, select_map_level};
-use super::style::{APRICOT, BG, FLOOR, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT};
+use super::style::{APRICOT, BG, FLOOR, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT, WALL};
 use crate::gallery::play::expeditions::{
     Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, twin_level,
 };
@@ -347,6 +347,7 @@ fn compose_controls(game: model!(TwinModel), hints: TwinHintService) -> Entity {
             font_size: 13,
             normal_color: FLOOR,
             pressed_color: MINT,
+            pressed_text_color: WALL,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { game.move_direction(Direction4::Up); }
@@ -363,6 +364,7 @@ fn compose_controls(game: model!(TwinModel), hints: TwinHintService) -> Entity {
             font_size: 13,
             normal_color: FLOOR,
             pressed_color: MINT,
+            pressed_text_color: WALL,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { game.move_direction(Direction4::Left); }
@@ -379,6 +381,7 @@ fn compose_controls(game: model!(TwinModel), hints: TwinHintService) -> Entity {
             font_size: 13,
             normal_color: FLOOR,
             pressed_color: MINT,
+            pressed_text_color: WALL,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { game.move_direction(Direction4::Down); }
@@ -395,6 +398,7 @@ fn compose_controls(game: model!(TwinModel), hints: TwinHintService) -> Entity {
             font_size: 13,
             normal_color: FLOOR,
             pressed_color: MINT,
+            pressed_text_color: WALL,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { game.move_direction(Direction4::Right); }
@@ -411,6 +415,7 @@ fn compose_controls(game: model!(TwinModel), hints: TwinHintService) -> Entity {
             font_size: 8,
             normal_color: FLOOR,
             pressed_color: LAVENDER,
+            pressed_text_color: WALL,
             text_color: TEXT,
             border_radius: 6
         ) on Tap { game.undo(); }
@@ -427,6 +432,7 @@ fn compose_controls(game: model!(TwinModel), hints: TwinHintService) -> Entity {
             font_size: 8,
             normal_color: FLOOR,
             pressed_color: APRICOT,
+            pressed_text_color: WALL,
             text_color: TEXT,
             border_radius: 6
         ) on Tap { hints.request(&game); }
@@ -483,6 +489,7 @@ fn compose_footer(game: model!(TwinModel), expedition: model!(ExpeditionUiModel)
             font_size: 8,
             normal_color: FLOOR,
             pressed_color: APRICOT,
+            pressed_text_color: WALL,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { game.restart(); }
@@ -499,6 +506,7 @@ fn compose_footer(game: model!(TwinModel), expedition: model!(ExpeditionUiModel)
             font_size: 7,
             normal_color: FLOOR,
             pressed_color: APRICOT,
+            pressed_text_color: WALL,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { expedition.open(game.level_index()); }
@@ -515,6 +523,7 @@ fn compose_footer(game: model!(TwinModel), expedition: model!(ExpeditionUiModel)
             font_size: 7,
             normal_color: FLOOR,
             pressed_color: APRICOT,
+            pressed_text_color: WALL,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { expedition.open_rules(); }
@@ -623,6 +632,7 @@ fn compose_result_overlay(
                         font_size: 9,
                         normal_color: FLOOR,
                         pressed_color: APRICOT,
+                        pressed_text_color: WALL,
                         text_color: TEXT,
                         border_radius: 7
                     ) on Tap { game.restart(); }
@@ -634,6 +644,7 @@ fn compose_result_overlay(
                         font_size: 9,
                         normal_color: FLOOR,
                         pressed_color: MINT,
+                        pressed_text_color: WALL,
                         text_color: TEXT,
                         border_radius: 7
                     ) on Tap { expedition.open(game.level_index()); }
@@ -699,6 +710,7 @@ fn compose_map_overlay(game: model!(TwinModel), expedition: model!(ExpeditionUiM
                         font_size: 12,
                         normal_color: FLOOR,
                         pressed_color: APRICOT,
+                        pressed_text_color: WALL,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.close(); }
@@ -886,6 +898,7 @@ fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
                         font_size: 12,
                         normal_color: FLOOR,
                         pressed_color: APRICOT,
+                        pressed_text_color: WALL,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.close(); }
@@ -1159,6 +1172,7 @@ fn compose_summary_overlay(
                         font_size: 7,
                         normal_color: FLOOR,
                         pressed_color: MINT,
+                        pressed_text_color: WALL,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(0); }
@@ -1170,6 +1184,7 @@ fn compose_summary_overlay(
                         font_size: 7,
                         normal_color: FLOOR,
                         pressed_color: MINT,
+                        pressed_text_color: WALL,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(6); }
@@ -1181,6 +1196,7 @@ fn compose_summary_overlay(
                         font_size: 7,
                         normal_color: FLOOR,
                         pressed_color: MINT,
+                        pressed_text_color: WALL,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(12); }
@@ -1192,6 +1208,7 @@ fn compose_summary_overlay(
                         font_size: 7,
                         normal_color: FLOOR,
                         pressed_color: MINT,
+                        pressed_text_color: WALL,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(18); }
@@ -1203,6 +1220,7 @@ fn compose_summary_overlay(
                         font_size: 7,
                         normal_color: FLOOR,
                         pressed_color: MINT,
+                        pressed_text_color: WALL,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(24); }
@@ -1214,6 +1232,7 @@ fn compose_summary_overlay(
                         font_size: 7,
                         normal_color: FLOOR,
                         pressed_color: MINT,
+                        pressed_text_color: WALL,
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { expedition.open(30); }

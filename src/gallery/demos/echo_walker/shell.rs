@@ -146,15 +146,15 @@ fn compose_header(model: model!(EchoModel)) -> Entity {
     };
     ui! {
         Text (
-            "ECHO WALKER / 002718",
+            "TAPE 002718",
             position: Position::Absolute,
-            left: 123,
+            left: 270,
             top: 10,
-            width: 190,
+            width: 196,
             height: 16,
-            font_size: 8,
+            font_size: 9,
             text_color: MUTED,
-            paragraph: label()
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
         )
     };
     ui! {

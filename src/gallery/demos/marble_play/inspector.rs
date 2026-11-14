@@ -60,6 +60,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         font_size: 10,
                         normal_color: Color::rgb(45, 61, 48),
                         pressed_color: Color::rgb(217, 248, 138),
+                        pressed_text_color: Color::rgb(23, 34, 28),
                         text_color: TEXT,
                         border_radius: 6
                     ) on Tap { model.set_inspector(false); }
@@ -136,6 +137,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         font_size: 10,
                         normal_color: Color::rgb(45, 61, 48),
                         pressed_color: Color::rgb(217, 248, 138),
+                        pressed_text_color: Color::rgb(23, 34, 28),
                         text_color: TEXT,
                         border_radius: 5
                     ) on Tap { model.adjust_pitch(-1); }
@@ -158,6 +160,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         font_size: 10,
                         normal_color: Color::rgb(45, 61, 48),
                         pressed_color: Color::rgb(217, 248, 138),
+                        pressed_text_color: Color::rgb(23, 34, 28),
                         text_color: TEXT,
                         border_radius: 5
                     ) on Tap { model.adjust_pitch(1); }
@@ -181,6 +184,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         font_size: 8,
                         normal_color: Color::rgb(45, 61, 48),
                         pressed_color: Color::rgb(198, 176, 239),
+                        pressed_text_color: Color::rgb(23, 34, 28),
                         text_color: TEXT,
                         border_radius: 5
                     ) on Tap { model.cycle_timbre(); }

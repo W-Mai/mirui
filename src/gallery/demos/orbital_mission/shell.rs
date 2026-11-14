@@ -152,6 +152,7 @@ fn compose_header(model: model!(OrbitModel)) -> Entity {
             font_size: 8,
             normal_color: INK,
             pressed_color: ORANGE,
+            pressed_text_color: SPACE,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.set_modal(OrbitModal::Missions); }
@@ -168,6 +169,7 @@ fn compose_header(model: model!(OrbitModel)) -> Entity {
             font_size: 12,
             normal_color: INK,
             pressed_color: ORANGE,
+            pressed_text_color: SPACE,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.set_modal(OrbitModal::Help); }
@@ -185,6 +187,7 @@ fn compose_header(model: model!(OrbitModel)) -> Entity {
             font_size: 10,
             normal_color: ${ control_color(model.page() == OrbitPage::Map, true) },
             pressed_color: ORANGE,
+            pressed_text_color: SPACE,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.set_page(OrbitPage::Map); }
@@ -202,6 +205,7 @@ fn compose_header(model: model!(OrbitModel)) -> Entity {
             font_size: 10,
             normal_color: ${ control_color(model.page() == OrbitPage::Plan, true) },
             pressed_color: ORANGE,
+            pressed_text_color: SPACE,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.set_page(OrbitPage::Plan); }
@@ -219,6 +223,7 @@ fn compose_header(model: model!(OrbitModel)) -> Entity {
             font_size: 10,
             normal_color: ${ control_color(model.page() == OrbitPage::Record, true) },
             pressed_color: ORANGE,
+            pressed_text_color: SPACE,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.set_page(OrbitPage::Record); }
@@ -317,6 +322,39 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 text_color: INK,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+            Text (
+                "RADIUS",
+                position: Position::Absolute,
+                left: 318,
+                top: 154,
+                width: 62,
+                height: 10,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "SPEED",
+                position: Position::Absolute,
+                left: 395,
+                top: 154,
+                width: 62,
+                height: 10,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            )
+            Text (
+                "BURN DV",
+                position: Position::Absolute,
+                left: 318,
+                top: 172,
+                width: 90,
+                height: 14,
+                font_size: 9,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
             Button (
                 "-",
                 position: Position::Absolute,
@@ -328,6 +366,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 12,
                 normal_color: INK,
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_dv(-2); }
@@ -342,6 +381,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 8,
                 normal_color: INK,
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.reset_dv(); }
@@ -356,6 +396,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 12,
                 normal_color: INK,
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_dv(2); }
@@ -370,6 +411,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 8,
                 normal_color: INK,
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_angle(-15); }
@@ -397,6 +439,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 7,
                 normal_color: INK,
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_angle(15); }
@@ -413,6 +456,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 7,
                 normal_color: SPACE,
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.toggle_preview(); }
@@ -429,6 +473,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 8,
                 normal_color: SPACE,
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.cycle_warp(); }
@@ -477,6 +522,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 7,
                 normal_color: INK,
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { let _ = model.cancel_at(0); }
@@ -509,6 +555,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 7,
                 normal_color: INK,
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { let _ = model.cancel_at(1); }
@@ -541,6 +588,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 7,
                 normal_color: INK,
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { let _ = model.cancel_at(2); }
@@ -581,6 +629,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 8,
                 normal_color: Color::rgb(31, 50, 67),
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_delay(-1); }
@@ -595,6 +644,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
                 font_size: 8,
                 normal_color: Color::rgb(31, 50, 67),
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_delay(1); }
@@ -797,6 +847,7 @@ fn compose_footer(model: model!(OrbitModel)) -> Entity {
             font_size: 8,
             normal_color: INK,
             pressed_color: ORANGE,
+            pressed_text_color: SPACE,
             text_color: BACKGROUND,
             border_radius: 0
         ) on Tap { model.request_mission_reload(); }
@@ -859,6 +910,7 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button(model.modal(), 0, model.mission()).2, true) },
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.select_modal_option(0); }
@@ -876,6 +928,7 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button(model.modal(), 1, model.mission()).2, true) },
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.select_modal_option(1); }
@@ -893,6 +946,7 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button(model.modal(), 2, model.mission()).2, true) },
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.select_modal_option(2); }
@@ -910,6 +964,7 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
                 font_size: 9,
                 normal_color: ${ control_color(modal_button(model.modal(), 3, model.mission()).2, true) },
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.select_modal_option(3); }
@@ -924,6 +979,7 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
                 font_size: 12,
                 normal_color: INK,
                 pressed_color: ORANGE,
+                pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.set_modal(OrbitModal::None); }

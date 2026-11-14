@@ -3,7 +3,7 @@ use super::input::{
 };
 use super::render::{modal_render, surface_render};
 use super::state::{MossModalSurface, MossSurface};
-use super::style::{ACTIVE, BACKGROUND, CONTROL, MUTED, TEXT};
+use super::style::{ACTIVE, BACKGROUND, BOARD, CONTROL, MUTED, TEXT};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::font::PlayFontPlugin;
@@ -223,6 +223,7 @@ fn compose_metrics(model: model!(MossModel)) -> Entity {
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { model.cycle_rate(); }
@@ -304,6 +305,7 @@ fn compose_footer(model: model!(MossModel)) -> Entity {
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { model.step(); }
@@ -320,6 +322,7 @@ fn compose_footer(model: model!(MossModel)) -> Entity {
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { model.open_seeds(); }
@@ -336,6 +339,7 @@ fn compose_footer(model: model!(MossModel)) -> Entity {
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
+            pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 7
         ) on Tap { model.open_clear(); }
@@ -409,6 +413,7 @@ fn compose_modal(model: model!(MossModel)) -> Entity {
                 font_size: 12,
                 normal_color: CONTROL,
                 pressed_color: ACTIVE,
+                pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 6
             ) on Tap { model.close_modal(); }
@@ -502,6 +507,7 @@ fn compose_modal(model: model!(MossModel)) -> Entity {
                 font_size: 10,
                 normal_color: CONTROL,
                 pressed_color: ACTIVE,
+                pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.close_modal(); }
