@@ -19,18 +19,19 @@ fn label_style() -> ParagraphStyle {
     ParagraphStyle::label().with_align(TextAlign::Start)
 }
 
+/// A control that cannot act looks idle even when it is the highlighted one.
 fn control_color(active: bool, enabled: bool) -> Color {
-    if active {
-        ACCENT
-    } else if enabled {
-        INK
-    } else {
+    if !enabled {
         LINE
+    } else if active {
+        ACCENT
+    } else {
+        INK
     }
 }
 
-fn control_text_color(active: bool, enabled: bool) -> Color {
-    if active || enabled { BACKGROUND } else { MUTED }
+fn control_text_color(_active: bool, enabled: bool) -> Color {
+    if enabled { BACKGROUND } else { MUTED }
 }
 
 fn direction_glyph(direction: u8) -> &'static str {
@@ -55,10 +56,19 @@ struct StatusText {
     wip: u8,
     blocked: u8,
     rejected: u16,
+    power: u8,
+    budget: u8,
 }
 
 impl fmt::Display for StatusText {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.power > self.budget {
+            return write!(
+                out,
+                "功率 {} / {} 超出预算：拆掉几个模块才能运行。",
+                self.power, self.budget
+            );
+        }
         match self.status {
             FactoryStatus::Won => out.write_str("★ 订单完成！可在订单页选择下一条产线。"),
             FactoryStatus::Timeout => out.write_str("试运行到期；请修改布局后重试。"),
@@ -278,7 +288,7 @@ fn compose_header(model: model!(FactoryModel)) -> Entity {
             width: 80,
             height: 14,
             font_size: 8,
-            text_color: MUTED,
+            text_color: ${ if model.power() > model.mission().power { ACCENT } else { MUTED } },
             paragraph: label_style()
         )
     };
@@ -408,6 +418,8 @@ fn compose_line_page(model: model!(FactoryModel)) -> Entity {
                         wip: model.wip(),
                         blocked: model.blocked(),
                         rejected: model.rejected(),
+                        power: model.power(),
+                        budget: model.mission().power,
                     }
                 },
                 capacity: 96,

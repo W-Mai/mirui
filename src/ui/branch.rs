@@ -22,7 +22,9 @@ pub(crate) fn is_authored_hidden(world: &World, entity: Entity) -> bool {
             .is_some_and(|branch| !branch.selected)
 }
 
-pub(crate) fn is_hidden_in_tree(world: &World, mut entity: Entity) -> bool {
+/// Whether `entity` or any of its ancestors is hidden, so nothing of it is
+/// drawn or hit.
+pub fn is_hidden_in_tree(world: &World, mut entity: Entity) -> bool {
     loop {
         if is_effectively_hidden(world, entity) {
             return true;

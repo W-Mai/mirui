@@ -30,6 +30,12 @@ fn next_label(modal: ExpeditionModal, level: u8, unlocked: u8) -> &'static str {
     }
 }
 
+/// Whether the next button has somewhere to go: a result to leave, or
+/// another unlocked level to switch to.
+fn next_acts(modal: ExpeditionModal, level: u8, unlocked: u8) -> bool {
+    modal != ExpeditionModal::None || level < unlocked || level > 0
+}
+
 fn result_title(modal: ExpeditionModal, level: u8) -> &'static str {
     if modal == ExpeditionModal::Final {
         "远征完成"
@@ -420,7 +426,7 @@ fn compose_controls(game: model!(TwinModel), hints: TwinHintService) -> Entity {
             normal_color: FLOOR,
             pressed_color: LAVENDER,
             pressed_text_color: WALL,
-            text_color: TEXT,
+            text_color: ${ if game.steps() > 0 { TEXT } else { MUTED } },
             border_radius: 6
         ) on Tap { game.undo(); }
     };
@@ -544,9 +550,15 @@ fn compose_footer(game: model!(TwinModel), expedition: model!(ExpeditionUiModel)
             height: 29,
             size: ButtonSize::Compact,
             font_size: 8,
-            normal_color: MINT,
+            normal_color: ${
+                if next_acts(game.modal(), game.level_index(), game.unlocked()) {
+                    MINT
+                } else {
+                    FLOOR
+                }
+            },
             pressed_color: LAVENDER,
-            text_color: BG,
+            text_color: ${ if next_acts(game.modal(), game.level_index(), game.unlocked()) { BG } else { MUTED } },
             border_radius: 7
         ) on Tap { next(&game, &expedition); }
     };

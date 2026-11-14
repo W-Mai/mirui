@@ -7,8 +7,8 @@ use super::style::{ACCENT, BACKGROUND, GREEN, INK, LINE, MUTED, PANEL};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::circuit::{
-    CircuitGate, CircuitModal, CircuitModel, CircuitPage, Evaluation, GateKind, MAX_GATES,
-    SignalSource, TruthRow, VerifyResult,
+    CircuitError, CircuitGate, CircuitModal, CircuitModel, CircuitPage, Evaluation, GateKind,
+    MAX_GATES, SignalSource, TruthRow, VerifyResult,
 };
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::input::event::scroll::TouchAction;
@@ -176,11 +176,22 @@ struct WireStatus {
     verify: Option<VerifyResult>,
     disconnecting: bool,
     pending: SignalSource,
+    notice: Option<CircuitError>,
 }
 
 impl core::fmt::Display for WireStatus {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if let Some(result) = self.verify {
+        if let Some(notice) = self.notice {
+            formatter.write_str(match notice {
+                CircuitError::Cycle => "这条线会让信号绕回自己，换一个输入端。",
+                CircuitError::Duplicate => "这里已经接着同一个信号。",
+                CircuitError::Full => "最多 6 个逻辑门，先删除一个。",
+                CircuitError::Overlap => "没有空位放新门，先拖开一个。",
+                CircuitError::InvalidGate
+                | CircuitError::InvalidSource
+                | CircuitError::InvalidInput => "先点一个输出端，再点输入端。",
+            })
+        } else if let Some(result) = self.verify {
             if result.won {
                 formatter.write_str("★ 逻辑验证通过，可以选择下一项任务。")
             } else {
@@ -886,6 +897,7 @@ fn compose_wire_status(model: model!(CircuitModel)) -> Entity {
                     verify: model.verify_result(),
                     disconnecting: model.disconnecting(),
                     pending: model.pending(),
+                    notice: model.notice(),
                 }
             },
             capacity: 128,
@@ -1615,7 +1627,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 0) }
-            ) on Tap { let _ = model.select_modal_option(0); }
+            ) on Tap { model.choose_modal_option(0); }
             Button (
                 text: ${
                     ModalButtonLabel {
@@ -1638,7 +1650,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 1) }
-            ) on Tap { let _ = model.select_modal_option(1); }
+            ) on Tap { model.choose_modal_option(1); }
             Button (
                 text: ${
                     ModalButtonLabel {
@@ -1661,7 +1673,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 2) }
-            ) on Tap { let _ = model.select_modal_option(2); }
+            ) on Tap { model.choose_modal_option(2); }
             Button (
                 text: ${
                     ModalButtonLabel {
@@ -1684,7 +1696,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 3) }
-            ) on Tap { let _ = model.select_modal_option(3); }
+            ) on Tap { model.choose_modal_option(3); }
             Button (
                 text: ${
                     ModalButtonLabel {
@@ -1707,7 +1719,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 4) }
-            ) on Tap { let _ = model.select_modal_option(4); }
+            ) on Tap { model.choose_modal_option(4); }
             Button (
                 text: ${
                     ModalButtonLabel {
@@ -1730,7 +1742,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 5) }
-            ) on Tap { let _ = model.select_modal_option(5); }
+            ) on Tap { model.choose_modal_option(5); }
         } on Tap { }
     }
 }

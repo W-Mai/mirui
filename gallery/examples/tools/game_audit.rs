@@ -178,27 +178,75 @@ fn build(slug: &str, dark: bool) -> (AuditApp, (u16, u16)) {
     (app, size)
 }
 
-/// Centres of the visible tap targets, top to bottom.
-fn targets(app: &AuditApp, (width, height): (u16, u16)) -> Vec<(i32, i32)> {
-    let mut points: Vec<(i32, i32)> = app
+/// The first text in `entity` or under it, to name a control in reports.
+fn label_of(world: &mirui::ecs::World, entity: Entity) -> String {
+    let mut queue = VecDeque::from([entity]);
+    while let Some(next) = queue.pop_front() {
+        if let Some(text) = world.get::<mirui::ui::widgets::Text>(next) {
+            let label = text.resolve(world.resource()).replace('\n', " ");
+            if !label.trim().is_empty() {
+                return label;
+            }
+        }
+        if let Some(children) = world.get::<mirui::ui::Children>(next) {
+            queue.extend(children.0.iter().copied());
+        }
+    }
+    format!("{entity:?}")
+}
+
+/// A visible tap target: its centre, size and name.
+#[derive(Clone)]
+struct Target {
+    entity: Entity,
+    point: (i32, i32),
+    size: (i32, i32),
+    label: String,
+}
+
+/// The visible tap targets, top to bottom.
+fn targets(app: &AuditApp, (width, height): (u16, u16)) -> Vec<Target> {
+    let mut found: Vec<Target> = app
         .world
         .query::<mirui::ui::HitTarget>()
         .iter()
-        .filter(|(entity, _)| !mirui::ui::branch::is_effectively_hidden(&app.world, *entity))
-        .filter_map(|(entity, _)| app.world.get::<mirui::ui::ComputedRect>(entity))
-        .map(|rect| rect.0)
-        .filter(|rect| rect.w > Fixed::ZERO && rect.h > Fixed::ZERO)
-        .map(|rect| {
-            (
-                (rect.x + rect.w / 2).to_int(),
-                (rect.y + rect.h / 2).to_int(),
-            )
+        .filter(|(entity, _)| !mirui::ui::branch::is_hidden_in_tree(&app.world, *entity))
+        .filter_map(|(entity, _)| {
+            let rect = app.world.get::<mirui::ui::ComputedRect>(entity)?.0;
+            Some(Target {
+                entity,
+                point: (
+                    (rect.x + rect.w / 2).to_int(),
+                    (rect.y + rect.h / 2).to_int(),
+                ),
+                size: (rect.w.to_int(), rect.h.to_int()),
+                label: label_of(&app.world, entity),
+            })
         })
-        .filter(|&(x, y)| x >= 0 && y >= 0 && x < i32::from(width) && y < i32::from(height))
+        .filter(|target| target.size.0 > 0 && target.size.1 > 0)
+        .filter(|target| {
+            let (x, y) = target.point;
+            x >= 0 && y >= 0 && x < i32::from(width) && y < i32::from(height)
+        })
         .collect();
-    points.sort_by_key(|&(x, y)| (y, x));
-    points.dedup();
-    points
+    // Keep only the controls a tap at their centre reaches; a dialog covers
+    // the page under it.
+    if let Some(root) = app.root {
+        found.retain(|target| {
+            let hit = mirui::input::event::hit_test::hit_test(
+                &app.world,
+                root,
+                Fixed::from_int(target.point.0),
+                Fixed::from_int(target.point.1),
+                width,
+                height,
+            );
+            hit == Some(target.entity)
+        });
+    }
+    found.sort_by_key(|target| (target.point.1, target.point.0));
+    found.dedup_by_key(|target| target.point);
+    found
 }
 
 /// Tap every visible control of every screen it reaches, saving each new
@@ -225,6 +273,8 @@ fn tour(slug: &str, out: &Path, steps: u32) -> String {
     let mut tapped: Vec<(i32, i32)> = Vec::new();
     let mut stale = Vec::new();
     let mut fallback = Rng(0x0bad_cafe);
+    let mut tiny = std::collections::BTreeSet::new();
+    let mut effects: std::collections::BTreeMap<String, (u32, u32)> = Default::default();
     advance(&mut app, 20);
     let mut overflows = std::collections::BTreeSet::new();
     let mut note_overflows = |app: &AuditApp, step: u32| {
@@ -282,15 +332,24 @@ fn tour(slug: &str, out: &Path, steps: u32) -> String {
         &pixels(&mut app),
     );
     for step in 1..=steps {
-        let points = targets(&app, size);
-        if points.is_empty() {
+        let found = targets(&app, size);
+        if found.is_empty() {
             break;
         }
-        let point = points
+        for target in &found {
+            if target.size.0 < 16 || target.size.1 < 16 {
+                tiny.insert(format!(
+                    "  tiny target {:?} {}x{} at {:?}",
+                    target.label, target.size.0, target.size.1, target.point
+                ));
+            }
+        }
+        let target = found
             .iter()
-            .copied()
-            .min_by_key(|point| tapped.iter().filter(|seen| *seen == point).count())
-            .unwrap_or_else(|| points[fallback.below(points.len() as u32) as usize]);
+            .min_by_key(|target| tapped.iter().filter(|seen| **seen == target.point).count())
+            .cloned()
+            .unwrap_or_else(|| found[fallback.below(found.len() as u32) as usize].clone());
+        let point = target.point;
         tapped.push(point);
         app.backend.events.push_back(pointer(0, point.0, point.1));
         advance(&mut app, 1);
@@ -314,30 +373,71 @@ fn tour(slug: &str, out: &Path, steps: u32) -> String {
             stale.push(format!("step{step}@{point:?}:{count}px{bbox:?}"));
         }
         note_overflows(&app, step);
+        let before = screen;
         screen = hash(&full);
+        let entry = effects.entry(target.label.clone()).or_insert((0u32, 0u32));
+        entry.0 += 1;
+        if screen != before {
+            entry.1 += 1;
+        }
+        if env::var_os("TRACE").is_some() {
+            println!(
+                "  step {step:03} {:?} {}",
+                target.label,
+                if screen != before { "changed" } else { "same" }
+            );
+            write_png(
+                &out.join(format!("{slug}_trace_{step:03}.png")),
+                size,
+                &full,
+            );
+        }
         if screens.insert(screen) {
             write_png(&out.join(format!("{slug}_tour_{step:03}.png")), size, &full);
         }
     }
+    // Reopen the game from what it saved and compare the first frame with
+    // the last one before closing.
+    let mut reload_note = String::new();
+    if env::var_os("RELOAD").is_some() {
+        app.render().ok();
+        let closing = pixels(&mut app);
+        drop(app);
+        let (mut reopened, _) = build(slug, true);
+        advance(&mut reopened, 20);
+        reopened.render().ok();
+        let reopened_pixels = pixels(&mut reopened);
+        let (count, bbox) = diff(&closing, &reopened_pixels, width);
+        write_png(&out.join(format!("{slug}_closing.png")), size, &closing);
+        write_png(
+            &out.join(format!("{slug}_reopened.png")),
+            size,
+            &reopened_pixels,
+        );
+        reload_note = format!("\n  reload: {count}px differ {bbox:?}");
+    }
     let mut seen = HashSet::new();
-    let overflows: Vec<_> = overflows
+    let mut lines: Vec<String> = overflows
         .into_iter()
         .filter(|line| seen.insert(line.split(" first step").next().unwrap_or(line).to_string()))
         .collect();
+    let issues = lines.len();
+    lines.extend(tiny);
+    lines.extend(
+        effects
+            .iter()
+            .filter(|(_, (taps, changes))| *taps >= 2 && *changes == 0)
+            .map(|(label, (taps, _))| format!("  dead target {label:?}: {taps} taps, no change")),
+    );
     format!(
-        "{slug:<18} tour: {} screens, stale {}, {} text issues
-{}",
+        "{slug:<18} tour: {} screens, stale {}, {issues} text issues{reload_note}\n{}",
         screens.len(),
         if stale.is_empty() {
             "none".to_string()
         } else {
             stale.join(" ")
         },
-        overflows.len(),
-        overflows.join(
-            "
-"
-        )
+        lines.join("\n")
     )
 }
 

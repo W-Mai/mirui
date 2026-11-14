@@ -140,6 +140,12 @@ fn next_label(modal: ExpeditionModal, level: u8, unlocked: u8) -> &'static str {
     }
 }
 
+/// Whether the next button has somewhere to go: a result to leave, or
+/// another unlocked level to switch to.
+fn next_acts(modal: ExpeditionModal, level: u8, unlocked: u8) -> bool {
+    modal != ExpeditionModal::None || level < unlocked || level > 0
+}
+
 fn map_level_color(level: u8, current: u8) -> Color {
     if level == current { APRICOT } else { CELL }
 }
@@ -772,7 +778,7 @@ fn compose_tools(model: model!(PictureModel)) -> Entity {
             normal_color: CELL,
             pressed_color: LAVENDER,
             pressed_text_color: BG,
-            text_color: TEXT,
+            text_color: ${ if model.history_len() > 0 { TEXT } else { MUTED } },
             border_radius: 7
         ) on Tap { model.undo(); }
     };
@@ -912,9 +918,21 @@ fn compose_footer(model: model!(PictureModel), expedition: model!(ExpeditionUiMo
             height: 35,
             size: ButtonSize::Compact,
             font_size: 7,
-            normal_color: MINT,
+            normal_color: ${
+                if next_acts(model.modal(), model.level_index(), model.unlocked()) {
+                    MINT
+                } else {
+                    CELL
+                }
+            },
             pressed_color: LAVENDER,
-            text_color: BG,
+            text_color: ${
+                if next_acts(model.modal(), model.level_index(), model.unlocked()) {
+                    BG
+                } else {
+                    MUTED
+                }
+            },
             border_radius: 7
         ) on Tap {
             let level = model.level_index();

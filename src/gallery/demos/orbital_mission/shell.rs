@@ -611,12 +611,12 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
                 id: "orbit_delay",
                 position: Position::Absolute,
                 left: 326,
-                top: 99,
+                top: 130,
                 width: 130,
                 height: 28,
                 font_size: 20,
                 text_color: BACKGROUND,
-                paragraph: label_style()
+                paragraph: ParagraphStyle::label()
             )
             Button (
                 "－1 s",

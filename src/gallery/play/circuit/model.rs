@@ -56,6 +56,8 @@ pub(crate) struct CircuitModel {
     scan_cursor: u8,
     scanning: bool,
     disconnecting: bool,
+    /// Why the player's last wire or new gate was refused, until they act again.
+    notice: Option<CircuitError>,
 }
 
 impl Default for CircuitModel {
@@ -82,6 +84,7 @@ impl Default for CircuitModel {
             scan_cursor: 0,
             scanning: false,
             disconnecting: false,
+            notice: None,
         };
         model.load_task_state(0, false);
         model
@@ -236,6 +239,42 @@ impl CircuitModel {
 
     pub(crate) fn close_modal(&mut self) -> ChangeSet {
         self.open_modal(CircuitModal::None)
+    }
+
+    #[observe]
+    pub(crate) fn notice(&self) -> Option<CircuitError> {
+        self.notice
+    }
+
+    /// Keeps the refusal of a player action for the status line, or clears
+    /// the last one when the action went through.
+    fn report(&mut self, result: Result<ChangeSet, CircuitError>) -> ChangeSet {
+        match result {
+            Ok(change) if self.notice.take().is_some() => change | ChangeSet::VISUAL,
+            Ok(change) => change,
+            Err(error) => {
+                self.notice = Some(error);
+                ChangeSet::MODEL | ChangeSet::VISUAL
+            }
+        }
+    }
+
+    /// `select_modal_option` for a tap. A gate that cannot be added closes
+    /// the picker, so the status line can say why.
+    pub(crate) fn choose_modal_option(&mut self, index: usize) -> ChangeSet {
+        let result = self.select_modal_option(index);
+        let closed = if matches!(result, Err(CircuitError::Full | CircuitError::Overlap)) {
+            self.close_modal()
+        } else {
+            ChangeSet::NONE
+        };
+        self.report(result) | closed
+    }
+
+    /// `connect_pending_to` for a tap on an input.
+    pub(crate) fn connect_from_tap(&mut self, gate_id: Option<u8>, pin: u8) -> ChangeSet {
+        let result = self.connect_pending_to(gate_id, pin);
+        self.report(result)
     }
 
     pub(crate) fn select_modal_option(&mut self, index: usize) -> Result<ChangeSet, CircuitError> {
@@ -473,7 +512,11 @@ impl CircuitModel {
             (215, 151),
             (215, 208),
         ];
-        let Some((x, y)) = slots.into_iter().find(|(x, y)| !self.overlaps(0, *x, *y)) else {
+        let free = |&(x, y): &(i16, i16)| !self.overlaps(0, x, y);
+        // The six home slots first, then any spot a drag could reach.
+        let mut roam = (0..=36_i16)
+            .flat_map(|row| (0..=35_i16).map(move |column| (100 + column * 4, 84 + row * 4)));
+        let Some((x, y)) = slots.into_iter().find(free).or_else(|| roam.find(free)) else {
             return Err(CircuitError::Overlap);
         };
         self.remember();
@@ -538,14 +581,16 @@ impl CircuitModel {
         }
         self.pending = source;
         self.disconnecting = false;
+        self.notice = None;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
     pub(crate) fn clear_pending(&mut self) -> ChangeSet {
-        if self.pending == SignalSource::None {
+        if self.pending == SignalSource::None && self.notice.is_none() {
             return ChangeSet::NONE;
         }
         self.pending = SignalSource::None;
+        self.notice = None;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 

@@ -101,7 +101,7 @@ fn apply_tap(surface: &CircuitSurface, action: SurfaceAction) {
             surface.model.select_source(source);
         }
         SurfaceAction::Connect { gate, pin } => {
-            let _ = surface.model.connect_pending_to(gate, pin);
+            surface.model.connect_from_tap(gate, pin);
         }
         SurfaceAction::SelectGate(id) => {
             surface.model.select_gate(id);

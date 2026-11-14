@@ -62,7 +62,8 @@ pub(super) fn select_map_level(
         return;
     }
     let briefing = level > 0 && level % 6 == 0 && !game.progress().completed(level);
-    if game.select_level(level) == ChangeSet::NONE {
+    // Picking the level already in play just goes back to it.
+    if game.select_level(level) == ChangeSet::NONE && level != game.level_index() {
         return;
     }
     if briefing {

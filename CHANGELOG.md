@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Make `ui::branch::is_hidden_in_tree` public: whether an entity or any of its ancestors is hidden, so nothing of it is drawn or hit.
+
+- Fix UI logic in the Gallery games. Logic Circuit's gate picker did nothing when the board had no free spot or a wire would loop, and stayed open; a new gate now looks for any free spot a drag could reach, and a refused gate or wire closes the picker and says why on the status line (`没有空位放新门，先拖开一个。`, `这条线会让信号绕回自己，换一个输入端。`). Module Factory kept its Run button lit while the line drew more power than its budget allowed, so a tap did nothing; the button now looks idle, `PWR 13/9` turns orange and the status line asks to remove modules. Picking the level already in play on the Twin Beacons and Folding Ark maps left the map open; it now closes it. The level switch button of the three expeditions and Atlas Restoration's UNDO look idle when they have nothing to do. Orbital Mission centres its burn delay in its dial. Pocket Post draws its parcel tags as pixel letters (`B` used to read like `P`) and slides new parcels out of the IN chute instead of over its label.
+
+- `game_audit` tours name each control, tap only the ones a tap can reach (not those under a dialog), report controls that never change the screen and tiny ones, can save every step (`TRACE=1`) and can close and reopen a game to compare what it restored (`RELOAD=1`).
+
 - Add `Font::with_pixel_grid(step)` for pixel fonts baked at whole multiples of their design size. Every size a text asks of such a face snaps to the nearest multiple of `step` (ties go down, nothing goes below one step), for layout and drawing alike, so each font pixel lands on whole screen pixels instead of being resampled; `Font::ppem_for` reports the size a text will get. Faces that draw at any size keep the size they are given (`FontProvider::snap_ppem` defaults to it).
 
 - Let `line_height:` set the distance between baselines of a `Text` or a `Button` label in `ui!`. The attribute used to be accepted and dropped. `ParagraphStyle::with_line_height` does the same in code. `ui!` now rejects any other attribute `Text` has no use for, where it used to drop it without a word.

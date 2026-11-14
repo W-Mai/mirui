@@ -63,72 +63,35 @@ fn paint_destination_shape(
     }
 }
 
+/// Station letters as 5 x 7 pixel glyphs, one row per byte, high bit on the left.
+const LETTERS: [[u8; 7]; 3] = [
+    [
+        0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+    ],
+    [
+        0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
+    ],
+    [
+        0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110,
+    ],
+];
+
+/// Paints the letter of `target` centred on `center`, snapped to whole pixels
+/// so it stays as sharp as the text around it.
 fn paint_letter(painter: &mut PlayPainter<'_, '_>, target: u8, center: Point) {
     let color = STATION_COLORS[usize::from(target)];
-    let x = center.x;
-    let y = center.y;
-    match target {
-        0 => {
-            painter.line(
-                Point::new(x - Fixed::from_int(3), y + Fixed::from_int(3)),
-                Point::new(x, y - Fixed::from_int(3)),
-                color,
-                Fixed::ONE,
-            );
-            painter.line(
-                Point::new(x, y - Fixed::from_int(3)),
-                Point::new(x + Fixed::from_int(3), y + Fixed::from_int(3)),
-                color,
-                Fixed::ONE,
-            );
-            painter.line(
-                Point::new(x - Fixed::from_int(2), y + Fixed::ONE),
-                Point::new(x + Fixed::from_int(2), y + Fixed::ONE),
-                color,
-                Fixed::ONE,
-            );
-        }
-        1 => {
-            painter.line(
-                Point::new(x - Fixed::from_int(2), y - Fixed::from_int(3)),
-                Point::new(x - Fixed::from_int(2), y + Fixed::from_int(3)),
-                color,
-                Fixed::ONE,
-            );
-            for offset in [-2, 1] {
-                painter.line(
-                    Point::new(x - Fixed::from_int(2), y + Fixed::from_int(offset)),
-                    Point::new(x + Fixed::from_int(2), y + Fixed::from_int(offset)),
+    let left = center.x.round().to_int() - 2;
+    let top = center.y.round().to_int() - 3;
+    let glyph = LETTERS[usize::from(target).min(LETTERS.len() - 1)];
+    for (row, bits) in glyph.iter().enumerate() {
+        for column in 0..5 {
+            if bits & (0b10000 >> column) != 0 {
+                painter.fill(
+                    Rect::new(left + column, top + row as i32, 1, 1),
                     color,
-                    Fixed::ONE,
+                    Fixed::ZERO,
                 );
             }
-            painter.line(
-                Point::new(x + Fixed::from_int(2), y - Fixed::from_int(2)),
-                Point::new(x + Fixed::from_int(2), y + Fixed::from_int(2)),
-                color,
-                Fixed::ONE,
-            );
-        }
-        _ => {
-            painter.line(
-                Point::new(x + Fixed::from_int(2), y - Fixed::from_int(3)),
-                Point::new(x - Fixed::from_int(2), y - Fixed::from_int(3)),
-                color,
-                Fixed::ONE,
-            );
-            painter.line(
-                Point::new(x - Fixed::from_int(2), y - Fixed::from_int(3)),
-                Point::new(x - Fixed::from_int(2), y + Fixed::from_int(3)),
-                color,
-                Fixed::ONE,
-            );
-            painter.line(
-                Point::new(x - Fixed::from_int(2), y + Fixed::from_int(3)),
-                Point::new(x + Fixed::from_int(2), y + Fixed::from_int(3)),
-                color,
-                Fixed::ONE,
-            );
         }
     }
 }
@@ -162,6 +125,39 @@ fn paint_parcel(painter: &mut PlayPainter<'_, '_>, parcel: PostParcel) {
         painter,
         parcel.target(),
         Point::new(center.x, center.y - Fixed::from_int(15)),
+    );
+}
+
+/// The IN chute, painted over the parcels that have not left it yet.
+fn paint_inlet(painter: &mut PlayPainter<'_, '_>) {
+    painter.fill(
+        Rect::new(17, 135, 32, 43),
+        Color::rgb(52, 68, 73),
+        Fixed::from_int(6),
+    );
+    painter.border(
+        Rect::new(17, 135, 32, 43),
+        Color::rgb(108, 129, 128),
+        Fixed::ONE,
+        Fixed::from_int(6),
+    );
+    painter.line(
+        Point::new(26, 161),
+        Point::new(39, 161),
+        TEXT,
+        Fixed::from_ratio(3, 2),
+    );
+    painter.line(
+        Point::new(35, 157),
+        Point::new(39, 161),
+        TEXT,
+        Fixed::from_ratio(3, 2),
+    );
+    painter.line(
+        Point::new(39, 161),
+        Point::new(35, 165),
+        TEXT,
+        Fixed::from_ratio(3, 2),
     );
 }
 
@@ -235,35 +231,6 @@ fn paint_post_surface(painter: &mut PlayPainter<'_, '_>, model: &PostModel) {
         Point::new(400, 225),
         model.switch(1) == 1,
     );
-    painter.fill(
-        Rect::new(17, 135, 32, 43),
-        Color::rgb(52, 68, 73),
-        Fixed::from_int(6),
-    );
-    painter.border(
-        Rect::new(17, 135, 32, 43),
-        Color::rgb(108, 129, 128),
-        Fixed::ONE,
-        Fixed::from_int(6),
-    );
-    painter.line(
-        Point::new(26, 161),
-        Point::new(39, 161),
-        TEXT,
-        Fixed::from_ratio(3, 2),
-    );
-    painter.line(
-        Point::new(35, 157),
-        Point::new(39, 161),
-        TEXT,
-        Fixed::from_ratio(3, 2),
-    );
-    painter.line(
-        Point::new(39, 161),
-        Point::new(35, 165),
-        TEXT,
-        Fixed::from_ratio(3, 2),
-    );
     for station in 0..3 {
         let y = [89, 157, 225][station];
         let color = STATION_COLORS[station];
@@ -323,6 +290,7 @@ fn paint_post_surface(painter: &mut PlayPainter<'_, '_>, model: &PostModel) {
             paint_parcel(painter, parcel);
         }
     }
+    paint_inlet(painter);
     if !model.started()
         && let Some(target) = model.queued(0)
     {
