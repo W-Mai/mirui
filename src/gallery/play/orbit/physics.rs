@@ -3,6 +3,12 @@ use crate::types::{Fixed, Fixed64};
 
 pub(super) const MU: Fixed64 = Fixed64::from_int(100_000);
 pub(super) const STEP: Fixed64 = Fixed64::from_ratio(1, 60);
+/// Closer than this the craft hits the planet.
+pub(crate) const CRASH_RADIUS: i64 = 27;
+/// Farther than this the craft leaves the tracked region.
+pub(crate) const ESCAPE_RADIUS: i64 = 260;
+/// Every mission starts on a circular orbit of this radius.
+pub(crate) const START_RADIUS: i64 = 78;
 
 pub(super) fn integrate(body: &mut OrbitBody, dt: Fixed64) {
     let radius = body.radius().max(Fixed64::from_int(20));

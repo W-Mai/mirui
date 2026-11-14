@@ -2,9 +2,11 @@ use crate::types::Fixed64;
 
 pub(crate) const MAX_NODES: usize = 3;
 pub(crate) const MAX_TRAIL: usize = 192;
-pub(crate) const MAX_TELEMETRY: usize = 80;
+pub(crate) const MAX_TELEMETRY: usize = 96;
 pub(crate) const MAX_EVENTS: usize = 12;
 pub(crate) const MAX_PREVIEW: usize = 240;
+/// Events listed on the record page, newest last.
+pub(crate) const LOG_LINES: usize = 6;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct OrbitPoint {
@@ -15,6 +17,24 @@ pub(crate) struct OrbitPoint {
 impl OrbitPoint {
     pub(super) fn radius(self) -> Fixed64 {
         (self.x * self.x + self.y * self.y).sqrt()
+    }
+}
+
+/// A recorded or predicted position in quarter units, small enough to keep
+/// a few hundred of them on the model.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct TrackPoint {
+    pub(crate) x: i16,
+    pub(crate) y: i16,
+}
+
+impl TrackPoint {
+    pub(crate) fn from_point(point: OrbitPoint) -> Self {
+        let quarter = |value: Fixed64| (value * 4).to_int().clamp(-32_000, 32_000) as i16;
+        Self {
+            x: quarter(point.x),
+            y: quarter(point.y),
+        }
     }
 }
 
@@ -45,8 +65,10 @@ pub(crate) enum OrbitPage {
 pub(crate) enum OrbitModal {
     None,
     Missions,
+    Brief,
+    /// Leave the flight in progress for this mission.
     Confirm(u8),
-    Help,
+    Result,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -67,7 +89,6 @@ impl OrbitStatus {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum OrbitError {
-    InvalidBurn,
     Fuel,
     Heat,
     Terminal,
@@ -75,6 +96,8 @@ pub(crate) enum OrbitError {
     QueueFull,
     MissingNode,
     OutsideWindow,
+    /// Contact is lost: only nodes planned before it still fire.
+    NoContact,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -85,20 +108,23 @@ pub(crate) struct ManeuverNode {
     pub(crate) angle_degrees: i16,
 }
 
+/// Distance and speed in tenths, sampled for the record charts.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct OrbitTelemetry {
-    pub(crate) time: Fixed64,
-    pub(crate) radius: Fixed64,
-    pub(crate) speed: Fixed64,
-    pub(crate) fuel: Fixed64,
+pub(crate) struct OrbitSample {
+    pub(crate) radius_tenths: u16,
+    pub(crate) speed_tenths: u16,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum OrbitEventKind {
     Loaded,
-    Burn,
-    NodeSkipped,
-    Goal,
+    /// A manual burn of this many tenths.
+    Burn(u8),
+    /// A planned node fired with this many tenths.
+    NodeBurn(u8),
+    NodeSkipped(OrbitError),
+    /// A goal was sampled; the number of goals now done.
+    Goal(u8),
     Won,
     Crashed,
     Escaped,

@@ -1,32 +1,136 @@
 use super::missions::{MISSION_COUNT, MISSIONS, OrbitGoal, OrbitMission};
-use super::physics::{MU, STEP, impulse, integrate};
+use super::physics::{CRASH_RADIUS, ESCAPE_RADIUS, MU, START_RADIUS, STEP, impulse, integrate};
 use super::types::{
-    MAX_EVENTS, MAX_NODES, MAX_PREVIEW, MAX_TELEMETRY, MAX_TRAIL, ManeuverNode, OrbitBody,
-    OrbitError, OrbitEvent, OrbitEventKind, OrbitModal, OrbitPage, OrbitPoint, OrbitStatus,
-    OrbitTelemetry,
+    LOG_LINES, MAX_EVENTS, MAX_NODES, MAX_PREVIEW, MAX_TELEMETRY, MAX_TRAIL, ManeuverNode,
+    OrbitBody, OrbitError, OrbitEvent, OrbitEventKind, OrbitModal, OrbitPage, OrbitPoint,
+    OrbitSample, OrbitStatus, TrackPoint,
 };
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::clock::BoundedClock;
 use crate::types::Fixed64;
 
 const RECORD_INTERVAL: Fixed64 = Fixed64::from_ratio(4, 25);
+/// The charts keep every second record, so they span the trail's 30 s.
+const TELEMETRY_EVERY: u8 = 2;
+/// Seconds between forecast points.
+const FORECAST_STEP: Fixed64 = Fixed64::from_ratio(1, 10);
+/// While coasting, the burn preview is recomputed this often.
+const AIM_REFRESH: Fixed64 = Fixed64::from_ratio(7, 20);
+/// The planned coast is recomputed once the craft has flown this far along it.
+const COAST_REFRESH: Fixed64 = Fixed64::from_int(12);
+const MAX_HEAT: i64 = 100;
+const START_DV_TENTHS: u8 = 38;
+const START_DELAY_SECONDS: u8 = 3;
+/// No node fires inside the forecast.
+const UNMARKED: u8 = u8::MAX;
 
-#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+/// What a forecast starts from.
+#[derive(Clone, Copy)]
+struct Flight {
+    body: OrbitBody,
+    fuel: Fixed64,
+    heat: Fixed64,
+    time: Fixed64,
+}
+
+impl Flight {
+    /// Pays for a burn, or reports what stops it, leaving the flight unchanged.
+    fn spend(&mut self, dv_tenths: u8) -> Result<Fixed64, OrbitError> {
+        let dv = Fixed64::from_ratio(i64::from(dv_tenths), 10);
+        let fuel_cost = dv * 2;
+        let heat_cost = dv * 7;
+        if self.fuel < fuel_cost {
+            return Err(OrbitError::Fuel);
+        }
+        if self.heat + heat_cost > Fixed64::from_int(MAX_HEAT) {
+            return Err(OrbitError::Heat);
+        }
+        self.fuel -= fuel_cost;
+        self.heat += heat_cost;
+        Ok(dv)
+    }
+
+    fn burn(&mut self, dv_tenths: u8, angle_degrees: i16) -> Result<(), OrbitError> {
+        let dv = self.spend(dv_tenths)?;
+        impulse(&mut self.body, dv, angle_degrees);
+        Ok(())
+    }
+
+    fn coast(&mut self, dt: Fixed64) {
+        integrate(&mut self.body, dt);
+        self.heat = (self.heat - dt * 4).max(Fixed64::ZERO);
+        self.time += dt;
+    }
+}
+
+/// Flies `flight` ahead one tenth of a second per point: the planned nodes
+/// fire at their time and `marks[k]` records the point where node `k` fired.
+fn forecast(
+    mut flight: Flight,
+    queue: &[Option<ManeuverNode>],
+    points: &mut [TrackPoint; MAX_PREVIEW],
+    marks: &mut [u8; MAX_NODES],
+) -> u8 {
+    *marks = [UNMARKED; MAX_NODES];
+    let mut next = 0;
+    let mut len = 0;
+    for (index, point) in points.iter_mut().enumerate() {
+        let end = flight.time + FORECAST_STEP;
+        while let Some(Some(node)) = queue.get(next)
+            && node.at <= end
+        {
+            flight.coast((node.at - flight.time).max(Fixed64::ZERO));
+            if flight.burn(node.dv_tenths, node.angle_degrees).is_ok() {
+                marks[next] = index as u8;
+            }
+            next += 1;
+        }
+        flight.coast(end - flight.time);
+        *point = TrackPoint::from_point(flight.body.position);
+        len = index + 1;
+        let radius = flight.body.radius();
+        if radius < Fixed64::from_int(CRASH_RADIUS) || radius > Fixed64::from_int(ESCAPE_RADIUS) {
+            break;
+        }
+    }
+    len as u8
+}
+
+fn start_body() -> OrbitBody {
+    let radius = Fixed64::from_int(START_RADIUS);
+    OrbitBody {
+        position: OrbitPoint {
+            x: radius,
+            y: Fixed64::ZERO,
+        },
+        velocity: OrbitPoint {
+            x: Fixed64::ZERO,
+            y: (MU / radius).sqrt(),
+        },
+    }
+}
+
+#[crate::model(
+    change = ChangeSet,
+    watch(visual = ChangeSet::VISUAL),
+    persistence(key = "orbital_mission/progress")
+)]
 pub(crate) struct OrbitModel {
     pub(super) body: OrbitBody,
-    pub(super) trail: [OrbitPoint; MAX_TRAIL],
-    pub(super) telemetry: [OrbitTelemetry; MAX_TELEMETRY],
-    pub(super) events: [OrbitEvent; MAX_EVENTS],
+    trail: [TrackPoint; MAX_TRAIL],
+    telemetry: [OrbitSample; MAX_TELEMETRY],
+    events: [OrbitEvent; MAX_EVENTS],
     #[observe]
     pub(crate) queue: [Option<ManeuverNode>; MAX_NODES],
-    pub(super) clock: BoundedClock,
+    clock: BoundedClock,
     #[observe]
     pub(crate) time: Fixed64,
     #[observe]
     pub(crate) fuel: Fixed64,
     #[observe]
     pub(crate) heat: Fixed64,
-    pub(super) next_record: Fixed64,
+    next_record: Fixed64,
+    records: u8,
     #[observe]
     pub(crate) page: OrbitPage,
     #[observe]
@@ -35,7 +139,15 @@ pub(crate) struct OrbitModel {
     pub(crate) status: OrbitStatus,
     #[observe]
     pub(crate) mission: u8,
-    pub(super) completed: u8,
+    /// Goals sampled in this flight.
+    #[observe]
+    pub(crate) completed: u8,
+    /// One bit per mission won; the only state kept between sessions.
+    #[persist]
+    #[observe]
+    pub(crate) cleared: u8,
+    /// The craft was inside the current goal's zone at the last step.
+    zone_latch: bool,
     #[observe]
     pub(crate) dv_tenths: u8,
     #[observe]
@@ -44,34 +156,39 @@ pub(crate) struct OrbitModel {
     pub(crate) delay_seconds: u8,
     #[observe]
     pub(crate) warp: u8,
-    pub(super) next_node_id: u8,
+    next_node_id: u8,
     #[observe]
     pub(crate) queue_len: u8,
-    pub(super) trail_start: u8,
-    #[observe]
-    pub(crate) trail_len: u8,
-    pub(super) telemetry_start: u8,
+    trail_start: u8,
+    trail_len: u8,
+    telemetry_start: u8,
     #[observe]
     pub(crate) telemetry_len: u8,
-    pub(super) event_start: u8,
-    #[observe]
-    pub(crate) event_len: u8,
+    event_start: u8,
+    event_len: u8,
     #[observe]
     pub(crate) preview: bool,
-    preview_points: [OrbitPoint; MAX_PREVIEW],
-    preview_len: u8,
-    preview_sampled_at: Fixed64,
-    preview_body: OrbitBody,
-    preview_dv_tenths: u8,
-    preview_angle_degrees: i16,
+    #[observe]
+    pub(crate) hint_shown: bool,
+    aim: [TrackPoint; MAX_PREVIEW],
+    aim_len: u8,
+    aim_at: Fixed64,
+    aim_body: OrbitBody,
+    aim_dv_tenths: u8,
+    aim_angle_degrees: i16,
+    coast: [TrackPoint; MAX_PREVIEW],
+    coast_len: u8,
+    coast_at: Fixed64,
+    coast_marks: [u8; MAX_NODES],
+    coast_stale: bool,
 }
 
 impl Default for OrbitModel {
     fn default() -> Self {
         let mut model = Self {
-            body: OrbitBody::default(),
-            trail: [OrbitPoint::default(); MAX_TRAIL],
-            telemetry: [OrbitTelemetry::default(); MAX_TELEMETRY],
+            body: start_body(),
+            trail: [TrackPoint::default(); MAX_TRAIL],
+            telemetry: [OrbitSample::default(); MAX_TELEMETRY],
             events: [OrbitEvent::default(); MAX_EVENTS],
             queue: [None; MAX_NODES],
             clock: BoundedClock::new(60, 100, 6),
@@ -79,14 +196,17 @@ impl Default for OrbitModel {
             fuel: Fixed64::ZERO,
             heat: Fixed64::ZERO,
             next_record: Fixed64::ZERO,
+            records: 0,
             page: OrbitPage::Map,
             modal: OrbitModal::None,
             status: OrbitStatus::Ready,
             mission: 0,
             completed: 0,
-            dv_tenths: 38,
+            cleared: 0,
+            zone_latch: false,
+            dv_tenths: START_DV_TENTHS,
             angle_degrees: 0,
-            delay_seconds: 3,
+            delay_seconds: START_DELAY_SECONDS,
             warp: 1,
             next_node_id: 1,
             queue_len: 0,
@@ -97,12 +217,18 @@ impl Default for OrbitModel {
             event_start: 0,
             event_len: 0,
             preview: true,
-            preview_points: [OrbitPoint::default(); MAX_PREVIEW],
-            preview_len: 0,
-            preview_sampled_at: Fixed64::from_int(-1),
-            preview_body: OrbitBody::default(),
-            preview_dv_tenths: 0,
-            preview_angle_degrees: 0,
+            hint_shown: false,
+            aim: [TrackPoint::default(); MAX_PREVIEW],
+            aim_len: 0,
+            aim_at: Fixed64::ZERO,
+            aim_body: OrbitBody::default(),
+            aim_dv_tenths: 0,
+            aim_angle_degrees: 0,
+            coast: [TrackPoint::default(); MAX_PREVIEW],
+            coast_len: 0,
+            coast_at: Fixed64::ZERO,
+            coast_marks: [UNMARKED; MAX_NODES],
+            coast_stale: true,
         };
         model.load_mission_raw(0);
         model
@@ -110,36 +236,34 @@ impl Default for OrbitModel {
 }
 
 impl OrbitModel {
+    /// Restarts `mission`. The dial, warp and hint are kept when the mission
+    /// is the one already loaded, so a retry starts from the last attempt.
     fn load_mission_raw(&mut self, mission: u8) -> ChangeSet {
         let mission = mission.min((MISSION_COUNT - 1) as u8);
-        self.body = OrbitBody {
-            position: OrbitPoint {
-                x: Fixed64::from_int(78),
-                y: Fixed64::ZERO,
-            },
-            velocity: OrbitPoint {
-                x: Fixed64::ZERO,
-                y: (MU / Fixed64::from_int(78)).sqrt(),
-            },
-        };
-        self.trail = [OrbitPoint::default(); MAX_TRAIL];
-        self.telemetry = [OrbitTelemetry::default(); MAX_TELEMETRY];
+        if mission != self.mission {
+            self.dv_tenths = START_DV_TENTHS;
+            self.angle_degrees = 0;
+            self.delay_seconds = START_DELAY_SECONDS;
+            self.warp = 1;
+            self.hint_shown = false;
+        }
+        self.mission = mission;
+        self.body = start_body();
+        self.trail = [TrackPoint::default(); MAX_TRAIL];
+        self.telemetry = [OrbitSample::default(); MAX_TELEMETRY];
         self.events = [OrbitEvent::default(); MAX_EVENTS];
         self.queue = [None; MAX_NODES];
         self.clock.reset();
         self.time = Fixed64::ZERO;
-        self.fuel = Fixed64::from_int(48);
+        self.fuel = Fixed64::from_int(i64::from(MISSIONS[usize::from(mission)].fuel));
         self.heat = Fixed64::ZERO;
         self.next_record = Fixed64::ZERO;
+        self.records = 0;
         self.page = OrbitPage::Map;
         self.modal = OrbitModal::None;
         self.status = OrbitStatus::Ready;
-        self.mission = mission;
         self.completed = 0;
-        self.dv_tenths = MISSIONS[usize::from(mission)].default_dv_tenths;
-        self.angle_degrees = 0;
-        self.delay_seconds = 3;
-        self.warp = 1;
+        self.zone_latch = false;
         self.next_node_id = 1;
         self.queue_len = 0;
         self.trail_start = 0;
@@ -148,10 +272,16 @@ impl OrbitModel {
         self.telemetry_len = 0;
         self.event_start = 0;
         self.event_len = 0;
-        self.preview = true;
         self.push_event(OrbitEventKind::Loaded);
-        self.refresh_preview(true);
+        self.refresh_forecasts(true);
         ChangeSet::MODEL | ChangeSet::VISUAL
+    }
+
+    /// Loads another mission and opens its briefing.
+    fn switch_raw(&mut self, mission: u8) -> ChangeSet {
+        let changes = self.load_mission_raw(mission);
+        self.modal = OrbitModal::Brief;
+        changes
     }
 
     fn update_raw(&mut self, elapsed_ms: u16) -> ChangeSet {
@@ -169,8 +299,12 @@ impl OrbitModel {
             if !self.step() {
                 break;
             }
+            if self.arrived() {
+                self.status = OrbitStatus::Paused;
+                break;
+            }
         }
-        self.refresh_preview(false);
+        self.refresh_forecasts(false);
         if (self.time * 10).to_int() != display_tenth
             || self.fuel != fuel
             || self.status != status
@@ -180,6 +314,14 @@ impl OrbitModel {
         } else {
             ChangeSet::VISUAL
         }
+    }
+
+    /// True on the step the craft enters the current goal's zone.
+    fn arrived(&mut self) -> bool {
+        let inside = self.in_zone_raw();
+        let entered = inside && !self.zone_latch;
+        self.zone_latch = inside;
+        entered
     }
 
     fn toggle_running_raw(&mut self) -> ChangeSet {
@@ -194,44 +336,66 @@ impl OrbitModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    fn burn_raw(&mut self) -> Result<ChangeSet, OrbitError> {
-        let changes = self.burn_values(self.dv_tenths, self.angle_degrees)?;
-        self.refresh_preview(true);
-        Ok(changes)
+    fn flight(&self) -> Flight {
+        Flight {
+            body: self.body,
+            fuel: self.fuel,
+            heat: self.heat,
+            time: self.time,
+        }
     }
 
-    fn burn_values(&mut self, dv_tenths: u8, angle_degrees: i16) -> Result<ChangeSet, OrbitError> {
-        if !(2..=80).contains(&dv_tenths) || !(-180..=180).contains(&angle_degrees) {
-            return Err(OrbitError::InvalidBurn);
-        }
+    fn apply_flight(&mut self, flight: Flight) {
+        self.body = flight.body;
+        self.fuel = flight.fuel;
+        self.heat = flight.heat;
+    }
+
+    fn contact_raw(&self) -> bool {
+        let seconds = self.mission().contact_seconds;
+        seconds == 0 || self.time < Fixed64::from_int(i64::from(seconds))
+    }
+
+    /// Why a burn with the dial's values cannot fire now.
+    fn burn_block_raw(&self) -> Option<OrbitError> {
         if self.status.terminal() {
-            return Err(OrbitError::Terminal);
+            return Some(OrbitError::Terminal);
         }
-        let dv = Fixed64::from_ratio(i64::from(dv_tenths), 10);
-        let fuel_cost = dv * 2;
-        let heat_cost = dv * 7;
-        if self.fuel < fuel_cost {
-            return Err(OrbitError::Fuel);
+        if !self.contact_raw() {
+            return Some(OrbitError::NoContact);
         }
-        if self.heat + heat_cost > Fixed64::from_int(100) {
-            return Err(OrbitError::Heat);
+        self.flight().spend(self.dv_tenths).err()
+    }
+
+    fn burn_raw(&mut self) -> Result<ChangeSet, OrbitError> {
+        if let Some(error) = self.burn_block_raw() {
+            return Err(error);
         }
-        impulse(&mut self.body, dv, angle_degrees);
-        self.fuel -= fuel_cost;
-        self.heat += heat_cost;
-        self.push_event(OrbitEventKind::Burn);
+        let mut flight = self.flight();
+        flight.burn(self.dv_tenths, self.angle_degrees)?;
+        self.apply_flight(flight);
+        self.push_event(OrbitEventKind::Burn(self.dv_tenths));
+        self.refresh_forecasts(true);
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
     }
 
-    fn schedule_raw(&mut self) -> Result<ChangeSet, OrbitError> {
+    fn schedule_block_raw(&self) -> Option<OrbitError> {
         if self.status.terminal() {
-            return Err(OrbitError::Terminal);
+            Some(OrbitError::Terminal)
+        } else if !self.contact_raw() {
+            Some(OrbitError::NoContact)
+        } else if usize::from(self.queue_len) >= MAX_NODES {
+            Some(OrbitError::QueueFull)
+        } else if !(1..=30).contains(&self.delay_seconds) {
+            Some(OrbitError::InvalidDelay)
+        } else {
+            None
         }
-        if !(1..=30).contains(&self.delay_seconds) {
-            return Err(OrbitError::InvalidDelay);
-        }
-        if usize::from(self.queue_len) >= MAX_NODES {
-            return Err(OrbitError::QueueFull);
+    }
+
+    fn schedule_raw(&mut self) -> Result<ChangeSet, OrbitError> {
+        if let Some(error) = self.schedule_block_raw() {
+            return Err(error);
         }
         let node = ManeuverNode {
             id: self.next_node_id,
@@ -251,11 +415,11 @@ impl OrbitModel {
         }
         self.queue[index] = Some(node);
         self.queue_len += 1;
-        self.page = OrbitPage::Plan;
+        self.refresh_forecasts(true);
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
     }
 
-    pub(super) fn cancel_raw(&mut self, id: u8) -> Result<ChangeSet, OrbitError> {
+    fn remove_node(&mut self, id: u8) -> Result<(), OrbitError> {
         let Some(index) = self.queue[..usize::from(self.queue_len)]
             .iter()
             .position(|node| node.is_some_and(|node| node.id == id))
@@ -267,153 +431,190 @@ impl OrbitModel {
         }
         self.queue_len -= 1;
         self.queue[usize::from(self.queue_len)] = None;
+        self.coast_stale = true;
+        Ok(())
+    }
+
+    pub(super) fn cancel_raw(&mut self, id: u8) -> Result<ChangeSet, OrbitError> {
+        if !self.contact_raw() {
+            return Err(OrbitError::NoContact);
+        }
+        self.remove_node(id)?;
+        self.refresh_forecasts(true);
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
     }
 
     fn scan_raw(&mut self) -> Result<ChangeSet, OrbitError> {
+        if self.status.terminal() {
+            return Err(OrbitError::Terminal);
+        }
         if !self.eligible_raw() {
             return Err(OrbitError::OutsideWindow);
         }
-        self.push_event(OrbitEventKind::Goal);
         self.completed += 1;
+        self.zone_latch = false;
+        self.push_event(OrbitEventKind::Goal(self.completed));
         if self.goal().is_none() {
             self.status = OrbitStatus::Won;
+            self.cleared |= 1 << self.mission;
             self.queue = [None; MAX_NODES];
             self.queue_len = 0;
+            self.modal = OrbitModal::Result;
             self.push_event(OrbitEventKind::Won);
         }
+        self.refresh_forecasts(true);
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
     }
 
+    /// Advances one simulation step; false once the flight has ended.
     pub(crate) fn step(&mut self) -> bool {
         if self.status.terminal() {
             return false;
         }
         self.time += STEP;
-        while self.queue_len > 0 && self.queue[0].is_some_and(|node| node.at <= self.time) {
-            let node = self.queue[0].expect("queue head exists");
-            let _ = self.cancel_raw(node.id);
-            if self
-                .burn_values(node.dv_tenths, node.angle_degrees)
-                .is_err()
-            {
-                self.push_event(OrbitEventKind::NodeSkipped);
+        while let Some(node) = self.queue[0]
+            && node.at <= self.time
+        {
+            let _ = self.remove_node(node.id);
+            let mut flight = self.flight();
+            match flight.burn(node.dv_tenths, node.angle_degrees) {
+                Ok(()) => {
+                    self.apply_flight(flight);
+                    self.push_event(OrbitEventKind::NodeBurn(node.dv_tenths));
+                }
+                Err(error) => self.push_event(OrbitEventKind::NodeSkipped(error)),
             }
         }
         integrate(&mut self.body, STEP);
         self.heat = (self.heat - STEP * 4).max(Fixed64::ZERO);
         let radius = self.body.radius();
-        if radius < Fixed64::from_int(27) {
-            self.status = OrbitStatus::Crashed;
-            self.push_event(OrbitEventKind::Crashed);
-        } else if radius > Fixed64::from_int(260) {
-            self.status = OrbitStatus::Escaped;
-            self.push_event(OrbitEventKind::Escaped);
+        if radius < Fixed64::from_int(CRASH_RADIUS) {
+            self.end(OrbitStatus::Crashed, OrbitEventKind::Crashed);
+        } else if radius > Fixed64::from_int(ESCAPE_RADIUS) {
+            self.end(OrbitStatus::Escaped, OrbitEventKind::Escaped);
         }
         if self.time >= self.next_record {
             self.next_record = self.time + RECORD_INTERVAL;
-            self.push_trail(self.body.position);
-            self.push_telemetry(OrbitTelemetry {
-                time: self.time,
-                radius,
-                speed: self.body.speed(),
-                fuel: self.fuel,
-            });
+            self.record(radius);
         }
         true
     }
 
-    pub(crate) fn predict(&self, output: &mut [OrbitPoint; MAX_PREVIEW]) -> usize {
-        let mut body = self.body;
-        impulse(
-            &mut body,
-            Fixed64::from_ratio(i64::from(self.dv_tenths), 10),
-            self.angle_degrees,
+    fn end(&mut self, status: OrbitStatus, kind: OrbitEventKind) {
+        self.status = status;
+        self.queue = [None; MAX_NODES];
+        self.queue_len = 0;
+        self.aim_len = 0;
+        self.coast_len = 0;
+        self.modal = OrbitModal::Result;
+        self.push_event(kind);
+    }
+
+    fn record(&mut self, radius: Fixed64) {
+        ring_push(
+            &mut self.trail,
+            &mut self.trail_start,
+            &mut self.trail_len,
+            TrackPoint::from_point(self.body.position),
         );
-        let mut len = 0;
-        for point in output.iter_mut() {
-            for _ in 0..6 {
-                integrate(&mut body, STEP);
-            }
-            *point = body.position;
-            len += 1;
-            let radius = body.radius();
-            if radius < Fixed64::from_int(27) || radius > Fixed64::from_int(260) {
-                break;
-            }
+        if self.records % TELEMETRY_EVERY == 0 {
+            let tenths =
+                |value: Fixed64| (value * 10).to_int().clamp(0, i64::from(u16::MAX)) as u16;
+            ring_push(
+                &mut self.telemetry,
+                &mut self.telemetry_start,
+                &mut self.telemetry_len,
+                OrbitSample {
+                    radius_tenths: tenths(radius),
+                    speed_tenths: tenths(self.body.speed()),
+                },
+            );
         }
-        len
+        self.records = self.records.wrapping_add(1);
     }
 
-    fn refresh_preview(&mut self, force: bool) {
-        let changed = (self.preview_body != self.body
-            && (self.time - self.preview_sampled_at).abs() >= Fixed64::from_ratio(7, 10))
-            || self.preview_dv_tenths != self.dv_tenths
-            || self.preview_angle_degrees != self.angle_degrees;
-        if !force && !changed {
-            return;
+    /// Recomputes the burn preview and the planned coast when they are out
+    /// of date; `force` recomputes both.
+    fn refresh_forecasts(&mut self, force: bool) {
+        let aim_due = force
+            || self.aim_dv_tenths != self.dv_tenths
+            || self.aim_angle_degrees != self.angle_degrees
+            || (self.aim_body != self.body && self.time - self.aim_at >= AIM_REFRESH);
+        if aim_due {
+            let mut flight = self.flight();
+            self.aim_len = if self.burn_block_raw().is_none()
+                && flight.burn(self.dv_tenths, self.angle_degrees).is_ok()
+            {
+                let mut marks = [UNMARKED; MAX_NODES];
+                forecast(
+                    flight,
+                    &self.queue[..usize::from(self.queue_len)],
+                    &mut self.aim,
+                    &mut marks,
+                )
+            } else {
+                0
+            };
+            self.aim_at = self.time;
+            self.aim_body = self.body;
+            self.aim_dv_tenths = self.dv_tenths;
+            self.aim_angle_degrees = self.angle_degrees;
         }
-        let mut points = [OrbitPoint::default(); MAX_PREVIEW];
-        let len = self.predict(&mut points);
-        self.preview_points = points;
-        self.preview_len = len as u8;
-        self.preview_sampled_at = self.time;
-        self.preview_body = self.body;
-        self.preview_dv_tenths = self.dv_tenths;
-        self.preview_angle_degrees = self.angle_degrees;
+        if force || self.coast_stale || self.time - self.coast_at >= COAST_REFRESH {
+            self.coast_len = if self.status.terminal() {
+                0
+            } else {
+                forecast(
+                    self.flight(),
+                    &self.queue[..usize::from(self.queue_len)],
+                    &mut self.coast,
+                    &mut self.coast_marks,
+                )
+            };
+            self.coast_at = self.time;
+            self.coast_stale = false;
+        }
     }
 
-    fn eligible_raw(&self) -> bool {
-        let Some(goal) = self.goal() else {
-            return false;
-        };
-        match goal {
-            OrbitGoal::Band { min, max, .. } => {
+    fn goal(&self) -> Option<OrbitGoal> {
+        self.mission().goal(usize::from(self.completed))
+    }
+
+    /// The craft is where the current goal is, at any speed.
+    fn in_zone_raw(&self) -> bool {
+        match self.goal() {
+            Some(OrbitGoal::Band { min, max }) => {
                 let radius = self.body.radius();
                 radius >= Fixed64::from_int(i64::from(min))
                     && radius <= Fixed64::from_int(i64::from(max))
             }
-            OrbitGoal::Beacon {
-                x,
-                y,
-                range,
-                max_speed,
-                ..
-            } => {
+            Some(OrbitGoal::Beacon { x, y, range, .. }) => {
                 let offset = OrbitPoint {
                     x: self.body.position.x - Fixed64::from_int(i64::from(x)),
                     y: self.body.position.y - Fixed64::from_int(i64::from(y)),
                 };
                 offset.radius() <= Fixed64::from_int(i64::from(range))
-                    && self.body.speed() <= Fixed64::from_int(i64::from(max_speed))
             }
+            None => false,
         }
     }
 
-    fn goal(&self) -> Option<OrbitGoal> {
-        MISSIONS[usize::from(self.mission)]
-            .goals
-            .get(usize::from(self.completed))
-            .copied()
-            .flatten()
+    fn eligible_raw(&self) -> bool {
+        self.in_zone_raw()
+            && match self.goal() {
+                Some(OrbitGoal::Beacon { max_speed, .. }) => {
+                    self.body.speed() <= Fixed64::from_int(i64::from(max_speed))
+                }
+                _ => true,
+            }
     }
 
-    fn push_trail(&mut self, value: OrbitPoint) {
-        ring_push(
-            &mut self.trail,
-            &mut self.trail_start,
-            &mut self.trail_len,
-            value,
-        );
-    }
-
-    fn push_telemetry(&mut self, value: OrbitTelemetry) {
-        ring_push(
-            &mut self.telemetry,
-            &mut self.telemetry_start,
-            &mut self.telemetry_len,
-            value,
-        );
+    /// The flight has been started and would be lost by loading a mission.
+    fn in_progress(&self) -> bool {
+        !self.status.terminal()
+            && (self.time > Fixed64::ZERO
+                || self.queue_len > 0
+                || self.fuel < Fixed64::from_int(i64::from(self.mission().fuel)))
     }
 
     pub(super) fn push_event(&mut self, kind: OrbitEventKind) {
@@ -451,27 +652,19 @@ impl OrbitModel {
             return ChangeSet::NONE;
         }
         self.dv_tenths = dv_tenths;
-        self.refresh_preview(false);
+        self.refresh_forecasts(false);
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    fn reset_dv_raw(&mut self) -> ChangeSet {
-        let dv_tenths = self.mission().default_dv_tenths;
-        if self.dv_tenths == dv_tenths {
-            return ChangeSet::NONE;
-        }
-        self.dv_tenths = dv_tenths;
-        self.refresh_preview(false);
-        ChangeSet::MODEL | ChangeSet::VISUAL
-    }
-
-    fn adjust_angle_raw(&mut self, delta: i16) -> ChangeSet {
-        let angle_degrees = (self.angle_degrees + delta).clamp(-180, 180);
+    /// Turns the burn direction, wrapping past ±180°.
+    fn set_angle_raw(&mut self, angle_degrees: i16) -> ChangeSet {
+        let wrapped = (angle_degrees + 180).rem_euclid(360) - 180;
+        let angle_degrees = if wrapped == -180 { 180 } else { wrapped };
         if self.angle_degrees == angle_degrees {
             return ChangeSet::NONE;
         }
         self.angle_degrees = angle_degrees;
-        self.refresh_preview(false);
+        self.refresh_forecasts(false);
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
@@ -484,18 +677,9 @@ impl OrbitModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    fn toggle_preview_raw(&mut self) -> ChangeSet {
-        self.preview = !self.preview;
-        ChangeSet::MODEL | ChangeSet::VISUAL
-    }
-
-    fn cycle_warp_raw(&mut self) -> ChangeSet {
-        self.warp = match self.warp {
-            1 => 2,
-            2 => 4,
-            _ => 1,
-        };
-        ChangeSet::MODEL | ChangeSet::VISUAL
+    #[cfg(test)]
+    pub(crate) fn load_mission(&mut self, mission: u8) -> ChangeSet {
+        self.load_mission_raw(mission)
     }
 
     pub(crate) const fn page(&self) -> OrbitPage {
@@ -504,15 +688,18 @@ impl OrbitModel {
     pub(crate) const fn modal(&self) -> OrbitModal {
         self.modal
     }
-    #[cfg(test)]
     pub(crate) const fn status(&self) -> OrbitStatus {
         self.status
     }
+    #[cfg(test)]
     pub(crate) const fn mission_index(&self) -> u8 {
         self.mission
     }
     pub(crate) const fn mission(&self) -> OrbitMission {
         MISSIONS[self.mission as usize]
+    }
+    pub(crate) const fn completed(&self) -> usize {
+        self.completed as usize
     }
     pub(crate) const fn body(&self) -> OrbitBody {
         self.body
@@ -527,7 +714,6 @@ impl OrbitModel {
     pub(crate) const fn heat(&self) -> Fixed64 {
         self.heat
     }
-    #[cfg(test)]
     pub(crate) const fn dv_tenths(&self) -> u8 {
         self.dv_tenths
     }
@@ -540,6 +726,10 @@ impl OrbitModel {
     #[cfg(test)]
     pub(crate) const fn queue_len(&self) -> usize {
         self.queue_len as usize
+    }
+    #[cfg(test)]
+    pub(crate) const fn cleared_mask(&self) -> u8 {
+        self.cleared
     }
     pub(crate) const fn trail_len(&self) -> usize {
         self.trail_len as usize
@@ -555,11 +745,11 @@ impl OrbitModel {
         self.queue.get(index).copied().flatten()
     }
 
-    pub(crate) fn trail(&self, index: usize) -> Option<OrbitPoint> {
+    pub(crate) fn trail(&self, index: usize) -> Option<TrackPoint> {
         ring_get(&self.trail, self.trail_start, self.trail_len, index)
     }
 
-    pub(crate) fn telemetry(&self, index: usize) -> Option<OrbitTelemetry> {
+    pub(crate) fn telemetry(&self, index: usize) -> Option<OrbitSample> {
         ring_get(
             &self.telemetry,
             self.telemetry_start,
@@ -572,22 +762,33 @@ impl OrbitModel {
         ring_get(&self.events, self.event_start, self.event_len, index)
     }
 
-    pub(crate) const fn preview_len(&self) -> usize {
-        self.preview_len as usize
+    /// Where the craft goes if the dial's burn fires now, then the plan.
+    pub(crate) fn aim(&self) -> &[TrackPoint] {
+        &self.aim[..usize::from(self.aim_len)]
     }
 
-    pub(crate) fn preview_point(&self, index: usize) -> Option<OrbitPoint> {
-        self.preview_points.get(index).copied()
+    /// The forecast points the craft has already passed.
+    fn coast_passed(&self) -> usize {
+        ((self.time - self.coast_at) / FORECAST_STEP)
+            .to_int()
+            .clamp(0, i64::from(self.coast_len)) as usize
+    }
+
+    /// Where the craft goes from here with the plan as it stands.
+    pub(crate) fn coast(&self) -> &[TrackPoint] {
+        &self.coast[self.coast_passed()..usize::from(self.coast_len)]
+    }
+
+    /// Where each planned node fires on the coast, if it fires within it.
+    pub(crate) fn node_mark(&self, index: usize) -> Option<TrackPoint> {
+        let mark = usize::from(*self.coast_marks.get(index)?);
+        (mark >= self.coast_passed() && mark < usize::from(self.coast_len))
+            .then(|| self.coast[mark])
     }
 }
 
 #[crate::model]
 impl OrbitModel {
-    #[model(local)]
-    pub(crate) fn load_mission(&mut self, mission: u8) -> ChangeSet {
-        self.load_mission_raw(mission)
-    }
-
     pub(crate) fn advance_ms(&mut self, elapsed_ms: u16) -> ChangeSet {
         self.update_raw(elapsed_ms)
     }
@@ -623,33 +824,63 @@ impl OrbitModel {
         self.set_modal_raw(modal)
     }
 
-    pub(crate) fn request_mission_reload(&mut self) -> ChangeSet {
-        self.set_modal_raw(OrbitModal::Confirm(self.mission))
+    /// Picks a mission from the list; a flight in progress asks first.
+    pub(crate) fn choose_mission(&mut self, mission: u8) -> ChangeSet {
+        if usize::from(mission) >= MISSION_COUNT {
+            ChangeSet::NONE
+        } else if self.in_progress() {
+            self.set_modal_raw(OrbitModal::Confirm(mission))
+        } else {
+            self.switch_raw(mission)
+        }
     }
 
-    pub(crate) fn select_modal_option(&mut self, index: usize) -> ChangeSet {
+    /// Accepts the pending confirmation.
+    pub(crate) fn confirm(&mut self) -> ChangeSet {
         match self.modal {
-            OrbitModal::Missions if index < MISSION_COUNT => {
-                self.set_modal_raw(OrbitModal::Confirm(index as u8))
+            OrbitModal::Confirm(mission) if mission == self.mission => {
+                self.load_mission_raw(mission)
             }
-            OrbitModal::Missions if index == MISSION_COUNT => self.set_modal_raw(OrbitModal::None),
-            OrbitModal::Confirm(_) if index == 0 => self.set_modal_raw(OrbitModal::None),
-            OrbitModal::Confirm(mission) if index == 1 => self.load_mission(mission),
-            OrbitModal::Help => self.set_modal_raw(OrbitModal::None),
+            OrbitModal::Confirm(mission) => self.switch_raw(mission),
             _ => ChangeSet::NONE,
         }
+    }
+
+    /// Starts the mission over; a flight in progress asks first.
+    pub(crate) fn restart(&mut self) -> ChangeSet {
+        if self.in_progress() {
+            self.set_modal_raw(OrbitModal::Confirm(self.mission))
+        } else if self.status.terminal() {
+            self.load_mission_raw(self.mission)
+        } else {
+            ChangeSet::NONE
+        }
+    }
+
+    pub(crate) fn next_mission(&mut self) -> ChangeSet {
+        if self.status == OrbitStatus::Won && usize::from(self.mission) + 1 < MISSION_COUNT {
+            self.switch_raw(self.mission + 1)
+        } else {
+            ChangeSet::NONE
+        }
+    }
+
+    pub(crate) fn toggle_hint(&mut self) -> ChangeSet {
+        self.hint_shown = !self.hint_shown;
+        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
     pub(crate) fn adjust_dv(&mut self, delta_tenths: i8) -> ChangeSet {
         self.adjust_dv_raw(delta_tenths)
     }
 
-    pub(crate) fn reset_dv(&mut self) -> ChangeSet {
-        self.reset_dv_raw()
+    pub(crate) fn adjust_angle(&mut self, delta: i16) -> ChangeSet {
+        self.set_angle_raw(self.angle_degrees + delta)
     }
 
-    pub(crate) fn adjust_angle(&mut self, delta: i16) -> ChangeSet {
-        self.adjust_angle_raw(delta)
+    /// Swaps between burning with and against the motion.
+    pub(crate) fn flip_angle(&mut self) -> ChangeSet {
+        self.set_angle_raw(self.angle_degrees + 180)
     }
 
     pub(crate) fn adjust_delay(&mut self, delta: i8) -> ChangeSet {
@@ -657,11 +888,17 @@ impl OrbitModel {
     }
 
     pub(crate) fn toggle_preview(&mut self) -> ChangeSet {
-        self.toggle_preview_raw()
+        self.preview = !self.preview;
+        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
     pub(crate) fn cycle_warp(&mut self) -> ChangeSet {
-        self.cycle_warp_raw()
+        self.warp = match self.warp {
+            1 => 2,
+            2 => 4,
+            _ => 1,
+        };
+        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
     #[observe]
@@ -680,16 +917,60 @@ impl OrbitModel {
     }
 
     #[observe]
-    pub(crate) fn latest_event_kind(&self) -> Option<OrbitEventKind> {
-        self.event_len()
-            .checked_sub(1)
-            .and_then(|index| self.event(index))
-            .map(|event| event.kind)
+    pub(crate) fn in_zone(&self) -> bool {
+        self.in_zone_raw()
     }
 
     #[observe]
-    pub(crate) fn can_schedule(&self) -> bool {
-        !self.status.terminal() && usize::from(self.queue_len) < MAX_NODES
+    pub(crate) fn current_goal(&self) -> Option<OrbitGoal> {
+        self.goal()
+    }
+
+    #[observe]
+    pub(crate) fn burn_block(&self) -> Option<OrbitError> {
+        self.burn_block_raw()
+    }
+
+    #[observe]
+    pub(crate) fn schedule_block(&self) -> Option<OrbitError> {
+        self.schedule_block_raw()
+    }
+
+    #[observe]
+    pub(crate) fn can_restart(&self) -> bool {
+        self.in_progress() || self.status.terminal()
+    }
+
+    /// The fuel the planned nodes will burn, in tenths.
+    #[observe]
+    pub(crate) fn planned_fuel(&self) -> u16 {
+        self.queue
+            .iter()
+            .flatten()
+            .map(|node| u16::from(node.dv_tenths) * 2)
+            .sum()
+    }
+
+    #[observe]
+    pub(crate) fn has_next(&self) -> bool {
+        usize::from(self.mission) + 1 < MISSION_COUNT
+    }
+
+    /// Tenths of a second of contact left, when the mission has a limit.
+    #[observe]
+    pub(crate) fn contact_left(&self) -> Option<u16> {
+        let seconds = self.mission().contact_seconds;
+        (seconds != 0).then(|| {
+            let left = Fixed64::from_int(i64::from(seconds)) - self.time;
+            (left * 10).to_int().max(0) as u16
+        })
+    }
+
+    /// The latest events, oldest first.
+    #[observe]
+    pub(crate) fn log(&self) -> [Option<OrbitEvent>; LOG_LINES] {
+        let skip = self.event_len().saturating_sub(LOG_LINES);
+        core::array::from_fn(|line| self.event(skip + line))
     }
 }
 

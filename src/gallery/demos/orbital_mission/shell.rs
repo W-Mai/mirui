@@ -1,20 +1,25 @@
 use super::input::orbit_tick_system;
 use super::render::{modal_render, surface_render};
 use super::state::{OrbitModalSurface, OrbitSurface};
-use super::style::{BACKGROUND, CYAN, INK, MUTED, ORANGE, SPACE, label_style};
+use super::style::{
+    BACKGROUND, CLEAR, CYAN, DEEP, INK, LINE, MUTED, ORANGE, SPACE, body_style, center_style,
+    end_style, label_style,
+};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::orbit::{
-    MISSIONS, ManeuverNode, OrbitEventKind, OrbitModal, OrbitModel, OrbitPage, OrbitStatus,
+    MISSION_COUNT, MISSIONS, ManeuverNode, OrbitError, OrbitEvent, OrbitEventKind, OrbitGoal,
+    OrbitModal, OrbitModel, OrbitPage, OrbitStatus, START_RADIUS,
 };
 use crate::prelude::*;
-use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use crate::types::Fixed64;
+use crate::ui::widgets::{Button, ButtonSize, Text};
 use core::fmt;
 
 fn control_color(active: bool, enabled: bool) -> Color {
     if !enabled {
-        super::style::LINE
+        LINE
     } else if active {
         ORANGE
     } else {
@@ -26,12 +31,42 @@ fn control_text_color(enabled: bool) -> Color {
     if enabled { BACKGROUND } else { MUTED }
 }
 
-struct Decimal1(crate::types::Fixed64);
+struct Decimal1(Fixed64);
 
 impl fmt::Display for Decimal1 {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let scaled = (self.0 * 10).to_int();
-        write!(out, "{}.{:01}", scaled / 10, scaled.unsigned_abs() % 10)
+        let tenths = (self.0.abs() * 10 + Fixed64::from_ratio(1, 2)).to_int();
+        let sign = if self.0.is_negative() && tenths != 0 {
+            "-"
+        } else {
+            ""
+        };
+        write!(out, "{sign}{}.{}", tenths / 10, tenths % 10)
+    }
+}
+
+/// A value kept in tenths, such as Δv.
+struct Tenths(u16);
+
+impl fmt::Display for Tenths {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(out, "{}.{}", self.0 / 10, self.0 % 10)
+    }
+}
+
+/// "90° 向内": the angle, named when it is one of the four plain directions.
+struct AngleText(i16);
+
+impl fmt::Display for AngleText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self.0 {
+            0 => " 顺向",
+            180 => " 反向",
+            90 => " 向内",
+            -90 => " 向外",
+            _ => "",
+        };
+        write!(out, "{}°{name}", self.0)
     }
 }
 
@@ -43,30 +78,233 @@ struct NodeText {
 impl fmt::Display for NodeText {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Some(node) = self.node else {
-            return write!(out, "0{}  空节点", self.number);
+            return write!(out, "0{}  —", self.number);
         };
         write!(
             out,
-            "0{}  T+{}  Δv {}.{}  {}°",
+            "0{}  T+{}  Δv {}  {}°",
             self.number,
             Decimal1(node.at),
-            node.dv_tenths / 10,
-            node.dv_tenths % 10,
+            Tenths(node.dv_tenths.into()),
             node.angle_degrees
         )
     }
 }
 
-fn event_label(kind: OrbitEventKind) -> &'static str {
-    match kind {
-        OrbitEventKind::Loaded => "任务装载 · 等待机动",
-        OrbitEventKind::Burn => "机动点火完成",
-        OrbitEventKind::NodeSkipped => "计划节点跳过",
-        OrbitEventKind::Goal => "目标窗口采样完成",
-        OrbitEventKind::Won => "全部目标完成",
-        OrbitEventKind::Crashed => "接近中心边界 · 中止",
-        OrbitEventKind::Escaped => "越出模拟区域 · 中止",
+/// "FUEL  33.6 / 48".
+struct FuelText {
+    fuel: Fixed64,
+    mission: u8,
+}
+
+impl fmt::Display for FuelText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let full = MISSIONS[usize::from(self.mission)].fuel;
+        write!(out, "FUEL  {} / {full}", Decimal1(self.fuel))
     }
+}
+
+/// When a node planned now would fire: "T+13.0".
+struct FireTime {
+    time: Fixed64,
+    delay: u8,
+}
+
+impl fmt::Display for FireTime {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let at = self.time + Fixed64::from_int(self.delay.into());
+        write!(out, "T+{}", Decimal1(at))
+    }
+}
+
+/// "外圈 113~130" or "信标 · 限速 24".
+struct GoalName(OrbitGoal);
+
+impl fmt::Display for GoalName {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            OrbitGoal::Band { min, max } => {
+                let side = if i64::from(min) > START_RADIUS {
+                    "外圈"
+                } else {
+                    "内圈"
+                };
+                write!(out, "{side} {min}~{max}")
+            }
+            OrbitGoal::Beacon { max_speed, .. } => write!(out, "信标 · 限速 {max_speed}"),
+        }
+    }
+}
+
+/// The map's goal line: which goal is next and where it is.
+struct GoalLine {
+    mission: u8,
+    completed: u8,
+}
+
+impl fmt::Display for GoalLine {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mission = MISSIONS[usize::from(self.mission)];
+        let total = mission.goal_count();
+        match mission.goal(usize::from(self.completed)) {
+            Some(goal) => write!(
+                out,
+                "目标 {}/{total} · {}",
+                self.completed + 1,
+                GoalName(goal)
+            ),
+            None => write!(out, "目标 {total}/{total} · 完成"),
+        }
+    }
+}
+
+/// A goal in the briefing list.
+struct GoalEntry {
+    mission: u8,
+    index: usize,
+}
+
+impl fmt::Display for GoalEntry {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match MISSIONS[usize::from(self.mission)].goal(self.index) {
+            Some(goal) => write!(out, "{}  {}", self.index + 1, GoalName(goal)),
+            None => Ok(()),
+        }
+    }
+}
+
+/// What the craft can do at the current goal.
+struct ZoneNotice {
+    goal: Option<OrbitGoal>,
+    in_zone: bool,
+    eligible: bool,
+}
+
+impl fmt::Display for ZoneNotice {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.eligible {
+            return out.write_str("● 已到目标，可以采样");
+        }
+        match self.goal {
+            Some(OrbitGoal::Beacon { max_speed, .. }) if self.in_zone => {
+                write!(out, "速度过快，限速 {max_speed}")
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+struct ContactText(Option<u16>);
+
+impl fmt::Display for ContactText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            None => Ok(()),
+            Some(0) => out.write_str("已失联 · 只执行节点"),
+            Some(tenths) => write!(out, "{} s 后失联", Tenths(tenths)),
+        }
+    }
+}
+
+struct EventLine {
+    event: Option<OrbitEvent>,
+    goals: usize,
+}
+
+impl fmt::Display for EventLine {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Some(event) = self.event else {
+            return Ok(());
+        };
+        write!(out, "T+{}  ", Decimal1(event.time))?;
+        match event.kind {
+            OrbitEventKind::Loaded => out.write_str("任务开始"),
+            OrbitEventKind::Burn(dv) => write!(out, "点火 Δv {}", Tenths(dv.into())),
+            OrbitEventKind::NodeBurn(dv) => write!(out, "节点点火 Δv {}", Tenths(dv.into())),
+            OrbitEventKind::NodeSkipped(OrbitError::Fuel) => out.write_str("节点跳过：缺燃料"),
+            OrbitEventKind::NodeSkipped(OrbitError::Heat) => out.write_str("节点跳过：过热"),
+            OrbitEventKind::NodeSkipped(_) => out.write_str("节点跳过"),
+            OrbitEventKind::Goal(done) => write!(out, "采样 {done}/{}", self.goals),
+            OrbitEventKind::Won => out.write_str("任务完成"),
+            OrbitEventKind::Crashed => out.write_str("撞上行星"),
+            OrbitEventKind::Escaped => out.write_str("飞出边界"),
+        }
+    }
+}
+
+fn cleared(mask: u8, mission: u8) -> bool {
+    mask & (1 << mission) != 0
+}
+
+/// "任务 03 · 降低轨道 ★".
+struct MissionTitle {
+    mission: u8,
+    cleared: u8,
+}
+
+impl fmt::Display for MissionTitle {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            out,
+            "任务 0{} · {}",
+            self.mission + 1,
+            MISSIONS[usize::from(self.mission)].name
+        )?;
+        if cleared(self.cleared, self.mission) {
+            out.write_str(" ★")?;
+        }
+        Ok(())
+    }
+}
+
+struct MissionTile {
+    mission: u8,
+    cleared: u8,
+}
+
+impl fmt::Display for MissionTile {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let star = if cleared(self.cleared, self.mission) {
+            "★"
+        } else {
+            "☆"
+        };
+        write!(
+            out,
+            "0{} {star}\n{}",
+            self.mission + 1,
+            MISSIONS[usize::from(self.mission)].name
+        )
+    }
+}
+
+fn burn_label(block: Option<OrbitError>) -> &'static str {
+    match block {
+        None | Some(OrbitError::Terminal) => "点火",
+        Some(OrbitError::Fuel) => "缺燃料",
+        Some(OrbitError::Heat) => "过热",
+        Some(_) => "已失联",
+    }
+}
+
+fn node_label(block: Option<OrbitError>) -> &'static str {
+    match block {
+        Some(OrbitError::QueueFull) => "最多 3 个",
+        Some(OrbitError::NoContact) => "已失联",
+        _ => "＋ 节点",
+    }
+}
+
+fn run_label(status: OrbitStatus, has_next: bool) -> &'static str {
+    match status {
+        OrbitStatus::Running => "Ⅱ 暂停",
+        OrbitStatus::Won if has_next => "下一个 ▶",
+        _ => "▶ 滑行",
+    }
+}
+
+fn run_enabled(status: OrbitStatus, has_next: bool) -> bool {
+    !status.terminal() || (status == OrbitStatus::Won && has_next)
 }
 
 fn status_label(status: OrbitStatus) -> &'static str {
@@ -80,47 +318,170 @@ fn status_label(status: OrbitStatus) -> &'static str {
     }
 }
 
-fn modal_title(modal: OrbitModal) -> &'static str {
-    match modal {
-        OrbitModal::None => "",
-        OrbitModal::Missions => "选择轨道任务",
-        OrbitModal::Confirm(_) => "重新装载任务？",
-        OrbitModal::Help => "轨道任务台 / 操作手册",
+struct PlanTab(u8);
+
+impl fmt::Display for PlanTab {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            0 => out.write_str("计划"),
+            count => write!(out, "计划 · {count}"),
+        }
     }
 }
 
-fn modal_subtitle(modal: OrbitModal) -> &'static str {
-    match modal {
-        OrbitModal::None => "",
-        OrbitModal::Missions => "切换会清空当前轨迹、计划与遥测记录。",
-        OrbitModal::Confirm(_) => "当前模拟状态将被重置。",
-        OrbitModal::Help => "设定机动并点火；进入目标窗口后手动采样。",
+/// What the planned nodes will burn, and whether the tank holds it.
+struct PlannedFuel {
+    planned: u16,
+    fuel: Fixed64,
+}
+
+impl fmt::Display for PlannedFuel {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(out, "节点用燃料 {}", Tenths(self.planned))?;
+        if Fixed64::from_ratio(self.planned.into(), 10) > self.fuel {
+            out.write_str(" · 不足")?;
+        }
+        Ok(())
     }
 }
 
-fn mission_name(index: u8) -> &'static str {
-    MISSIONS[usize::from(index)].name
+struct ModalTitle {
+    modal: OrbitModal,
+    mission: u8,
+    status: OrbitStatus,
+    cleared: u8,
 }
 
-fn modal_button(modal: OrbitModal, index: usize, mission: u8) -> (&'static str, bool, bool) {
-    match modal {
-        OrbitModal::Missions => (
-            MISSIONS.get(index).map_or("", |entry| entry.name),
-            index < 3,
-            index as u8 == mission,
-        ),
-        OrbitModal::Confirm(_) => match index {
-            0 => ("取消", true, false),
-            1 => ("确认装载", true, true),
-            _ => ("", false, false),
-        },
-        OrbitModal::Help => (
-            if index == 0 { "明白了" } else { "" },
-            index == 0,
-            index == 0,
-        ),
-        OrbitModal::None => ("", false, false),
+impl fmt::Display for ModalTitle {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = |mission: u8| MISSIONS[usize::from(mission)].name;
+        match self.modal {
+            OrbitModal::None => Ok(()),
+            OrbitModal::Missions => out.write_str("选择任务"),
+            OrbitModal::Brief => write!(out, "任务 0{} · {}", self.mission + 1, name(self.mission)),
+            OrbitModal::Confirm(target) if target == self.mission => out.write_str("重来本任务？"),
+            OrbitModal::Confirm(target) => write!(out, "换到 0{} · {}？", target + 1, name(target)),
+            OrbitModal::Result => match self.status {
+                OrbitStatus::Won if self.cleared.count_ones() as usize == MISSION_COUNT => {
+                    write!(out, "{MISSION_COUNT} 个任务全部完成 ★")
+                }
+                OrbitStatus::Won => {
+                    write!(out, "0{} {} 完成 ★", self.mission + 1, name(self.mission))
+                }
+                OrbitStatus::Crashed => out.write_str("撞上行星"),
+                _ => out.write_str("飞出边界"),
+            },
+        }
     }
+}
+
+struct ModalBody {
+    modal: OrbitModal,
+    mission: u8,
+    status: OrbitStatus,
+    time: Fixed64,
+    fuel: Fixed64,
+}
+
+impl fmt::Display for ModalBody {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.modal {
+            OrbitModal::Brief => out.write_str(MISSIONS[usize::from(self.mission)].description),
+            OrbitModal::Confirm(_) => out.write_str("当前的飞行和计划会清空。"),
+            OrbitModal::Result => match self.status {
+                OrbitStatus::Won => write!(
+                    out,
+                    "用时 {} s · 燃料还有 {}",
+                    Decimal1(self.time),
+                    Decimal1(self.fuel)
+                ),
+                OrbitStatus::Crashed => out.write_str("RADIUS 不到 27 就会撞上。"),
+                _ => out.write_str("RADIUS 超过 260 就出界了。"),
+            },
+            OrbitModal::None | OrbitModal::Missions => Ok(()),
+        }
+    }
+}
+
+/// The last line of the briefing: the hint once asked for, else how to fly.
+struct BriefFoot {
+    mission: u8,
+    hint: bool,
+}
+
+impl fmt::Display for BriefFoot {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.hint {
+            write!(out, "提示：{}", MISSIONS[usize::from(self.mission)].hint)
+        } else {
+            out.write_str("调好 Δv 和角度后点火，按 ▶ 滑行，到目标后采样。")
+        }
+    }
+}
+
+struct ClearedCount(u8);
+
+impl fmt::Display for ClearedCount {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(out, "★ {}/{MISSION_COUNT}", self.0.count_ones())
+    }
+}
+
+/// Progress and the next mission, under a won flight's result.
+struct ResultNote {
+    modal: OrbitModal,
+    status: OrbitStatus,
+    mission: u8,
+    cleared: u8,
+}
+
+impl fmt::Display for ResultNote {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.modal != OrbitModal::Result || self.status != OrbitStatus::Won {
+            return Ok(());
+        }
+        write!(out, "{}", ClearedCount(self.cleared))?;
+        let next = usize::from(self.mission) + 1;
+        if let Some(mission) = MISSIONS.get(next) {
+            write!(out, "   下一个：0{} {}", next + 1, mission.name)?;
+        }
+        Ok(())
+    }
+}
+
+fn modal_left_label(modal: OrbitModal, status: OrbitStatus, hint: bool) -> &'static str {
+    match modal {
+        OrbitModal::Brief if hint => "收起提示",
+        OrbitModal::Brief => "提示",
+        OrbitModal::Confirm(_) => "取消",
+        OrbitModal::Result if status == OrbitStatus::Won => "↺ 再飞一次",
+        OrbitModal::Result => "选择任务",
+        OrbitModal::None | OrbitModal::Missions => "",
+    }
+}
+
+fn modal_right_label(modal: OrbitModal, status: OrbitStatus, has_next: bool) -> &'static str {
+    match modal {
+        OrbitModal::Brief if status == OrbitStatus::Ready => "开始",
+        OrbitModal::Brief => "继续",
+        OrbitModal::Confirm(_) => "确定",
+        OrbitModal::Result if status == OrbitStatus::Won && has_next => "下一个任务 ▶",
+        OrbitModal::Result if status == OrbitStatus::Won => "选择任务",
+        OrbitModal::Result => "↺ 重来",
+        OrbitModal::None | OrbitModal::Missions => "",
+    }
+}
+
+/// A page shows its controls only while no dialog covers it.
+fn page_shown(page: OrbitPage, current: OrbitPage, modal: OrbitModal) -> bool {
+    page == current && modal == OrbitModal::None
+}
+
+fn has_actions(modal: OrbitModal) -> bool {
+    matches!(
+        modal,
+        OrbitModal::Brief | OrbitModal::Confirm(_) | OrbitModal::Result
+    )
 }
 
 #[compose]
@@ -133,23 +494,28 @@ fn compose_header(model: model!(OrbitModel)) -> Entity {
             top: 6,
             width: 160,
             height: 20,
-            font_size: 14,
+            font_size: 10,
             text_color: BACKGROUND,
             paragraph: label_style()
         )
     };
     ui! {
         Button (
-            text: ${ format_args!("任务 0{} · {}", model.mission() + 1, mission_name(model.mission())) },
+            text: ${
+                MissionTitle {
+                    mission: model.mission(),
+                    cleared: model.cleared(),
+                }
+            },
             capacity: 48,
             id: "orbit_mission",
             position: Position::Absolute,
-            left: 284,
+            left: 270,
             top: 4,
-            width: 158,
+            width: 172,
             height: 23,
             size: ButtonSize::Compact,
-            font_size: 8,
+            font_size: 10,
             normal_color: INK,
             pressed_color: ORANGE,
             pressed_text_color: SPACE,
@@ -160,19 +526,20 @@ fn compose_header(model: model!(OrbitModel)) -> Entity {
     ui! {
         Button (
             "?",
+            id: "orbit_brief",
             position: Position::Absolute,
             left: 450,
             top: 4,
             width: 25,
             height: 23,
             size: ButtonSize::Compact,
-            font_size: 12,
+            font_size: 10,
             normal_color: INK,
             pressed_color: ORANGE,
             pressed_text_color: SPACE,
             text_color: BACKGROUND,
             border_radius: 0
-        ) on Tap { model.set_modal(OrbitModal::Help); }
+        ) on Tap { model.set_modal(OrbitModal::Brief); }
     };
     ui! {
         Button (
@@ -194,7 +561,8 @@ fn compose_header(model: model!(OrbitModel)) -> Entity {
     };
     ui! {
         Button (
-            "计划",
+            text: ${ PlanTab(model.queue_len()) },
+            capacity: 16,
             id: "orbit_tab_plan",
             position: Position::Absolute,
             left: 119,
@@ -235,12 +603,12 @@ fn compose_header(model: model!(OrbitModel)) -> Entity {
             id: "orbit_time",
             position: Position::Absolute,
             left: 356,
-            top: 39,
+            top: 38,
             width: 102,
             height: 14,
-            font_size: 8,
+            font_size: 10,
             text_color: MUTED,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            paragraph: end_style()
         )
     }
 }
@@ -250,7 +618,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
     ui! {
         View (
             id: "orbit_map_page",
-            visible: ${ model.page() == OrbitPage::Map },
+            visible: ${ page_shown(OrbitPage::Map, model.page(), model.modal()) },
             position: Position::Absolute,
             left: 0,
             top: 0,
@@ -258,15 +626,104 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
             height: 282
         ) {
             Text (
-                text: ${ format_args!("FUEL  {} / 48", Decimal1(model.fuel())) },
+                text: ${
+                    GoalLine {
+                        mission: model.mission(),
+                        completed: model.completed(),
+                    }
+                },
+                capacity: 48,
+                id: "orbit_goal",
+                position: Position::Absolute,
+                left: 19,
+                top: 70,
+                width: 272,
+                height: 14,
+                font_size: 10,
+                text_color: BACKGROUND,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${
+                    ZoneNotice {
+                        goal: model.current_goal(),
+                        in_zone: model.in_zone(),
+                        eligible: model.eligible(),
+                    }
+                },
+                capacity: 48,
+                id: "orbit_notice",
+                position: Position::Absolute,
+                left: 19,
+                top: 86,
+                width: 272,
+                height: 14,
+                font_size: 10,
+                text_color: ORANGE,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ ContactText(model.contact_left()) },
+                capacity: 40,
+                id: "orbit_contact",
+                position: Position::Absolute,
+                left: 96,
+                top: 233,
+                width: 144,
+                height: 14,
+                font_size: 10,
+                text_color: LINE,
+                paragraph: center_style()
+            )
+            Button (
+                text: ${ if model.preview() { "◉ 预演" } else { "○ 预演" } },
+                capacity: 16,
+                id: "orbit_preview",
+                position: Position::Absolute,
+                left: 18,
+                top: 230,
+                width: 72,
+                height: 20,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: SPACE,
+                pressed_color: ORANGE,
+                pressed_text_color: SPACE,
+                text_color: ${ if model.preview() { ORANGE } else { LINE } },
+                border_radius: 0
+            ) on Tap { model.toggle_preview(); }
+            Button (
+                text: ${ format_args!("{}×", model.warp()) },
+                capacity: 8,
+                id: "orbit_warp",
+                position: Position::Absolute,
+                left: 246,
+                top: 230,
+                width: 44,
+                height: 20,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: SPACE,
+                pressed_color: ORANGE,
+                pressed_text_color: SPACE,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { model.cycle_warp(); }
+            Text (
+                text: ${
+                    FuelText {
+                        fuel: model.fuel(),
+                        mission: model.mission(),
+                    }
+                },
                 capacity: 24,
                 id: "orbit_fuel",
                 position: Position::Absolute,
-                left: 318,
-                top: 78,
-                width: 139,
-                height: 15,
-                font_size: 9,
+                left: 322,
+                top: 72,
+                width: 132,
+                height: 14,
+                font_size: 10,
                 text_color: INK,
                 paragraph: label_style()
             )
@@ -275,11 +732,11 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 capacity: 20,
                 id: "orbit_heat",
                 position: Position::Absolute,
-                left: 318,
-                top: 105,
-                width: 139,
-                height: 15,
-                font_size: 9,
+                left: 322,
+                top: 96,
+                width: 132,
+                height: 14,
+                font_size: 10,
                 text_color: INK,
                 paragraph: label_style()
             )
@@ -288,11 +745,11 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 capacity: 16,
                 id: "orbit_radius",
                 position: Position::Absolute,
-                left: 318,
-                top: 136,
-                width: 62,
-                height: 18,
-                font_size: 12,
+                left: 322,
+                top: 120,
+                width: 66,
+                height: 14,
+                font_size: 10,
                 text_color: INK,
                 paragraph: label_style()
             )
@@ -301,182 +758,256 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
                 capacity: 16,
                 id: "orbit_speed",
                 position: Position::Absolute,
-                left: 395,
-                top: 136,
-                width: 62,
-                height: 18,
-                font_size: 12,
+                left: 388,
+                top: 120,
+                width: 66,
+                height: 14,
+                font_size: 10,
                 text_color: INK,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                text: ${ format_args!("{}.{}", model.dv_tenths() / 10, model.dv_tenths() % 10) },
-                capacity: 8,
-                id: "orbit_dv",
-                position: Position::Absolute,
-                left: 417,
-                top: 169,
-                width: 40,
-                height: 18,
-                font_size: 12,
-                text_color: INK,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+                paragraph: end_style()
             )
             Text (
                 "RADIUS",
                 position: Position::Absolute,
-                left: 318,
-                top: 154,
-                width: 62,
-                height: 10,
-                font_size: 8,
+                left: 322,
+                top: 134,
+                width: 66,
+                height: 12,
+                font_size: 10,
                 text_color: MUTED,
                 paragraph: label_style()
             )
             Text (
                 "SPEED",
                 position: Position::Absolute,
-                left: 395,
-                top: 154,
-                width: 62,
-                height: 10,
-                font_size: 8,
+                left: 388,
+                top: 134,
+                width: 66,
+                height: 12,
+                font_size: 10,
                 text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+                paragraph: end_style()
             )
+            burn_dial (model, 322, 154, false)
+        }
+    }
+}
+
+/// Δv and burn angle, shared by the map page (a burn now) and the plan page
+/// (the next node).
+#[compose]
+fn burn_dial(model: model!(OrbitModel), left: i32, top: i32, dark: bool) -> Entity {
+    let (label, value, button) = if dark {
+        (LINE, BACKGROUND, DEEP)
+    } else {
+        (MUTED, INK, INK)
+    };
+    ui! {
+        View (
+            position: Position::Absolute,
+            left: left,
+            top: top,
+            width: 132,
+            height: 82
+        ) {
             Text (
                 "BURN ΔV",
                 position: Position::Absolute,
-                left: 318,
-                top: 172,
-                width: 90,
+                left: 0,
+                top: 0,
+                width: 70,
                 height: 14,
-                font_size: 9,
-                text_color: MUTED,
+                font_size: 10,
+                text_color: label,
                 paragraph: label_style()
             )
-            Button (
-                "-",
+            Text (
+                text: ${ Tenths(model.dv_tenths().into()) },
+                capacity: 8,
                 position: Position::Absolute,
-                left: 318,
-                top: 191,
-                width: 34,
-                height: 24,
+                left: 72,
+                top: 0,
+                width: 60,
+                height: 14,
+                font_size: 10,
+                text_color: value,
+                paragraph: end_style()
+            )
+            Button (
+                "－1",
+                position: Position::Absolute,
+                left: 0,
+                top: 16,
+                width: 30,
+                height: 22,
                 size: ButtonSize::Compact,
-                font_size: 12,
-                normal_color: INK,
+                font_size: 10,
+                normal_color: button,
+                pressed_color: ORANGE,
+                pressed_text_color: SPACE,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { model.adjust_dv(-10); }
+            Button (
+                "－.2",
+                position: Position::Absolute,
+                left: 34,
+                top: 16,
+                width: 30,
+                height: 22,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: button,
                 pressed_color: ORANGE,
                 pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_dv(-2); }
             Button (
-                "参考值",
+                "＋.2",
                 position: Position::Absolute,
-                left: 357,
-                top: 191,
-                width: 61,
-                height: 24,
+                left: 68,
+                top: 16,
+                width: 30,
+                height: 22,
                 size: ButtonSize::Compact,
-                font_size: 8,
-                normal_color: INK,
-                pressed_color: ORANGE,
-                pressed_text_color: SPACE,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.reset_dv(); }
-            Button (
-                "+",
-                position: Position::Absolute,
-                left: 423,
-                top: 191,
-                width: 34,
-                height: 24,
-                size: ButtonSize::Compact,
-                font_size: 12,
-                normal_color: INK,
+                font_size: 10,
+                normal_color: button,
                 pressed_color: ORANGE,
                 pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_dv(2); }
             Button (
-                "-15",
+                "＋1",
                 position: Position::Absolute,
-                left: 318,
-                top: 222,
-                width: 58,
-                height: 23,
+                left: 102,
+                top: 16,
+                width: 30,
+                height: 22,
                 size: ButtonSize::Compact,
-                font_size: 8,
-                normal_color: INK,
+                font_size: 10,
+                normal_color: button,
+                pressed_color: ORANGE,
+                pressed_text_color: SPACE,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { model.adjust_dv(10); }
+            Text (
+                "ANGLE",
+                position: Position::Absolute,
+                left: 0,
+                top: 44,
+                width: 50,
+                height: 14,
+                font_size: 10,
+                text_color: label,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ AngleText(model.angle_degrees()) },
+                capacity: 16,
+                position: Position::Absolute,
+                left: 42,
+                top: 44,
+                width: 90,
+                height: 14,
+                font_size: 10,
+                text_color: value,
+                paragraph: end_style()
+            )
+            Button (
+                "－15°",
+                position: Position::Absolute,
+                left: 0,
+                top: 60,
+                width: 42,
+                height: 22,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: button,
                 pressed_color: ORANGE,
                 pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_angle(-15); }
-            Text (
-                text: ${ format_args!("{}°", model.angle_degrees()) },
-                capacity: 8,
-                id: "orbit_angle",
-                position: Position::Absolute,
-                left: 377,
-                top: 226,
-                width: 36,
-                height: 13,
-                font_size: 8,
-                text_color: INK,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Center)
-            )
             Button (
-                "+15",
+                "＋15°",
                 position: Position::Absolute,
-                left: 414,
-                top: 222,
-                width: 43,
-                height: 23,
+                left: 45,
+                top: 60,
+                width: 42,
+                height: 22,
                 size: ButtonSize::Compact,
-                font_size: 7,
-                normal_color: INK,
+                font_size: 10,
+                normal_color: button,
                 pressed_color: ORANGE,
                 pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_angle(15); }
             Button (
-                text: ${ if model.preview() { "预演 已开" } else { "预演 已关" } },
-                capacity: 16,
-                id: "orbit_preview",
+                "⇄ 180°",
                 position: Position::Absolute,
-                left: 18,
-                top: 231,
-                width: 78,
-                height: 18,
+                left: 90,
+                top: 60,
+                width: 42,
+                height: 22,
                 size: ButtonSize::Compact,
-                font_size: 7,
-                normal_color: SPACE,
+                font_size: 10,
+                normal_color: button,
                 pressed_color: ORANGE,
                 pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { model.toggle_preview(); }
+            ) on Tap { model.flip_angle(); }
+        }
+    }
+}
+
+#[compose]
+fn node_row(model: model!(OrbitModel), index: usize) -> Entity {
+    ui! {
+        View (
+            position: Position::Absolute,
+            left: 24,
+            top: 91 + 48 * index as i32,
+            width: 262,
+            height: 38
+        ) {
+            Text (
+                text: ${
+                    NodeText {
+                        node: model.queue()[index],
+                        number: index + 1,
+                    }
+                },
+                capacity: 48,
+                position: Position::Absolute,
+                left: 11,
+                top: 12,
+                width: 200,
+                height: 14,
+                font_size: 10,
+                text_color: ${ if model.queue()[index].is_some() { INK } else { MUTED } },
+                paragraph: label_style()
+            )
             Button (
-                text: ${ format_args!("{}×", model.warp()) },
-                capacity: 8,
-                id: "orbit_warp",
+                "×",
+                visible: ${ model.queue()[index].is_some() },
                 position: Position::Absolute,
-                left: 244,
-                top: 231,
-                width: 45,
-                height: 18,
+                left: 222,
+                top: 7,
+                width: 32,
+                height: 24,
                 size: ButtonSize::Compact,
-                font_size: 8,
-                normal_color: SPACE,
+                font_size: 10,
+                normal_color: INK,
                 pressed_color: ORANGE,
                 pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { model.cycle_warp(); }
+            ) on Tap { let _ = model.cancel_at(index); }
         }
     }
 }
@@ -486,7 +1017,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
     ui! {
         View (
             id: "orbit_plan_page",
-            visible: ${ model.page() == OrbitPage::Plan },
+            visible: ${ page_shown(OrbitPage::Plan, model.page(), model.modal()) },
             position: Position::Absolute,
             left: 0,
             top: 0,
@@ -494,161 +1025,178 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
             height: 282
         ) {
             Text (
-                text: ${
-                    NodeText {
-                        node: model.queue()[0],
-                        number: 1,
-                    }
-                },
-                capacity: 64,
-                id: "orbit_node_0",
-                position: Position::Absolute,
-                left: 35,
-                top: 103,
-                width: 198,
-                height: 17,
-                font_size: 9,
-                text_color: INK,
-                paragraph: label_style()
-            )
-            Button (
-                "取消",
-                position: Position::Absolute,
-                left: 239,
-                top: 98,
-                width: 40,
-                height: 24,
-                size: ButtonSize::Compact,
-                font_size: 7,
-                normal_color: INK,
-                pressed_color: ORANGE,
-                pressed_text_color: SPACE,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { let _ = model.cancel_at(0); }
-            Text (
-                text: ${
-                    NodeText {
-                        node: model.queue()[1],
-                        number: 2,
-                    }
-                },
-                capacity: 64,
-                id: "orbit_node_1",
-                position: Position::Absolute,
-                left: 35,
-                top: 151,
-                width: 198,
-                height: 17,
-                font_size: 9,
-                text_color: INK,
-                paragraph: label_style()
-            )
-            Button (
-                "取消",
-                position: Position::Absolute,
-                left: 239,
-                top: 146,
-                width: 40,
-                height: 24,
-                size: ButtonSize::Compact,
-                font_size: 7,
-                normal_color: INK,
-                pressed_color: ORANGE,
-                pressed_text_color: SPACE,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { let _ = model.cancel_at(1); }
-            Text (
-                text: ${
-                    NodeText {
-                        node: model.queue()[2],
-                        number: 3,
-                    }
-                },
-                capacity: 64,
-                id: "orbit_node_2",
-                position: Position::Absolute,
-                left: 35,
-                top: 199,
-                width: 198,
-                height: 17,
-                font_size: 9,
-                text_color: INK,
-                paragraph: label_style()
-            )
-            Button (
-                "取消",
-                position: Position::Absolute,
-                left: 239,
-                top: 194,
-                width: 40,
-                height: 24,
-                size: ButtonSize::Compact,
-                font_size: 7,
-                normal_color: INK,
-                pressed_color: ORANGE,
-                pressed_text_color: SPACE,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { let _ = model.cancel_at(2); }
-            Text (
-                text: ${ format_args!("{} / 3 个节点", model.queue_len()) },
+                text: ${ format_args!("节点  {} / 3", model.queue_len()) },
                 capacity: 24,
                 id: "orbit_queue_count",
                 position: Position::Absolute,
                 left: 24,
-                top: 234,
-                width: 130,
+                top: 72,
+                width: 200,
                 height: 14,
-                font_size: 8,
+                font_size: 10,
                 text_color: MUTED,
                 paragraph: label_style()
+            )
+            node_row (model, 0)
+            node_row (model, 1)
+            node_row (model, 2)
+            Text (
+                "按 ＋ 节点，到时自动点火。失联后也会执行。",
+                visible: ${ model.queue_len() == 0 },
+                position: Position::Absolute,
+                left: 24,
+                top: 234,
+                width: 262,
+                height: 14,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "节点延时",
+                position: Position::Absolute,
+                left: 325,
+                top: 70,
+                width: 66,
+                height: 14,
+                font_size: 10,
+                text_color: LINE,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${
+                    FireTime {
+                        time: model.time(),
+                        delay: model.delay_seconds(),
+                    }
+                },
+                capacity: 16,
+                id: "orbit_next_node",
+                position: Position::Absolute,
+                left: 391,
+                top: 70,
+                width: 66,
+                height: 14,
+                font_size: 10,
+                text_color: LINE,
+                paragraph: end_style()
             )
             Text (
                 text: ${ format_args!("{} s", model.delay_seconds()) },
                 capacity: 8,
                 id: "orbit_delay",
                 position: Position::Absolute,
-                left: 326,
-                top: 130,
-                width: 130,
-                height: 28,
+                left: 325,
+                top: 85,
+                width: 132,
+                height: 24,
                 font_size: 20,
                 text_color: BACKGROUND,
-                paragraph: ParagraphStyle::label()
+                paragraph: center_style()
             )
             Button (
-                "－1 s",
+                "－5",
                 position: Position::Absolute,
-                left: 326,
-                top: 186,
-                width: 57,
-                height: 25,
+                left: 325,
+                top: 112,
+                width: 30,
+                height: 22,
                 size: ButtonSize::Compact,
-                font_size: 8,
-                normal_color: Color::rgb(31, 50, 67),
+                font_size: 10,
+                normal_color: DEEP,
+                pressed_color: ORANGE,
+                pressed_text_color: SPACE,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { model.adjust_delay(-5); }
+            Button (
+                "－1",
+                position: Position::Absolute,
+                left: 359,
+                top: 112,
+                width: 30,
+                height: 22,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: DEEP,
                 pressed_color: ORANGE,
                 pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_delay(-1); }
             Button (
-                "＋1 s",
+                "＋1",
                 position: Position::Absolute,
-                left: 391,
-                top: 186,
-                width: 57,
-                height: 25,
+                left: 393,
+                top: 112,
+                width: 30,
+                height: 22,
                 size: ButtonSize::Compact,
-                font_size: 8,
-                normal_color: Color::rgb(31, 50, 67),
+                font_size: 10,
+                normal_color: DEEP,
                 pressed_color: ORANGE,
                 pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.adjust_delay(1); }
+            Button (
+                "＋5",
+                position: Position::Absolute,
+                left: 427,
+                top: 112,
+                width: 30,
+                height: 22,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: DEEP,
+                pressed_color: ORANGE,
+                pressed_text_color: SPACE,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { model.adjust_delay(5); }
+            burn_dial (model, 325, 142, true)
+            Text (
+                text: ${
+                    PlannedFuel {
+                        planned: model.planned_fuel(),
+                        fuel: model.fuel(),
+                    }
+                },
+                capacity: 40,
+                id: "orbit_plan_cost",
+                position: Position::Absolute,
+                left: 325,
+                top: 229,
+                width: 132,
+                height: 14,
+                font_size: 10,
+                text_color: ORANGE,
+                paragraph: label_style()
+            )
         }
+    }
+}
+
+#[compose]
+fn log_line(model: model!(OrbitModel), line: usize) -> Entity {
+    ui! {
+        Text (
+            text: ${
+                EventLine {
+                    event: model.log()[line],
+                    goals: MISSIONS[usize::from(model.mission())].goal_count(),
+                }
+            },
+            capacity: 48,
+            position: Position::Absolute,
+            left: 323,
+            top: 90 + 18 * line as i32,
+            width: 140,
+            height: 14,
+            font_size: 10,
+            text_color: INK,
+            paragraph: label_style()
+        )
     }
 }
 
@@ -657,7 +1205,7 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
     ui! {
         View (
             id: "orbit_record_page",
-            visible: ${ model.page() == OrbitPage::Record },
+            visible: ${ page_shown(OrbitPage::Record, model.page(), model.modal()) },
             position: Position::Absolute,
             left: 0,
             top: 0,
@@ -665,107 +1213,14 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
             height: 282
         ) {
             Text (
-                "RADIUS · HISTORY",
+                "RADIUS · 30 s",
                 position: Position::Absolute,
                 left: 15,
-                top: 76,
-                width: 160,
-                height: 10,
-                font_size: 8,
+                top: 73,
+                width: 140,
+                height: 12,
+                font_size: 10,
                 text_color: MUTED,
-                paragraph: label_style()
-            )
-            Text (
-                "SPEED · HISTORY",
-                position: Position::Absolute,
-                left: 15,
-                top: 178,
-                width: 160,
-                height: 10,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: label_style()
-            )
-            Text (
-                "滑行后开始记录",
-                visible: ${ model.telemetry_len() < 2 },
-                position: Position::Absolute,
-                left: 15,
-                top: 118,
-                width: 286,
-                height: 14,
-                font_size: 9,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                "SAMPLES",
-                position: Position::Absolute,
-                left: 325,
-                top: 78,
-                width: 60,
-                height: 10,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: label_style()
-            )
-            Text (
-                "TRAIL",
-                position: Position::Absolute,
-                left: 392,
-                top: 78,
-                width: 60,
-                height: 10,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: label_style()
-            )
-            Text (
-                "RADIUS",
-                position: Position::Absolute,
-                left: 385,
-                top: 138,
-                width: 72,
-                height: 10,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                "SPEED",
-                position: Position::Absolute,
-                left: 385,
-                top: 162,
-                width: 72,
-                height: 10,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                text: ${ format_args!("{}", model.telemetry_len()) },
-                capacity: 8,
-                id: "orbit_samples",
-                position: Position::Absolute,
-                left: 325,
-                top: 92,
-                width: 45,
-                height: 20,
-                font_size: 20,
-                text_color: INK,
-                paragraph: label_style()
-            )
-            Text (
-                text: ${ format_args!("{}", model.trail_len()) },
-                capacity: 8,
-                id: "orbit_trail",
-                position: Position::Absolute,
-                left: 392,
-                top: 92,
-                width: 45,
-                height: 20,
-                font_size: 20,
-                text_color: INK,
                 paragraph: label_style()
             )
             Text (
@@ -773,12 +1228,23 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
                 capacity: 16,
                 id: "orbit_record_radius",
                 position: Position::Absolute,
-                left: 325,
-                top: 134,
-                width: 112,
-                height: 22,
-                font_size: 20,
+                left: 201,
+                top: 73,
+                width: 100,
+                height: 12,
+                font_size: 10,
                 text_color: ORANGE,
+                paragraph: end_style()
+            )
+            Text (
+                "SPEED · 30 s",
+                position: Position::Absolute,
+                left: 15,
+                top: 175,
+                width: 140,
+                height: 12,
+                font_size: 10,
+                text_color: MUTED,
                 paragraph: label_style()
             )
             Text (
@@ -786,37 +1252,53 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
                 capacity: 16,
                 id: "orbit_record_speed",
                 position: Position::Absolute,
-                left: 325,
-                top: 158,
-                width: 112,
-                height: 22,
-                font_size: 20,
+                left: 201,
+                top: 175,
+                width: 100,
+                height: 12,
+                font_size: 10,
                 text_color: CYAN,
-                paragraph: label_style()
+                paragraph: end_style()
             )
             Text (
-                text: ${ model.latest_event_kind().map_or("等待事件", event_label) },
-                capacity: 48,
-                id: "orbit_event",
+                "▶ 滑行后开始记录",
+                visible: ${ model.telemetry_len() < 2 },
                 position: Position::Absolute,
-                left: 325,
-                top: 194,
-                width: 124,
-                height: 28,
-                font_size: 8,
+                left: 15,
+                top: 118,
+                width: 286,
+                height: 14,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: center_style()
+            )
+            Text (
+                "LOG",
+                position: Position::Absolute,
+                left: 323,
+                top: 73,
+                width: 60,
+                height: 12,
+                font_size: 10,
                 text_color: MUTED,
                 paragraph: label_style()
             )
+            log_line (model, 0)
+            log_line (model, 1)
+            log_line (model, 2)
+            log_line (model, 3)
+            log_line (model, 4)
+            log_line (model, 5)
             Text (
                 text: ${ status_label(model.status()) },
                 capacity: 16,
                 id: "orbit_status",
                 position: Position::Absolute,
-                left: 325,
-                top: 231,
-                width: 124,
-                height: 15,
-                font_size: 9,
+                left: 323,
+                top: 232,
+                width: 134,
+                height: 14,
+                font_size: 10,
                 text_color: ORANGE,
                 paragraph: label_style()
             )
@@ -828,7 +1310,7 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
 fn compose_footer(model: model!(OrbitModel)) -> Entity {
     ui! {
         Button (
-            text: ${ if model.status() == OrbitStatus::Running { "Ⅱ 暂停" } else { "▶ 滑行" } },
+            text: ${ run_label(model.status(), model.has_next()) },
             capacity: 16,
             id: "orbit_footer_run",
             position: Position::Absolute,
@@ -837,20 +1319,23 @@ fn compose_footer(model: model!(OrbitModel)) -> Entity {
             width: 82,
             height: 26,
             size: ButtonSize::Compact,
-            font_size: 9,
-            normal_color: ${ control_color(true, !model.status().terminal()) },
+            font_size: 10,
+            normal_color: ${ control_color(true, run_enabled(model.status(), model.has_next())) },
             pressed_color: ORANGE,
-            text_color: ${ control_text_color(!model.status().terminal()) },
+            text_color: ${ control_text_color(run_enabled(model.status(), model.has_next())) },
             border_radius: 0
         ) on Tap {
-            if !model.status().terminal() {
+            if model.status() == OrbitStatus::Won {
+                model.next_mission();
+            } else {
                 model.toggle_running();
             }
         }
     };
     ui! {
         Button (
-            "点火",
+            text: ${ burn_label(model.burn_block()) },
+            capacity: 16,
             id: "orbit_footer_burn",
             position: Position::Absolute,
             left: 99,
@@ -858,20 +1343,16 @@ fn compose_footer(model: model!(OrbitModel)) -> Entity {
             width: 70,
             height: 26,
             size: ButtonSize::Compact,
-            font_size: 9,
-            normal_color: ${ control_color(false, !model.status().terminal()) },
+            font_size: 10,
+            normal_color: ${ control_color(false, model.burn_block().is_none()) },
             pressed_color: ORANGE,
-            text_color: ${ control_text_color(!model.status().terminal()) },
+            text_color: ${ control_text_color(model.burn_block().is_none()) },
             border_radius: 0
-        ) on Tap {
-            if !model.status().terminal() {
-                let _ = model.burn();
-            }
-        }
+        ) on Tap { let _ = model.burn(); }
     };
     ui! {
         Button (
-            text: ${ if model.eligible() { "● 立即采样" } else { "采样" } },
+            text: ${ if model.eligible() { "● 采样" } else { "采样" } },
             capacity: 16,
             id: "orbit_footer_scan",
             position: Position::Absolute,
@@ -880,20 +1361,17 @@ fn compose_footer(model: model!(OrbitModel)) -> Entity {
             width: 91,
             height: 26,
             size: ButtonSize::Compact,
-            font_size: 9,
-            normal_color: ${ control_color(model.eligible(), model.eligible() && !model.status().terminal()) },
+            font_size: 10,
+            normal_color: ${ control_color(model.eligible(), model.eligible()) },
             pressed_color: ORANGE,
-            text_color: ${ control_text_color(model.eligible() && !model.status().terminal()) },
+            text_color: ${ control_text_color(model.eligible()) },
             border_radius: 0
-        ) on Tap {
-            if model.eligible() && !model.status().terminal() {
-                let _ = model.scan();
-            }
-        }
+        ) on Tap { let _ = model.scan(); }
     };
     ui! {
         Button (
-            "＋ 节点",
+            text: ${ node_label(model.schedule_block()) },
+            capacity: 16,
             id: "orbit_footer_schedule",
             position: Position::Absolute,
             left: 270,
@@ -901,20 +1379,16 @@ fn compose_footer(model: model!(OrbitModel)) -> Entity {
             width: 85,
             height: 26,
             size: ButtonSize::Compact,
-            font_size: 9,
-            normal_color: ${ control_color(false, model.can_schedule()) },
+            font_size: 10,
+            normal_color: ${ control_color(false, model.schedule_block().is_none()) },
             pressed_color: ORANGE,
-            text_color: ${ control_text_color(model.can_schedule()) },
+            text_color: ${ control_text_color(model.schedule_block().is_none()) },
             border_radius: 0
-        ) on Tap {
-            if model.can_schedule() {
-                let _ = model.schedule();
-            }
-        }
+        ) on Tap { let _ = model.schedule(); }
     };
     ui! {
         Button (
-            "重新装载",
+            "↺ 重来",
             id: "orbit_footer_reset",
             position: Position::Absolute,
             left: 360,
@@ -922,13 +1396,40 @@ fn compose_footer(model: model!(OrbitModel)) -> Entity {
             width: 108,
             height: 26,
             size: ButtonSize::Compact,
-            font_size: 8,
-            normal_color: INK,
+            font_size: 10,
+            normal_color: ${ control_color(false, model.can_restart()) },
+            pressed_color: ORANGE,
+            pressed_text_color: SPACE,
+            text_color: ${ control_text_color(model.can_restart()) },
+            border_radius: 0
+        ) on Tap { model.restart(); }
+    }
+}
+
+#[compose]
+fn mission_tile(model: model!(OrbitModel), mission: u8) -> Entity {
+    ui! {
+        Button (
+            text: ${
+                MissionTile {
+                    mission,
+                    cleared: model.cleared(),
+                }
+            },
+            capacity: 32,
+            position: Position::Absolute,
+            left: 50 + 97 * i32::from(mission % 4),
+            top: 114 + 70 * i32::from(mission / 4),
+            width: 89,
+            height: 62,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(model.mission() == mission, true) },
             pressed_color: ORANGE,
             pressed_text_color: SPACE,
             text_color: BACKGROUND,
             border_radius: 0
-        ) on Tap { model.request_mission_reload(); }
+        ) on Tap { model.choose_mission(mission); }
     }
 }
 
@@ -948,113 +1449,270 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
                 model: model.clone(),
             },
         ] {
+            Button (
+                "",
+                id: "orbit_modal_shade",
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: 480,
+                height: 320,
+                size: ButtonSize::Compact,
+                normal_color: CLEAR,
+                pressed_color: CLEAR,
+                text_color: CLEAR,
+                border_radius: 0
+            ) on Tap { model.set_modal(OrbitModal::None); }
             Text (
-                text: ${ modal_title(model.modal()) },
+                text: ${
+                    ModalTitle {
+                        modal: model.modal(),
+                        mission: model.mission(),
+                        status: model.status(),
+                        cleared: model.cleared(),
+                    }
+                },
                 capacity: 48,
                 id: "orbit_modal_title",
                 position: Position::Absolute,
                 left: 55,
                 top: 80,
-                width: 300,
-                height: 20,
-                font_size: 13,
+                width: 260,
+                height: 18,
+                font_size: 10,
                 text_color: BACKGROUND,
                 paragraph: label_style()
             )
             Text (
-                text: ${ modal_subtitle(model.modal()) },
-                capacity: 96,
-                id: "orbit_modal_subtitle",
+                text: ${ ClearedCount(model.cleared()) },
+                capacity: 16,
+                visible: ${ model.modal() == OrbitModal::Missions },
+                id: "orbit_modal_count",
+                position: Position::Absolute,
+                left: 318,
+                top: 80,
+                width: 78,
+                height: 18,
+                font_size: 10,
+                text_color: ORANGE,
+                paragraph: end_style()
+            )
+            Text (
+                text: ${
+                    ModalBody {
+                        modal: model.modal(),
+                        mission: model.mission(),
+                        status: model.status(),
+                        time: model.time(),
+                        fuel: model.fuel(),
+                    }
+                },
+                capacity: 128,
+                id: "orbit_modal_body",
                 position: Position::Absolute,
                 left: 55,
                 top: 116,
-                width: 360,
-                height: 28,
-                font_size: 9,
-                text_color: MUTED,
+                width: 370,
+                height: 30,
+                font_size: 10,
+                text_color: INK,
+                paragraph: body_style()
+            )
+            Text (
+                text: ${
+                    ResultNote {
+                        modal: model.modal(),
+                        status: model.status(),
+                        mission: model.mission(),
+                        cleared: model.cleared(),
+                    }
+                },
+                capacity: 48,
+                id: "orbit_modal_note",
+                position: Position::Absolute,
+                left: 55,
+                top: 150,
+                width: 370,
+                height: 14,
+                font_size: 10,
+                text_color: ORANGE,
                 paragraph: label_style()
             )
+            View (
+                visible: ${ model.modal() == OrbitModal::Brief },
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: 480,
+                height: 320
+            ) {
+                Text (
+                    text: ${
+                        GoalEntry {
+                            mission: model.mission(),
+                            index: 0,
+                        }
+                    },
+                    capacity: 40,
+                    id: "orbit_brief_goal_0",
+                    position: Position::Absolute,
+                    left: 55,
+                    top: 148,
+                    width: 370,
+                    height: 14,
+                    font_size: 10,
+                    text_color: INK,
+                    paragraph: label_style()
+                )
+                Text (
+                    text: ${
+                        GoalEntry {
+                            mission: model.mission(),
+                            index: 1,
+                        }
+                    },
+                    capacity: 40,
+                    position: Position::Absolute,
+                    left: 55,
+                    top: 163,
+                    width: 370,
+                    height: 14,
+                    font_size: 10,
+                    text_color: INK,
+                    paragraph: label_style()
+                )
+                Text (
+                    text: ${
+                        GoalEntry {
+                            mission: model.mission(),
+                            index: 2,
+                        }
+                    },
+                    capacity: 40,
+                    position: Position::Absolute,
+                    left: 55,
+                    top: 178,
+                    width: 370,
+                    height: 14,
+                    font_size: 10,
+                    text_color: INK,
+                    paragraph: label_style()
+                )
+                Text (
+                    text: ${
+                        BriefFoot {
+                            mission: model.mission(),
+                            hint: model.hint_shown(),
+                        }
+                    },
+                    capacity: 128,
+                    id: "orbit_brief_foot",
+                    position: Position::Absolute,
+                    left: 55,
+                    top: 195,
+                    width: 370,
+                    height: 14,
+                    font_size: 10,
+                    text_color: ${ if model.hint_shown() { ORANGE } else { MUTED } },
+                    paragraph: label_style()
+                )
+            }
+            View (
+                visible: ${ model.modal() == OrbitModal::Missions },
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: 480,
+                height: 320
+            ) {
+                mission_tile (model, 0)
+                mission_tile (model, 1)
+                mission_tile (model, 2)
+                mission_tile (model, 3)
+                mission_tile (model, 4)
+                mission_tile (model, 5)
+                mission_tile (model, 6)
+                mission_tile (model, 7)
+            }
             Button (
-                text: ${ modal_button(model.modal(), 0, model.mission()).0 },
-                capacity: 32,
-                visible: ${ modal_button(model.modal(), 0, model.mission()).1 },
-                id: "orbit_modal_0",
+                text: ${ modal_left_label(model.modal(), model.status(), model.hint_shown()) },
+                capacity: 24,
+                visible: ${ has_actions(model.modal()) },
+                id: "orbit_modal_left",
                 position: Position::Absolute,
                 left: 55,
-                top: 151,
+                top: 216,
                 width: 176,
-                height: 35,
+                height: 32,
                 size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: ${ control_color(modal_button(model.modal(), 0, model.mission()).2, true) },
+                font_size: 10,
+                normal_color: INK,
                 pressed_color: ORANGE,
                 pressed_text_color: SPACE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { model.select_modal_option(0); }
+            ) on Tap {
+                match model.modal() {
+                    OrbitModal::Brief => {
+                        model.toggle_hint();
+                    }
+                    OrbitModal::Result if model.status() == OrbitStatus::Won => {
+                        model.restart();
+                    }
+                    OrbitModal::Result => {
+                        model.set_modal(OrbitModal::Missions);
+                    }
+                    _ => {
+                        model.set_modal(OrbitModal::None);
+                    }
+                }
+            }
             Button (
-                text: ${ modal_button(model.modal(), 1, model.mission()).0 },
-                capacity: 32,
-                visible: ${ modal_button(model.modal(), 1, model.mission()).1 },
-                id: "orbit_modal_1",
+                text: ${ modal_right_label(model.modal(), model.status(), model.has_next()) },
+                capacity: 24,
+                visible: ${ has_actions(model.modal()) },
+                id: "orbit_modal_right",
                 position: Position::Absolute,
                 left: 249,
-                top: 151,
+                top: 216,
                 width: 176,
-                height: 35,
+                height: 32,
                 size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: ${ control_color(modal_button(model.modal(), 1, model.mission()).2, true) },
-                pressed_color: ORANGE,
-                pressed_text_color: SPACE,
-                text_color: BACKGROUND,
+                font_size: 10,
+                normal_color: ORANGE,
+                pressed_color: INK,
+                pressed_text_color: BACKGROUND,
+                text_color: SPACE,
                 border_radius: 0
-            ) on Tap { model.select_modal_option(1); }
-            Button (
-                text: ${ modal_button(model.modal(), 2, model.mission()).0 },
-                capacity: 32,
-                visible: ${ modal_button(model.modal(), 2, model.mission()).1 },
-                id: "orbit_modal_2",
-                position: Position::Absolute,
-                left: 55,
-                top: 198,
-                width: 176,
-                height: 35,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: ${ control_color(modal_button(model.modal(), 2, model.mission()).2, true) },
-                pressed_color: ORANGE,
-                pressed_text_color: SPACE,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.select_modal_option(2); }
-            Button (
-                text: ${ modal_button(model.modal(), 3, model.mission()).0 },
-                capacity: 32,
-                visible: ${ modal_button(model.modal(), 3, model.mission()).1 },
-                id: "orbit_modal_3",
-                position: Position::Absolute,
-                left: 249,
-                top: 198,
-                width: 176,
-                height: 35,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: ${ control_color(modal_button(model.modal(), 3, model.mission()).2, true) },
-                pressed_color: ORANGE,
-                pressed_text_color: SPACE,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.select_modal_option(3); }
+            ) on Tap {
+                match model.modal() {
+                    OrbitModal::Confirm(_) => {
+                        model.confirm();
+                    }
+                    OrbitModal::Result if model.status() == OrbitStatus::Won && model.has_next() => {
+                        model.next_mission();
+                    }
+                    OrbitModal::Result if model.status() == OrbitStatus::Won => {
+                        model.set_modal(OrbitModal::Missions);
+                    }
+                    OrbitModal::Result => {
+                        model.restart();
+                    }
+                    _ => {
+                        model.set_modal(OrbitModal::None);
+                    }
+                }
+            }
             Button (
                 "×",
+                id: "orbit_modal_close",
                 position: Position::Absolute,
                 left: 404,
                 top: 77,
                 width: 27,
                 height: 24,
                 size: ButtonSize::Compact,
-                font_size: 12,
+                font_size: 10,
                 normal_color: INK,
                 pressed_color: ORANGE,
                 pressed_text_color: SPACE,
@@ -1091,6 +1749,15 @@ where
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(PlayFontPlugin);
+    #[cfg(feature = "persistence")]
+    match crate::gallery::play::storage::gallery_storage("mirui_orbital_mission.bin") {
+        Ok(storage) => {
+            app.add_plugin(
+                crate::core::persistence::PersistencePlugin::new(storage).autosave(1000),
+            );
+        }
+        Err(error) => crate::warn!("orbital mission progress is not saved: {error}"),
+    }
     let model = app.add_model(OrbitModel::default()).finish();
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
