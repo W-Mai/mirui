@@ -175,6 +175,10 @@ impl LayoutNode {
         }
     }
 
+    pub(crate) fn set_intrinsic_height(&mut self, height: Fixed) {
+        self.intrinsic_height = Some(height);
+    }
+
     pub(crate) fn set_intrinsic_size(&mut self, width: Fixed, height: Fixed) {
         self.intrinsic_width = Some(width);
         self.intrinsic_height = Some(height);

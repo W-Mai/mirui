@@ -1,7 +1,8 @@
 use super::TextEditing;
 use crate::ecs::{Entity, World};
 use crate::text::{TextGeometry, TextLayout};
-use crate::types::{Fixed, Point, Rect};
+use crate::types::{Dimension, Fixed, Point, Rect};
+use crate::ui::layout::Padding;
 use crate::ui::outputs::Outputs;
 use crate::ui::widgets::Placeholder;
 
@@ -9,20 +10,62 @@ use crate::ui::widgets::Placeholder;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct TextEditingLayoutHandle(pub crate::text::TextLayoutHandle);
 
-/// Where the one line of an input is laid out: centred between the top and
-/// the bottom, and inset from the sides by the corner, so that the text keeps
-/// clear of a rounded or pill shaped field instead of running into its arc.
-pub(crate) fn input_content_rect(rect: Rect, radius: Fixed, line_height: Fixed) -> Rect {
-    let least = Fixed::from_int(2);
-    let side = (radius * 3 / 5)
+/// Clear space kept inside an input whose padding is not written, so that
+/// the text never touches the border.
+const LEAST_INSET: i32 = 2;
+/// The padding above and below a line that sizes an input with no height of
+/// its own; the line itself stays centred in what the height leaves.
+pub(crate) const AUTO_HEIGHT_PADDING: i32 = 6;
+
+/// How the text sits in the box the padding leaves.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LineAlign {
+    /// One line, centred between top and bottom, as a field is.
+    Middle,
+    /// Lines from the top down, as a text area is. Nothing lays out more than one
+    /// line yet; the geometry is ready for the field that will.
+    #[cfg_attr(not(test), allow(dead_code))]
+    Top,
+}
+
+/// Where the text of an input is laid out.
+///
+/// Each side takes the padding the author wrote, in pixels or as a share of
+/// the box, the way the layout reads it. A side left unwritten has a default:
+/// left and right keep clear of the corner, three fifths of its radius in, so a
+/// rounded or pill shaped field does not run its text into the arc; top and
+/// bottom keep two pixels from the border. Writing zero puts the text flush.
+/// `content_height` is the height of the text, one line or several.
+pub(crate) fn input_content_rect(
+    rect: Rect,
+    radius: Fixed,
+    content_height: Fixed,
+    padding: Padding,
+    align: LineAlign,
+) -> Rect {
+    let least = Fixed::from_int(LEAST_INSET);
+    let corner = (radius * 3 / 5)
         .round()
         .max(least)
         .min(rect.w / Fixed::from_int(2));
-    let height = line_height.min((rect.h - least * Fixed::from_int(2)).max(Fixed::ZERO));
+    let side = |value: Dimension, of: Fixed, default: Fixed| {
+        value.resolve(of).unwrap_or(default).max(Fixed::ZERO)
+    };
+    let left = side(padding.left, rect.w, corner);
+    let right = side(padding.right, rect.w, corner);
+    let top = side(padding.top, rect.h, least);
+    let bottom = side(padding.bottom, rect.h, least);
+    let width = (rect.w - left - right).max(Fixed::ZERO);
+    let room = (rect.h - top - bottom).max(Fixed::ZERO);
+    let height = content_height.min(room);
+    let y = match align {
+        LineAlign::Middle => rect.y + top + ((room - height) / Fixed::from_int(2)).floor(),
+        LineAlign::Top => rect.y + top,
+    };
     Rect {
-        x: rect.x + side,
-        y: rect.y + ((rect.h - height) / Fixed::from_int(2)).floor(),
-        w: (rect.w - side * Fixed::from_int(2)).max(Fixed::ZERO),
+        x: rect.x + left,
+        y,
+        w: width,
         h: height,
     }
 }
@@ -104,7 +147,13 @@ fn with_layout_request<R>(
         return Ok(None);
     };
     let metrics = fonts.primary().metrics(fonts.primary().size);
-    let content_rect = input_content_rect(rect, style.border_radius, metrics.line_height);
+    let content_rect = input_content_rect(
+        rect,
+        style.border_radius,
+        metrics.line_height,
+        style.layout.padding,
+        LineAlign::Middle,
+    );
     input.read_display(|text| {
         let content = if text.is_empty() {
             world

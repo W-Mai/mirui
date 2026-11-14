@@ -778,6 +778,7 @@ fn layout_node(
     if active {
         apply_text_intrinsic(world, entity, &mut node)?;
         apply_static_glyph_intrinsic(world, entity, style, &mut node);
+        apply_input_intrinsic(world, entity, style, &mut node);
     }
     Ok(Some(node))
 }
@@ -1069,6 +1070,7 @@ fn refresh_layout_values(
         apply_text_intrinsic(world, entity, node)?;
     }
     apply_static_glyph_intrinsic(world, entity, style, node);
+    apply_input_intrinsic(world, entity, style, node);
     if observe_solve
         && (style_changed || old_intrinsic != (node.intrinsic_width, node.intrinsic_height))
     {
@@ -2095,6 +2097,30 @@ fn visible_text_owner(world: &World, visible_entities: &[Entity], owner: u64) ->
         .is_ok()
         && world.get::<Widget>(entity).is_some()
         && world.get::<Style>(entity).is_some()
+}
+
+/// A single line input with no height of its own is as tall as its line and
+/// the padding above and below it, three pixels more than a field's inner line
+/// when that padding is left unwritten, so the line sits with room around it.
+fn apply_input_intrinsic(world: &World, entity: Entity, style: &Style, node: &mut LayoutNode) {
+    use super::widgets::text_editing::geometry::AUTO_HEIGHT_PADDING;
+
+    if !world.has::<super::widgets::TextInput>(entity) {
+        return;
+    }
+    let Some(font) = crate::render::font::resolve_or_default(world, style.font_stack.primary())
+    else {
+        return;
+    };
+    let ppem = style.font_size.unwrap_or(font.size).max(1);
+    let line = font.metrics(ppem).line_height;
+    let pad = |side: Dimension| match side {
+        Dimension::Px(value) => value.max(Fixed::ZERO),
+        _ => Fixed::from_int(AUTO_HEIGHT_PADDING),
+    };
+    node.set_intrinsic_height(
+        line + pad(style.layout.padding.top) + pad(style.layout.padding.bottom),
+    );
 }
 
 fn apply_static_glyph_intrinsic(

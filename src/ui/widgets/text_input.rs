@@ -168,7 +168,7 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
 pub struct Placeholder(pub &'static str);
 
 use super::text_editing::geometry::{
-    TextEditingLayoutHandle, caret_and_scroll, input_content_rect,
+    LineAlign, TextEditingLayoutHandle, caret_and_scroll, input_content_rect,
 };
 
 #[crate::view(
@@ -227,7 +227,13 @@ fn text_input_render(
         });
     }
 
-    let content_rect = input_content_rect(rect, paint.style().border_radius, metrics.line_height);
+    let content_rect = input_content_rect(
+        rect,
+        paint.style().border_radius,
+        metrics.line_height,
+        paint.style().layout.padding,
+        LineAlign::Middle,
+    );
     let content_bounds = paint.transform().apply_rect_bbox(content_rect);
     let Some(content_clip) = paint.clip().intersect(&content_bounds) else {
         return;
@@ -364,8 +370,10 @@ mod tests {
         Font, FontFaceId, FontMetrics, FontProvider, FontToken, GlyphId, RasterGlyph,
     };
     use crate::render::renderer::Renderer;
+    use crate::types::Dimension;
     use crate::types::Transform;
     use crate::ui::Style;
+    use crate::ui::layout::Padding;
     use crate::ui::theme::{Theme, WidgetState};
     use crate::ui::view::PaintCtx;
     use crate::ui::widgets::text_editing::geometry::prepare_layout;
@@ -855,19 +863,123 @@ mod tests {
     }
 
     #[test]
-    fn the_line_of_an_input_is_centred_and_keeps_clear_of_a_rounded_corner() {
+    fn an_unwritten_padding_keeps_the_line_centred_and_clear_of_a_rounded_corner() {
         let line = Fixed::from_int(16);
         let rect = Rect::new(0, 0, 200, 40);
-        let flat = input_content_rect(rect, Fixed::ZERO, line);
-        assert_eq!(flat, Rect::new(2, 12, 196, 16));
+        let (none, middle) = (Padding::default(), LineAlign::Middle);
+        let at =
+            |radius, rect| input_content_rect(rect, Fixed::from_int(radius), line, none, middle);
+        assert_eq!(at(0, rect), Rect::new(2, 12, 196, 16));
         // A pill pulls the line in by three fifths of its radius, a smaller corner by less.
-        let pill = input_content_rect(rect, Fixed::from_int(20), line);
-        assert_eq!(pill, Rect::new(12, 12, 176, 16));
-        let corner = input_content_rect(rect, Fixed::from_int(10), line);
-        assert_eq!(corner.x, Fixed::from_int(6));
+        assert_eq!(at(20, rect), Rect::new(12, 12, 176, 16));
+        assert_eq!(at(10, rect).x, Fixed::from_int(6));
         // A field too short for its line clips the line to what is left inside the border.
-        let short = input_content_rect(Rect::new(0, 0, 200, 10), Fixed::ZERO, line);
+        let short = at(0, Rect::new(0, 0, 200, 10));
         assert_eq!((short.y, short.h), (Fixed::from_int(2), Fixed::from_int(6)));
+    }
+
+    #[test]
+    fn written_padding_wins_side_by_side_and_zero_means_flush() {
+        let line = Fixed::from_int(16);
+        let rect = Rect::new(0, 0, 200, 40);
+        let pill = Fixed::from_int(20);
+        let middle = LineAlign::Middle;
+        let px = Dimension::px;
+        // Only the left is written: the right keeps the default of the corner.
+        let left = Padding {
+            left: px(14),
+            ..Padding::default()
+        };
+        assert_eq!(
+            input_content_rect(rect, pill, line, left, middle),
+            Rect::new(14, 12, 174, 16)
+        );
+        // Zero is written, so the text is flush with the box.
+        assert_eq!(
+            input_content_rect(rect, pill, line, Padding::all(0), middle),
+            Rect::new(0, 12, 200, 16)
+        );
+        // A share of the box counts as it does in the layout: the width for the sides.
+        let tenth = Padding {
+            left: Dimension::Percent(Fixed::from_int(10)),
+            ..Padding::default()
+        };
+        assert_eq!(
+            input_content_rect(rect, pill, line, tenth, middle).x,
+            Fixed::from_int(20)
+        );
+        // The line is centred in what top and bottom leave.
+        let uneven = Padding {
+            top: px(8),
+            bottom: px(0),
+            ..Padding::default()
+        };
+        assert_eq!(
+            input_content_rect(rect, pill, line, uneven, middle).y,
+            Fixed::from_int(16)
+        );
+        // Padding larger than the box leaves nothing, and nothing goes negative.
+        let huge = input_content_rect(rect, pill, line, Padding::all(150), middle);
+        assert_eq!((huge.w, huge.h), (Fixed::ZERO, Fixed::ZERO));
+    }
+
+    #[test]
+    fn the_lines_of_a_text_area_start_at_the_top_of_the_padding() {
+        let rect = Rect::new(0, 0, 200, 100);
+        let padding = Padding::all(10);
+        let three = Fixed::from_int(48);
+        assert_eq!(
+            input_content_rect(rect, Fixed::from_int(12), three, padding, LineAlign::Top),
+            Rect::new(10, 10, 180, 48)
+        );
+        assert_eq!(
+            input_content_rect(rect, Fixed::from_int(12), three, padding, LineAlign::Middle).y,
+            Fixed::from_int(26)
+        );
+        // More lines than room: the box is what the padding leaves.
+        let tall = input_content_rect(
+            rect,
+            Fixed::ZERO,
+            Fixed::from_int(200),
+            padding,
+            LineAlign::Top,
+        );
+        assert_eq!(tall.h, Fixed::from_int(80));
+    }
+
+    #[crate::compose]
+    fn stacked_inputs() {
+        use crate::prelude::*;
+        ui! {
+            Column (width: Dimension::px(200)) {
+                TextInput (id: "flush", width: Dimension::percent(100), padding: Padding::all(0))
+                TextInput (id: "written", width: Dimension::percent(100), padding: Padding::all(8))
+                TextInput (id: "unwritten", width: Dimension::percent(100))
+            }
+        };
+    }
+
+    #[test]
+    fn an_input_without_a_height_is_its_line_and_the_padding_above_and_below() {
+        use crate::prelude::*;
+        let mut app = App::headless(200, 200);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        app.compose(root, stacked_inputs());
+        app.render().unwrap();
+        let height = |id: &'static str| {
+            let entity = app.world.find_by_id(id).unwrap();
+            app.world
+                .get::<crate::ui::ComputedRect>(entity)
+                .unwrap()
+                .0
+                .h
+        };
+        let line = height("flush");
+        assert!(line > Fixed::ZERO);
+        assert_eq!(height("written"), line + Fixed::from_int(16));
+        // Unwritten padding sizes the field with six pixels above and below.
+        assert_eq!(height("unwritten"), line + Fixed::from_int(12));
     }
 
     #[test]
