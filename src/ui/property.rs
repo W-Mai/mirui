@@ -123,10 +123,14 @@ pub fn apply_bounded_text<const N: usize>(entity: Entity, value: core::fmt::Argu
         let Some(text) = world.get_mut::<crate::ui::widgets::Text>(entity) else {
             return;
         };
-        if let Ok(changed) = text.try_set_bounded::<N>(value)
-            && changed
-        {
-            invalidate_for_change(world, entity, PropertyChange::Layout);
+        match text.try_set_bounded::<N>(value) {
+            Ok(true) => invalidate_for_change(world, entity, PropertyChange::Layout),
+            Ok(false) => {}
+            Err(_) => crate::warn!(
+                "text of {:?} exceeds its capacity of {} bytes; the previous text stays",
+                entity,
+                N
+            ),
         }
     });
 }

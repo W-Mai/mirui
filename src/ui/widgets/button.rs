@@ -53,6 +53,9 @@ pub struct Button {
     pub size: ButtonSize,
     pub normal_color: ThemedColor,
     pub pressed_color: ThemedColor,
+    /// Label colour while pressed. `None` keeps the label's own colour, so a
+    /// light label on a light `pressed_color` should set one.
+    pub pressed_text_color: Option<ThemedColor>,
 }
 
 impl Default for Button {
@@ -61,6 +64,7 @@ impl Default for Button {
             size: ButtonSize::Regular,
             normal_color: ThemedColor::Token(ColorToken::SurfaceVariant),
             pressed_color: ThemedColor::Token(ColorToken::Primary),
+            pressed_text_color: None,
         }
     }
 }
@@ -82,6 +86,11 @@ impl Button {
 
     pub fn with_pressed_color(mut self, color: impl Into<ThemedColor>) -> Self {
         self.pressed_color = color.into();
+        self
+    }
+
+    pub fn with_pressed_text_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.pressed_text_color = Some(color.into());
         self
     }
 
@@ -120,6 +129,11 @@ impl<P, B> ButtonBuilder<P, B> {
 
     pub fn pressed_color(mut self, color: impl Into<ThemedColor>) -> Self {
         self.button.pressed_color = color.into();
+        self
+    }
+
+    pub fn pressed_text_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.button.pressed_text_color = Some(color.into());
         self
     }
 }
@@ -407,6 +421,60 @@ mod tests {
         assert_eq!(rect.y, crate::types::Fixed::from_int(5));
         assert!(rect.y >= crate::types::Fixed::ZERO);
         assert!(rect.y + rect.h <= crate::types::Fixed::from_int(20));
+    }
+
+    #[test]
+    fn pressed_label_takes_the_pressed_text_color() {
+        use crate::prelude::*;
+        use crate::render::texture::ColorFormat;
+        use crate::surface::FramebufferAccess;
+        use crate::surface::framebuf::FramebufSurface;
+
+        #[crate::compose]
+        fn fixture() -> Entity {
+            ui! {
+                Button (
+                    "OK",
+                    id: "pressed_label",
+                    width: 60,
+                    height: 30,
+                    font_size: 16,
+                    normal_color: Color::rgb(0, 0, 0),
+                    pressed_color: Color::rgb(250, 250, 250),
+                    text_color: Color::rgb(250, 250, 250),
+                    pressed_text_color: Color::rgb(200, 0, 0)
+                )
+            }
+        }
+
+        let ink = |pressed: bool| {
+            let flush: fn(&[u8], crate::types::PhysicalRect) = |_, _| {};
+            let backend = FramebufSurface::with_format(60, 30, ColorFormat::RGBA8888, flush);
+            let mut app = App::new(backend);
+            app.with_default_widgets().with_default_systems();
+            let root = app.spawn_root().id();
+            app.compose(root, fixture());
+            app.set_root(root);
+            if pressed {
+                let button = app.world.find_by_id("pressed_label").unwrap();
+                app.world
+                    .insert(button, crate::ui::state::InteractionState::Pressed);
+            }
+            app.render().unwrap();
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .chunks_exact(4)
+                .filter(|p| p[0] > 120 && p[1] < 80 && p[2] < 80)
+                .count()
+        };
+        assert_eq!(ink(false), 0, "the label keeps its own colour at rest");
+        assert!(
+            ink(true) > 10,
+            "the pressed label is drawn in the pressed colour"
+        );
     }
 
     #[test]

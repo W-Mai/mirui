@@ -678,7 +678,12 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
     reason = "Each parameter declares an independent paint dependency."
 )]
 fn text_render(
-    rows: query!(Text, optional crate::text::TextLayoutHandle, optional crate::text::TextPath),
+    rows: query!(
+        Text,
+        optional crate::text::TextLayoutHandle,
+        optional crate::text::TextPath,
+        optional crate::ui::widgets::Button
+    ),
     entity: entity!(),
     theme: res!(crate::ui::Theme),
     outputs: res!(optional crate::ui::Outputs<crate::text::TextGeometry>),
@@ -686,10 +691,14 @@ fn text_render(
     paths: res!(optional crate::render::path::PathStore),
     paint: paint!(),
 ) {
-    let Some((text, handle, path)) = rows.get(entity) else {
+    let Some((text, handle, path, button)) = rows.get(entity) else {
         return;
     };
-    let color = paint.style().text_color.resolve_in(&theme, paint.state());
+    let state = paint.state();
+    let color = match button.and_then(|button| button.pressed_text_color) {
+        Some(pressed) if state == crate::ui::theme::WidgetState::Pressed => pressed.resolve(&theme),
+        _ => paint.style().text_color.resolve_in(&theme, state),
+    };
     let Some(outputs) = outputs else {
         return;
     };

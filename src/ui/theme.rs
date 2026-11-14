@@ -82,6 +82,20 @@ impl From<ColorToken> for ThemedColor {
     }
 }
 
+/// Lets an optional colour field, such as `Button::pressed_text_color`, take
+/// a plain colour in `ui!`.
+impl From<Color> for Option<ThemedColor> {
+    fn from(c: Color) -> Self {
+        Some(ThemedColor::Raw(c))
+    }
+}
+
+impl From<ColorToken> for Option<ThemedColor> {
+    fn from(t: ColorToken) -> Self {
+        Some(ThemedColor::Token(t))
+    }
+}
+
 /// Magenta: paint when a `Custom` token isn't bound. Loud in any
 /// palette so an unbound token shows up immediately.
 const MISSING_TOKEN_FALLBACK: Color = Color::rgb(255, 0, 255);
