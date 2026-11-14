@@ -7,10 +7,10 @@ use crate::types::{Point, Transform};
 // sw rasterizer fills paths only under identity/translate; FillRect survives
 // arbitrary rotation, so the rotating motif is built from rounded rects.
 const PETAL_MOTIF: &[SceneOp] = scene! {
-    rect -7 -96 14 40 7 120 178 232 255 255;
-    rect -10 -64 20 44 10 86 142 214 255 255;
-    rect -6 -36 12 30 6 58 96 168 255 255;
-    rect -3 -118 6 22 3 255 226 138 255 255
+    rect -7 -96 14 40 7 146 226 214 255 255;
+    rect -10 -64 20 44 10 68 204 188 255 255;
+    rect -6 -36 12 30 6 26 140 128 255 255;
+    rect -3 -118 6 22 3 242 184 64 255 255
 };
 
 pub(super) const EMBLEM_MIRX: &[u8] = &[

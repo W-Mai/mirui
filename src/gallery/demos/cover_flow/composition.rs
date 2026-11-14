@@ -15,11 +15,11 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
     res!().insert(bounds);
 
     let card_colors = [
-        Color::rgb(255, 107, 107),
-        Color::rgb(255, 206, 84),
-        Color::rgb(136, 216, 176),
-        Color::rgb(118, 209, 244),
-        Color::rgb(178, 148, 255),
+        Color::rgb(238, 122, 112),
+        Color::rgb(242, 184, 64),
+        Color::rgb(146, 204, 110),
+        Color::rgb(90, 140, 220),
+        Color::rgb(68, 204, 188),
     ];
 
     let card_colors_ref = &card_colors;
@@ -55,9 +55,7 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                     width: card_w,
                     height: card_h,
                     bg_color: *item.1,
-                    border_radius: 8,
-                    border_color: ColorToken::Outline,
-                    border_width: 5,
+                    border_radius: 24,
                     align: AlignItems::Center,
                     justify: JustifyContent::Center
                 ) [

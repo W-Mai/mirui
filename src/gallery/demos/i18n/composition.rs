@@ -19,7 +19,8 @@ pub fn build_widgets() {
             padding: Padding::all(20),
             justify: JustifyContent::Center,
             align: AlignItems::Center,
-            row_gap: 10
+            row_gap: 8,
+            bg_color: ColorToken::Surface
         ) {
             Text (
                 t!("welcome"),
@@ -27,7 +28,7 @@ pub fn build_widgets() {
                 max_width: 300,
                 height: 48,
                 font: TOKEN_CJK,
-                font_size: 22,
+                font_size: 26,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label()
             )
@@ -35,8 +36,9 @@ pub fn build_widgets() {
                 t!("greeting"),
                 width: Dimension::percent(100),
                 max_width: 300,
-                height: 34,
+                height: 30,
                 font: TOKEN_CJK,
+                font_size: 16,
                 text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label()
             )
@@ -44,8 +46,9 @@ pub fn build_widgets() {
                 t!("goodbye"),
                 width: Dimension::percent(100),
                 max_width: 300,
-                height: 34,
+                height: 30,
                 font: TOKEN_CJK,
+                font_size: 16,
                 text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label()
             )
@@ -56,8 +59,9 @@ pub fn build_widgets() {
                 normal_color: ColorToken::Primary,
                 pressed_color: ColorToken::Secondary,
                 text_color: ColorToken::OnPrimary,
-                border_radius: 12,
-                font: TOKEN_CJK
+                border_radius: 22,
+                font: TOKEN_CJK,
+                font_size: 16
             ) [
                 Text::label(t!("toggle")),
             ] on Tap {
@@ -79,5 +83,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install_sample(app);
     app.compose(parent, build_widgets());
 }

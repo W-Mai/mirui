@@ -5,14 +5,14 @@ pub(super) const LOGICAL_WIDTH: i32 = 640;
 pub(super) const LOGICAL_HEIGHT: i32 = 660;
 
 pub(super) const SCENE: &[SceneOp] = scene! {
-    rect 0 0 640 660 0 22 24 32 255 255;
+    rect 0 0 640 660 0 0 0 0 0 0;
 
-    fill_path { M 16 16; L 316 16; L 316 232; L 16 232; Z } 30 34 44 255 255;
-    fill_path { M 324 16; L 624 16; L 624 232; L 324 232; Z } 30 34 44 255 255;
-    fill_path { M 16 248; L 316 248; L 316 464; L 16 464; Z } 30 34 44 255 255;
-    fill_path { M 324 248; L 624 248; L 624 464; L 324 464; Z } 30 34 44 255 255;
-    fill_path { M 16 480; L 316 480; L 316 644; L 16 644; Z } 30 34 44 255 255;
-    fill_path { M 324 480; L 624 480; L 624 644; L 324 644; Z } 30 34 44 255 255;
+    fill_path { M 16 16; L 316 16; L 316 232; L 16 232; Z } 120 128 144 44 255;
+    fill_path { M 324 16; L 624 16; L 624 232; L 324 232; Z } 120 128 144 44 255;
+    fill_path { M 16 248; L 316 248; L 316 464; L 16 464; Z } 120 128 144 44 255;
+    fill_path { M 324 248; L 624 248; L 624 464; L 324 464; Z } 120 128 144 44 255;
+    fill_path { M 16 480; L 316 480; L 316 644; L 16 644; Z } 120 128 144 44 255;
+    fill_path { M 324 480; L 624 480; L 624 644; L 324 644; Z } 120 128 144 44 255;
 
     fill_path {
         M 50 40;
@@ -27,7 +27,7 @@ pub(super) const SCENE: &[SceneOp] = scene! {
         C 108 230 64 186 64 128;
         C 64 70 108 26 166 26;
         Z
-    } { linear 0 0 1 1 stops [0 50 120 255 255 0.55 125 90 255 255 1 255 70 90 255] spread pad units object_bbox } 255 fill_rule evenodd;
+    } { linear 0 0 1 1 stops [0 52 196 176 255 0.55 68 138 224 255 1 246 176 72 255] spread pad units object_bbox } 255 fill_rule evenodd;
     stroke_path {
         M 50 40;
         C 50 32 58 26 66 26;
@@ -50,7 +50,7 @@ pub(super) const SCENE: &[SceneOp] = scene! {
         C 138 204 150 216 166 216;
         C 182 216 194 204 194 188;
         Z
-    } { radial 0.42 0.38 0.7 0.42 0.38 0 stops [0 255 255 255 255 0.42 90 190 255 255 1 20 70 190 255] spread pad units object_bbox } 255 fill_rule evenodd;
+    } { radial 0.42 0.38 0.7 0.42 0.38 0 stops [0 255 255 255 255 0.42 112 218 206 255 1 14 92 104 255] spread pad units object_bbox } 255 fill_rule evenodd;
 
     push_clip {
         M 562 124;
@@ -60,10 +60,10 @@ pub(super) const SCENE: &[SceneOp] = scene! {
         C 527 204 562 169 562 124;
         Z
     } fill_rule evenodd;
-    rect 382 40 184 38 8 255 90 110 255 255;
-    rect 382 82 184 38 8 255 190 80 255 255;
-    rect 382 124 184 38 8 80 210 160 255 255;
-    rect 382 166 184 38 8 80 145 255 255 255;
+    rect 382 40 184 38 8 238 122 112 255 255;
+    rect 382 82 184 38 8 242 184 64 255 255;
+    rect 382 124 184 38 8 146 204 110 255 255;
+    rect 382 166 184 38 8 90 140 220 255 255;
     pop_clip;
     stroke_path {
         M 562 124;
@@ -72,12 +72,12 @@ pub(super) const SCENE: &[SceneOp] = scene! {
         C 402 169 437 204 482 204;
         C 527 204 562 169 562 124;
         Z
-    } 2 230 235 245 255 220 cap round join round miter 4 dash [];
+    } 2 128 134 148 255 220 cap round join round miter 4 dash [];
 
     group filter "blur:4:4" disjoint;
-    rect 36 272 80 80 8 255 90 110 255 255;
-    rect 96 296 80 80 8 80 210 160 255 255;
-    rect 176 272 80 80 8 255 190 80 255 255;
+    rect 36 272 80 80 8 238 122 112 255 255;
+    rect 96 296 80 80 8 146 204 110 255 255;
+    rect 176 272 80 80 8 242 184 64 255 255;
     fill_path {
         M 160 312;
         C 160 288 140 268 116 268;
@@ -85,12 +85,12 @@ pub(super) const SCENE: &[SceneOp] = scene! {
         C 72 336 92 356 116 356;
         C 140 356 160 336 160 312;
         Z
-    } 145 255 120 255 230 fill_rule evenodd;
+    } 112 218 206 255 230 fill_rule evenodd;
     endgroup;
 
-    rect 344 272 80 80 8 255 90 110 255 255;
-    rect 404 296 80 80 8 80 210 160 255 255;
-    rect 484 272 80 80 8 255 190 80 255 255;
+    rect 344 272 80 80 8 238 122 112 255 255;
+    rect 404 296 80 80 8 146 204 110 255 255;
+    rect 484 272 80 80 8 242 184 64 255 255;
     fill_path {
         M 468 312;
         C 468 288 448 268 424 268;
@@ -98,7 +98,7 @@ pub(super) const SCENE: &[SceneOp] = scene! {
         C 380 336 400 356 424 356;
         C 448 356 468 336 468 312;
         Z
-    } 145 255 120 255 230 fill_rule evenodd;
+    } 112 218 206 255 230 fill_rule evenodd;
 
     fill_path {
         M 390 44;
@@ -117,7 +117,7 @@ pub(super) const SCENE: &[SceneOp] = scene! {
         L 410 100;
         L 410 148;
         Z
-    } 255 120 180 255 255 fill_rule evenodd;
+    } 238 122 112 255 255 fill_rule evenodd;
 
     fill_path {
         M 560 44;
@@ -141,29 +141,29 @@ pub(super) const SCENE: &[SceneOp] = scene! {
         L 560 204;
         L 536 144;
         Z
-    } 120 220 255 255 255 fill_rule nonzero;
+    } 68 204 188 255 255 fill_rule nonzero;
 
-    stroke_path { M 48 510; L 120 486; L 192 510; L 264 486 } 8 255 220 120 255 255 cap butt join miter miter 4 dash [];
-    stroke_path { M 48 546; L 120 522; L 192 546; L 264 522 } 8 255 220 120 255 255 cap round join round miter 4 dash [];
-    stroke_path { M 48 582; L 120 558; L 192 582; L 264 558 } 8 255 220 120 255 255 cap square join bevel miter 4 dash [];
+    stroke_path { M 48 510; L 120 486; L 192 510; L 264 486 } 8 242 184 64 255 255 cap butt join miter miter 4 dash [];
+    stroke_path { M 48 546; L 120 522; L 192 546; L 264 522 } 8 242 184 64 255 255 cap round join round miter 4 dash [];
+    stroke_path { M 48 582; L 120 558; L 192 582; L 264 558 } 8 242 184 64 255 255 cap square join bevel miter 4 dash [];
 
     group translate 474 560 rotate 0;
-    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 100 160 235 255 220 fill_rule evenodd;
+    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 68 204 188 255 220 fill_rule evenodd;
     endgroup;
     group translate 474 560 rotate 30;
-    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 120 160 215 255 220 fill_rule evenodd;
+    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 92 196 168 255 220 fill_rule evenodd;
     endgroup;
     group translate 474 560 rotate 60;
-    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 140 160 195 255 220 fill_rule evenodd;
+    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 130 196 140 255 220 fill_rule evenodd;
     endgroup;
     group translate 474 560 rotate 90;
-    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 160 160 175 255 220 fill_rule evenodd;
+    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 170 192 110 255 220 fill_rule evenodd;
     endgroup;
     group translate 474 560 rotate 120;
-    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 180 160 155 255 220 fill_rule evenodd;
+    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 210 188 86 255 220 fill_rule evenodd;
     endgroup;
     group translate 474 560 rotate 150;
-    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 200 160 135 255 220 fill_rule evenodd;
+    fill_path { M -50 -16; L 50 -16; L 50 16; L -50 16; Z } 242 184 64 255 220 fill_rule evenodd;
     endgroup;
 
     stroke_path {
@@ -173,5 +173,5 @@ pub(super) const SCENE: &[SceneOp] = scene! {
         C 418 591 443 616 474 616;
         C 505 616 530 591 530 560;
         Z
-    } 2 255 255 255 255 180 cap round join round miter 4 dash [6 4]
+    } 2 128 134 148 255 200 cap round join round miter 4 dash [6 4]
 };

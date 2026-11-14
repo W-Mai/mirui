@@ -12,24 +12,22 @@ pub fn build_widgets() {
             bg_color: ColorToken::Surface
         ) {
             Text (
-                "RENDER SHOWCASE",
+                "Render showcase",
                 height: 28,
-                font_size: 18,
+                font_size: 20,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "gradient · clip · blur · fill-rule · stroke · transform",
-                height: 20,
-                font_size: 11,
+                "Gradient, clip, blur, fill rule, stroke and transform",
+                height: 18,
+                font_size: 12,
                 text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             RenderShowcase (
                 grow: 1.0,
-                width: Dimension::percent(100),
-                bg_color: ColorToken::SurfaceVariant,
-                border_radius: 18
+                width: Dimension::percent(100)
             )
         }
     };

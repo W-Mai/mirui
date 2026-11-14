@@ -16,6 +16,7 @@ where
     F: RendererFactory<B>,
 {
     let info = app.backend.display_info();
+    crate::gallery::showcase_theme::install_sample(app);
     app.add_system(layout_system::system())
         .add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default())
