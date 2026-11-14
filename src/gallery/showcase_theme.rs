@@ -126,6 +126,7 @@ pub fn sample_light() -> Theme {
 
 /// For the small API samples: the graphite palettes and the clean typeface of
 /// the other demos, in place of the default theme and the 8-bit pixel face.
+#[cfg(feature = "std")]
 pub(in crate::gallery) fn install_sample<B, F>(app: &mut App<B, F>)
 where
     B: Surface,

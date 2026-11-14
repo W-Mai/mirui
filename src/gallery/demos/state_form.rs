@@ -55,7 +55,12 @@ pub fn build_widgets() {
                 column_gap: 10
             ) {
                 Checkbox (width: 24, height: 24) on Toggled { agreement_changed.set(event.now); }
-                Text ("I agree to continue", grow: 1.0, font_size: 14, text_color: ColorToken::OnSurface)
+                Text (
+                    "I agree to continue",
+                    grow: 1.0,
+                    font_size: 14,
+                    text_color: ColorToken::OnSurface
+                )
             }
             if $submit_bg {
                 Button (
