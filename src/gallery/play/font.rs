@@ -151,6 +151,7 @@ mod tests {
         include_str!("../demos/lumen_lab.rs"),
         include_str!("../demos/lumen_lab/shell.rs"),
         include_str!("lumen/types.rs"),
+        include_str!("lumen/levels.rs"),
         include_str!("../demos/pixel_loom/render.rs"),
         include_str!("../demos/pixel_loom/shell.rs"),
         include_str!("../demos/moss_study/render.rs"),

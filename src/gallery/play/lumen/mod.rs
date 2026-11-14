@@ -1,16 +1,18 @@
+mod levels;
 mod model;
 mod trace;
 mod types;
 
-pub(crate) use model::LumenModel;
+pub(crate) use levels::LEVELS;
 #[cfg(test)]
 pub(crate) use model::LumenModelHandle;
+pub(crate) use model::{BeamStatus, LumenModel, LumenNote};
 #[allow(unused_imports)]
 pub(crate) use trace::{Trace, TraceStop, trace};
 #[allow(unused_imports)]
 pub(crate) use types::{
-    GRID_COLUMNS, GRID_ROWS, GridPoint, LEVEL_COUNT, LEVELS, Level, MAX_MIRRORS, MAX_TRACE_POINTS,
-    MirrorOrientation, MirrorSpec,
+    FixedMirror, GRID_COLUMNS, GRID_ROWS, GridPoint, LEVEL_COUNT, Level, LevelSet, MAX_MIRRORS,
+    MAX_TRACE_POINTS, MirrorOrientation, MirrorSpec, SET_COUNT, SET_SIZE, SETS,
 };
 
 const HISTORY_CAPACITY: usize = 32;

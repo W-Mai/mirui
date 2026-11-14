@@ -11,6 +11,8 @@ pub(super) const CONTROL_PRESSED: Color = Color::rgb(246, 214, 135);
 pub(super) const ACCENT: Color = Color::rgb(246, 214, 135);
 pub(super) const LIGHT: Color = Color::rgb(247, 239, 196);
 pub(super) const SUCCESS: Color = Color::rgb(189, 225, 154);
+/// The mirror a hint points at, and a receiver reached with a lamp still dark.
+pub(super) const HINT: Color = Color::rgb(237, 178, 151);
 pub(super) const TEXT: Color = Color::rgb(225, 234, 225);
 pub(super) const MUTED: Color = Color::rgb(148, 169, 159);
 

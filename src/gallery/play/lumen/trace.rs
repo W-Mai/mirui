@@ -17,6 +17,7 @@ pub(crate) struct Trace {
     pub(super) points: [GridPoint; MAX_TRACE_POINTS],
     pub(super) len: u8,
     pub(crate) hit_mirrors: u8,
+    pub(crate) lit_lamps: u8,
     pub(crate) solved: bool,
     pub(crate) stop: TraceStop,
     pub(crate) steps: u8,
@@ -28,6 +29,7 @@ impl Default for Trace {
             points: [GridPoint::default(); MAX_TRACE_POINTS],
             len: 0,
             hit_mirrors: 0,
+            lit_lamps: 0,
             solved: false,
             stop: TraceStop::Edge,
             steps: 0,
@@ -49,11 +51,22 @@ impl Trace {
     }
 }
 
+/// The direction a beam leaves a mirror, for directions right, down, left, up.
+const fn reflect(direction: u8, orientation: MirrorOrientation) -> u8 {
+    const SLASH: [u8; 4] = [3, 2, 1, 0];
+    const BACKSLASH: [u8; 4] = [1, 0, 3, 2];
+    match orientation {
+        MirrorOrientation::Slash => SLASH[direction as usize],
+        MirrorOrientation::Backslash => BACKSLASH[direction as usize],
+    }
+}
+
+/// Follows the beam from the source. It stops at the receiver, a wall, the
+/// edge, or a cell it already crossed in the same direction; the receiver
+/// only counts once every lamp on the way is lit.
 pub(crate) fn trace(level: &Level, orientations: &[MirrorOrientation; MAX_MIRRORS]) -> Trace {
     const DX: [i8; 4] = [1, 0, -1, 0];
     const DY: [i8; 4] = [0, 1, 0, -1];
-    const SLASH: [u8; 4] = [3, 2, 1, 0];
-    const BACKSLASH: [u8; 4] = [1, 0, 3, 2];
 
     let mut result = Trace::default();
     let mut visited = [false; (GRID_COLUMNS as usize) * (GRID_ROWS as usize) * 4];
@@ -82,7 +95,7 @@ pub(crate) fn trace(level: &Level, orientations: &[MirrorOrientation; MAX_MIRROR
 
         let point = GridPoint::new(x, y);
         if point == level.target {
-            result.solved = true;
+            result.solved = result.lit_lamps == level.all_lamps();
             result.stop = TraceStop::Receiver;
             break;
         }
@@ -90,16 +103,14 @@ pub(crate) fn trace(level: &Level, orientations: &[MirrorOrientation; MAX_MIRROR
             result.stop = TraceStop::Wall;
             break;
         }
-        if let Some(index) = level
-            .mirrors
-            .iter()
-            .position(|mirror| mirror.position == point)
-        {
+        if let Some(lamp) = level.lamp_at(point) {
+            result.lit_lamps |= 1 << lamp;
+        }
+        if let Some(index) = level.mirror_at(point) {
             result.hit_mirrors |= 1 << index;
-            direction = match orientations[index] {
-                MirrorOrientation::Slash => SLASH[usize::from(direction)],
-                MirrorOrientation::Backslash => BACKSLASH[usize::from(direction)],
-            };
+            direction = reflect(direction, orientations[index]);
+        } else if let Some(orientation) = level.fixed_at(point) {
+            direction = reflect(direction, orientation);
         }
         if step == 139 {
             result.stop = TraceStop::Budget;

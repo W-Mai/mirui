@@ -130,3 +130,80 @@ fn bound_tick_requires_the_frame_delta_resource() {
 
     scheduler.run_all(&mut world).unwrap();
 }
+
+fn text_of(world: &World, id: &'static str) -> alloc::string::String {
+    let entity = world.find_by_id(id).unwrap();
+    let text = world.get::<Text>(entity).unwrap();
+    assert!(text.has_valid_content(), "{id}");
+    text.resolve(world.resource()).as_ref().into()
+}
+
+fn has_text(world: &World, wanted: &str) -> bool {
+    world.query::<Text>().collect().into_iter().any(|entity| {
+        world
+            .get::<Text>(entity)
+            .is_some_and(|text| text.resolve(world.resource()).as_ref() == wanted)
+    })
+}
+
+#[test]
+fn status_names_where_the_beam_ends() {
+    let mut world = fixture();
+    let model = model(&world);
+    assert_eq!(text_of(&world, "lumen_status"), "光出界了");
+    assert_eq!(text_of(&world, "lumen_status_subtitle"), "MIRRORS 1 / 2");
+
+    model.rotate_cell(2, 3);
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(text_of(&world, "lumen_status"), "接通");
+    assert_eq!(text_of(&world, "lumen_status_subtitle"), "MIRRORS 2 / 2");
+
+    model.select_level(10);
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(text_of(&world, "lumen_level_name"), "近路");
+    assert_eq!(text_of(&world, "lumen_status"), "还有灯没亮");
+    assert_eq!(
+        text_of(&world, "lumen_status_subtitle"),
+        "MIRRORS 1/4  LAMPS 0/1"
+    );
+    assert_eq!(text_of(&world, "lumen_puzzle"), "PUZZLE 11 / 15");
+}
+
+#[test]
+fn hint_and_fixed_mirror_notes_replace_the_tip() {
+    let mut world = fixture();
+    let model = model(&world);
+    assert_eq!(text_of(&world, "lumen_hint_note"), "每面镜子都会用上");
+    model.reveal_hint();
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(text_of(&world, "lumen_hint_note"), "转动高亮的镜子");
+
+    model.select_level(5);
+    model.rotate_cell(3, 4);
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(text_of(&world, "lumen_hint_note"), "这面镜子是固定的");
+}
+
+#[test]
+fn level_picker_shows_every_puzzle_and_stars_the_solved_ones() {
+    let mut world = fixture();
+    let model = model(&world);
+    model.open_levels();
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    for level in 1..=15 {
+        assert!(
+            has_text(&world, &alloc::format!("{level:02}\n☆")),
+            "{level}"
+        );
+    }
+    assert!(has_text(&world, "转镜") && has_text(&world, "定镜") && has_text(&world, "点灯"));
+    assert_eq!(text_of(&world, "lumen_levels_stars"), "★ 0 / 15");
+
+    model.select_level(0);
+    model.rotate_cell(2, 3);
+    model.open_levels();
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert!(has_text(&world, "01\n★"));
+    assert!(!has_text(&world, "01\n☆"));
+    assert_eq!(text_of(&world, "lumen_levels_stars"), "★ 1 / 15");
+}

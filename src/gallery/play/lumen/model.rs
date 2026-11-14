@@ -1,12 +1,35 @@
 use super::super::change::ChangeSet;
 use super::HISTORY_CAPACITY;
-use super::trace::{Trace, trace};
-use super::types::{GridPoint, LEVEL_COUNT, LEVELS, Level, MAX_MIRRORS, MirrorOrientation};
+use super::levels::LEVELS;
+use super::trace::{Trace, TraceStop, trace};
+use super::types::{GridPoint, LEVEL_COUNT, Level, MAX_MIRRORS, MirrorOrientation};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct HistoryEntry {
     pub(super) orientation_bits: u8,
     pub(super) moves: u16,
+}
+
+/// Where the beam ended, as the status panel tells it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BeamStatus {
+    /// The receiver is lit.
+    Lit,
+    /// The beam reached the receiver with a lamp still dark.
+    LampsDark,
+    Wall,
+    Edge,
+    Loop,
+}
+
+/// The line under the hint button.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LumenNote {
+    Tip,
+    /// The first mirror on the beam that faces the wrong way.
+    Hint(u8),
+    /// The last tap hit a fixed mirror.
+    Fixed,
 }
 
 #[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
@@ -17,9 +40,10 @@ pub(crate) struct LumenModel {
     pub(super) moves: u16,
     pub(super) history: [HistoryEntry; HISTORY_CAPACITY],
     pub(super) history_len: u8,
-    pub(super) completed: u8,
-    pub(super) selected: u8,
+    pub(super) completed: u16,
+    pub(super) selected: Option<u8>,
     pub(super) hint: Option<u8>,
+    pub(super) fixed_tapped: bool,
     pub(super) trace: Trace,
     pub(super) scan: bool,
     pub(super) scan_phase: u16,
@@ -41,8 +65,9 @@ impl LumenModel {
             history: [HistoryEntry::default(); HISTORY_CAPACITY],
             history_len: 0,
             completed: 0,
-            selected: 0,
+            selected: None,
             hint: None,
+            fixed_tapped: false,
             trace: Trace::default(),
             scan: true,
             scan_phase: 0,
@@ -64,8 +89,9 @@ impl LumenModel {
         &self.trace
     }
 
-    pub(crate) const fn selected(&self) -> usize {
-        self.selected as usize
+    /// The mirror turned last, if any since the puzzle loaded.
+    pub(crate) fn selected(&self) -> Option<usize> {
+        self.selected.map(usize::from)
     }
 
     pub(crate) const fn scan_phase(&self) -> u16 {
@@ -86,8 +112,9 @@ impl LumenModel {
         }
         self.moves = 0;
         self.history_len = 0;
-        self.selected = 0;
+        self.selected = None;
         self.hint = None;
+        self.fixed_tapped = false;
         self.scan_phase = 0;
         self.evaluate();
     }
@@ -118,6 +145,17 @@ impl LumenModel {
             self.completed |= 1 << self.level_index;
         }
     }
+
+    /// The first rotatable mirror on the current beam that faces away from
+    /// the solution. While the beam is unsolved one always exists: a beam
+    /// that met only correct mirrors would follow the solution all the way.
+    pub(super) fn first_wrong_mirror(&self) -> Option<u8> {
+        let level = self.level();
+        self.trace.points().iter().find_map(|point| {
+            let index = level.mirror_at(*point)?;
+            (self.orientations[index] != level.mirrors[index].solution).then_some(index as u8)
+        })
+    }
 }
 
 #[crate::model]
@@ -138,6 +176,17 @@ impl LumenModel {
     }
 
     #[observe]
+    pub(crate) fn note(&self) -> LumenNote {
+        if self.fixed_tapped {
+            LumenNote::Fixed
+        } else if let Some(index) = self.hint {
+            LumenNote::Hint(index)
+        } else {
+            LumenNote::Tip
+        }
+    }
+
+    #[observe]
     pub(crate) fn scan(&self) -> bool {
         self.scan
     }
@@ -153,8 +202,13 @@ impl LumenModel {
     }
 
     #[observe]
-    pub(crate) fn completion_mask(&self) -> u8 {
+    pub(crate) fn completion_mask(&self) -> u16 {
         self.completed
+    }
+
+    #[observe]
+    pub(crate) fn completed_count(&self) -> u8 {
+        self.completed.count_ones() as u8
     }
 
     #[observe]
@@ -162,16 +216,49 @@ impl LumenModel {
         self.trace.solved
     }
 
+    #[observe]
+    pub(crate) fn beam_status(&self) -> BeamStatus {
+        match self.trace.stop {
+            TraceStop::Receiver if self.trace.solved => BeamStatus::Lit,
+            TraceStop::Receiver => BeamStatus::LampsDark,
+            TraceStop::Wall => BeamStatus::Wall,
+            TraceStop::Edge => BeamStatus::Edge,
+            TraceStop::Cycle | TraceStop::Budget => BeamStatus::Loop,
+        }
+    }
+
+    /// Rotatable mirrors the beam touches, and how many the puzzle has.
+    #[observe]
+    pub(crate) fn mirror_count(&self) -> (u8, u8) {
+        (
+            self.trace.hit_mirrors.count_ones() as u8,
+            self.level().mirrors.len() as u8,
+        )
+    }
+
+    /// Lamps the beam lights, and how many the puzzle has.
+    #[observe]
+    pub(crate) fn lamp_count(&self) -> (u8, u8) {
+        (
+            self.trace.lit_lamps.count_ones() as u8,
+            self.level().lamps.len() as u8,
+        )
+    }
+
     pub(crate) fn rotate_cell(&mut self, x: i8, y: i8) -> ChangeSet {
-        let Some(index) = self
-            .level()
-            .mirrors
-            .iter()
-            .position(|mirror| mirror.position == GridPoint::new(x, y))
-        else {
+        if self.levels_open {
             return ChangeSet::NONE;
-        };
-        self.rotate(index)
+        }
+        let point = GridPoint::new(x, y);
+        if let Some(index) = self.level().mirror_at(point) {
+            return self.rotate(index);
+        }
+        if self.level().fixed_at(point).is_none() || self.fixed_tapped {
+            return ChangeSet::NONE;
+        }
+        self.fixed_tapped = true;
+        self.hint = None;
+        ChangeSet::MODEL
     }
 
     #[model(local)]
@@ -182,8 +269,9 @@ impl LumenModel {
         self.push_history();
         self.orientations[index] = self.orientations[index].toggled();
         self.moves = self.moves.saturating_add(1);
-        self.selected = index as u8;
+        self.selected = Some(index as u8);
         self.hint = None;
+        self.fixed_tapped = false;
         self.evaluate();
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
@@ -203,6 +291,7 @@ impl LumenModel {
         }
         self.moves = entry.moves;
         self.hint = None;
+        self.fixed_tapped = false;
         self.evaluate();
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
@@ -211,13 +300,8 @@ impl LumenModel {
         if self.levels_open {
             return ChangeSet::NONE;
         }
-        self.hint = self
-            .level()
-            .mirrors
-            .iter()
-            .enumerate()
-            .find(|(index, mirror)| self.orientations[*index] != mirror.solution)
-            .map(|(index, _)| index as u8);
+        self.hint = self.first_wrong_mirror();
+        self.fixed_tapped = false;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
