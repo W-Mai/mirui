@@ -19,12 +19,7 @@ pub fn build_widgets() {
                 grow: 1.0,
                 width: Dimension::percent(100),
                 max_width: 440,
-                max_height: 296,
-                bg_color: ColorToken::SurfaceVariant,
-                border_color: ColorToken::Outline,
-                border_width: 1,
-                border_radius: 18,
-                clip_children: true
+                max_height: 296
             ) {
                 Row (
                     position: Position::Absolute,
@@ -40,18 +35,18 @@ pub fn build_widgets() {
                     align: AlignItems::Center
                 ) {
                     Text (
-                        "Vector clock",
+                        "Chronograph",
                         grow: 1.0,
                         font_size: 16,
                         text_color: ColorToken::OnSurface,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "Arc and line",
-                        width: 92,
+                        "Tap to change the dial",
+                        width: 142,
                         height: 24,
                         font_size: 12,
-                        bg_color: ColorToken::Surface,
+                        bg_color: ColorToken::SurfaceVariant,
                         text_color: ColorToken::OnSurfaceVariant,
                         border_radius: 12,
                         paragraph: ParagraphStyle::label()
@@ -62,7 +57,12 @@ pub fn build_widgets() {
                     grow: 1.0,
                     width: Dimension::percent(100),
                     height: Dimension::percent(100)
-                )
+                ) on Tap(|event: event!(Tap), rows: query!(Shapes), commands: commands!()| {
+                    let next = rows.get(event.target).copied().map(Shapes::next_dial);
+                    if let Some(next) = next {
+                        commands.insert(event.target, next);
+                    }
+                })
             }
         }
     };

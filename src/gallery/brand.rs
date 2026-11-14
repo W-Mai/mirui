@@ -97,9 +97,15 @@ fn fill(paint: &mut PaintCtx<'_>, path: &Path, transform: Transform, color: Colo
 }
 
 fn draw_mark(paint: &mut PaintCtx<'_>, transform: Transform, colors: &Artwork) {
-    fill(paint, &LEAD, transform, colors.ink);
-    fill(paint, &TRAIL, transform, colors.ink);
-    fill(paint, &IRIS, transform, colors.see);
+    draw_eye(paint, transform, colors.ink, colors.see);
+}
+
+/// Draw the eye mark centred on the origin of `transform`, in logo units,
+/// with the given blade and iris colours. The catchlight stays white.
+pub(crate) fn draw_eye(paint: &mut PaintCtx<'_>, transform: Transform, ink: Color, iris: Color) {
+    fill(paint, &LEAD, transform, ink);
+    fill(paint, &TRAIL, transform, ink);
+    fill(paint, &IRIS, transform, iris);
     fill(paint, &CATCHLIGHT, transform, Color::rgb(255, 255, 255));
 }
 

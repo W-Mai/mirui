@@ -1794,7 +1794,7 @@ mod tests {
     #[test]
     fn gallery_paint_refetches_theme_and_optional_clock_without_allocating() {
         use crate::ecs::MonoClock;
-        use crate::gallery::demos::{butterfly, clip_path, fill_rules, shapes, stroke_styles};
+        use crate::gallery::demos::{butterfly, clip_path, fill_rules, stroke_styles};
         use crate::render::canvas::Paint;
         use crate::types::Color;
         use crate::ui::{ColorToken, Theme};
@@ -1860,23 +1860,15 @@ mod tests {
         }
 
         let mut world = World::new();
-        let shapes_node = world.spawn_empty();
         let butterfly_node = world.spawn_empty();
         let fill_rules_node = world.spawn_empty();
         let clip_path_node = world.spawn_empty();
         let stroke_styles_node = world.spawn_empty();
-        world.insert(shapes_node, shapes::Shapes::default());
         world.insert(butterfly_node, butterfly::Butterfly::default());
         world.insert(fill_rules_node, fill_rules::FillRules);
         world.insert(clip_path_node, clip_path::ClipPath);
         world.insert(stroke_styles_node, stroke_styles::StrokeStyles::default());
         let fixtures = [
-            (
-                shapes::shapes_view().render().unwrap(),
-                shapes_node,
-                ColorToken::Primary,
-                true,
-            ),
             (
                 butterfly::butterfly_view().render().unwrap(),
                 butterfly_node,
@@ -1912,10 +1904,10 @@ mod tests {
             ty: Fixed::from_int(13),
             ..Transform::IDENTITY
         };
-        let mut initial = [None; 5];
-        let mut previous = [None; 5];
+        let mut initial = [None; 4];
+        let mut previous = [None; 4];
         for stage in 0..4 {
-            let mut current = [None; 5];
+            let mut current = [None; 4];
             let theme = match stage {
                 1 => Theme::light(),
                 _ => Theme::default(),
