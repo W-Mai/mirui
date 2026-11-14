@@ -7,6 +7,7 @@
 //! [`FontProvider`].
 
 pub mod mirx;
+mod pixel_grid;
 pub(crate) mod scalar;
 pub mod sdf;
 
@@ -444,6 +445,12 @@ pub trait FontProvider: 'static {
     -> Option<RasterGlyph<'_>>;
     fn metrics(&self, ppem: u16) -> FontMetrics;
 
+    /// The size this face lays out and draws a text that asks for `ppem`.
+    /// Faces that draw at any size keep it.
+    fn snap_ppem(&self, ppem: u16) -> u16 {
+        ppem
+    }
+
     fn notdef_glyph(&self) -> Option<GlyphId> {
         Some(GlyphId::new(0))
     }
@@ -850,7 +857,7 @@ impl ResolvedFontStack {
             return Ok(None);
         };
         let primary = manager.resolve(stack.primary().cache_key());
-        let ppem = font_size.unwrap_or(primary.size).max(1);
+        let ppem = primary.ppem_for(font_size);
         let mut fonts = core::array::from_fn(|_| None);
         for (slot, token) in fonts.iter_mut().zip(stack.iter()) {
             let mut font = manager.resolve(token.cache_key()).as_ref().clone();

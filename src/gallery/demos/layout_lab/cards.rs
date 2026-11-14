@@ -319,7 +319,6 @@ pub(super) fn compose_overlay_card() -> Entity {
                 Text (
                     "Pinned",
                     position: Position::Absolute,
-                    right: 10,
                     top: 104,
                     width: 80,
                     height: 28,

@@ -509,6 +509,7 @@ impl MiruiRune {
         let mut capacity: Option<proc_macro2::TokenStream> = None;
         let mut preedit_capacity: Option<proc_macro2::TokenStream> = None;
         let mut text_paragraph_value: Option<proc_macro2::TokenStream> = None;
+        let mut text_line_height: Option<proc_macro2::TokenStream> = None;
         let mut id = None;
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
         let mut reactive_binds: Vec<ReactiveBind> = Vec::new();
@@ -718,6 +719,11 @@ impl MiruiRune {
                 continue;
             }
 
+            if (is_text_widget || is_button_widget) && name == "line_height" {
+                text_line_height = Some(quote! { #value });
+                continue;
+            }
+
             if is_text_widget && name == "path" {
                 builder_calls.push(quote! { .text_path(#value) });
                 continue;
@@ -833,6 +839,29 @@ impl MiruiRune {
                         errors.push(syn::Error::new(attr_span, msg).to_compile_error());
                     }
                 },
+            }
+        }
+        if let Some(line_height) = text_line_height {
+            let paragraph = text_paragraph_value.unwrap_or_else(|| {
+                if is_button_widget {
+                    quote! { ::mirui::ui::widgets::ParagraphStyle::label() }
+                } else {
+                    quote! { ::mirui::ui::widgets::ParagraphStyle::default() }
+                }
+            });
+            text_paragraph_value = Some(quote! { (#paragraph).with_line_height(#line_height) });
+        }
+        if is_text_widget {
+            // Text is built from its content and paragraph alone, so any other
+            // field would be dropped without a word.
+            for field in &component_field_names {
+                errors.push(
+                    syn::Error::new(
+                        proc_macro2::Span::call_site(),
+                        format!("Text has no attribute `{field}`"),
+                    )
+                    .to_compile_error(),
+                );
             }
         }
         ParsedAttrs {

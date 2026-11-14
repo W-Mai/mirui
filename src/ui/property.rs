@@ -1306,4 +1306,31 @@ mod tests {
             assert_eq!(text.paragraph(), &start);
         }
     }
+
+    #[test]
+    fn line_height_reaches_the_paragraph_of_text_and_button_labels() {
+        let mut world = World::new();
+        world.insert_resource(crate::ui::IdMap::new());
+        let root = crate::ui::builder::WidgetBuilder::new(&mut world).id();
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            crate::ui! {
+                Column () {
+                    Text ("Body", line_height: 15)
+                    Text ("Label", line_height: 12, paragraph: ParagraphStyle::label())
+                    Button ("Save", line_height: 9)
+                }
+            }
+        };
+        let column = world.get::<Children>(root).unwrap().0[0];
+        let children = world.get::<Children>(column).unwrap().0.clone();
+        let expected = [
+            ParagraphStyle::default().with_line_height(15),
+            ParagraphStyle::label().with_line_height(12),
+            ParagraphStyle::label().with_line_height(9),
+        ];
+        for (entity, paragraph) in children.into_iter().zip(expected) {
+            assert_eq!(world.get::<Text>(entity).unwrap().paragraph(), &paragraph);
+        }
+    }
 }

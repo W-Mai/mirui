@@ -202,6 +202,13 @@ impl ParagraphStyle {
         self
     }
 
+    /// Sets the distance between baselines in pixels, instead of the face's own
+    /// line height.
+    pub fn with_line_height(mut self, line_height: impl Into<Fixed>) -> Self {
+        self.line_height = Some(line_height.into());
+        self
+    }
+
     pub fn with_vertical_align(mut self, align: TextVerticalAlign) -> Self {
         self.vertical_align = align;
         self
@@ -1455,7 +1462,7 @@ fn static_glyph_run_render(
     };
     let font = manager.resolve(paint.style().font_stack.primary().cache_key());
     let mut font = font.as_ref().clone();
-    font.size = paint.style().font_size.unwrap_or(font.size).max(1);
+    font.size = font.ppem_for(paint.style().font_size);
     let metrics = font.metrics(font.size);
     let rect = paint.rect();
     paint.draw(&DrawCommand::GlyphRun {

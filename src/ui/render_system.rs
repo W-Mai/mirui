@@ -2112,7 +2112,7 @@ fn apply_input_intrinsic(world: &World, entity: Entity, style: &Style, node: &mu
     else {
         return;
     };
-    let ppem = style.font_size.unwrap_or(font.size).max(1);
+    let ppem = font.ppem_for(style.font_size);
     let rows = world
         .get::<super::widgets::TextInput>(entity)
         .map_or(1, |input| i32::from(input.lines.max(1)));
@@ -2139,7 +2139,7 @@ fn apply_static_glyph_intrinsic(
     else {
         return;
     };
-    let ppem = style.font_size.unwrap_or(font.size).max(1);
+    let ppem = font.ppem_for(style.font_size);
     let metrics = font.metrics(ppem);
     let (width, height) = run.measure(metrics.line_height);
     node.set_intrinsic_size(width, height);
