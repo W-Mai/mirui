@@ -2113,7 +2113,10 @@ fn apply_input_intrinsic(world: &World, entity: Entity, style: &Style, node: &mu
         return;
     };
     let ppem = style.font_size.unwrap_or(font.size).max(1);
-    let line = font.metrics(ppem).line_height;
+    let rows = world
+        .get::<super::widgets::TextInput>(entity)
+        .map_or(1, |input| i32::from(input.lines.max(1)));
+    let line = font.metrics(ppem).line_height * rows;
     let pad = |side: Dimension| match side {
         Dimension::Px(value) => value.max(Fixed::ZERO),
         _ => Fixed::from_int(AUTO_HEIGHT_PADDING),

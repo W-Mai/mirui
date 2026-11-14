@@ -74,7 +74,8 @@ pub(super) fn cut(
     if !editor.usable_by(crate::core::reactive::current_world_id()) {
         return Err(ClipboardError::Unavailable);
     }
-    super::input::validate_replacement(editor, "").map_err(|_| ClipboardError::Unavailable)?;
+    super::input::validate_replacement(editor, "", false)
+        .map_err(|_| ClipboardError::Unavailable)?;
     commands.apply_event::<CutSelection>(node, |world, node, _| {
         super::input::replace_from_clipboard(world, node, "")
     });
@@ -86,6 +87,7 @@ pub(super) fn paste(
     node: entity!(),
     event: event!(PasteSelection),
     editors: query!(TextEditing),
+    inputs: query!(crate::ui::widgets::TextInput),
     commands: commands!(),
 ) -> Result<(), ClipboardError> {
     let editor = editors.get(node).ok_or(ClipboardError::Unavailable)?;
@@ -93,7 +95,8 @@ pub(super) fn paste(
         return Err(ClipboardError::Unavailable);
     }
     let text = paste_text(event)?;
-    super::input::validate_replacement(editor, text).map_err(|error| match error {
+    let multiline = inputs.get(node).is_some_and(|input| input.lines > 1);
+    super::input::validate_replacement(editor, text, multiline).map_err(|error| match error {
         super::TextEditError::Capacity { .. } | super::TextEditError::ReserveFailed { .. } => {
             ClipboardError::Capacity
         }

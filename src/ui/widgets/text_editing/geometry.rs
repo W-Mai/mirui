@@ -70,10 +70,20 @@ pub(crate) fn input_content_rect(
     }
 }
 
-/// The rectangle an input lays its line out in, for a widget drawn in `rect`.
+/// What an input is laid out in.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Field {
+    /// The box the text takes, as tall as the rows that show.
+    pub content: Rect,
+    pub line_height: Fixed,
+    /// How many rows show at once; one is a field, more is a text area.
+    pub rows: u8,
+}
+
+/// The rectangle an input lays its text out in, for a widget drawn in `rect`.
 #[cfg(test)]
 pub(crate) fn content_rect_of(world: &World, entity: Entity, rect: Rect) -> Option<Rect> {
-    with_layout_request(world, entity, rect, |_, _, _, content| Ok(content))
+    with_layout_request(world, entity, rect, |_, _, _, field| Ok(field.content))
         .ok()
         .flatten()
 }
@@ -116,7 +126,7 @@ fn with_layout_request<R>(
         &crate::render::font::ResolvedFontStack,
         crate::text::layout::TextLayoutRequest<'_>,
         u64,
-        Rect,
+        Field,
     ) -> Result<R, crate::ui::render_system::TextLayoutFailure>,
 ) -> Result<Option<R>, crate::ui::render_system::TextLayoutFailure> {
     use crate::ui::render_system::{TextLayoutFailure, TextLayoutStage};
@@ -147,13 +157,24 @@ fn with_layout_request<R>(
         return Ok(None);
     };
     let metrics = fonts.primary().metrics(fonts.primary().size);
-    let content_rect = input_content_rect(
-        rect,
-        style.border_radius,
-        metrics.line_height,
-        style.layout.padding,
-        LineAlign::Middle,
-    );
+    let rows = world
+        .get::<crate::ui::widgets::TextInput>(entity)
+        .map_or(1, |input| input.lines.max(1));
+    let field = Field {
+        content: input_content_rect(
+            rect,
+            style.border_radius,
+            metrics.line_height * i32::from(rows),
+            style.layout.padding,
+            if rows > 1 {
+                LineAlign::Top
+            } else {
+                LineAlign::Middle
+            },
+        ),
+        line_height: metrics.line_height,
+        rows,
+    };
     input.read_display(|text| {
         let content = if text.is_empty() {
             world
@@ -162,36 +183,81 @@ fn with_layout_request<R>(
         } else {
             text
         };
-        let paragraph = crate::ui::widgets::ParagraphStyle {
-            wrap: crate::ui::widgets::TextWrap::NoWrap,
-            max_lines: Some(1),
-            ..crate::ui::widgets::ParagraphStyle::default()
+        // A field keeps to one line and scrolls sideways; a text area wraps.
+        let paragraph = if rows > 1 {
+            crate::ui::widgets::ParagraphStyle::default()
+        } else {
+            crate::ui::widgets::ParagraphStyle {
+                wrap: crate::ui::widgets::TextWrap::NoWrap,
+                max_lines: Some(1),
+                ..crate::ui::widgets::ParagraphStyle::default()
+            }
         };
-        let request = paragraph.layout_request(content, metrics, Some(content_rect.w));
+        let request = paragraph.layout_request(content, metrics, Some(field.content.w));
         let font_fingerprint = fonts.layout_fingerprint(None, paragraph.shaping);
-        use_request(&fonts, request, font_fingerprint, content_rect).map(Some)
+        use_request(&fonts, request, font_fingerprint, field).map(Some)
     })
 }
 
-pub(crate) fn caret_and_scroll(
-    layout: &TextLayout<'_>,
-    editing: &TextEditing,
-    content_rect: Rect,
-) -> (Option<Fixed>, Fixed) {
-    let caret = editing.display_cursor().map(|cursor| {
-        layout
-            .carets()
+/// Where the caret is, in the layout: how far along its line and which line.
+fn caret_stop(layout: &TextLayout<'_>, cursor: usize) -> Option<(Fixed, usize)> {
+    (0..layout.lines().len()).find_map(|index| {
+        stops(layout, index)
             .iter()
-            .find(|caret| caret.text_offset as usize == cursor)
-            .map_or(Fixed::ZERO, |caret| {
-                crate::types::fixed::from_textflow(caret.position.x)
-            })
-    });
-    let visible_width = (content_rect.w - Fixed::ONE).max(Fixed::ZERO);
-    (
+            .find(|stop| stop.text_offset as usize == cursor)
+            .map(|stop| (crate::types::fixed::from_textflow(stop.position.x), index))
+    })
+}
+
+/// The places on a line the caret can stand.
+fn stops<'a>(layout: &'a TextLayout<'_>, line: usize) -> &'a [textflow::shaping::CaretStop] {
+    layout
+        .lines()
+        .get(line)
+        .and_then(|line| {
+            let range = line.carets();
+            layout
+                .carets()
+                .get(range.start as usize..range.end as usize)
+        })
+        .unwrap_or(&[])
+}
+
+/// What of the layout shows in the box: where the caret is, and how far the
+/// text has scrolled so that it stays in view. A field scrolls sideways to its
+/// caret; a text area scrolls up and down to the line of it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Viewport {
+    pub caret: Option<Fixed>,
+    pub line: usize,
+    pub scroll_x: Fixed,
+    pub scroll_y: Fixed,
+}
+
+pub(crate) fn viewport(layout: &TextLayout<'_>, editing: &TextEditing, field: &Field) -> Viewport {
+    let (caret, line) = match editing.display_cursor() {
+        None => (None, 0),
+        Some(cursor) => match caret_stop(layout, cursor) {
+            Some((x, line)) => (Some(x), line),
+            None => (Some(Fixed::ZERO), 0),
+        },
+    };
+    if field.rows > 1 {
+        let hidden = (line + 1).saturating_sub(usize::from(field.rows));
+        return Viewport {
+            caret,
+            line,
+            scroll_x: Fixed::ZERO,
+            scroll_y: field.line_height * hidden as i32,
+        };
+    }
+    let visible_width = (field.content.w - Fixed::ONE).max(Fixed::ZERO);
+    Viewport {
         caret,
-        (caret.unwrap_or(Fixed::ZERO) - visible_width).max(Fixed::ZERO),
-    )
+        line,
+        scroll_x: (caret.unwrap_or(Fixed::ZERO) - visible_width).max(Fixed::ZERO),
+        scroll_y: Fixed::ZERO,
+    }
 }
 
 pub(super) fn hit_caret(world: &World, entity: Entity, point: Point) -> Option<usize> {
@@ -205,47 +271,7 @@ pub(super) fn hit_caret(world: &World, entity: Entity, point: Point) -> Option<u
         projective.inverse()?.apply_point(point)?
     };
     let handle = world.get::<TextEditingLayoutHandle>(entity)?.0;
-    with_layout_request(
-        world,
-        entity,
-        rect,
-        |_, request, fingerprint, content_rect| {
-            let outputs = world.resource::<Outputs<TextGeometry>>().unwrap();
-            let storage = outputs.storage();
-            let Some(layout) = storage.layouts.get_matching(
-                handle,
-                u64::from(entity.id) | (u64::from(entity.generation) << 32),
-                fingerprint,
-                request,
-            ) else {
-                return Ok(None);
-            };
-            if editing.read_display(str::is_empty) {
-                return Ok(Some(0));
-            }
-            let (_, scroll) = caret_and_scroll(&layout, editing, content_rect);
-            let x = point.x - content_rect.x + scroll;
-            Ok(layout
-                .carets()
-                .iter()
-                .min_by_key(|caret| {
-                    (crate::types::fixed::from_textflow(caret.position.x) - x).abs()
-                })
-                .map(|caret| editing.document_offset(caret.text_offset as usize)))
-        },
-    )
-    .ok()
-    .flatten()
-    .flatten()
-}
-
-pub(crate) fn caret_rect(world: &World, entity: Entity) -> Option<Rect> {
-    let editing = world
-        .get::<TextEditing>(entity)
-        .filter(|editor| editor.usable(world))?;
-    let (rect, affine, projective) = crate::ui::geometry::widget_render_geometry(world, entity)?;
-    let handle = world.get::<TextEditingLayoutHandle>(entity)?.0;
-    with_layout_request(world, entity, rect, |_, request, fingerprint, content| {
+    with_layout_request(world, entity, rect, |_, request, fingerprint, field| {
         let outputs = world.resource::<Outputs<TextGeometry>>().unwrap();
         let storage = outputs.storage();
         let Some(layout) = storage.layouts.get_matching(
@@ -256,15 +282,64 @@ pub(crate) fn caret_rect(world: &World, entity: Entity) -> Option<Rect> {
         ) else {
             return Ok(None);
         };
-        let (caret, scroll) = caret_and_scroll(&layout, editing, content);
-        let Some(caret) = caret else {
+        if editing.read_display(str::is_empty) {
+            return Ok(Some(0));
+        }
+        let view = viewport(&layout, editing, &field);
+        let x = point.x - field.content.x + view.scroll_x;
+        let y = point.y - field.content.y + view.scroll_y;
+        // The line under the point, then the stop of it nearest along.
+        let last = layout.lines().len().saturating_sub(1);
+        let line = if field.line_height > Fixed::ZERO {
+            (y / field.line_height).floor().to_int().max(0) as usize
+        } else {
+            0
+        }
+        .min(last);
+        Ok(nearest(stops(&layout, line), x)
+            .map(|stop| editing.document_offset(stop.text_offset as usize)))
+    })
+    .ok()
+    .flatten()
+    .flatten()
+}
+
+/// The stop on a line closest to `x`.
+fn nearest(
+    stops: &[textflow::shaping::CaretStop],
+    x: Fixed,
+) -> Option<&textflow::shaping::CaretStop> {
+    stops
+        .iter()
+        .min_by_key(|stop| (crate::types::fixed::from_textflow(stop.position.x) - x).abs())
+}
+
+pub(crate) fn caret_rect(world: &World, entity: Entity) -> Option<Rect> {
+    let editing = world
+        .get::<TextEditing>(entity)
+        .filter(|editor| editor.usable(world))?;
+    let (rect, affine, projective) = crate::ui::geometry::widget_render_geometry(world, entity)?;
+    let handle = world.get::<TextEditingLayoutHandle>(entity)?.0;
+    with_layout_request(world, entity, rect, |_, request, fingerprint, field| {
+        let outputs = world.resource::<Outputs<TextGeometry>>().unwrap();
+        let storage = outputs.storage();
+        let Some(layout) = storage.layouts.get_matching(
+            handle,
+            u64::from(entity.id) | (u64::from(entity.generation) << 32),
+            fingerprint,
+            request,
+        ) else {
+            return Ok(None);
+        };
+        let view = viewport(&layout, editing, &field);
+        let Some(caret) = view.caret else {
             return Ok(None);
         };
         let caret = Rect {
-            x: content.x + caret - scroll,
-            y: content.y,
+            x: field.content.x + caret - view.scroll_x,
+            y: field.content.y + field.line_height * view.line as i32 - view.scroll_y,
             w: Fixed::ONE,
-            h: content.h,
+            h: field.line_height.min(field.content.h),
         };
         Ok(if projective.is_identity() {
             Some(affine.apply_rect_bbox(caret))
@@ -273,6 +348,52 @@ pub(crate) fn caret_rect(world: &World, entity: Entity) -> Option<Rect> {
                 .apply_rect(caret)
                 .map(|points| Rect::bounding_quad(&points))
         })
+    })
+    .ok()
+    .flatten()
+    .flatten()
+}
+
+/// A move of the caret that follows the lines of the layout.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Motion {
+    Up,
+    Down,
+    LineStart,
+    LineEnd,
+}
+
+/// Where the caret goes for `motion`, as an offset in the document. Up and
+/// down keep to the column they are in, as far as the line they go to has one.
+pub(crate) fn visual_target(world: &World, entity: Entity, motion: Motion) -> Option<usize> {
+    let editing = world
+        .get::<TextEditing>(entity)
+        .filter(|editor| editor.usable(world))?;
+    let (rect, _, _) = crate::ui::geometry::widget_render_geometry(world, entity)?;
+    let handle = world.get::<TextEditingLayoutHandle>(entity)?.0;
+    with_layout_request(world, entity, rect, |_, request, fingerprint, _| {
+        let outputs = world.resource::<Outputs<TextGeometry>>().unwrap();
+        let storage = outputs.storage();
+        let Some(layout) = storage.layouts.get_matching(
+            handle,
+            u64::from(entity.id) | (u64::from(entity.generation) << 32),
+            fingerprint,
+            request,
+        ) else {
+            return Ok(None);
+        };
+        let cursor = editing.display_cursor().unwrap_or(0);
+        let (x, line) = caret_stop(&layout, cursor).unwrap_or((Fixed::ZERO, 0));
+        let last = layout.lines().len().saturating_sub(1);
+        let stop = match motion {
+            Motion::LineStart => stops(&layout, line).first(),
+            Motion::LineEnd => stops(&layout, line).last(),
+            Motion::Up if line == 0 => stops(&layout, 0).first(),
+            Motion::Up => nearest(stops(&layout, line - 1), x),
+            Motion::Down if line >= last => stops(&layout, last).last(),
+            Motion::Down => nearest(stops(&layout, line + 1), x),
+        };
+        Ok(stop.map(|stop| editing.document_offset(stop.text_offset as usize)))
     })
     .ok()
     .flatten()

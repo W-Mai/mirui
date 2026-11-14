@@ -5,8 +5,11 @@ use crate::ecs::{CommandError, Entity, World};
 use crate::input::event::focus::{FocusState, Focusable};
 use crate::input::event::input::{
     KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT, Key,
-    TextCommitted,
+    PhysicalKey, TextCommitted,
 };
+use crate::ui::widgets::TextInput;
+
+use super::geometry::{Motion, visual_target};
 
 use super::{Changed, SelectionChanged, Submitted, TextEditError, TextEditing, TextSelection};
 
@@ -91,6 +94,11 @@ enum Edit<'a> {
     Select(TextSelection),
     Normalize,
     Submit,
+    /// A line break, in a text area.
+    Newline,
+    /// A move that follows the lines of the layout; it becomes a selection
+    /// once the layout has said where it goes.
+    Visual(Motion, bool),
 }
 
 struct Plan<'a> {
@@ -100,18 +108,23 @@ struct Plan<'a> {
 }
 
 impl<'a> Edit<'a> {
-    fn plan(self, input: &TextEditing) -> Result<Plan<'a>, TextEditError> {
+    fn plan(self, input: &TextEditing, multiline: bool) -> Result<Plan<'a>, TextEditError> {
         input.read_document(|document| {
             document.read(|text| {
                 let selection = input.selection.normalized(text);
                 let mut range = selection.range();
                 let replacement = match self {
                     Self::Replace(value) => {
-                        if value.chars().any(char::is_control) {
+                        // A text area takes line breaks; every other control stays out.
+                        if value
+                            .chars()
+                            .any(|ch| ch.is_control() && !(multiline && ch == '\n'))
+                        {
                             return Err(TextEditError::ControlCharacter);
                         }
                         Some(value)
                     }
+                    Self::Newline => Some("\n"),
                     Self::Backspace => {
                         if range.is_empty() {
                             range.start = Navigation::Left.selection(text, selection, false).cursor;
@@ -143,7 +156,7 @@ impl<'a> Edit<'a> {
                             content_changed: false,
                         });
                     }
-                    Self::Normalize | Self::Submit => None,
+                    Self::Normalize | Self::Submit | Self::Visual(..) => None,
                 };
                 let Some(replacement) = replacement else {
                     return Ok(Plan {
@@ -394,27 +407,44 @@ pub(super) fn select_all(
 }
 
 #[crate::event]
-pub(super) fn key(node: entity!(), event: event!(Key), commands: commands!()) -> bool {
+pub(super) fn key(
+    node: entity!(),
+    event: event!(Key),
+    inputs: query!(TextInput),
+    commands: commands!(),
+) -> bool {
+    // A text area has lines: Return breaks one, and the arrows and Home and End follow them.
+    let multiline = inputs.get(node).is_some_and(|input| input.lines > 1);
+    let vertical = match event.physical {
+        Some(PhysicalKey::ArrowUp) if multiline => Some(Motion::Up),
+        Some(PhysicalKey::ArrowDown) if multiline => Some(Motion::Down),
+        _ => None,
+    };
     let text_position = event.physical.is_some_and(|key| key.is_text_entry());
     let shortcut = event
         .modifiers
         .is_some_and(|m| m.meta || (m.control && !m.alt));
     if !event.pressed {
         return (text_position && !shortcut)
+            || vertical.is_some()
             || matches!(
                 event.code,
                 KEY_RETURN | KEY_BACKSPACE | KEY_DELETE | KEY_LEFT | KEY_RIGHT | KEY_HOME | KEY_END
             );
     }
     let extend = event.modifiers.is_some_and(|modifiers| modifiers.shift);
-    let edit = match event.code {
-        KEY_RETURN => Edit::Submit,
-        KEY_BACKSPACE => Edit::Backspace,
-        KEY_DELETE => Edit::Delete,
-        KEY_LEFT => Edit::Navigate(Navigation::Left, extend),
-        KEY_RIGHT => Edit::Navigate(Navigation::Right, extend),
-        KEY_HOME => Edit::Navigate(Navigation::Home, extend),
-        KEY_END => Edit::Navigate(Navigation::End, extend),
+    let edit = match (vertical, event.code) {
+        (Some(motion), _) => Edit::Visual(motion, extend),
+        (None, KEY_RETURN) if multiline => Edit::Newline,
+        (None, KEY_RETURN) => Edit::Submit,
+        (None, KEY_BACKSPACE) => Edit::Backspace,
+        (None, KEY_DELETE) => Edit::Delete,
+        (None, KEY_LEFT) => Edit::Navigate(Navigation::Left, extend),
+        (None, KEY_RIGHT) => Edit::Navigate(Navigation::Right, extend),
+        (None, KEY_HOME) if multiline => Edit::Visual(Motion::LineStart, extend),
+        (None, KEY_END) if multiline => Edit::Visual(Motion::LineEnd, extend),
+        (None, KEY_HOME) => Edit::Navigate(Navigation::Home, extend),
+        (None, KEY_END) => Edit::Navigate(Navigation::End, extend),
         _ => return text_position && !shortcut,
     };
     commands.apply(node, edit, apply);
@@ -455,10 +485,37 @@ fn apply_checked(
     node: Entity,
     edit: Edit<'_>,
 ) -> Result<EditOutcome, EditFailure> {
+    let edit = match edit {
+        Edit::Visual(motion, extend) => match visual_selection(world, node, motion, extend) {
+            Some(selection) => Edit::Select(selection),
+            None => return Ok(EditOutcome::Complete),
+        },
+        other => other,
+    };
     match prepare_edit(world, node, edit)? {
         Some(edit) => commit_edit(world, node, edit),
         None => Ok(EditOutcome::Complete),
     }
+}
+
+/// The selection a move along the lines leads to: the caret goes there, and
+/// the other end stays where it was when the move extends the selection.
+fn visual_selection(
+    world: &World,
+    node: Entity,
+    motion: Motion,
+    extend: bool,
+) -> Option<TextSelection> {
+    let cursor = visual_target(world, node, motion)?;
+    let editing = world.get::<TextEditing>(node)?;
+    Some(TextSelection {
+        anchor: if extend {
+            editing.selection.anchor
+        } else {
+            cursor
+        },
+        cursor,
+    })
 }
 
 struct PreparedEdit<'a> {
@@ -480,7 +537,10 @@ fn prepare_edit<'a>(
     else {
         return Err(EditFailure::Unavailable);
     };
-    let plan = edit.plan(input)?;
+    let multiline = world
+        .get::<TextInput>(node)
+        .is_some_and(|input| input.lines > 1);
+    let plan = edit.plan(input, multiline)?;
     let selection_changed = input.selection != plan.selection;
     let selection_revision = input
         .selection_revision
@@ -569,8 +629,12 @@ fn commit_edit(
     )
 }
 
-pub(super) fn validate_replacement(editor: &TextEditing, text: &str) -> Result<(), TextEditError> {
-    let plan = Edit::Replace(text).plan(editor)?;
+pub(super) fn validate_replacement(
+    editor: &TextEditing,
+    text: &str,
+    multiline: bool,
+) -> Result<(), TextEditError> {
+    let plan = Edit::Replace(text).plan(editor, multiline)?;
     editor
         .selection_revision
         .checked_add(u64::from(editor.selection != plan.selection))

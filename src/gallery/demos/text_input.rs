@@ -19,18 +19,19 @@ pub fn build_widgets() {
             row_gap: 10
         ) {
             Text (
-                "TEXT INPUT",
+                "Text input",
                 width: Dimension::percent(100),
                 max_width: 420,
-                height: 28,
-                font_size: 18,
+                height: 30,
+                font_size: 20,
                 text_color: ColorToken::OnSurface
             )
             Text (
-                "Keyboard editing with a fixed-capacity buffer",
+                "A field keeps to one line. A text area wraps, scrolls, and takes Return as a line break.",
                 width: Dimension::percent(100),
                 max_width: 420,
-                height: 36,
+                height: 40,
+                font_size: 13,
                 text_color: ColorToken::OnSurfaceVariant
             )
             TextInput (
@@ -38,12 +39,27 @@ pub fn build_widgets() {
                 bg_color: ColorToken::SurfaceVariant,
                 border_color: ColorToken::Outline,
                 border_width: 1,
-                border_radius: 12,
+                border_radius: 22,
+                font_size: 15,
                 width: Dimension::percent(100),
                 max_width: 420,
                 height: 44
             ) [
-                Placeholder("Type something…"),
+                Placeholder("Name"),
+            ]
+            TextInput (
+                capacity: 1024,
+                lines: 4,
+                bg_color: ColorToken::SurfaceVariant,
+                border_color: ColorToken::Outline,
+                border_width: 1,
+                border_radius: 18,
+                font_size: 15,
+                padding: Padding::all(14),
+                width: Dimension::percent(100),
+                max_width: 420
+            ) [
+                Placeholder("Notes"),
             ]
         }
     };
@@ -58,10 +74,11 @@ where
 {
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
+    crate::gallery::showcase_theme::install_sample(app);
     app.compose(parent, build_widgets());
 }
 
-pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(480, 200);
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(480, 340);
 
 #[cfg(test)]
 mod tests {

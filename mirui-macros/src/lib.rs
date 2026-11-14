@@ -524,6 +524,7 @@ impl MiruiRune {
             "placeholder_color",
             "cursor_color",
             "focus_border_color",
+            "lines",
         ];
 
         let mut positional_consumed = false;

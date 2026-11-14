@@ -17,6 +17,10 @@ pub struct TextInput {
     pub placeholder_color: ThemedColor,
     pub cursor_color: ThemedColor,
     pub focus_border_color: ThemedColor,
+    /// Rows of text shown at once. One is a field, a single line that scrolls
+    /// sideways and sends `Submitted` on Return; more is a text area, which
+    /// wraps, takes a line break on Return and scrolls up and down.
+    pub lines: u8,
 }
 
 impl TextInput {
@@ -26,7 +30,13 @@ impl TextInput {
             placeholder_color: ThemedColor::Token(ColorToken::OnSurfaceVariant),
             cursor_color: ThemedColor::Token(ColorToken::OnSurface),
             focus_border_color: ThemedColor::Token(ColorToken::Primary),
+            lines: 1,
         }
+    }
+
+    pub fn with_lines(mut self, lines: u8) -> Self {
+        self.lines = lines.max(1);
+        self
     }
 
     pub fn with_text_color(mut self, color: impl Into<ThemedColor>) -> Self {
@@ -131,6 +141,11 @@ impl<P, B> TextInputBuilder<P, B> {
         self.text_input.focus_border_color = color.into();
         self
     }
+
+    pub fn lines(mut self, lines: u8) -> Self {
+        self.text_input.lines = lines.max(1);
+        self
+    }
 }
 
 crate::ui::recipe::widget_builder_bindings!(
@@ -168,7 +183,7 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
 pub struct Placeholder(pub &'static str);
 
 use super::text_editing::geometry::{
-    LineAlign, TextEditingLayoutHandle, caret_and_scroll, input_content_rect,
+    Field, LineAlign, TextEditingLayoutHandle, input_content_rect, viewport,
 };
 
 #[crate::view(
@@ -227,13 +242,23 @@ fn text_input_render(
         });
     }
 
-    let content_rect = input_content_rect(
-        rect,
-        paint.style().border_radius,
-        metrics.line_height,
-        paint.style().layout.padding,
-        LineAlign::Middle,
-    );
+    let rows = ti.lines.max(1);
+    let field = Field {
+        content: input_content_rect(
+            rect,
+            paint.style().border_radius,
+            metrics.line_height * i32::from(rows),
+            paint.style().layout.padding,
+            if rows > 1 {
+                LineAlign::Top
+            } else {
+                LineAlign::Middle
+            },
+        ),
+        line_height: metrics.line_height,
+        rows,
+    };
+    let content_rect = field.content;
     let content_bounds = paint.transform().apply_rect_bbox(content_rect);
     let Some(content_clip) = paint.clip().intersect(&content_bounds) else {
         return;
@@ -244,7 +269,8 @@ fn text_input_render(
     } else {
         text_color
     };
-    let (caret, scroll) = caret_and_scroll(&layout, editing, content_rect);
+    let view = viewport(&layout, editing, &field);
+    let (caret, scroll) = (view.caret, view.scroll_x);
     let transform = paint.transform();
     for (selection, underline) in [
         (editing.display_selection(), false),
@@ -279,7 +305,7 @@ fn text_input_render(
                                 area: Rect {
                                     x: content_rect.x - scroll
                                         + crate::types::fixed::from_textflow(left),
-                                    y: content_rect.y
+                                    y: content_rect.y - view.scroll_y
                                         + crate::types::fixed::from_textflow(line.origin().y)
                                         - metrics.ascender
                                         + if underline {
@@ -314,7 +340,7 @@ fn text_input_render(
         super::text::TextPaint::new(
             Point {
                 x: content_rect.x - scroll,
-                y: content_rect.y,
+                y: content_rect.y - view.scroll_y,
             },
             transform,
             &content_clip,
@@ -329,7 +355,7 @@ fn text_input_render(
                 &DrawCommand::Fill {
                     area: Rect {
                         x: content_rect.x + caret - scroll,
-                        y: content_rect.y,
+                        y: content_rect.y + metrics.line_height * view.line as i32 - view.scroll_y,
                         w: Fixed::ONE,
                         h: metrics.line_height.min(content_rect.h),
                     },
@@ -955,6 +981,7 @@ mod tests {
                 TextInput (id: "flush", width: Dimension::percent(100), padding: Padding::all(0))
                 TextInput (id: "written", width: Dimension::percent(100), padding: Padding::all(8))
                 TextInput (id: "unwritten", width: Dimension::percent(100))
+                TextInput (id: "area", width: Dimension::percent(100), lines: 3, padding: Padding::all(0))
             }
         };
     }
@@ -980,6 +1007,239 @@ mod tests {
         assert_eq!(height("written"), line + Fixed::from_int(16));
         // Unwritten padding sizes the field with six pixels above and below.
         assert_eq!(height("unwritten"), line + Fixed::from_int(12));
+        // A text area is as tall as its rows.
+        assert_eq!(height("area"), line * 3);
+    }
+
+    /// A text area of `rows` rows in a box `width` by `height`, with its layout prepared.
+    fn area(text: &str, rows: u8, width: i32, height: i32) -> (World, Entity, Rect) {
+        let (mut world, entity, _, _) = input_fixture(text.as_bytes(), None, width);
+        world.get_mut::<TextInput>(entity).unwrap().lines = rows;
+        let rect = Rect::new(0, 0, width, height);
+        world.insert(entity, crate::ui::ComputedRect(rect));
+        prepare(&mut world, entity, rect);
+        (world, entity, rect)
+    }
+
+    /// Lays the text out again, as the render system does after an edit.
+    fn prepare(world: &mut World, entity: Entity, rect: Rect) {
+        let handle = prepare_layout(world, entity, rect).unwrap().unwrap();
+        world.insert(entity, TextEditingLayoutHandle(handle));
+    }
+
+    fn lines_of(world: &World, entity: Entity) -> usize {
+        let handle = world.get::<TextEditingLayoutHandle>(entity).unwrap().0;
+        let outputs = world.resource::<Outputs<TextGeometry>>().unwrap();
+        let storage = outputs.storage();
+        storage.layouts.get(handle).unwrap().lines().len()
+    }
+
+    fn put_cursor(world: &mut World, entity: Entity, cursor: usize) {
+        world
+            .get_mut::<TextEditing>(entity)
+            .unwrap()
+            .set_selection(super::super::TextSelection {
+                anchor: cursor,
+                cursor,
+            })
+            .unwrap();
+    }
+
+    fn selection_of(world: &World, entity: Entity) -> (usize, usize) {
+        let selection = world.get::<TextEditing>(entity).unwrap().selection();
+        (selection.anchor, selection.cursor)
+    }
+
+    fn text_of(world: &World, entity: Entity) -> alloc::string::String {
+        world
+            .get::<TextEditing>(entity)
+            .unwrap()
+            .read(|text| alloc::string::ToString::to_string(text))
+    }
+
+    /// Presses a key on the input; whether the input took it.
+    fn press_key(
+        world: &mut World,
+        entity: Entity,
+        physical: Option<crate::input::event::input::PhysicalKey>,
+        code: u32,
+        shift: bool,
+    ) -> bool {
+        let key = crate::input::event::input::Key {
+            physical,
+            code,
+            pressed: true,
+            modifiers: Some(crate::input::event::input::KeyModifiers {
+                shift,
+                ..Default::default()
+            }),
+            repeat: Some(false),
+        };
+        crate::input::event::view_input::invoke_payload(
+            super::super::text_editing::view(),
+            world,
+            entity,
+            &key,
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_text_area_breaks_lines_at_a_line_break_and_wraps_at_its_width() {
+        let (world, entity, _) = area("ab\ncd", 3, 60, 60);
+        assert_eq!(lines_of(&world, entity), 2);
+        // Seven characters of three pixels do not fit twenty-two, and wrap.
+        let (world, entity, _) = area("aaa bbb ccc", 3, 30, 60);
+        assert_eq!(lines_of(&world, entity), 2);
+        // A field keeps everything on its one line.
+        let (mut world, entity, rect) = area("aaa bbb ccc", 1, 30, 20);
+        prepare(&mut world, entity, rect);
+        assert_eq!(lines_of(&world, entity), 1);
+    }
+
+    #[test]
+    fn return_breaks_a_line_in_a_text_area() {
+        use crate::input::event::input::KEY_RETURN;
+        let (mut world, entity, _) = area("abcd", 3, 60, 60);
+        put_cursor(&mut world, entity, 2);
+        assert!(press_key(&mut world, entity, None, KEY_RETURN, false));
+        assert_eq!(text_of(&world, entity), "ab\ncd");
+        assert_eq!(selection_of(&world, entity), (3, 3));
+    }
+
+    #[test]
+    fn committed_text_keeps_a_line_break_in_a_text_area_and_not_in_a_field() {
+        let commit = |rows: u8| {
+            let (mut world, entity, _) = area("", rows, 60, 60);
+            crate::input::event::view_input::invoke_payload(
+                super::super::text_editing::view(),
+                &mut world,
+                entity,
+                &crate::input::event::input::TextCommitted::new("x\ny"),
+                None,
+            )
+            .unwrap();
+            text_of(&world, entity)
+        };
+        assert_eq!(commit(3), "x\ny");
+        assert_eq!(commit(1), "");
+    }
+
+    #[test]
+    fn the_arrows_and_home_and_end_follow_the_lines_of_a_text_area() {
+        use crate::input::event::input::{KEY_END, KEY_HOME, PhysicalKey};
+        // a b | c d e | f, the offsets 0 1 2 / 3 4 5 6 / 7 8.
+        let (mut world, entity, _) = area("ab\ncde\nf", 3, 60, 60);
+        let up = Some(PhysicalKey::ArrowUp);
+        let down = Some(PhysicalKey::ArrowDown);
+
+        // Between d and e, two characters along: the shorter lines above and
+        // below end where they can.
+        put_cursor(&mut world, entity, 5);
+        assert!(press_key(&mut world, entity, up, 0, false));
+        assert_eq!(selection_of(&world, entity), (2, 2));
+        put_cursor(&mut world, entity, 5);
+        assert!(press_key(&mut world, entity, down, 0, false));
+        assert_eq!(selection_of(&world, entity), (8, 8));
+
+        // Up on the first line goes to the start, down on the last to the end.
+        put_cursor(&mut world, entity, 1);
+        press_key(&mut world, entity, up, 0, false);
+        assert_eq!(selection_of(&world, entity), (0, 0));
+        put_cursor(&mut world, entity, 7);
+        press_key(&mut world, entity, down, 0, false);
+        assert_eq!(selection_of(&world, entity), (8, 8));
+
+        // Home and End stay on the line they are on.
+        put_cursor(&mut world, entity, 5);
+        press_key(&mut world, entity, None, KEY_HOME, false);
+        assert_eq!(selection_of(&world, entity), (3, 3));
+        put_cursor(&mut world, entity, 4);
+        press_key(&mut world, entity, None, KEY_END, false);
+        assert_eq!(selection_of(&world, entity), (6, 6));
+
+        // Shift keeps the other end of the selection where it was.
+        put_cursor(&mut world, entity, 5);
+        press_key(&mut world, entity, up, 0, true);
+        assert_eq!(selection_of(&world, entity), (5, 2));
+    }
+
+    #[test]
+    fn a_field_leaves_the_vertical_arrows_alone() {
+        use crate::input::event::input::PhysicalKey;
+        let (mut world, entity, _) = area("abc", 1, 60, 20);
+        assert!(!press_key(
+            &mut world,
+            entity,
+            Some(PhysicalKey::ArrowUp),
+            0,
+            false
+        ));
+        assert!(!press_key(
+            &mut world,
+            entity,
+            Some(PhysicalKey::ArrowDown),
+            0,
+            false
+        ));
+    }
+
+    #[test]
+    fn a_tap_picks_the_line_under_it_and_the_stop_nearest_along() {
+        let (mut world, entity, _) = area("abc\ndef", 3, 60, 60);
+        let tap = |world: &mut World, x: i32, y: i32| {
+            crate::input::event::view_input::invoke_payload(
+                super::super::text_editing::view(),
+                world,
+                entity,
+                &crate::input::event::gesture::Tap {
+                    x: x.into(),
+                    y: y.into(),
+                    target: entity,
+                },
+                Some(1),
+            )
+            .unwrap();
+            world.get::<TextEditing>(entity).unwrap().cursor()
+        };
+        // Lines are twelve pixels from y = 2; characters are three wide from x = 2.
+        assert_eq!(tap(&mut world, 5, 5), 1);
+        assert_eq!(tap(&mut world, 5, 17), 5);
+        assert_eq!(tap(&mut world, 40, 17), 7);
+        assert_eq!(tap(&mut world, 5, 400), 5);
+    }
+
+    #[test]
+    fn a_text_area_scrolls_to_the_line_of_its_caret() {
+        let (mut world, entity, rect) = area("a\nb\nc\nd", 2, 60, 28);
+        let style = world.get::<Style>(entity).unwrap().clone();
+        let caret_of = |world: &World| {
+            let clip = Rect::new(0, 0, 100, 100);
+            let mut renderer = RecordingRenderer::default();
+            let mut paint = PaintCtx::new(
+                &mut renderer,
+                &style,
+                &rect,
+                &clip,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            view().render().unwrap()(world, entity, &mut paint);
+            *renderer.fills.last().unwrap()
+        };
+        // Two rows show, so the first line is under the box by the time the caret is on the third.
+        put_cursor(&mut world, entity, 0);
+        assert_eq!(caret_of(&world).y, Fixed::from_int(2));
+        put_cursor(&mut world, entity, 2);
+        assert_eq!(caret_of(&world).y, Fixed::from_int(14));
+        put_cursor(&mut world, entity, 6);
+        let caret = caret_of(&world);
+        assert_eq!(
+            (caret.y, caret.h),
+            (Fixed::from_int(14), Fixed::from_int(12))
+        );
     }
 
     #[test]
