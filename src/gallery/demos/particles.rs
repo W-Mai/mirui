@@ -1,7 +1,7 @@
 extern crate alloc;
 
 mod composition;
-mod motion;
+mod render;
 #[cfg(feature = "std")]
 mod runtime;
 mod state;
@@ -10,10 +10,10 @@ mod state;
 mod tests;
 
 pub use composition::build_widgets;
-pub use motion::{bar_system, particle_bounds_system, particle_system, pulse_ring_system};
+pub use render::field_view;
 #[cfg(feature = "std")]
 pub use runtime::setup_app;
-pub use state::{BouncingBar, Particle, ParticleArena, ParticleBounds, PulseRing};
+pub use state::Swarm;
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 320);
 

@@ -169,12 +169,12 @@ split_demo_sources! {
     },
     THREE_BODY => {
         demo: "three_body",
-        marker: "fn physics_tick_system",
+        marker: "fn field_render",
         parts: [
             "state.rs",
-            "orbit.rs",
-            "simulation.rs",
+            "render.rs",
             "composition.rs",
+            "runtime.rs",
             "tests.rs",
         ]
     },
@@ -253,7 +253,7 @@ split_demo_sources! {
     },
     ANIMATION => {
         demo: "animation",
-        marker: "fn apply_color",
+        marker: "pub fn apply_x",
         parts: ["motion.rs", "composition.rs", "runtime.rs", "tests.rs"]
     },
     EFFECT_GLASS => {
@@ -365,10 +365,10 @@ split_demo_sources! {
     },
     PARTICLES => {
         demo: "particles",
-        marker: "fn particle_system",
+        marker: "fn field_render",
         parts: [
             "state.rs",
-            "motion.rs",
+            "render.rs",
             "composition.rs",
             "runtime.rs",
             "tests.rs",
@@ -379,8 +379,9 @@ split_demo_sources! {
         marker: "fn butterfly_render",
         parts: [
             "state.rs",
+            "motion.rs",
+            "wings.rs",
             "render.rs",
-            "animation.rs",
             "composition.rs",
             "runtime.rs",
             "tests.rs",

@@ -119,24 +119,26 @@ fn effect_glass_demo_smoke() {
 
 #[test]
 fn three_body_demo_smoke() {
-    use mirui::types::Fixed;
+    use mirui::gallery::demos::three_body::{Orbit, build_widgets, field_view};
     let mut app = App::headless(128, 128);
     app.with_default_widgets().with_default_systems();
+    app.with_widget(field_view());
+    let orbit = app.add_model(Orbit::default()).finish();
     let root = app.spawn_root().id();
-    app.compose(
-        root,
-        mirui::gallery::demos::three_body::build_widgets(128, 128, 3, Fixed::from_int(30)),
-    );
+    app.compose(root, build_widgets(orbit));
     assert_demo_built(&app.world, root);
 }
 
 #[test]
 fn particles_demo_smoke() {
+    use mirui::gallery::demos::particles::{Swarm, build_widgets, field_view};
     let (w, h) = mirui::gallery::demos::particles::DEFAULT_VIEW;
     let mut app = App::headless(w, h);
     app.with_default_widgets().with_default_systems();
+    app.with_widget(field_view());
+    let swarm = app.add_model(Swarm::default()).finish();
     let root = app.spawn_root().id();
-    app.compose(root, mirui::gallery::demos::particles::build_widgets());
+    app.compose(root, build_widgets(swarm));
     assert_demo_built(&app.world, root);
 }
 

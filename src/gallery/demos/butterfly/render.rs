@@ -1,142 +1,133 @@
 use super::state::Butterfly;
-use crate::prelude::draw::*;
+use super::wings::{
+    ANTENNA_TIPS, ANTENNAE, BODY, DISC, EYE_SPOT, FOREWING, FOREWING_GLOW, FOREWING_SPOTS,
+    FOREWING_VEINS, HINDWING, HINDWING_GLOW, HINDWING_VEINS,
+};
+use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::*;
-use crate::render::canvas::Paint;
 use crate::types::Transform;
 use crate::ui::Theme;
 
-pub(super) static WING: Path = path!(
-    M 0 22
-    C 18 0 52 0 44 6
-    C 46 24 14 29 10 34
-    C 36 36 40 50 34 52
-    C 26 48 8 44 0 40
-    Z
-);
+/// The colours of the butterfly, taken from the theme.
+struct Palette {
+    wing: Color,
+    glow: Color,
+    edge: Color,
+    spot: Color,
+    body: Color,
+    feeler: Color,
+}
 
-fn fill_wing(
-    paint: &mut PaintCtx<'_>,
-    cx: Fixed,
-    cy: Fixed,
-    span: Fixed,
-    tilt: Fixed,
-    side: i32,
-    inner: bool,
-    outer_color: Color,
-    inner_color: Color,
-) {
-    let color = if inner { inner_color } else { outer_color };
-    let opa = if inner { 210 } else { 240 };
-    let wing_paint = Paint::Color(color.into());
-    let shrink = if inner {
-        Fixed::from_f32(0.6)
-    } else {
-        Fixed::ONE
-    };
-    let shear = Fixed::ZERO - tilt / Fixed::from_int(2);
-    let local_y = Fixed::from_int(30);
-    let wing_transform = Transform {
-        m00: Fixed::from_int(side) * span * shrink,
-        m01: shear,
-        tx: cx - shear * local_y,
-        m10: Fixed::ZERO,
-        m11: shrink,
-        ty: cy - shrink * local_y,
-    };
-    paint.draw(&DrawCommand::FillPath {
-        path: &WING,
-        transform: paint.transform().compose(&wing_transform),
-        paint: &wing_paint,
-        opa,
-        fill_rule: crate::render::raster::FillRule::EvenOdd,
-    });
+impl Palette {
+    fn of(theme: &Theme) -> Self {
+        let wing = theme.resolve(ColorToken::Primary);
+        Self {
+            wing,
+            glow: theme.resolve(ColorToken::Secondary),
+            edge: wing.blend_with(Color::rgb(0, 0, 0), Fixed::from_ratio(45, 100)),
+            spot: Color::rgba(255, 255, 255, 230),
+            body: theme.resolve(ColorToken::OnSurface),
+            feeler: theme.resolve(ColorToken::OnSurfaceVariant),
+        }
+    }
+}
+
+/// How far a pair of wings is open, from almost closed to fully open. The
+/// easing makes the beat linger at both ends, as a real flap does.
+fn openness(flap: Fixed) -> Fixed {
+    let raised = (Fixed::ONE + Fixed::cos_deg(flap)) / 2;
+    let eased = raised * raised * (Fixed::from_int(3) - raised * 2);
+    Fixed::from_ratio(12, 100) + eased * Fixed::from_ratio(88, 100)
+}
+
+fn spot(painter: &mut PlayPainter<'_, '_>, (x, y): (i32, i32), radius: i32, color: Color) {
+    painter.disc(Point::new(x, y), Fixed::from_int(radius), color);
+}
+
+fn forewing(painter: &mut PlayPainter<'_, '_>, colors: &Palette) {
+    painter.fill_path(&FOREWING, colors.wing);
+    painter.fill_path(&FOREWING_GLOW, colors.glow);
+    painter.stroke_path(&FOREWING_VEINS, colors.edge.scale_alpha(150), Fixed::ONE);
+    painter.stroke_path(&FOREWING, colors.edge, Fixed::from_ratio(3, 2));
+    for (x, y, radius) in FOREWING_SPOTS {
+        spot(painter, (x, y), radius, colors.spot);
+    }
+}
+
+fn hindwing(painter: &mut PlayPainter<'_, '_>, colors: &Palette) {
+    painter.fill_path(&HINDWING, colors.wing);
+    painter.fill_path(&HINDWING_GLOW, colors.glow);
+    painter.stroke_path(&HINDWING_VEINS, colors.edge.scale_alpha(150), Fixed::ONE);
+    painter.stroke_path(&HINDWING, colors.edge, Fixed::from_ratio(3, 2));
+    spot(painter, EYE_SPOT, 9, colors.edge);
+    spot(painter, EYE_SPOT, 6, colors.spot);
+    spot(painter, EYE_SPOT, 3, colors.edge);
 }
 
 //~focus-start
 #[crate::view(component = Butterfly, name = "Butterfly", priority = 60)]
-fn butterfly_render(
-    state: component!(),
-    theme: res!(Theme),
-    clock: res!(optional MonoClock),
-    paint: paint!(),
-) {
-    let outer_wing = theme.resolve(ColorToken::Primary);
-    let inner_wing = theme.resolve(ColorToken::Secondary);
-    let body_color = theme.resolve(ColorToken::OnSurface);
-    let detail_color = theme.resolve(ColorToken::OnSurfaceVariant);
-    let now_ms = clock.map(|c| c.now_ms()).unwrap_or(0);
-    let elapsed_ms = now_ms.wrapping_sub(state.start_ms) as i32;
-
+fn butterfly_render(state: component!(), theme: res!(Theme), paint: paint!()) {
     let rect = paint.rect();
-    let amp_x = rect.w / Fixed::from_int(4);
-    let amp_y = rect.h / Fixed::from_int(5);
-    let tx_deg = Fixed::from_int((elapsed_ms * 360 / 3100) % 360);
-    let ty_deg = Fixed::from_int((elapsed_ms * 360 / 1900) % 360);
-    let cx = rect.x + rect.w / Fixed::from_int(2) + Fixed::sin_deg(tx_deg) * amp_x;
-    let cy = rect.y + rect.h / Fixed::from_int(2) + Fixed::sin_deg(ty_deg) * amp_y;
-    let tilt = Fixed::cos_deg(tx_deg) * Fixed::from_f32(0.35);
-    let yaw_deg = Fixed::from_int((elapsed_ms * 360 / 2400) % 360);
-    let yaw = Fixed::sin_deg(yaw_deg) * Fixed::from_f32(0.55);
+    let colors = Palette::of(&theme);
+    let transform = paint.transform();
+    let mut painter = PlayPainter::new(paint, transform);
 
-    let flap_deg = Fixed::from_int((elapsed_ms * 360 / 280) % 360);
-    let raw = Fixed::sin_deg(flap_deg).abs();
-    let span_base = Fixed::from_f32(0.25) + raw * Fixed::from_f32(0.75);
-
-    let min_span = Fixed::from_f32(0.15);
-    let span_left = (span_base * (Fixed::ONE + yaw)).max(min_span);
-    let span_right = (span_base * (Fixed::ONE - yaw)).max(min_span);
-
-    fill_wing(
-        paint, cx, cy, span_left, tilt, -1, false, outer_wing, inner_wing,
-    );
-    fill_wing(
-        paint, cx, cy, span_right, tilt, 1, false, outer_wing, inner_wing,
-    );
-    fill_wing(
-        paint, cx, cy, span_left, tilt, -1, true, outer_wing, inner_wing,
-    );
-    fill_wing(
-        paint, cx, cy, span_right, tilt, 1, true, outer_wing, inner_wing,
-    );
-
-    let body_head = Point {
-        x: cx + tilt * Fixed::from_int(6),
-        y: cy - Fixed::from_int(14),
+    // One drawing unit, so the wings fill the same share of any stage.
+    let unit = rect.w.min(rect.h) / 230;
+    let middle = Point {
+        x: rect.x + rect.w / 2,
+        y: rect.y + rect.h / 2,
     };
-    let body_tail = Point {
-        x: cx - tilt * Fixed::from_int(6),
-        y: cy + Fixed::from_int(16),
+
+    // Drifting loop, with a small lift on every beat.
+    let at = Point {
+        x: middle.x + Fixed::sin_deg(state.drift_x) * (rect.w / 4),
+        y: middle.y + Fixed::sin_deg(state.drift_y) * (rect.h / 6)
+            - Fixed::cos_deg(state.flap) * unit * 3,
     };
-    paint.draw(&DrawCommand::Line {
-        p1: body_head,
-        p2: body_tail,
-        transform: paint.transform(),
-        color: body_color,
-        width: Fixed::from_int(2),
-        opa: 255,
-    });
-    paint.draw(&DrawCommand::Line {
-        p1: body_head,
-        p2: Point {
-            x: body_head.x - Fixed::from_int(5),
-            y: body_head.y - Fixed::from_int(10),
-        },
-        transform: paint.transform(),
-        color: detail_color,
-        width: Fixed::ONE,
-        opa: 220,
-    });
-    paint.draw(&DrawCommand::Line {
-        p1: body_head,
-        p2: Point {
-            x: body_head.x + Fixed::from_int(5),
-            y: body_head.y - Fixed::from_int(10),
-        },
-        transform: paint.transform(),
-        color: detail_color,
-        width: Fixed::ONE,
-        opa: 220,
-    });
+    // Lean into the direction of travel, and favour one wing in the turns.
+    let bank = Fixed::cos_deg(state.drift_x) * 10;
+    let yaw = Fixed::sin_deg(state.drift_y) * Fixed::from_ratio(15, 100);
+    let open = openness(state.flap);
+    let sides = [
+        (
+            Fixed::from_int(-1),
+            (open * (Fixed::ONE + yaw)).min(Fixed::ONE),
+        ),
+        (Fixed::ONE, (open * (Fixed::ONE - yaw)).min(Fixed::ONE)),
+    ];
+
+    // A soft shadow on the ground that narrows as the wings close.
+    let ground = rect.y + rect.h * 4 / 5;
+    painter
+        .transformed(
+            Transform::translate(at.x, ground)
+                .compose(&Transform::scale(unit * 90 * open, unit * 9)),
+        )
+        .fill_path(&DISC, Color::rgba(0, 0, 0, 50));
+
+    let mut butterfly = painter.transformed(
+        Transform::translate(at.x, at.y)
+            .compose(&Transform::rotate_deg(bank))
+            .compose(&Transform::scale(unit, unit)),
+    );
+    for (side, open) in sides {
+        hindwing(
+            &mut butterfly.transformed(Transform::scale(side * open, Fixed::ONE)),
+            &colors,
+        );
+    }
+    for (side, open) in sides {
+        forewing(
+            &mut butterfly.transformed(Transform::scale(side * open, Fixed::ONE)),
+            &colors,
+        );
+    }
+    butterfly.fill_path(&BODY, colors.body);
+    butterfly.stroke_path(&ANTENNAE, colors.feeler, Fixed::from_ratio(3, 2));
+    for tip in ANTENNA_TIPS {
+        spot(&mut butterfly, tip, 3, colors.feeler);
+    }
 }
 //~focus-end
 

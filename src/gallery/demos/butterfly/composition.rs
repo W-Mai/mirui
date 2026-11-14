@@ -1,71 +1,63 @@
+use super::motion::{DriftX, DriftY, Flap};
 use super::state::Butterfly;
+use crate::anim::{Motion, PlayMode, Tween, ease};
 use crate::prelude::*;
 use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
+/// A full turn, from 0 to 360 degrees, every `period_ms`, forever.
+fn turn_every(period_ms: u16) -> Motion {
+    Tween::new(
+        Fixed::ZERO,
+        Fixed::from_int(360),
+        period_ms,
+        &ease::LINEAR,
+        PlayMode::Loop,
+    )
+    .into()
+}
+
 #[compose]
 pub fn build_widgets() {
-    let now_ms = res!(optional MonoClock).with(|clock| clock.map_or(0, |clock| clock.now_ms()));
-
     //~focus-start
     ui! {
         Column (
             grow: 1.0,
-            align: AlignItems::Center,
-            justify: JustifyContent::Center,
             padding: Padding::all(12),
             bg_color: ColorToken::Surface
         ) {
-            View (
-                grow: 1.0,
+            Row (
                 width: Dimension::percent(100),
-                max_width: 440,
-                max_height: 296,
-                bg_color: ColorToken::SurfaceVariant,
-                border_color: ColorToken::Outline,
-                border_width: 1,
-                border_radius: 18,
-                clip_children: true
+                height: 34,
+                padding: Padding {
+                    left: Dimension::px(6),
+                    right: Dimension::px(6),
+                    ..Default::default()
+                },
+                align: AlignItems::Center
             ) {
-                Row (
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: 38,
-                    padding: Padding {
-                        left: Dimension::px(14),
-                        right: Dimension::px(14),
-                        ..Default::default()
-                    },
-                    align: AlignItems::Center
-                ) {
-                    Text (
-                        "FLIGHT STUDY",
-                        grow: 1.0,
-                        font_size: 14,
-                        text_color: ColorToken::OnSurface,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                    )
-                    Text (
-                        "VECTOR · LIVE",
-                        width: 112,
-                        height: 22,
-                        font_size: 9,
-                        bg_color: ColorToken::Surface,
-                        text_color: ColorToken::Secondary,
-                        border_color: ColorToken::Secondary,
-                        border_width: 1,
-                        border_radius: 11,
-                        paragraph: ParagraphStyle::label()
-                    )
-                }
-                Butterfly (
-                    start_ms: now_ms,
+                Text (
+                    "Flight study",
                     grow: 1.0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100)
+                    font_size: 16,
+                    text_color: ColorToken::OnSurface,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Text (
+                    "Vector, live",
+                    width: 96,
+                    height: 24,
+                    font_size: 12,
+                    bg_color: ColorToken::SurfaceVariant,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    border_radius: 12,
+                    paragraph: ParagraphStyle::label()
                 )
             }
+            Butterfly (grow: 1.0, width: Dimension::percent(100)) [
+                Flap(turn_every(760)),
+                DriftX(turn_every(6200)),
+                DriftY(turn_every(3800)),
+            ]
         }
     };
     //~focus-end

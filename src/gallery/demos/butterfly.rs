@@ -1,20 +1,18 @@
-#![allow(clippy::needless_update)]
-#![allow(clippy::too_many_arguments)]
-
 extern crate alloc;
 
-mod animation;
 mod composition;
+mod motion;
 mod render;
 #[cfg(feature = "std")]
 mod runtime;
 mod state;
+mod wings;
 
 #[cfg(test)]
 mod tests;
 
-pub use animation::butterfly_anim_system;
 pub use composition::build_widgets;
+pub use motion::{DriftX, DriftY, Flap};
 pub use render::butterfly_view;
 #[cfg(feature = "std")]
 pub use runtime::setup_app;

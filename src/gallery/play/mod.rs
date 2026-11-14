@@ -17,6 +17,7 @@ pub(crate) mod orbit;
 pub(crate) mod paint;
 pub(crate) mod picture;
 pub(crate) mod pixel;
+pub(crate) mod plane;
 pub(crate) mod post;
 #[cfg(feature = "persistence")]
 pub(crate) mod storage;

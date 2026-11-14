@@ -225,7 +225,18 @@ fn themed_demos_render_in_light_palette() {
 
 basic_demo_scoped!(effect_panels, 480, 360);
 basic_demo_scoped!(effect_glass, 128, 128);
-basic_demo_scoped!(particles, 480, 320);
+
+#[test]
+fn particles_renders() {
+    let cs = render_app_demo(480, 320, |app, parent| {
+        use mirui::gallery::demos::particles::{Swarm, build_widgets, field_view};
+        app.with_widget(field_view());
+        let swarm = app.add_model(Swarm::default()).finish();
+        app.compose(parent, build_widgets(swarm));
+    });
+    assert_renders("particles", cs);
+}
+
 basic_demo_scoped!(subpixel, 480, 320);
 basic_demo_scoped!(widgets, 512, 512);
 basic_demo_scoped!(widgets_compact, 128, 128);
@@ -274,10 +285,10 @@ fn typography_lab_renders_in_light_palette() {
 #[test]
 fn three_body_renders() {
     let cs = render_app_demo(480, 320, |app, parent| {
-        app.compose(
-            parent,
-            mirui::gallery::demos::three_body::build_widgets(480, 320, 3, Fixed::from_int(30)),
-        );
+        use mirui::gallery::demos::three_body::{Orbit, build_widgets, field_view};
+        app.with_widget(field_view());
+        let orbit = app.add_model(Orbit::default()).finish();
+        app.compose(parent, build_widgets(orbit));
     });
     assert_renders("three_body", cs);
 }
