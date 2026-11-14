@@ -1,4 +1,10 @@
-//! Single-file storage using a synced temporary file and rename. Successful writes do not guarantee directory-entry durability across power loss.
+//! Single-file storage that writes a temporary file and renames it over the
+//! store. The rename is synchronous, so a returned success means the next
+//! open reads the new bytes and a failure leaves the store untouched. Syncing
+//! the file to the device runs on a background thread, because an `fsync` can
+//! stall a frame for tens or hundreds of milliseconds; dropping the storage
+//! waits for that sync. Successful writes do not guarantee durability across
+//! power loss.
 
 extern crate alloc;
 
@@ -8,12 +14,69 @@ use alloc::vec::Vec;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::thread;
 
 use super::{Storage, StorageError, WriteOutcome, decode_kv, encode_kv};
 
 pub struct FileStorage {
     path: PathBuf,
     cache: BTreeMap<String, Vec<u8>>,
+    syncer: Option<Syncer>,
+}
+
+/// Background thread that syncs the renamed store to the device. Requests
+/// that arrive while a sync runs are folded into the next one.
+struct Syncer {
+    requests: Option<mpsc::Sender<()>>,
+    worker: Option<thread::JoinHandle<()>>,
+}
+
+impl Syncer {
+    fn spawn(path: PathBuf) -> Option<Self> {
+        let (requests, pending) = mpsc::channel::<()>();
+        let worker = thread::Builder::new()
+            .name("mirui-file-storage".into())
+            .spawn(move || {
+                while pending.recv().is_ok() {
+                    while pending.try_recv().is_ok() {}
+                    let _ = sync_path(&path);
+                }
+            })
+            .ok()?;
+        Some(Self {
+            requests: Some(requests),
+            worker: Some(worker),
+        })
+    }
+
+    fn request(&self) -> bool {
+        self.requests
+            .as_ref()
+            .is_some_and(|requests| requests.send(()).is_ok())
+    }
+}
+
+impl Drop for Syncer {
+    fn drop(&mut self) {
+        drop(self.requests.take());
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+/// Sync the store and, on Unix, the directory entry that names it.
+fn sync_path(path: &Path) -> std::io::Result<()> {
+    fs::File::open(path)?.sync_all()?;
+    #[cfg(unix)]
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
 }
 
 impl FileStorage {
@@ -25,12 +88,24 @@ impl FileStorage {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
             Err(_) => return Err(StorageError::Io),
         };
-        Ok(Self { path, cache })
+        Ok(Self {
+            path,
+            cache,
+            syncer: None,
+        })
     }
 
-    fn flush(&self) -> Result<(), StorageError> {
+    fn flush(&mut self) -> Result<(), StorageError> {
         let bytes = encode_kv(&self.cache)?;
-        write_atomic(&self.path, &bytes).map_err(|_| StorageError::Io)
+        write_atomic(&self.path, &bytes).map_err(|_| StorageError::Io)?;
+        if self.syncer.is_none() {
+            self.syncer = Syncer::spawn(self.path.clone());
+        }
+        // Without a worker thread, sync here as before.
+        if !self.syncer.as_ref().is_some_and(Syncer::request) {
+            sync_path(&self.path).map_err(|_| StorageError::Io)?;
+        }
+        Ok(())
     }
 }
 
@@ -41,11 +116,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         }
     }
     let tmp = temporary_path(path);
-    {
-        let mut f = fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-    }
+    fs::File::create(&tmp)?.write_all(bytes)?;
     fs::rename(&tmp, path)?;
     Ok(())
 }
@@ -164,6 +235,27 @@ mod tests {
         assert_eq!(storage.write("k", b"new"), Ok(WriteOutcome::Written));
         storage.remove("k").unwrap();
         assert_eq!(FileStorage::open(&path).unwrap().read("k"), Ok(None));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn writes_return_before_the_device_sync_and_drop_waits_for_it() {
+        let path = tmp_path("background_sync");
+        let mut storage = FileStorage::open(&path).unwrap();
+        for round in 0..20_u8 {
+            storage.write("k", &[round]).unwrap();
+            // The rename already happened, so a fresh open sees the bytes.
+            assert_eq!(
+                FileStorage::open(&path).unwrap().read("k").unwrap(),
+                Some(alloc::vec![round])
+            );
+        }
+        assert!(storage.syncer.is_some(), "one worker serves every write");
+        drop(storage);
+        assert_eq!(
+            FileStorage::open(&path).unwrap().read("k").unwrap(),
+            Some(alloc::vec![19])
+        );
         fs::remove_file(path).unwrap();
     }
 
