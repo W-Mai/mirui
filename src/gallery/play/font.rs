@@ -164,6 +164,7 @@ mod tests {
         include_str!("circuit/tasks.rs"),
         include_str!("../demos/module_factory/render.rs"),
         include_str!("../demos/module_factory/shell.rs"),
+        include_str!("../demos/module_factory/text.rs"),
         include_str!("factory/missions.rs"),
         include_str!("factory/types.rs"),
         include_str!("../demos/orbital_mission/render.rs"),

@@ -11,7 +11,7 @@ pub(crate) use model::FactoryModel;
 pub(crate) use model::FactoryModelHandle;
 #[allow(unused_imports)]
 pub(crate) use types::{
-    CELL_COUNT, FactoryCell, FactoryError, FactoryItem, FactoryMission, FactoryModal, FactoryPage,
-    FactoryStatus, FactoryTelemetry, FactoryTool, GRID_HEIGHT, GRID_WIDTH, MAX_TELEMETRY, MAX_UNDO,
-    MISSION_COUNT, MaterialStage, ModuleKind,
+    CELL_COUNT, FactoryCell, FactoryError, FactoryItem, FactoryLayout, FactoryMission,
+    FactoryModal, FactoryPage, FactoryStatus, FactoryTelemetry, FactoryTool, GRID_HEIGHT,
+    GRID_WIDTH, MAX_TELEMETRY, MAX_UNDO, MISSION_COUNT, MaterialStage, ModuleKind,
 };

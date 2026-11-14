@@ -34,7 +34,7 @@ pub(super) fn surface_tap(surface: &FactorySurface, rect: Rect, x: Fixed, y: Fix
     let Some(cell) = local_cell(surface.model.page(), surface.model.modal(), point) else {
         return false;
     };
-    let _ = surface.model.select_or_apply(cell);
+    surface.model.tap_cell(cell);
     true
 }
 

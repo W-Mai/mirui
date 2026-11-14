@@ -5,6 +5,7 @@ mod render;
 mod shell;
 mod state;
 mod style;
+mod text;
 
 #[cfg(test)]
 mod tests;

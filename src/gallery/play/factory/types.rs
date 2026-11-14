@@ -3,7 +3,7 @@ pub(crate) const GRID_WIDTH: usize = 9;
 pub(crate) const GRID_HEIGHT: usize = 6;
 pub(crate) const MAX_UNDO: usize = 32;
 pub(crate) const MAX_TELEMETRY: usize = 80;
-pub(crate) const MISSION_COUNT: usize = 3;
+pub(crate) const MISSION_COUNT: usize = 8;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ModuleKind {
@@ -13,6 +13,7 @@ pub(crate) enum ModuleKind {
     Furnace,
     Assembler,
     Inspector,
+    Wall,
 }
 
 impl ModuleKind {
@@ -21,12 +22,13 @@ impl ModuleKind {
 
     pub(crate) const fn label(self) -> &'static str {
         match self {
-            Self::Source => "IN",
-            Self::Dock => "OUT",
+            Self::Source => "进料口",
+            Self::Dock => "交付口",
             Self::Belt => "传送带",
             Self::Furnace => "熔炼炉",
             Self::Assembler => "装配机",
             Self::Inspector => "质检台",
+            Self::Wall => "隔墙",
         }
     }
 
@@ -36,7 +38,7 @@ impl ModuleKind {
             Self::Furnace => 4,
             Self::Assembler => 5,
             Self::Inspector => 3,
-            Self::Source | Self::Dock => 0,
+            Self::Source | Self::Dock | Self::Wall => 0,
         }
     }
 
@@ -45,17 +47,35 @@ impl ModuleKind {
             Self::Furnace => 3,
             Self::Assembler => 4,
             Self::Inspector => 2,
-            Self::Source | Self::Dock | Self::Belt => 0,
+            Self::Source | Self::Dock | Self::Belt | Self::Wall => 0,
+        }
+    }
+
+    /// Part of the order's floor plan: the player can neither move nor turn it.
+    pub(crate) const fn is_fixed(self) -> bool {
+        matches!(self, Self::Source | Self::Dock | Self::Wall)
+    }
+
+    /// Hands items on in its direction.
+    pub(crate) const fn outputs(self) -> bool {
+        !matches!(self, Self::Dock | Self::Wall)
+    }
+
+    /// The stage a machine takes in, the stage it hands on and the ticks
+    /// the work takes.
+    pub(crate) const fn process(self) -> Option<(MaterialStage, MaterialStage, u8)> {
+        match self {
+            Self::Furnace => Some((MaterialStage::Ore, MaterialStage::Plate, 3)),
+            Self::Assembler => Some((MaterialStage::Plate, MaterialStage::Gear, 4)),
+            Self::Inspector => Some((MaterialStage::Gear, MaterialStage::Certified, 2)),
+            Self::Source | Self::Dock | Self::Belt | Self::Wall => None,
         }
     }
 
     pub(super) const fn accepts(self, stage: MaterialStage) -> bool {
-        match self {
-            Self::Source => false,
-            Self::Furnace => matches!(stage, MaterialStage::Ore),
-            Self::Assembler => matches!(stage, MaterialStage::Plate),
-            Self::Inspector => matches!(stage, MaterialStage::Gear),
-            Self::Dock | Self::Belt => true,
+        match self.process() {
+            Some((input, _, _)) => input as u8 == stage as u8,
+            None => matches!(self, Self::Dock | Self::Belt),
         }
     }
 }
@@ -66,12 +86,25 @@ pub(crate) struct FactoryCell {
     pub(crate) direction: u8,
 }
 
+pub(crate) type FactoryLayout = [Option<FactoryCell>; CELL_COUNT];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MaterialStage {
     Ore,
     Plate,
     Gear,
     Certified,
+}
+
+impl MaterialStage {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Ore => "矿石",
+            Self::Plate => "板材",
+            Self::Gear => "零件",
+            Self::Certified => "合格品",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -135,8 +168,14 @@ pub(crate) enum FactoryError {
 pub(crate) struct FactoryMission {
     pub(crate) name: &'static str,
     pub(crate) description: &'static str,
+    pub(crate) target: MaterialStage,
     pub(crate) goal: u16,
+    /// Ticks the trial run may take.
+    pub(crate) limit: u16,
     pub(crate) budget: u8,
     pub(crate) power: u8,
-    pub(crate) target: MaterialStage,
+    /// The cell the order first asks the player to look at.
+    pub(crate) focus: u8,
+    pub(crate) start: &'static FactoryLayout,
+    pub(crate) reference: &'static FactoryLayout,
 }
