@@ -200,7 +200,7 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
     };
     ui! {
         Button (
-            text: ${ format_args!("{} 帧/秒 ↻", model.fps()) },
+            text: ${ format_args!("{} 帧/秒", model.fps()) },
             capacity: 13,
             id: "pixel_fps",
             position: Position::Absolute,
@@ -642,7 +642,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                     if model.modal() == PixelModal::Templates {
                         "先借一颗灵感"
                     } else {
-                        "清空这一帧？"
+                        "清空这一帧"
                     }
                 },
                 capacity: 18,

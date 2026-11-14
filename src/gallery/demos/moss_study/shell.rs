@@ -211,7 +211,7 @@ fn compose_metrics(model: model!(MossModel)) -> Entity {
     };
     ui! {
         Button (
-            text: ${ format_args!("{} 代/秒 ↻", model.rate()) },
+            text: ${ format_args!("{} 代/秒", model.rate()) },
             capacity: 13,
             id: "moss_rate",
             position: Position::Absolute,
@@ -260,7 +260,7 @@ fn compose_metrics(model: model!(MossModel)) -> Entity {
     };
     ui! {
         Text (
-            "生命 ≠ 生物模拟",
+            "生命游戏，不是生物模拟",
             position: Position::Absolute,
             left: 371,
             top: 257,
@@ -369,7 +369,7 @@ fn compose_modal(model: model!(MossModel)) -> Entity {
                     if model.modal() == MossModal::Seeds {
                         "给花园一种新的开始"
                     } else {
-                        "让花园重新开始？"
+                        "让花园重新开始"
                     }
                 },
                 capacity: 27,

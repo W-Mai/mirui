@@ -247,7 +247,7 @@ fn footer_label(
         ][index]
     } else {
         [
-            "＋ 逻辑门",
+            "+ 逻辑门",
             "类型 / 删除",
             if disconnecting {
                 "取消断线"
@@ -299,12 +299,12 @@ fn modal_title(modal: CircuitModal) -> &'static str {
 fn modal_subtitle(modal: CircuitModal) -> &'static str {
     match modal {
         CircuitModal::None => "",
-        CircuitModal::Tasks => "切换会清空当前网络、时序和撤销记录。",
+        CircuitModal::Tasks => "切换会清空当前电路、时序和撤销记录。",
         CircuitModal::GateTypes { adding: true } => "选择一个组合逻辑门；最多放置 6 个。",
         CircuitModal::GateTypes { adding: false } => {
             "改变类型会保留可用输入；NOT 只保留第一个输入。"
         }
-        CircuitModal::Help => "输出端 → 输入端接线。真值表枚举全部输入；时序页记录离散状态。",
+        CircuitModal::Help => "输出端 → 输入端接线。真值表枚举全部输入；时序页记录每一步状态。",
     }
 }
 
@@ -324,7 +324,7 @@ impl core::fmt::Display for ModalButtonLabel {
             CircuitModal::GateTypes { adding: false } if self.index == 5 => {
                 formatter.write_str("删除选中门")
             }
-            CircuitModal::Help if self.index == 0 => formatter.write_str("明白了"),
+            CircuitModal::Help if self.index == 0 => formatter.write_str("知道了"),
             _ => Ok(()),
         }
     }

@@ -124,11 +124,11 @@ fn observed_text_and_modal_branches_follow_the_model() {
     let clear = world.find_by_id("moss_clear_note").unwrap();
     let model = world.get::<MossSurface>(surface).unwrap().model.clone();
 
-    assert_text(&world, "moss_rate", "4 代/秒 ↻");
+    assert_text(&world, "moss_rate", "4 代/秒");
     assert!(world.has::<Hidden>(modal));
     model.cycle_rate();
     crate::core::reactive::flush_signal_dirty(&mut world);
-    assert_text(&world, "moss_rate", "8 代/秒 ↻");
+    assert_text(&world, "moss_rate", "8 代/秒");
 
     model.open_seeds();
     crate::core::reactive::flush_signal_dirty(&mut world);
@@ -146,7 +146,7 @@ fn observed_text_and_modal_branches_follow_the_model() {
     crate::core::reactive::flush_signal_dirty(&mut world);
     assert!(world.has::<Hidden>(seed));
     assert!(!world.has::<Hidden>(clear));
-    assert_text(&world, "moss_modal_title", "让花园重新开始？");
+    assert_text(&world, "moss_modal_title", "让花园重新开始");
     assert_text(
         &world,
         "moss_modal_subtitle",

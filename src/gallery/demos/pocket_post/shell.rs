@@ -84,7 +84,7 @@ fn modal_title(modal: PostModal) -> &'static str {
     match modal {
         PostModal::Manifests => "选择今天的班次",
         PostModal::Summary => "本班投递完成",
-        PostModal::Reset => "重新开始这一班？",
+        PostModal::Reset => "重新开始这一班",
         PostModal::None => "",
     }
 }

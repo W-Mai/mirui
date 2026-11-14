@@ -47,7 +47,7 @@ impl fmt::Display for PreviewText {
         };
         write!(
             out,
-            "{} · 本块 {} · 全岛净增 {:+}",
+            "{} · 本块 {} · 全岛变化 {:+}",
             ["低地", "平地", "高地"][usize::from(preview.terrain)],
             preview.score,
             preview.delta
@@ -64,7 +64,7 @@ struct ModalDetailText(HarvestText);
 
 impl fmt::Display for ModalDetailText {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        out.write_str("四季 ")?;
+        out.write_str("四轮 ")?;
         self.0.fmt(out)
     }
 }
@@ -115,7 +115,7 @@ impl fmt::Display for VoyageRowText {
         } else {
             write!(
                 out,
-                "0{}  {}  未抵达",
+                "0{}  {}  未到达",
                 self.index + 1,
                 island_name(self.index)
             )
@@ -126,18 +126,18 @@ impl fmt::Display for VoyageRowText {
 fn message_text(message: TideMessage) -> &'static str {
     match message {
         TideMessage::Ready => "选一张地块，再点相邻海域。每 6 次落子结算一次。",
-        TideMessage::Placed(_) => "地块已落位，候选与下一季预估已更新。",
-        TideMessage::Harvest(_, _) => "季节结算完成；继续扩建群岛。",
-        TideMessage::Rerolled => "换一手地块；不会消耗落子回合。",
-        TideMessage::Undone => "已撤销；候选、积分与随机状态完整恢复。",
-        TideMessage::Settled(true) => "委托达成，追加 45 分。",
-        TideMessage::Settled(false) => "本岛结算；未完成委托不影响继续远航。",
+        TideMessage::Placed(_) => "地块已落位，可选地块与下一轮预计已更新。",
+        TideMessage::Harvest(_, _) => "本轮结算完成；继续建造群岛。",
+        TideMessage::Rerolled => "换一手地块；不占用落子回合。",
+        TideMessage::Undone => "已撤销；手上地块、得分与随机状态完整恢复。",
+        TideMessage::Settled(true) => "任务达成，追加 45 分。",
+        TideMessage::Settled(false) => "本岛结算；未完成任务不影响继续远航。",
         TideMessage::Complete => "四岛航行完成。",
     }
 }
 
 fn island_name(index: usize) -> &'static str {
-    ["浅湾", "外海", "浮岬", "远境"][index]
+    ["内湾", "外海", "石角", "远岛"][index]
 }
 
 #[compose]
@@ -270,8 +270,8 @@ fn compose_forecast(model: model!(TideModel)) -> Entity {
         Text (
             text: ${
                 format_args!(
-                    "再落 {} 块结算 · 进阶参考线 {}", if model.settled() { 0 } else { 6 -
-                    model.turn() % 6 }, model.target()
+                    "再落 {} 块结算 · 目标 {}", if model.settled() { 0 } else { 6 - model
+                    .turn() % 6 }, model.target()
                 )
             },
             capacity: 56,
@@ -305,7 +305,7 @@ fn compose_offers(model: model!(TideModel)) -> Entity {
     };
     ui! {
         Text (
-            text: ${ format_args!("换牌 {}", model.rerolls()) },
+            text: ${ format_args!("换手 {}", model.rerolls()) },
             capacity: 16,
             id: "tide_offer_count",
             position: Position::Absolute,
@@ -447,7 +447,7 @@ fn compose_tile_info(model: model!(TideModel)) -> Entity {
 fn compose_actions(model: model!(TideModel)) -> Entity {
     ui! {
         Button (
-            "换牌",
+            "换手",
             id: "tide_reroll",
             position: Position::Absolute,
             left: 237,
@@ -533,7 +533,7 @@ fn compose_actions(model: model!(TideModel)) -> Entity {
                 if model.pending().is_some() {
                     "取消"
                 } else if model.complete() {
-                    "航行完成 · 查看总览"
+                    "航行完成 · 查看结果"
                 } else {
                     "本岛结算 · 选择新学说"
                 }
@@ -641,9 +641,9 @@ fn compose_modal_header(model: model!(TideModel)) -> Entity {
         Text (
             text: ${
                 if model.modal() == TideModal::Voyage {
-                    "96 次落子 / 16 次季节结算 / 3 次学说选择"
+                    "96 次落子 / 16 次结算 / 3 次学说选择"
                 } else {
-                    "评级不锁关。选择学说，继续前往下一座岛。"
+                    "等级不锁关。选择学说，继续前往下一座岛。"
                 }
             },
             capacity: 128,

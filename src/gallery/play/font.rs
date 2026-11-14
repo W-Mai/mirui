@@ -135,6 +135,94 @@ mod tests {
         include_str!("../demos/atlas_restoration/tests.rs"),
     );
 
+    /// UI sources of the other games. Only their string literals are
+    /// checked, so comments may use any character.
+    const GAME_SOURCES: &[&str] = &[
+        include_str!("../demos/marble_play.rs"),
+        include_str!("../demos/marble_play/inspector.rs"),
+        include_str!("../demos/marble_play/scenes.rs"),
+        include_str!("../demos/marble_play/settings.rs"),
+        include_str!("../demos/marble_play/shell.rs"),
+        include_str!("../demos/lumen_lab.rs"),
+        include_str!("../demos/lumen_lab/shell.rs"),
+        include_str!("lumen/types.rs"),
+        include_str!("../demos/pixel_loom/render.rs"),
+        include_str!("../demos/pixel_loom/shell.rs"),
+        include_str!("../demos/moss_study/render.rs"),
+        include_str!("../demos/moss_study/shell.rs"),
+        include_str!("../demos/pocket_post/render.rs"),
+        include_str!("../demos/pocket_post/shell.rs"),
+        include_str!("../demos/logic_circuit/render.rs"),
+        include_str!("../demos/logic_circuit/shell.rs"),
+        include_str!("../demos/module_factory/render.rs"),
+        include_str!("../demos/module_factory/shell.rs"),
+        include_str!("factory/missions.rs"),
+        include_str!("factory/types.rs"),
+        include_str!("../demos/orbital_mission/render.rs"),
+        include_str!("../demos/orbital_mission/shell.rs"),
+        include_str!("orbit/missions.rs"),
+        include_str!("../demos/tidal_atlas/render.rs"),
+        include_str!("../demos/tidal_atlas/shell.rs"),
+        include_str!("tidal/goals.rs"),
+        include_str!("tidal/types.rs"),
+        include_str!("../demos/echo_walker/render.rs"),
+        include_str!("../demos/echo_walker/shell.rs"),
+    ];
+
+    /// Yields the characters inside the string literals of `source`,
+    /// skipping line comments and character literals.
+    fn literal_chars(source: &str) -> impl Iterator<Item = char> + '_ {
+        source.lines().flat_map(|line| {
+            let mut inside = false;
+            let mut escaped = false;
+            let mut previous = ' ';
+            line.chars().filter(move |&scalar| {
+                let keep = if inside {
+                    if escaped {
+                        escaped = false;
+                        false
+                    } else if scalar == '\\' {
+                        escaped = true;
+                        false
+                    } else if scalar == '"' {
+                        inside = false;
+                        false
+                    } else {
+                        true
+                    }
+                } else {
+                    if scalar == '/' && previous == '/' {
+                        inside = false;
+                        previous = '\n';
+                        return false;
+                    }
+                    if scalar == '"' && previous != '\'' && previous != '\n' {
+                        inside = true;
+                    }
+                    false
+                };
+                if previous != '\n' {
+                    previous = scalar;
+                }
+                keep
+            })
+        })
+    }
+
+    #[test]
+    fn play_font_draws_every_game_string() {
+        let provider =
+            MirxFontProvider::from_mirx(FONT_BYTES, &mirx::reader::PayloadLimits::HOST).unwrap();
+        for (index, source) in GAME_SOURCES.iter().enumerate() {
+            for scalar in literal_chars(source).filter(|scalar| !scalar.is_whitespace()) {
+                assert!(
+                    provider.map_char(scalar).is_some(),
+                    "game source {index} uses {scalar:?}, which the play font lacks"
+                );
+            }
+        }
+    }
+
     #[test]
     fn plugin_registers_every_play_font_role() {
         let mut app = App::headless(32, 32);

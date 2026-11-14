@@ -152,7 +152,7 @@ fn diff(a: &[u8], b: &[u8], width: usize) -> (usize, (usize, usize, usize, usize
     (count, (x0, y0, x1, y1))
 }
 
-fn run(slug: &str, dark: bool, frames: u32, out: &Path, seed: u32) -> String {
+fn build(slug: &str, dark: bool) -> (AuditApp, (u16, u16)) {
     let demo = gallery::lookup_demo(slug).expect("registered demo");
     let size = demo.size.fixed_size().unwrap_or((
         demo.size.max_width.unwrap_or(480).min(480),
@@ -175,7 +175,115 @@ fn run(slug: &str, dark: bool, frames: u32, out: &Path, seed: u32) -> String {
     app.add_resource(MonoClock::new(clock));
     app.prepare_text_layout().ok();
     app.render().ok();
+    (app, size)
+}
 
+/// Centres of the visible tap targets, top to bottom.
+fn targets(app: &AuditApp, (width, height): (u16, u16)) -> Vec<(i32, i32)> {
+    let mut points: Vec<(i32, i32)> = app
+        .world
+        .query::<mirui::ui::HitTarget>()
+        .iter()
+        .filter(|(entity, _)| !mirui::ui::branch::is_effectively_hidden(&app.world, *entity))
+        .filter_map(|(entity, _)| app.world.get::<mirui::ui::ComputedRect>(entity))
+        .map(|rect| rect.0)
+        .filter(|rect| rect.w > Fixed::ZERO && rect.h > Fixed::ZERO)
+        .map(|rect| {
+            (
+                (rect.x + rect.w / 2).to_int(),
+                (rect.y + rect.h / 2).to_int(),
+            )
+        })
+        .filter(|&(x, y)| x >= 0 && y >= 0 && x < i32::from(width) && y < i32::from(height))
+        .collect();
+    points.sort_by_key(|&(x, y)| (y, x));
+    points.dedup();
+    points
+}
+
+/// Tap every visible control of every screen it reaches, saving each new
+/// screen and checking it against a full repaint.
+fn tour(slug: &str, out: &Path, steps: u32) -> String {
+    use std::collections::HashSet;
+    use std::hash::{Hash, Hasher};
+    let (mut app, size) = build(slug, true);
+    let width = usize::from(size.0);
+    let mut frame = 0u32;
+    let mut advance = |app: &mut AuditApp, frames: u32| {
+        for _ in 0..frames {
+            frame += 1;
+            NOW_NS.store(u64::from(frame) * 16_000_000, Ordering::Relaxed);
+            app.tick();
+        }
+    };
+    let hash = |rgba: &[u8]| {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        rgba.hash(&mut hasher);
+        hasher.finish()
+    };
+    let mut screens = HashSet::new();
+    let mut tapped: Vec<(i32, i32)> = Vec::new();
+    let mut stale = Vec::new();
+    let mut fallback = Rng(0x0bad_cafe);
+    advance(&mut app, 20);
+    let mut screen = hash(&pixels(&mut app));
+    screens.insert(screen);
+    write_png(
+        &out.join(format!("{slug}_tour_000.png")),
+        size,
+        &pixels(&mut app),
+    );
+    for step in 1..=steps {
+        let points = targets(&app, size);
+        if points.is_empty() {
+            break;
+        }
+        let point = points
+            .iter()
+            .copied()
+            .min_by_key(|point| tapped.iter().filter(|seen| *seen == point).count())
+            .unwrap_or_else(|| points[fallback.below(points.len() as u32) as usize]);
+        tapped.push(point);
+        app.backend.events.push_back(pointer(0, point.0, point.1));
+        advance(&mut app, 1);
+        app.backend.events.push_back(pointer(2, point.0, point.1));
+        advance(&mut app, 45);
+        let incremental = pixels(&mut app);
+        app.render().ok();
+        let full = pixels(&mut app);
+        let (count, bbox) = diff(&incremental, &full, width);
+        if count > 0 {
+            write_png(
+                &out.join(format!("{slug}_tour_{step:03}_stale_inc.png")),
+                size,
+                &incremental,
+            );
+            write_png(
+                &out.join(format!("{slug}_tour_{step:03}_stale_full.png")),
+                size,
+                &full,
+            );
+            stale.push(format!("step{step}@{point:?}:{count}px{bbox:?}"));
+        }
+        screen = hash(&full);
+        if screens.insert(screen) {
+            write_png(&out.join(format!("{slug}_tour_{step:03}.png")), size, &full);
+        }
+    }
+    format!(
+        "{slug:<18} tour: {} screens, stale {}",
+        screens.len(),
+        if stale.is_empty() {
+            "none".to_string()
+        } else {
+            stale.join(" ")
+        }
+    )
+}
+
+fn run(slug: &str, dark: bool, frames: u32, out: &Path, seed: u32) -> String {
+    let (mut app, size) = build(slug, dark);
+    let (width, height) = size;
     #[cfg(feature = "perf")]
     let mut capture =
         mirui::core::perf::Capture::new(mirui::core::perf::DEFAULT_TRACE_BUDGET).unwrap();
@@ -313,6 +421,12 @@ fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(400);
     for slug in &args {
+        if let Some(steps) = env::var("TOUR").ok().and_then(|v| v.parse().ok()) {
+            let line = catch_unwind(AssertUnwindSafe(|| tour(slug, &out, steps)))
+                .unwrap_or_else(|_| format!("{slug} tour: PANIC"));
+            println!("{line}");
+            continue;
+        }
         let themes: &[bool] = if env::var_os("DARK_ONLY").is_some() {
             &[true]
         } else {
