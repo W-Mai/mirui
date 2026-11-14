@@ -147,7 +147,17 @@ impl SwRenderer<'_> {
             ) else {
                 continue;
             };
-            self.draw_glyph_at(&glyph, x, baseline, context, color, opa);
+            let Some(advance) = positioned
+                .origin
+                .x
+                .checked_sub(first.origin.x)
+                .and_then(|value| value.checked_add(positioned.offset.x))
+            else {
+                continue;
+            };
+            let exact_x = Fixed::from_int(phys_pos.x.floor().to_int())
+                + crate::types::fixed::from_textflow(advance) * viewport_scale;
+            self.draw_glyph_at(&glyph, (x, exact_x), baseline, context, color, opa);
         }
     }
 
@@ -738,7 +748,7 @@ impl SwRenderer<'_> {
     fn draw_glyph_at(
         &mut self,
         glyph: &Glyph<'_>,
-        x: i32,
+        (x, exact_x): (i32, Fixed),
         baseline: i32,
         context: GlyphRasterContext,
         color: &Color,
@@ -754,6 +764,36 @@ impl SwRenderer<'_> {
                 bearing_y,
             } => {
                 if region.width() == 0 || region.height() == 0 {
+                    return;
+                }
+                let texel = Fixed::from_int(i32::from(context.requested_size))
+                    / Fixed::from_int(i32::from(representation.design_ppem().max(1)))
+                    * context.viewport_scale;
+                if texel != Fixed::ONE {
+                    let field = match representation.kind() {
+                        mirx::font::FontRepresentationKind::Coverage { bits } => {
+                            ScalarField::new(samples, *stride, *region, bits)
+                                .map(TransformedGlyph::Coverage)
+                        }
+                        mirx::font::FontRepresentationKind::SignedDistance { bits, spread } => {
+                            SignedDistanceField::new(samples, *stride, *region, bits, spread)
+                                .map(TransformedGlyph::SignedDistance)
+                        }
+                        _ => None,
+                    };
+                    if let Some(field) = field {
+                        self.blit_scaled_glyph(
+                            field,
+                            Point {
+                                x: exact_x + *bearing_x * context.viewport_scale,
+                                y: Fixed::from_int(baseline) - *bearing_y * context.viewport_scale,
+                            },
+                            texel,
+                            context.bounds,
+                            color,
+                            opa,
+                        );
+                    }
                     return;
                 }
                 let (raster_x, raster_y, width, height) = raster_glyph_rect(
@@ -800,6 +840,97 @@ impl SwRenderer<'_> {
                     mirx::font::FontRepresentationKind::Application(_) => {}
                     _ => {}
                 }
+            }
+        }
+    }
+
+    /// Paints a glyph drawn at a size other than its strike's. Each target
+    /// pixel samples the raster at its exact position, so a scaled glyph keeps
+    /// the width and spacing the layout gave it instead of growing to whole
+    /// pixels. `origin` is the raster's top left in physical pixels and
+    /// `texel` the physical size of one source sample.
+    fn blit_scaled_glyph(
+        &mut self,
+        glyph: TransformedGlyph<'_>,
+        origin: Point,
+        texel: Fixed,
+        bounds: (i32, i32, i32, i32),
+        color: &Color,
+        opa: u8,
+    ) {
+        if texel <= Fixed::ZERO {
+            return;
+        }
+        let (source_width, source_height) = glyph.dimensions();
+        let (clip_x, clip_y, clip_x2, clip_y2) = bounds;
+        let x0 = origin.x.floor().to_int().max(clip_x).max(0);
+        let y0 = origin.y.floor().to_int().max(clip_y).max(0);
+        let x1 = (origin.x + Fixed::from_int(source_width as i32) * texel)
+            .ceil()
+            .to_int()
+            .min(clip_x2)
+            .min(self.target.width as i32);
+        let y1 = (origin.y + Fixed::from_int(source_height as i32) * texel)
+            .ceil()
+            .to_int()
+            .min(clip_y2)
+            .min(self.target.height as i32);
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        let step = Fixed::ONE / texel;
+        let half = Fixed::HALF;
+        let target_w = self.target.width as usize;
+        let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
+        for py in y0..y1 {
+            let sy = (Fixed::from_int(py) + half - origin.y) * step - half;
+            for px in x0..x1 {
+                let sx = (Fixed::from_int(px) + half - origin.x) * step - half;
+                let coverage = match &glyph {
+                    // A smaller copy spreads thin stems over more pixels;
+                    // lift the mid tones so they keep their weight.
+                    TransformedGlyph::Coverage(field) if texel < Fixed::ONE => {
+                        let value = padded_bilinear(field, sx, sy);
+                        value + value * (Fixed::ONE - value) / 2
+                    }
+                    TransformedGlyph::Coverage(field) => padded_bilinear(field, sx, sy),
+                    TransformedGlyph::SignedDistance(field) => {
+                        let (distance, gradient_x, gradient_y) = field.sample_with_gradient(sx, sy);
+                        let screen_dx = gradient_x * step;
+                        let screen_dy = gradient_y * step;
+                        let edge = ((screen_dx * screen_dx + screen_dy * screen_dy).sqrt() / 2)
+                            .max(Fixed::from_ratio(1, 256));
+                        if distance <= -edge {
+                            Fixed::ZERO
+                        } else if distance >= edge {
+                            Fixed::ONE
+                        } else {
+                            (distance + edge) / (edge * 2)
+                        }
+                    }
+                };
+                let mut alpha = (coverage * Fixed::from_int(i32::from(opa)))
+                    .to_int()
+                    .clamp(0, 255) as u8;
+                if alpha == 0 {
+                    continue;
+                }
+                if let Some(mask) = clip_mask {
+                    let ca = mask[py as usize * target_w + px as usize];
+                    if ca == 0 {
+                        continue;
+                    }
+                    if ca < 255 {
+                        alpha = ((u16::from(alpha) * u16::from(ca) + 127) / 255) as u8;
+                        if alpha == 0 {
+                            continue;
+                        }
+                    }
+                }
+                target.blend_pixel_int(px, py, color, alpha);
             }
         }
     }
@@ -924,6 +1055,25 @@ impl SwRenderer<'_> {
             }
         }
     }
+}
+
+/// Bilinear coverage that treats samples outside the raster as empty, so a
+/// scaled glyph fades out at its edges instead of repeating its border.
+fn padded_bilinear(field: &ScalarField<'_>, x: Fixed, y: Fixed) -> Fixed {
+    let (width, height) = (field.width() as i32, field.height() as i32);
+    let (left, top) = (x.floor(), y.floor());
+    let (fx, fy) = (x - left, y - top);
+    let (x0, y0) = (left.to_int(), top.to_int());
+    let at = |sx: i32, sy: i32| {
+        if sx < 0 || sy < 0 || sx >= width || sy >= height {
+            Fixed::ZERO
+        } else {
+            field.sample(sx, sy)
+        }
+    };
+    let upper = at(x0, y0) * (Fixed::ONE - fx) + at(x0 + 1, y0) * fx;
+    let lower = at(x0, y0 + 1) * (Fixed::ONE - fx) + at(x0 + 1, y0 + 1) * fx;
+    upper * (Fixed::ONE - fy) + lower * fy
 }
 
 fn scale_opacity(opacity: u8, coverage: u8) -> u8 {
@@ -1083,6 +1233,64 @@ mod tests {
         );
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn scaled_glyphs_keep_their_fractional_layout_spacing() {
+        // The builtin face has an 8 px strike; drawing it at 12 px scales
+        // every texel by 1.5, and the second copy sits 10.5 px along.
+        let font = Font {
+            size: 12,
+            ..Font::default()
+        };
+        let glyph = font.map_char('I').unwrap();
+        let glyphs = [
+            textflow::shaping::PositionedGlyph::new(
+                glyph,
+                textflow::shaping::FlowPoint { x: 0, y: 0 },
+            ),
+            textflow::shaping::PositionedGlyph::new(
+                glyph,
+                textflow::shaping::FlowPoint {
+                    x: 10 * 256 + 128,
+                    y: 0,
+                },
+            ),
+        ];
+        let (width, height) = (32usize, 16usize);
+        let mut pixels = vec![0u8; width * height * 4];
+        let texture = Texture::new(
+            &mut pixels,
+            width as u16,
+            height as u16,
+            ColorFormat::RGBA8888,
+        )
+        .expect("valid pixel storage");
+        SwRenderer::new(texture).draw_glyph_run_inner(
+            &Point::ZERO,
+            &glyphs,
+            &font,
+            &Rect::new(0, 0, width as i32, height as i32),
+            &Color::rgba(255, 255, 255, 255),
+            255,
+        );
+        let centroid = |from: usize, to: usize| {
+            let (mut sum, mut weight) = (0.0, 0.0);
+            for y in 0..height {
+                for x in from..to {
+                    let alpha = f64::from(pixel_alpha(&pixels, width, x, y));
+                    sum += (x as f64 + 0.5) * alpha;
+                    weight += alpha;
+                }
+            }
+            assert!(weight > 0.0, "glyph painted");
+            sum / weight
+        };
+        let spacing = centroid(9, width) - centroid(0, 9);
+        assert!(
+            (spacing - 10.5).abs() < 0.15,
+            "copies {spacing} px apart, laid out 10.5 px apart"
+        );
     }
 
     #[test]

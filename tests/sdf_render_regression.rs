@@ -100,14 +100,14 @@ fn real_font_size_matrix_byte_hashes_are_stable() {
     assert_eq!(
         hashes,
         [
-            0x1e48_de85_444e_197d,
-            0x14c7_b990_cf8a_740c,
+            0x7d5e_bbf6_60e0_eb8e,
+            0xf995_7c1e_d1ed_7556,
             0xb5b6_74e6_a854_c85c,
-            0x394b_cdc5_6885_2730,
+            0x7bd1_6301_73d1_7677,
             0xf409_9bb3_6484_9342,
-            0x9b55_27bc_4dec_e4b1,
-            0xe48c_f827_6451_1b69,
-            0xddf1_b7f4_6d14_78ea,
+            0x427f_a81b_d214_9c8e,
+            0x27bc_b921_cc3e_8f5c,
+            0xbdda_e610_7b73_2143,
         ],
         "production UI font pixels drifted; inspect the size matrix before updating",
     );

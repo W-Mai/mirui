@@ -79,14 +79,33 @@ impl SwRenderer<'_> {
         let inner_x1 = (inner.x + inner.w).floor().to_int().clamp(px_x0, px_x1);
         let inner_y0 = inner.y.ceil().to_int();
         let inner_y1 = (inner.y + inner.h).floor().to_int();
+        // Pixels wholly inside the inner rect and outside its corner boxes
+        // have full inner coverage, so the border leaves them untouched.
+        // Skipping them turns a full-area scan into a scan of the ring.
+        let straight_y0 = (inner.y + inner_r).ceil().to_int();
+        let straight_y1 = (inner.y + inner.h - inner_r).ceil().to_int();
+        let cross_x0 = (inner.x + inner_r)
+            .ceil()
+            .to_int()
+            .clamp(inner_x0, inner_x1);
+        let cross_x1 = (inner.x + inner.w - inner_r)
+            .ceil()
+            .to_int()
+            .clamp(inner_x0, inner_x1);
         for py in px_y0..px_y1 {
             let row_mask_off = py as usize * target_w;
-            let spans =
-                if r == Fixed::ZERO && inner_x0 < inner_x1 && py >= inner_y0 && py < inner_y1 {
-                    [(px_x0, inner_x0), (inner_x1, px_x1)]
-                } else {
-                    [(px_x0, px_x1), (px_x1, px_x1)]
-                };
+            let (skip_start, skip_end) = if py < inner_y0 || py >= inner_y1 {
+                (px_x1, px_x1)
+            } else if py >= straight_y0 && py < straight_y1 {
+                (inner_x0, inner_x1)
+            } else {
+                (cross_x0, cross_x1)
+            };
+            let spans = if skip_start < skip_end {
+                [(px_x0, skip_start), (skip_end, px_x1)]
+            } else {
+                [(px_x0, px_x1), (px_x1, px_x1)]
+            };
             for (start, end) in spans {
                 for px in start..end {
                     let rel_x = Fixed::from_int(px) - area.x;
@@ -236,6 +255,96 @@ mod tests {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Rounded borders skip the pixels inside their inner rect; the result
+    /// must match evaluating the ring formula at every pixel of the area.
+    #[test]
+    fn rounded_borders_match_the_per_pixel_ring_formula() {
+        let (width, height) = (40_u16, 30_u16);
+        for origin in [Fixed::ZERO, Fixed::from_ratio(1, 3), Fixed::HALF] {
+            for (w, h) in [
+                (Fixed::from_int(34), Fixed::from_int(24)),
+                (Fixed::from_ratio(77, 4), Fixed::from_int(9)),
+            ] {
+                for radius in [
+                    Fixed::ONE,
+                    Fixed::from_int(4),
+                    Fixed::from_ratio(19, 2),
+                    Fixed::from_int(30),
+                ] {
+                    for border in [
+                        Fixed::HALF,
+                        Fixed::ONE,
+                        Fixed::from_ratio(5, 2),
+                        Fixed::from_int(6),
+                    ] {
+                        let mut actual =
+                            alloc::vec![9; usize::from(width) * usize::from(height) * 4];
+                        let mut expected = actual.clone();
+                        let area = Rect::new(
+                            origin + Fixed::from_int(2),
+                            origin + Fixed::from_int(3),
+                            w,
+                            h,
+                        );
+                        let clip = Rect::new(0, 0, i32::from(width), i32::from(height));
+                        let color = Color::rgba(200, 120, 40, 230);
+                        let target =
+                            Texture::new(&mut actual, width, height, ColorFormat::RGBA8888)
+                                .unwrap();
+                        let mut renderer = SwRenderer::new(target);
+                        renderer.stroke_rect_inner(&area, &clip, border, &color, radius, 200);
+
+                        let mut reference =
+                            Texture::new(&mut expected, width, height, ColorFormat::RGBA8888)
+                                .unwrap();
+                        let r = radius.min(area.w / 2).min(area.h / 2);
+                        let inner_r = (r - border).max(Fixed::ZERO);
+                        let inner_w = (area.w - border * 2).max(Fixed::ZERO);
+                        let inner_h = (area.h - border * 2).max(Fixed::ZERO);
+                        let inner = Rect::new(area.x + border, area.y + border, inner_w, inner_h);
+                        let opacity =
+                            Fixed::from_int(200).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+                        let (x0, y0, x1, y1) = area.intersect(&clip).unwrap().pixel_bounds();
+                        let mut pixels = reference.pixels_mut().unwrap();
+                        for y in y0..y1 {
+                            for x in x0..x1 {
+                                let rel_x = Fixed::from_int(x) - area.x;
+                                let rel_y = Fixed::from_int(y) - area.y;
+                                let outer = rect_pixel_coverage(area, x, y)
+                                    * rounded_rect_coverage(rel_x, rel_y, area.w, area.h, r);
+                                let inside = rect_pixel_coverage(inner, x, y)
+                                    * rounded_rect_coverage(
+                                        rel_x - border,
+                                        rel_y - border,
+                                        inner_w,
+                                        inner_h,
+                                        inner_r,
+                                    );
+                                let alpha = ((outer - inside).max(Fixed::ZERO) * opacity)
+                                    .map01(255)
+                                    .to_int() as u8;
+                                if alpha > 0 {
+                                    pixels.blend_pixel(
+                                        Fixed::from_int(x),
+                                        Fixed::from_int(y),
+                                        &color,
+                                        alpha,
+                                    );
+                                }
+                            }
+                        }
+                        drop(pixels);
+                        assert_eq!(
+                            renderer.target.read_pixels().unwrap().bytes(),
+                            reference.read_pixels().unwrap().bytes(),
+                            "origin={origin:?} size={w:?}x{h:?} radius={radius:?} border={border:?}"
+                        );
                     }
                 }
             }
