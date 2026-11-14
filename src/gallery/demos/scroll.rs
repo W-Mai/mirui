@@ -4,23 +4,15 @@ use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
 #[compose]
 pub fn build_widgets() {
-    let colors = [
-        ("Item 0", ColorToken::Primary, ColorToken::OnPrimary),
-        ("Item 1", ColorToken::Secondary, ColorToken::OnSecondary),
-        ("Item 2", ColorToken::Tertiary, ColorToken::OnTertiary),
-        (
-            "Item 3",
-            ColorToken::SurfaceVariant,
-            ColorToken::OnSurfaceVariant,
-        ),
-        ("Item 4", ColorToken::Primary, ColorToken::OnPrimary),
-        ("Item 5", ColorToken::Secondary, ColorToken::OnSecondary),
-        ("Item 6", ColorToken::Tertiary, ColorToken::OnTertiary),
-        (
-            "Item 7",
-            ColorToken::SurfaceVariant,
-            ColorToken::OnSurfaceVariant,
-        ),
+    let items = [
+        ("Item 0", ColorToken::Primary),
+        ("Item 1", ColorToken::Secondary),
+        ("Item 2", ColorToken::Tertiary),
+        ("Item 3", ColorToken::OnSurfaceVariant),
+        ("Item 4", ColorToken::Primary),
+        ("Item 5", ColorToken::Secondary),
+        ("Item 6", ColorToken::Tertiary),
+        ("Item 7", ColorToken::OnSurfaceVariant),
     ];
 
     //~focus-start
@@ -33,21 +25,22 @@ pub fn build_widgets() {
             bg_color: ColorToken::Surface
         ) {
             Text (
-                "ELASTIC LIST",
+                "Elastic list",
                 width: Dimension::percent(100),
                 max_width: 420,
-                height: 28,
-                font_size: 18,
-                text_color: ColorToken::OnSurface
+                height: 30,
+                font_size: 20,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Column (
                 width: Dimension::percent(100),
                 max_width: 420,
                 grow: 1.0,
-                row_gap: 8,
-                padding: Padding::all(4),
+                row_gap: 6,
+                padding: Padding::all(6),
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 14
+                border_radius: 18
             ) [
                 ScrollOffset {
                     x: Fixed::ZERO,
@@ -56,29 +49,27 @@ pub fn build_widgets() {
                 ScrollConfig {
                     direction: ScrollAxis::Vertical,
                     elastic: true,
-                    content_height: Fixed::from_int(536),
+                    content_height: Fixed::from_int(470),
                     content_width: Fixed::ZERO,
                     transition: None,
                 },
             ] {
-                walk colors.iter() with item {
+                walk items.iter() with item {
                     Row (
-                        bg_color: item.1,
-                        height: 60,
-                        border_radius: 10,
-                        padding: Padding {
-                            top: Dimension::px(0),
-                            right: Dimension::px(16),
-                            bottom: Dimension::px(0),
-                            left: Dimension::px(16),
-                        },
+                        bg_color: ColorToken::Outline,
+                        height: 52,
+                        border_radius: 12,
+                        padding: Padding::all(16),
+                        column_gap: 12,
                         align: AlignItems::Center
                     ) {
+                        View (width: 8, height: 8, border_radius: 4, bg_color: item.1)
                         Text (
                             item.0,
                             grow: 1.0,
                             height: 24,
-                            text_color: item.2,
+                            font_size: 15,
+                            text_color: ColorToken::OnSurface,
                             paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                         )
                     }
@@ -95,6 +86,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install_sample(app);
     app.compose(parent, build_widgets());
 }
 

@@ -30,12 +30,13 @@ fn row(item: model!(ListItem)) -> Entity {
                 text: ${ alloc::format!("Row {}", item.index()) },
                 grow: 1.0,
                 height: 24,
+                font_size: 14,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             View (
-                width: 5,
-                height: 5,
+                width: 6,
+                height: 6,
                 bg_color: ColorToken::Primary,
                 border_radius: 3
             )

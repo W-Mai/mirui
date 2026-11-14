@@ -35,30 +35,24 @@ pub fn build_widgets() {
             align: AlignItems::Center,
             justify: JustifyContent::Center,
             padding: Padding::all(20),
-            row_gap: 14
+            row_gap: 8
         ) {
             Text (
-                text: ${ format!("VALUE  {:03}", s_value_text.get().last_value) },
+                "Value",
                 width: Dimension::percent(100),
                 max_width: 480,
-                height: 44,
-                font_size: 22,
-                text_color: ColorToken::OnSurface,
+                height: 16,
+                font_size: 12,
+                text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label()
             )
             Text (
-                text: ${
-                    format!(
-                        "CHANGES  {:02}   ·   DRAG EDGES  {:02}", s_read.get().changes, s_read.get()
-                        .drags
-                    )
-                },
-                id: "stats_label",
+                text: ${ format!("{}", s_value_text.get().last_value) },
                 width: Dimension::percent(100),
                 max_width: 480,
-                height: 32,
-                font_size: 11,
-                text_color: ColorToken::OnSurfaceVariant,
+                height: 70,
+                font_size: 56,
+                text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label()
             )
             Slider (
@@ -67,7 +61,9 @@ pub fn build_widgets() {
                 height: 32,
                 min: Fixed::ZERO,
                 max: Fixed::from_int(100),
-                value: Fixed::ZERO
+                value: Fixed::ZERO,
+                track_color: ColorToken::Outline,
+                thumb_color: Color::rgb(245, 246, 248)
             ) on ValueChanged {
                 let new_value = event.new.to_int();
                 let _ = event.old;
@@ -87,6 +83,16 @@ pub fn build_widgets() {
                         s.drags += 1;
                     });
             }
+            Text (
+                text: ${ format!("{} changes · {} drag edges", s_read.get().changes, s_read.get().drags) },
+                id: "stats_label",
+                width: Dimension::percent(100),
+                max_width: 480,
+                height: 24,
+                font_size: 12,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label()
+            )
         }
     };
     //~focus-end
@@ -99,6 +105,7 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(StdInstantClockPlugin);
+    crate::gallery::showcase_theme::install_sample(app);
     app.compose(parent, build_widgets());
 }
 

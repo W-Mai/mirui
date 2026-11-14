@@ -43,21 +43,21 @@ pub fn build_widgets() {
             Column (
                 width: Dimension::percent(100),
                 max_width: 420,
-                height: 38,
+                height: 42,
                 row_gap: 2
             ) {
                 Text (
-                    "VIRTUAL LIST",
+                    "Virtual list",
                     width: Dimension::percent(100),
                     height: 22,
                     font_size: 18,
                     text_color: ColorToken::OnSurface
                 )
                 Text (
-                    "65,536 ROWS",
+                    "65,536 rows",
                     width: Dimension::percent(100),
-                    height: 14,
-                    font_size: 10,
+                    height: 16,
+                    font_size: 12,
                     text_color: ColorToken::OnSurfaceVariant
                 )
             }
@@ -74,5 +74,6 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(StdInstantClockPlugin);
+    crate::gallery::showcase_theme::install_sample(app);
     app.compose(parent, build_widgets());
 }

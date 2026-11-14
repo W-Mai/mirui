@@ -6,13 +6,16 @@ ui!(compose Card {
     Column (
         direction: FlexDirection::Column,
         grow: 1.0,
-        border_radius: 12,
-        clip_children: true
+        border_radius: 18,
+        bg_color: ColorToken::SurfaceVariant,
+        padding: Padding::all(8),
+        row_gap: 6
     ) {
         View (
             bg_color: ColorToken::Primary,
             padding: Padding::all(8),
-            height: 32
+            height: 32,
+            border_radius: 12
         ) {
             @@header {
                 Text (
@@ -24,8 +27,7 @@ ui!(compose Card {
             }
         }
         View (
-            bg_color: ColorToken::SurfaceVariant,
-            padding: Padding::all(12),
+            padding: Padding::all(8),
             direction: FlexDirection::Column,
             grow: 1.0
         ) {
@@ -37,10 +39,9 @@ ui!(compose Card {
             }
         }
         View (
-            bg_color: ColorToken::Surface,
             padding: Padding::all(8),
             direction: FlexDirection::Row,
-            height: 32
+            height: 28
         ) {
             @@footer
         }

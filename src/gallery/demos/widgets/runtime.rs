@@ -39,6 +39,7 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(InputFeedbackPlugin::default());
+    app.add_plugin(crate::gallery::play::font::PlayFontPlugin);
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(FpsSummaryPlugin::default());
     app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());

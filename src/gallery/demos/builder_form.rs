@@ -8,7 +8,7 @@ use crate::input::event::contract::Event;
 #[cfg(feature = "std")]
 use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::surface::Surface;
-use crate::types::{Dimension, Fixed};
+use crate::types::{Color, Dimension, Fixed};
 use crate::ui::Style;
 use crate::ui::layout::{AlignItems, FlexDirection, JustifyContent, LayoutStyle, Padding};
 use crate::ui::property::prop;
@@ -90,8 +90,11 @@ where
     F: RendererFactory<B>,
 {
     #[cfg(feature = "std")]
-    app.add_plugin(StdInstantClockPlugin)
-        .add_plugin(FpsSummaryPlugin::default());
+    {
+        app.add_plugin(StdInstantClockPlugin)
+            .add_plugin(FpsSummaryPlugin::default());
+        crate::gallery::showcase_theme::install_sample(app);
+    }
 
     //~focus-start
     let controls = app
@@ -103,7 +106,7 @@ where
     app.compose(parent, |tree| {
         tree.children(column_style(), |c| {
             c.spawn(
-                Text::build("BUILDER API")
+                Text::build("Builder API")
                     .style(Style {
                         font_size: Some(20),
                         ..row_style(32)
@@ -112,19 +115,25 @@ where
             );
             c.spawn(
                 Text::build("Level and notifications")
-                    .style(row_style(26))
+                    .style(Style {
+                        font_size: Some(13),
+                        text_color: ColorToken::OnSurfaceVariant.into(),
+                        ..row_style(26)
+                    })
                     .paragraph(ParagraphStyle::label().with_align(TextAlign::Start)),
             );
             let source = controls.clone();
             c.spawn(
                 Slider::build(Fixed::ZERO, Fixed::from_int(100))
-                    .style(row_style(28))
+                    .style(row_style(32))
                     .bind_property::<prop::SliderValue>(move || source.level())
                     .on_event(
                         Slider::ValueChanged,
                         level_changed::callback(controls.clone()),
                     )
-                    .fill_color(ColorToken::Primary),
+                    .fill_color(ColorToken::Primary)
+                    .thumb_color(Color::rgb(245, 246, 248))
+                    .track_color(ColorToken::Outline),
             );
             c.children(
                 Style {
@@ -152,6 +161,8 @@ where
                     let source = controls.clone();
                     row.spawn(
                         Switch::build()
+                            .off_color(ColorToken::Outline)
+                            .thumb_color(Color::rgb(245, 246, 248))
                             .bind_property::<prop::SwitchOn>(move || source.notifications())
                             .on_event(Switch::Toggled, toggled::callback(controls.clone()))
                             .style(Style {
@@ -169,14 +180,23 @@ where
             c.spawn(
                 ProgressBar::build()
                     .bind_property::<prop::ProgressValue>(move || source.level().to_f32() / 100.0)
-                    .style(row_style(14))
-                    .fill_color(ColorToken::Success),
+                    .style(row_style(12))
+                    .track_color(ColorToken::Outline)
+                    .fill_color(ColorToken::Primary),
             );
             c.spawn((
-                Button::build().style(row_style(32)).on_event(
-                    crate::input::event::gesture::Tap::EVENT,
-                    reset::callback(controls),
-                ),
+                Button::build()
+                    .style(Style {
+                        border_radius: Fixed::from_int(22),
+                        text_color: ColorToken::OnSurface.into(),
+                        ..row_style(44)
+                    })
+                    .normal_color(ColorToken::Outline)
+                    .pressed_color(ColorToken::SurfaceVariant)
+                    .on_event(
+                        crate::input::event::gesture::Tap::EVENT,
+                        reset::callback(controls),
+                    ),
                 Text::label("Reset"),
             ));
         })

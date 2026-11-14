@@ -34,46 +34,46 @@ pub fn build_widgets() {
                 text: ${
                     let state = selection_text.get();
                     format!(
-                        "TAB {} · FROM {} · {} CHANGE{}", state.current + 1, state.previous + 1, state
-                        .changes, if state.changes == 1 { "" } else { "S" }
+                        "Tab {} · from {} · {} change{}", state.current + 1, state.previous + 1, state
+                        .changes, if state.changes == 1 { "" } else { "s" }
                     )
                 },
                 id: "tabbar_selection_status",
                 width: Dimension::percent(100),
                 max_width: 480,
                 height: 22,
-                font_size: 10,
-                text_color: ColorToken::Primary,
+                font_size: 12,
+                text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             TabBar (
                 id: "tabbar_demo_tabs",
                 width: Dimension::percent(100),
                 max_width: 480,
-                bg_color: ColorToken::SurfaceVariant,
                 height: 44,
-                border_radius: 14,
-                clip_children: true,
                 count: 3,
                 indicator_height: Fixed::from_int(3)
             ) {
                 Text (
                     "Home",
-                    text_color: ColorToken::OnSurfaceVariant,
+                    font_size: 14,
+                    text_color: ColorToken::OnSurface,
                     grow: 1.0,
                     height: Dimension::percent(100),
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
                     "Search",
-                    text_color: ColorToken::OnSurfaceVariant,
+                    font_size: 14,
+                    text_color: ColorToken::OnSurface,
                     grow: 1.0,
                     height: Dimension::percent(100),
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
                     "Profile",
-                    text_color: ColorToken::OnSurfaceVariant,
+                    font_size: 14,
+                    text_color: ColorToken::OnSurface,
                     grow: 1.0,
                     height: Dimension::percent(100),
                     paragraph: ParagraphStyle::label()
@@ -102,7 +102,7 @@ pub fn build_widgets() {
                     justify: JustifyContent::Center,
                     padding: Padding::all(22),
                     row_gap: 8,
-                    bg_color: ColorToken::Primary
+                    bg_color: ColorToken::SurfaceVariant
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),
@@ -110,15 +110,15 @@ pub fn build_widgets() {
                     },
                 ] {
                     Text (
-                        "HOME",
+                        "Home",
                         height: 30,
                         font_size: 22,
-                        text_color: ColorToken::OnPrimary,
+                        text_color: ColorToken::OnSurface,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
                         "Active workspace overview.",
-                        text_color: ColorToken::OnPrimary
+                        text_color: ColorToken::OnSurfaceVariant
                     )
                 }
                 Column (
@@ -130,7 +130,7 @@ pub fn build_widgets() {
                     justify: JustifyContent::Center,
                     padding: Padding::all(22),
                     row_gap: 8,
-                    bg_color: ColorToken::Secondary
+                    bg_color: ColorToken::SurfaceVariant
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),
@@ -138,15 +138,15 @@ pub fn build_widgets() {
                     },
                 ] {
                     Text (
-                        "SEARCH",
+                        "Search",
                         height: 30,
                         font_size: 22,
-                        text_color: ColorToken::OnSecondary,
+                        text_color: ColorToken::OnSurface,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
                         "Explore the current workspace.",
-                        text_color: ColorToken::OnSecondary
+                        text_color: ColorToken::OnSurfaceVariant
                     )
                 }
                 Column (
@@ -158,7 +158,7 @@ pub fn build_widgets() {
                     justify: JustifyContent::Center,
                     padding: Padding::all(22),
                     row_gap: 8,
-                    bg_color: ColorToken::Tertiary
+                    bg_color: ColorToken::SurfaceVariant
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),
@@ -166,15 +166,15 @@ pub fn build_widgets() {
                     },
                 ] {
                     Text (
-                        "PROFILE",
+                        "Profile",
                         height: 30,
                         font_size: 22,
-                        text_color: ColorToken::OnTertiary,
+                        text_color: ColorToken::OnSurface,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
                         "Identity and preferences.",
-                        text_color: ColorToken::OnTertiary
+                        text_color: ColorToken::OnSurfaceVariant
                     )
                 }
             }
@@ -191,6 +191,7 @@ where
 {
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
+    crate::gallery::showcase_theme::install_sample(app);
     app.compose(parent, build_widgets());
 }
 
@@ -291,7 +292,7 @@ mod tests {
         let status = world.find_by_id("tabbar_selection_status").unwrap();
         let status_text = world.get::<Text>(status).unwrap().resolve(world.resource());
         assert!(
-            status_text.contains("TAB 2 · FROM 1 · 1 CHANGE"),
+            status_text.contains("Tab 2 · from 1 · 1 change"),
             "{status_text}"
         );
     }

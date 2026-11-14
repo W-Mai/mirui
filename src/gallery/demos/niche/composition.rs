@@ -14,17 +14,17 @@ pub fn build_widgets() {
             row_gap: 8
         ) {
             Text (
-                "NAMED SLOTS",
+                "Named slots",
                 width: Dimension::percent(100),
                 max_width: 420,
                 height: 24,
                 font_size: 18,
                 text_color: ColorToken::OnSurface
             )
-            Card (width: Dimension::percent(100), max_width: 420, height: 140) {
+            Card (width: Dimension::percent(100), max_width: 420, height: 156) {
                 @header {
                     Text (
-                        "ALERT",
+                        "Alert",
                         grow: 1.0,
                         text_color: ColorToken::OnPrimary,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
@@ -44,13 +44,13 @@ pub fn build_widgets() {
                 }
                 @footer {
                     Text (
-                        "FOOTER SLOT",
-                        font_size: 11,
+                        "Footer slot",
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant
                     )
                 }
             }
-            Card (width: Dimension::percent(100), max_width: 420, height: 92) {
+            Card (width: Dimension::percent(100), max_width: 420, height: 104) {
                 @body {
                     Column (direction: FlexDirection::Column, grow: 1.0) {
                         Text (

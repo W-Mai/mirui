@@ -17,13 +17,17 @@ pub fn build_widgets(settings: model!(SettingsModel)) {
                 height: 30,
                 min: Fixed::from_int(12),
                 max: Fixed::from_int(24),
-                value: ${ Fixed::from_int(i32::from(settings.preview_size())) }
+                value: ${ Fixed::from_int(i32::from(settings.preview_size())) },
+                track_color: ColorToken::Outline,
+                thumb_color: Color::rgb(245, 246, 248)
             ) on ValueChanged { settings.set_font_size(event.new.to_int().clamp(12, 24) as u16); }
             Row (height: 30, align: AlignItems::Center, column_gap: 10) {
                 Checkbox (
                     id: "settings_details",
                     width: 24,
                     height: 24,
+                    border_radius: 8,
+                    unchecked_color: ColorToken::Outline,
                     checked: ${ settings.show_details() }
                 ) on Toggled { settings.set_show_details(event.now); }
                 Text ("Show details", grow: 1.0, font_size: 14)

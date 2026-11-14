@@ -1,4 +1,4 @@
-use super::motion::{AnimateColor, AnimateX};
+use super::motion::AnimateX;
 use crate::anim::{PlayMode, Tween, ease};
 use crate::prelude::*;
 use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
@@ -19,7 +19,7 @@ pub fn build_widgets() {
                 max_width: 320,
                 height: 144,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 18,
+                border_radius: 24,
                 clip_children: true
             ) {
                 Row (
@@ -36,19 +36,19 @@ pub fn build_widgets() {
                     }
                 ) {
                     Text (
-                        "TWEEN MOTION",
+                        "Tween motion",
                         grow: 1.0,
-                        font_size: 12,
+                        font_size: 13,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "PING / PONG",
-                        width: 104,
+                        "Ping-pong",
+                        width: 84,
                         height: 24,
-                        font_size: 8,
-                        bg_color: ColorToken::Surface,
-                        text_color: ColorToken::Primary,
+                        font_size: 11,
+                        bg_color: ColorToken::Outline,
+                        text_color: ColorToken::OnSurface,
                         border_radius: 12,
                         paragraph: ParagraphStyle::label()
                     )
@@ -63,9 +63,7 @@ pub fn build_widgets() {
                     border_radius: 2
                 )
                 View (
-                    bg_color: Color::rgb(255, 86, 139),
-                    border_color: Color::rgb(255, 174, 206),
-                    border_width: 2,
+                    bg_color: ColorToken::Primary,
                     border_radius: 18,
                     position: Position::Absolute,
                     left: 18,
@@ -81,10 +79,6 @@ pub fn build_widgets() {
                                 &ease::IN_OUT_CUBIC,
                                 PlayMode::PingPong,
                             )
-                            .into(),
-                    ),
-                    AnimateColor(
-                        Tween::new(Fixed::ZERO, Fixed::ONE, 2400, &ease::IN_OUT_QUAD, PlayMode::Loop)
                             .into(),
                     ),
                 ]

@@ -2,26 +2,21 @@ use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 #[cfg(feature = "std")]
 use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
-use crate::ui::widgets::{ParagraphStyle, Text};
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
 #[compose]
 pub fn build_widgets() {
-    let colors_outer = [
-        (ColorToken::Primary, ColorToken::OnPrimary),
-        (ColorToken::Secondary, ColorToken::OnSecondary),
-        (ColorToken::Tertiary, ColorToken::OnTertiary),
-        (ColorToken::SurfaceVariant, ColorToken::OnSurfaceVariant),
-        (ColorToken::Primary, ColorToken::OnPrimary),
+    let sections = [(); 5];
+    // A ramp of greys, so that a row of tiles reads as a row and not as five colours.
+    let tiles = [
+        ColorToken::Outline,
+        ColorToken::Tertiary,
+        ColorToken::Secondary,
+        ColorToken::Outline,
+        ColorToken::Tertiary,
+        ColorToken::Secondary,
     ];
-
-    let colors_inner = [
-        (ColorToken::Primary, ColorToken::OnPrimary),
-        (ColorToken::Secondary, ColorToken::OnSecondary),
-        (ColorToken::Tertiary, ColorToken::OnTertiary),
-        (ColorToken::SurfaceVariant, ColorToken::OnSurfaceVariant),
-        (ColorToken::Secondary, ColorToken::OnSecondary),
-        (ColorToken::Primary, ColorToken::OnPrimary),
-    ];
+    let cards = [(); 6];
 
     //~focus-start
     ui! {
@@ -44,26 +39,28 @@ pub fn build_widgets() {
             },
         ] {
             Text (
-                "NESTED SCROLL",
+                "Nested scroll",
                 width: Dimension::percent(100),
                 height: 30,
                 font_size: 20,
-                text_color: ColorToken::OnSurface
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
-            walk colors_outer.iter().enumerate() with item {
+            walk sections.iter().enumerate() with item {
                 Column (
                     height: 200,
-                    bg_color: item.1.0,
-                    border_radius: 12,
+                    bg_color: ColorToken::SurfaceVariant,
+                    border_radius: 18,
                     clip_children: true
                 ) {
                     Text (
-                        text: ${ alloc::format!("SECTION {:02}", item.0 + 1) },
+                        text: ${ alloc::format!("Section {:02}", item.0 + 1) },
                         height: 34,
-                        text_color: item.1.1,
-                        paragraph: ParagraphStyle::label()
+                        font_size: 13,
+                        text_color: ColorToken::OnSurfaceVariant,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
-                    Row (grow: 1.0) [
+                    Row (grow: 1.0, column_gap: 8) [
                         ScrollOffset {
                             x: Fixed::ZERO,
                             y: Fixed::ZERO,
@@ -72,37 +69,33 @@ pub fn build_widgets() {
                             direction: ScrollAxis::Horizontal,
                             elastic: true,
                             content_height: Fixed::ZERO,
-                            content_width: Fixed::from_int(600),
+                            content_width: Fixed::from_int(640),
                             transition: None,
                         },
                     ] {
-                        walk colors_inner.iter() with color {
-                            View (width: 100, height: 150, bg_color: color.0, border_radius: 8)
+                        walk tiles.iter() with tone {
+                            View (width: 100, height: 150, bg_color: *tone, border_radius: 14)
                         }
                     }
                 }
             }
             Column (
                 height: 300,
-                bg_color: ColorToken::Primary,
-                border_radius: 12,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 18,
                 clip_children: true
             ) {
                 Text (
-                    "NESTED VERTICAL LIST",
-                    height: 30,
-                    text_color: ColorToken::OnPrimary,
-                    paragraph: ParagraphStyle::label()
+                    "Nested vertical list",
+                    height: 34,
+                    font_size: 13,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Column (
                     grow: 1.0,
-                    bg_color: ColorToken::SurfaceVariant,
-                    padding: Padding {
-                        top: Dimension::px(8),
-                        left: Dimension::px(8),
-                        right: Dimension::px(8),
-                        bottom: Dimension::px(8),
-                    }
+                    padding: Padding::all(6),
+                    row_gap: 6
                 ) [
                     ScrollOffset {
                         x: Fixed::ZERO,
@@ -116,20 +109,21 @@ pub fn build_widgets() {
                         transition: None,
                     },
                 ] {
-                    walk colors_inner.iter().enumerate() with item {
+                    walk cards.iter().enumerate() with item {
                         Row (
-                            height: 80,
-                            bg_color: item.1.0,
-                            border_radius: 6,
+                            height: 56,
+                            bg_color: ColorToken::Outline,
+                            border_radius: 12,
                             align: AlignItems::Center,
-                            padding: Padding::all(12)
+                            padding: Padding::all(16)
                         ) {
                             Text (
-                                text: ${ alloc::format!("CARD {:02}", item.0 + 1) },
+                                text: ${ alloc::format!("Card {:02}", item.0 + 1) },
                                 grow: 1.0,
                                 height: 24,
-                                text_color: item.1.1,
-                                paragraph: ParagraphStyle::label()
+                                font_size: 15,
+                                text_color: ColorToken::OnSurface,
+                                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                             )
                         }
                     }
@@ -146,6 +140,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install_sample(app);
     app.add_plugin(InputFeedbackPlugin::new());
     app.compose(parent, build_widgets());
 }

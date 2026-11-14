@@ -6,6 +6,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install_sample(app);
     app.with_widget(ui!(compose Card));
     app.compose(parent, build_widgets());
 }

@@ -19,15 +19,15 @@ pub fn build_widgets() {
             bg_color: ColorToken::Surface,
             grow: 1.0,
             padding: Padding::all(16),
-            row_gap: 12
+            row_gap: 10
         ) {
             Column (
                 width: Dimension::percent(100),
-                height: 50,
+                height: 48,
                 row_gap: 2
             ) {
                 Text (
-                    "WIDGET WORKBENCH",
+                    "Widget workbench",
                     width: Dimension::percent(100),
                     height: 28,
                     font_size: 20,
@@ -35,10 +35,10 @@ pub fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "LIST / CONTROLS / LIVE THEME",
+                    "List, controls and live theme",
                     width: Dimension::percent(100),
                     height: 18,
-                    font_size: 10,
+                    font_size: 12,
                     text_color: ColorToken::OnSurfaceVariant,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
@@ -46,35 +46,35 @@ pub fn build_widgets() {
             TabBar (
                 id: "widgets_tabs",
                 width: Dimension::percent(100),
-                height: 44,
-                bg_color: ColorToken::SurfaceVariant,
-                border_radius: 14,
-                clip_children: true,
+                height: 40,
                 count: 3,
                 indicator_height: Fixed::from_int(3)
             ) {
                 Text (
-                    "LIST",
+                    "List",
                     id: "widgets_tab_list",
                     grow: 1.0,
                     height: Dimension::percent(100),
-                    text_color: ColorToken::OnSurfaceVariant,
+                    font_size: 14,
+                    text_color: ColorToken::OnSurface,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "CONTROLS",
+                    "Controls",
                     id: "widgets_tab_form",
                     grow: 1.0,
                     height: Dimension::percent(100),
-                    text_color: ColorToken::OnSurfaceVariant,
+                    font_size: 14,
+                    text_color: ColorToken::OnSurface,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "THEME",
+                    "Theme",
                     id: "widgets_tab_theme",
                     grow: 1.0,
                     height: Dimension::percent(100),
-                    text_color: ColorToken::OnSurfaceVariant,
+                    font_size: 14,
+                    text_color: ColorToken::OnSurface,
                     paragraph: ParagraphStyle::label()
                 )
             }
@@ -117,7 +117,7 @@ pub fn build_widgets() {
                     width: Dimension::percent(100),
                     height: Dimension::percent(100),
                     padding: Padding::all(18),
-                    row_gap: 14,
+                    row_gap: 12,
                     bg_color: ColorToken::SurfaceVariant
                 ) [
                     TabContent {
@@ -127,62 +127,74 @@ pub fn build_widgets() {
                 ] {
                     Row (height: 34, align: AlignItems::Center) {
                         Text (
-                            "LIVE CONTROLS",
+                            "Live controls",
                             grow: 1.0,
                             height: 24,
+                            font_size: 16,
                             text_color: ColorToken::OnSurface,
                             paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                         )
-                        Switch (id: "widgets_switch", width: 44, height: 24) [
+                        Switch (
+                            id: "widgets_switch",
+                            width: 44,
+                            height: 24,
+                            off_color: ColorToken::Outline,
+                            thumb_color: Color::rgb(245, 246, 248)
+                        ) [
                             OffscreenRender::default(),
                         ]
                     }
                     Text (
-                        "INTENSITY",
+                        "Intensity",
                         width: Dimension::percent(100),
-                        height: 18,
-                        font_size: 10,
+                        height: 16,
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Slider (
                         id: "widgets_slider",
                         width: Dimension::percent(100),
-                        height: 20,
+                        height: 24,
                         min: Fixed::ZERO,
-                        max: Fixed::from_int(100)
+                        max: Fixed::from_int(100),
+                        track_color: ColorToken::Outline,
+                        thumb_color: Color::rgb(245, 246, 248)
                     ) [
                         FormSlider,
                     ]
                     ProgressBar (
                         width: Dimension::percent(100),
                         height: 8,
-                        border_radius: 4
+                        border_radius: 4,
+                        track_color: ColorToken::Outline
                     ) [
                         FormProgress,
                     ]
                     Row (
-                        height: 42,
+                        height: 44,
                         align: AlignItems::Center,
                         column_gap: 10
                     ) {
                         Image (width: 28, height: 28, src: "thumbs_up")
                         Button (
                             grow: 1.0,
-                            height: 38,
-                            border_radius: 12,
-                            normal_color: ColorToken::Success,
-                            pressed_color: ColorToken::Primary,
+                            height: 40,
+                            border_radius: 20,
+                            font_size: 15,
+                            normal_color: ColorToken::Primary,
+                            pressed_color: ColorToken::Secondary,
                             text_color: ColorToken::OnPrimary
                         ) [
                             Text::label("Apply"),
                         ]
                         Button (
                             grow: 1.0,
-                            height: 38,
-                            border_radius: 12,
+                            height: 40,
+                            border_radius: 20,
+                            font_size: 15,
                             normal_color: ColorToken::Surface,
-                            pressed_color: ColorToken::Primary,
+                            pressed_color: ColorToken::Outline,
                             text_color: ColorToken::OnSurface
                         ) [
                             Text::label("Reset"),
@@ -190,22 +202,27 @@ pub fn build_widgets() {
                     }
                     Row (height: 32, align: AlignItems::Center, column_gap: 10) {
                         Text (
-                            "OPTIONS",
+                            "Options",
                             grow: 1.0,
                             height: 24,
+                            font_size: 14,
                             text_color: ColorToken::OnSurface,
                             paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                         )
                         Checkbox (
-                            width: 22,
-                            height: 22,
+                            width: 24,
+                            height: 24,
+                            border_radius: 8,
                             checked: true,
-                            checked_color: ColorToken::Primary
+                            checked_color: ColorToken::Primary,
+                            unchecked_color: ColorToken::Outline
                         )
                         Checkbox (
-                            width: 22,
-                            height: 22,
-                            checked_color: ColorToken::Success
+                            width: 24,
+                            height: 24,
+                            border_radius: 8,
+                            checked_color: ColorToken::Primary,
+                            unchecked_color: ColorToken::Outline
                         )
                     }
                 }
@@ -215,8 +232,8 @@ pub fn build_widgets() {
                     top: 0,
                     width: Dimension::percent(100),
                     height: Dimension::percent(100),
-                    padding: Padding::all(20),
-                    row_gap: 12,
+                    padding: Padding::all(18),
+                    row_gap: 8,
                     bg_color: ColorToken::SurfaceVariant
                 ) [
                     TabContent {
@@ -225,7 +242,7 @@ pub fn build_widgets() {
                     },
                 ] {
                     Text (
-                        "SEMANTIC PALETTE",
+                        "Semantic palette",
                         width: Dimension::percent(100),
                         height: 28,
                         font_size: 18,
@@ -233,37 +250,38 @@ pub fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "PRIMARY",
+                        "Primary",
                         width: Dimension::percent(100),
-                        height: 18,
-                        font_size: 10,
+                        height: 16,
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     View (
                         width: Dimension::percent(100),
-                        height: 64,
+                        height: 44,
                         bg_color: ColorToken::Primary,
-                        border_radius: 14
+                        border_radius: 22
                     )
                     Text (
-                        "CUSTOM ACCENT",
+                        "Custom accent",
                         width: Dimension::percent(100),
-                        height: 18,
-                        font_size: 10,
+                        height: 16,
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     View (
                         width: Dimension::percent(100),
-                        height: 64,
+                        height: 44,
                         bg_color: ACCENT,
-                        border_radius: 14
+                        border_radius: 22
                     )
                     Text (
                         "Palette tokens update every three seconds.",
                         width: Dimension::percent(100),
-                        height: 24,
+                        height: 20,
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )

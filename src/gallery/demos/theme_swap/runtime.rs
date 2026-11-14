@@ -15,5 +15,6 @@ where
         .register_theme(light_with_accent())
         .register_theme(custom_theme());
     app.set_theme("midnight-amber").expect("registered theme");
+    app.add_plugin(crate::gallery::play::font::PlayFontPlugin);
     app.compose(parent, build_widgets());
 }

@@ -54,7 +54,12 @@ pub fn build_widgets() {
                 align: AlignItems::Center,
                 column_gap: 10
             ) {
-                Checkbox (width: 24, height: 24) on Toggled { agreement_changed.set(event.now); }
+                Checkbox (
+                    width: 24,
+                    height: 24,
+                    border_radius: 8,
+                    unchecked_color: ColorToken::Outline
+                ) on Toggled { agreement_changed.set(event.now); }
                 Text (
                     "I agree to continue",
                     grow: 1.0,
