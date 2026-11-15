@@ -10,6 +10,7 @@ mod chord;
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use gallery::mirui::audio::{AudioHandle, AudioOutputState};
+use gallery::mirui::core::i18n::{I18n, Locale};
 
 type WebApp = gallery::mirui::app::App<gallery::ActiveSurface, gallery::ActiveFactory>;
 const DEFAULT_DEMO: &str = "orbit_console";
@@ -22,6 +23,14 @@ thread_local! {
     /// The game pane's application while paused; its frame loop idles without it.
     static PLAY_PARKED: RefCell<Option<WebApp>> = const { RefCell::new(None) };
     static DARK: core::cell::Cell<bool> = const { core::cell::Cell::new(true) };
+    /// The page language; every application follows it.
+    static LOCALE: core::cell::Cell<Locale> = const { core::cell::Cell::new(Locale::EnUs) };
+}
+
+fn apply_locale(app: &WebApp) {
+    if let Some(i18n) = app.world.resource::<I18n>() {
+        i18n.set_locale(LOCALE.with(|locale| locale.get()));
+    }
 }
 
 fn apply_appearance(app: &mut WebApp) {
@@ -48,11 +57,14 @@ fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> 
         ));
     }
     let root = {
+        apply_locale(&app);
         let mut setup = gallery::Setup { app: &mut app };
         (demo.setup)(&mut setup)
     };
     app.set_root(root);
     apply_appearance(&mut app);
+    // A demo may install its own translation table while it sets up.
+    apply_locale(&app);
     app.prepare_text_layout()
         .expect("prepare Web Gallery text layout capacity");
     app
@@ -71,6 +83,38 @@ fn prefers_dark() -> bool {
         .unwrap_or(true)
 }
 
+/// The language the page shell chose: `<html lang>`, set before the wasm loads.
+fn page_locale() -> Locale {
+    web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.document_element())
+        .and_then(|root| root.get_attribute("lang"))
+        .and_then(|tag| Locale::from_tag(&tag))
+        .unwrap_or(Locale::EnUs)
+}
+
+/// Switches every running application to the page language (`zh` or `en`).
+#[wasm_bindgen]
+pub fn set_locale(tag: &str) {
+    let Some(locale) = Locale::from_tag(tag) else {
+        return;
+    };
+    LOCALE.with(|slot| slot.set(locale));
+    for cell in [APP.with(|slot| slot.borrow().clone()), play_cell()]
+        .into_iter()
+        .flatten()
+    {
+        if let Some(app) = cell.borrow().as_ref() {
+            apply_locale(app);
+        }
+    }
+    PLAY_PARKED.with(|slot| {
+        if let Some(app) = slot.borrow().as_ref() {
+            apply_locale(app);
+        }
+    });
+}
+
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
@@ -83,6 +127,7 @@ pub fn start() {
     }
 
     DARK.with(|d| d.set(prefers_dark()));
+    LOCALE.with(|locale| locale.set(page_locale()));
     let slug = read_demo_query().unwrap_or_else(|| HOME_DEMO.to_string());
     let backend = gallery::grab_canvas();
     let app = if backend_parity_enabled() {

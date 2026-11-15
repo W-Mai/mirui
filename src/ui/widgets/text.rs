@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::ops::Range;
 
-use crate::core::i18n::{I18n, Localized};
+use crate::core::i18n::{I18n, Locale, Localized, Phrase};
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
 use crate::text::baseline::PlacementKey;
@@ -276,6 +276,8 @@ impl ParagraphStyle {
 pub enum TextContent {
     Plain(Cow<'static, str>),
     Localized(Localized),
+    /// Inline words in both languages, picked by the `I18n` locale.
+    Phrase(Phrase),
 }
 
 impl TextContent {
@@ -283,11 +285,14 @@ impl TextContent {
         match self {
             Self::Plain(content) => Cow::Borrowed(content.as_ref()),
             Self::Localized(localized) => Cow::Borrowed(localized.resolve_or_key(i18n)),
+            Self::Phrase(phrase) => {
+                Cow::Borrowed(phrase.pick(i18n.map_or(Locale::EnUs, I18n::locale)))
+            }
         }
     }
 
     fn is_localized(&self) -> bool {
-        matches!(self, Self::Localized(_))
+        matches!(self, Self::Localized(_) | Self::Phrase(_))
     }
 }
 
@@ -329,7 +334,7 @@ impl fmt::Display for TextContentError {
     }
 }
 
-struct BoundedTextBuffer<const N: usize> {
+pub(crate) struct BoundedTextBuffer<const N: usize> {
     bytes: [u8; N],
     len: usize,
     required: usize,
@@ -342,6 +347,14 @@ impl<const N: usize> BoundedTextBuffer<N> {
             len: 0,
             required: 0,
         }
+    }
+
+    /// Formats `args` on the stack. Runs the `Display` impls, so a binding
+    /// calls it before it borrows the World: they may read it themselves.
+    pub(crate) fn format(args: fmt::Arguments<'_>) -> Result<Self, fmt::Error> {
+        let mut buffer = Self::new();
+        fmt::write(&mut buffer, args)?;
+        Ok(buffer)
     }
 
     fn as_str(&self) -> &str {
@@ -513,6 +526,13 @@ impl Text {
         &mut self,
         args: fmt::Arguments<'_>,
     ) -> Result<bool, TextContentError> {
+        self.try_set_formatted(BoundedTextBuffer::<N>::format(args))
+    }
+
+    pub(crate) fn try_set_formatted<const N: usize>(
+        &mut self,
+        formatted: Result<BoundedTextBuffer<N>, fmt::Error>,
+    ) -> Result<bool, TextContentError> {
         let Some(capacity) = self.capacity else {
             return self.content_failure(TextContentError::Unbounded);
         };
@@ -522,10 +542,9 @@ impl Text {
                 provided: N,
             });
         }
-        let mut buffer = BoundedTextBuffer::<N>::new();
-        if fmt::write(&mut buffer, args).is_err() {
+        let Ok(buffer) = formatted else {
             return self.content_failure(TextContentError::Format);
-        }
+        };
         if buffer.required > capacity {
             return self.content_failure(TextContentError::Capacity {
                 required: buffer.required,
@@ -586,6 +605,18 @@ impl From<Cow<'static, str>> for TextContent {
 impl From<Localized> for TextContent {
     fn from(loc: Localized) -> Self {
         Self::Localized(loc)
+    }
+}
+
+impl From<Phrase> for TextContent {
+    fn from(phrase: Phrase) -> Self {
+        Self::Phrase(phrase)
+    }
+}
+
+impl From<Phrase> for Text {
+    fn from(phrase: Phrase) -> Self {
+        Self::new(phrase)
     }
 }
 

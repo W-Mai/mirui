@@ -116,6 +116,8 @@ pub fn apply<P: Property>(entity: Entity, value: P::Value) {
 
 #[doc(hidden)]
 pub fn apply_bounded_text<const N: usize>(entity: Entity, value: core::fmt::Arguments<'_>) {
+    // Format first: a `Display` impl may itself reach the World (`tr!`, `t!`).
+    let formatted = crate::ui::widgets::text::BoundedTextBuffer::<N>::format(value);
     crate::core::reactive::with_world(|world| {
         if !world.is_alive(entity) || !world.has::<crate::ui::Widget>(entity) {
             return;
@@ -123,7 +125,7 @@ pub fn apply_bounded_text<const N: usize>(entity: Entity, value: core::fmt::Argu
         let Some(text) = world.get_mut::<crate::ui::widgets::Text>(entity) else {
             return;
         };
-        match text.try_set_bounded::<N>(value) {
+        match text.try_set_formatted::<N>(formatted) {
             Ok(true) => invalidate_for_change(world, entity, PropertyChange::Layout),
             Ok(false) => {}
             Err(_) => crate::warn!(

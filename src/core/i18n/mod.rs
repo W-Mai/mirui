@@ -19,6 +19,18 @@ impl Locale {
             Locale::Custom(s) => s,
         }
     }
+
+    /// The built-in locale for a language tag such as `zh`, `zh-CN` or `en-US`.
+    pub fn from_tag(tag: &str) -> Option<Self> {
+        let language = tag.split(['-', '_']).next().unwrap_or(tag);
+        if language.eq_ignore_ascii_case("zh") {
+            Some(Locale::ZhCn)
+        } else if language.eq_ignore_ascii_case("en") {
+            Some(Locale::EnUs)
+        } else {
+            None
+        }
+    }
 }
 
 pub type Translation = (Locale, &'static str, &'static str);
@@ -43,6 +55,11 @@ impl I18n {
 
     pub fn locale(&self) -> Locale {
         self.locale.get_untracked()
+    }
+
+    /// The current locale, observed: a reactive binding that reads it re-runs on `set_locale`.
+    pub fn observe_locale(&self) -> Locale {
+        self.locale.get()
     }
 
     pub fn locale_signal(&self) -> Signal<Locale> {
@@ -153,6 +170,69 @@ impl core::fmt::Display for Localized {
     }
 }
 
+/// The locale of the World's `I18n` resource, observed by the running reactive
+/// binding. Outside a World scope, or with no `I18n` installed, it is
+/// [`Locale::EnUs`].
+pub fn locale() -> Locale {
+    crate::core::reactive::with_world(|world| {
+        world
+            .resource::<I18n>()
+            .map_or(Locale::EnUs, I18n::observe_locale)
+    })
+    .unwrap_or(Locale::EnUs)
+}
+
+/// A short string written inline in English and Chinese, for UI that keeps
+/// its words next to the code that shows them instead of in a key table.
+/// Formatting it picks the current [`locale`], so `text: ${ tr!(...) }`
+/// follows `set_locale`.
+///
+/// ```
+/// use mirui::core::i18n::{Locale, Phrase};
+///
+/// const LEVELS: Phrase = mirui::tr!(en: "Levels", zh: "选关");
+/// assert_eq!(LEVELS.pick(Locale::ZhCn), "选关");
+/// assert_eq!(LEVELS.to_string(), "Levels");
+/// ```
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Phrase {
+    pub en: &'static str,
+    pub zh: &'static str,
+}
+
+impl Phrase {
+    pub const fn new(en: &'static str, zh: &'static str) -> Self {
+        Self { en, zh }
+    }
+
+    /// The words for `locale`; any locale other than Chinese reads English.
+    pub const fn pick(self, locale: Locale) -> &'static str {
+        match locale {
+            Locale::ZhCn => self.zh,
+            _ => self.en,
+        }
+    }
+
+    /// The words for the current, observed [`locale`].
+    pub fn get(self) -> &'static str {
+        self.pick(locale())
+    }
+}
+
+impl core::fmt::Display for Phrase {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.get())
+    }
+}
+
+/// Build a [`Phrase`]: `tr!(en: "Levels", zh: "选关")`.
+#[macro_export]
+macro_rules! tr {
+    (en: $en:expr, zh: $zh:expr $(,)?) => {
+        $crate::core::i18n::Phrase::new($en, $zh)
+    };
+}
+
 /// Build a `Localized` from a key literal. Returned wrapper resolves
 /// lazily through the World's `I18n` resource.
 ///
@@ -253,6 +333,55 @@ mod tests {
     fn to_string_outside_world_scope_returns_key() {
         let s = alloc::string::ToString::to_string(&Localized::new("welcome"));
         assert_eq!(s, "welcome");
+    }
+
+    #[test]
+    fn phrase_follows_the_observed_locale() {
+        let mut world = World::new();
+        let i18n = I18n::new(Locale::EnUs);
+        let locale = i18n.locale_signal();
+        world.insert_resource(i18n);
+        let phrase = crate::tr!(en: "Levels", zh: "选关");
+        let shown = with_world_scope(&mut world, || {
+            crate::core::reactive::Computed::new(move || phrase.get())
+        });
+        assert_eq!(with_world_scope(&mut world, || shown.get()), "Levels");
+        locale.set(Locale::ZhCn);
+        assert_eq!(with_world_scope(&mut world, || shown.get()), "选关");
+        assert_eq!(phrase.pick(Locale::Custom("fr")), "Levels");
+    }
+
+    #[test]
+    fn phrase_outside_a_world_reads_english() {
+        assert_eq!(crate::tr!(en: "Undo", zh: "撤销").get(), "Undo");
+        assert_eq!(locale(), Locale::EnUs);
+    }
+
+    #[test]
+    fn phrase_text_resolves_and_refreshes_with_the_locale() {
+        let mut world = World::new();
+        world.insert_resource(I18n::new(Locale::EnUs));
+        let e = world.spawn_empty();
+        let text = crate::ui::widgets::text::Text::from(crate::tr!(en: "Hint", zh: "提示"));
+        assert_eq!(text.resolve(world.resource()), "Hint");
+        world.insert(e, text);
+        let sys = i18n_dirty_system::system();
+        sys.run_once(&mut world).unwrap();
+        world.remove::<crate::ui::dirty::Dirty>(e);
+
+        world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
+        sys.run_once(&mut world).unwrap();
+        assert!(world.has::<crate::ui::dirty::Dirty>(e));
+        let shown = world.get::<crate::ui::widgets::text::Text>(e).unwrap();
+        assert_eq!(shown.resolve(world.resource()), "提示");
+    }
+
+    #[test]
+    fn locale_from_language_tags() {
+        assert_eq!(Locale::from_tag("zh"), Some(Locale::ZhCn));
+        assert_eq!(Locale::from_tag("zh-CN"), Some(Locale::ZhCn));
+        assert_eq!(Locale::from_tag("EN_us"), Some(Locale::EnUs));
+        assert_eq!(Locale::from_tag("fr"), None);
     }
 
     #[test]

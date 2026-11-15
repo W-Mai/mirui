@@ -2287,6 +2287,11 @@ fn counter_panel(counter: model!(Counter)) {
     <script>
       window.addEventListener("TrunkApplicationStarted", () => {
         const params = new URLSearchParams(location.search);
+        // Canvases speak the page language and follow its toggle.
+        try { wasmBindings.set_locale(window.miruiLanguage.current()); } catch (_) {}
+        document.addEventListener("mirui-language-change", (event) => {
+          try { wasmBindings.set_locale(event.detail.language); } catch (_) {}
+        });
         const defaultDemo = wasmBindings.default_demo_slug();
         const homeDemo = wasmBindings.home_demo_slug();
         const catalog = JSON.parse(wasmBindings.demo_catalog_json());

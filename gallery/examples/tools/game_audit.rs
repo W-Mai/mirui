@@ -10,7 +10,7 @@
 //!
 //! Environment: `FRAMES` (default 400), `SEED`, `SNAP_EVERY` (frames between
 //! saved PNGs), `SLOW_US` (save and report frames slower than this),
-//! `DARK_ONLY`. Build with `--features snapshot,perf` for a per-span breakdown.
+//! `DARK_ONLY`, `LOCALE` (`zh` or `en`). Build with `--features snapshot,perf` for a per-span breakdown.
 
 use std::collections::VecDeque;
 use std::env;
@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
+use mirui::core::i18n::{I18n, Locale};
 use mirui::input::event::input::{InputEvent, PointerKind};
 use mirui::prelude::*;
 use mirui::render::texture::ColorFormat;
@@ -169,6 +170,13 @@ fn build(slug: &str, dark: bool) -> (AuditApp, (u16, u16)) {
     let root = gallery::setup_demo(slug, &mut app).expect("setup");
     if let Some(id) = gallery::appearance_theme_id(app.theme().id().as_str(), dark) {
         app.set_theme(id).expect("theme");
+    }
+    if let Some(locale) = env::var("LOCALE")
+        .ok()
+        .and_then(|tag| Locale::from_tag(&tag))
+        && let Some(i18n) = app.world.resource::<I18n>()
+    {
+        i18n.set_locale(locale);
     }
     app.set_root(root);
     NOW_NS.store(0, Ordering::Relaxed);
