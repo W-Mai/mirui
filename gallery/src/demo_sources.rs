@@ -625,6 +625,7 @@ split_demo_sources! {
         marker: "fn paint_map",
         parts: [
             "style.rs",
+            "geometry.rs",
             "state.rs",
             "render.rs",
             "input.rs",

@@ -1,3 +1,4 @@
+mod geometry;
 mod input;
 #[cfg(feature = "persistence")]
 mod persistence;

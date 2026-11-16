@@ -1,24 +1,12 @@
 use super::geometry::{CELL, SURFACE, cell_center, target_box};
-use super::state::{StationTarget, SwipeStart, TwinHintService, TwinSurface, next};
+use super::state::{StationTarget, TwinHintService, TwinSurface, next};
 use crate::gallery::play::expeditions::{
-    Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, logical_point, twin_level,
+    Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, SwipeStart, logical_point,
+    twin_level,
 };
 use crate::gallery::play::twin::{TwinModel, pressed_for};
 use crate::prelude::*;
 use crate::ui::ComputedRect;
-
-/// A drag shorter than this, in board pixels, is not a swipe.
-const SWIPE_REACH: i32 = 18;
-
-fn key_direction(key: PhysicalKey) -> Option<Direction4> {
-    match key {
-        PhysicalKey::KeyW | PhysicalKey::ArrowUp => Some(Direction4::Up),
-        PhysicalKey::KeyD | PhysicalKey::ArrowRight => Some(Direction4::Right),
-        PhysicalKey::KeyS | PhysicalKey::ArrowDown => Some(Direction4::Down),
-        PhysicalKey::KeyA | PhysicalKey::ArrowLeft => Some(Direction4::Left),
-        _ => None,
-    }
-}
 
 #[event]
 pub(super) fn keyboard(
@@ -45,7 +33,7 @@ pub(super) fn keyboard(
         }
         return closes;
     }
-    if let Some(direction) = key_direction(key) {
+    if let Some(direction) = Direction4::from_key(key) {
         game.move_direction(direction);
         return true;
     }
@@ -103,19 +91,6 @@ pub(super) fn board_tap(
     true
 }
 
-#[event]
-pub(super) fn swipe_start(
-    event: event!(DragStart),
-    node: entity!(),
-    rows: query!(mut SwipeStart),
-) -> bool {
-    let Some(start) = rows.get(node) else {
-        return false;
-    };
-    start.0 = Some((event.x, event.y));
-    true
-}
-
 /// A swipe anywhere on the surface presses the key it points to.
 #[event]
 pub(super) fn swipe_end(
@@ -126,33 +101,14 @@ pub(super) fn swipe_end(
     let Some((surface, start, rect)) = rows.get(node) else {
         return false;
     };
-    let (Some(origin), Some(rect)) = (start.0.take(), rect) else {
+    let Some(rect) = rect else {
         return false;
     };
-    let from = logical_point(rect.0, origin, SURFACE);
-    let to = logical_point(rect.0, (event.x, event.y), SURFACE);
-    let (Some((x0, y0)), Some((x1, y1))) = (from, to) else {
-        return false;
-    };
-    let reach = Fixed::from_int(SWIPE_REACH);
+    let swiped = start.finish(rect.0, (event.x, event.y), SURFACE);
     let playing = surface.expedition.panel() == ExpeditionPanel::None
         && surface.game.modal() == ExpeditionModal::None;
-    if playing {
-        if let Some(direction) = Direction4::toward(x1 - x0, y1 - y0, reach) {
-            surface.game.move_direction(direction);
-        }
-    }
-    true
-}
-
-#[event]
-pub(super) fn swipe_cancel(
-    _event: event!(DragCancel),
-    node: entity!(),
-    rows: query!(mut SwipeStart),
-) -> bool {
-    if let Some(start) = rows.get(node) {
-        start.0 = None;
+    if let (true, Some(direction)) = (playing, swiped) {
+        surface.game.move_direction(direction);
     }
     true
 }

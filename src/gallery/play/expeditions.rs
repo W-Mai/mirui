@@ -1,10 +1,13 @@
 use crate::gallery::play::change::ChangeSet;
+use crate::prelude::PhysicalKey;
 use crate::types::{Fixed, Rect};
 
 mod motion;
+mod swipe;
 mod words;
 
 pub(crate) use motion::{BoardMotion, ResultStars, install_expedition_motion, start_result_stars};
+pub(crate) use swipe::{SwipeStart, swipe_cancel, swipe_start};
 pub(crate) use words::{
     ChapterLine, ChapterTitle, HintText, LevelNumber, LevelTile, MAP_FOOTER, MAP_TITLE, MapSummary,
     START_CHAPTER, StepLine, chinese, result_next, result_title,
@@ -92,6 +95,17 @@ impl Direction4 {
             } else {
                 Self::Up
             })
+        }
+    }
+
+    /// The direction an arrow key, or W A S D, presses.
+    pub(crate) const fn from_key(key: PhysicalKey) -> Option<Self> {
+        match key {
+            PhysicalKey::KeyW | PhysicalKey::ArrowUp => Some(Self::Up),
+            PhysicalKey::KeyD | PhysicalKey::ArrowRight => Some(Self::Right),
+            PhysicalKey::KeyS | PhysicalKey::ArrowDown => Some(Self::Down),
+            PhysicalKey::KeyA | PhysicalKey::ArrowLeft => Some(Self::Left),
+            _ => None,
         }
     }
 }

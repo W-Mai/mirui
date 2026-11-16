@@ -38,6 +38,10 @@ fn invalid_moves_do_not_enter_history() {
     assert!(changes.contains(ChangeSet::MODEL));
     assert!(!changes.contains(ChangeSet::VISUAL));
     assert!(!changes.contains(ChangeSet::PERSISTENCE));
+    // Every refusal counts, so the hull bumps each time.
+    model.move_direction(Direction4::Left);
+    assert_eq!(model.board().shot.bumps, 2);
+    assert_eq!(model.board().bump, Direction4::Left);
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use super::rules::{initial, moved, occupied, won};
 use super::solver::{solve, state_id};
-use super::types::{FoldMessage, FoldState, HullPose};
+use super::types::{FoldBoard, FoldMessage, FoldState, HullPose};
 use crate::gallery::play::change::ChangeSet;
 #[cfg(any(feature = "persistence", test))]
 use crate::gallery::play::expeditions::{
@@ -8,8 +8,9 @@ use crate::gallery::play::expeditions::{
     write_records,
 };
 use crate::gallery::play::expeditions::{
-    Direction4, EXPEDITION_LEVELS, ExpeditionHintWorkspace, ExpeditionModal, FoldLevelRef,
-    LevelRecord, PackedDirections, accepted_change, fold_level, movement_stars, unlocked_level,
+    BoardShot, Direction4, EXPEDITION_LEVELS, ExpeditionHintWorkspace, ExpeditionModal,
+    ExpeditionProgress, FoldLevelRef, LevelRecord, PackedDirections, accepted_change, fold_level,
+    movement_stars, unlocked_level,
 };
 
 #[cfg(any(feature = "persistence", test))]
@@ -36,25 +37,9 @@ pub(crate) struct FoldModel {
     last_hint: Option<u16>,
     modal: ExpeditionModal,
     message: FoldMessage,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct FoldProgress {
-    stars: [u8; EXPEDITION_LEVELS],
-}
-
-impl FoldProgress {
-    pub(crate) const fn stars(self, level: u8) -> u8 {
-        self.stars[level as usize]
-    }
-
-    pub(crate) const fn completed(self, level: u8) -> bool {
-        self.stars(level) != 0
-    }
-
-    pub(crate) fn completed_count(self) -> u8 {
-        self.stars.iter().filter(|stars| **stars != 0).count() as u8
-    }
+    /// Refused rolls so far, wrapping, and the direction of the last one.
+    bumps: u8,
+    bump: Direction4,
 }
 
 impl Default for FoldModel {
@@ -69,6 +54,8 @@ impl Default for FoldModel {
             last_hint: None,
             modal: ExpeditionModal::None,
             message: FoldMessage::Ready,
+            bumps: 0,
+            bump: Direction4::Up,
         }
     }
 }
@@ -111,6 +98,11 @@ impl FoldModel {
     }
 
     #[observe]
+    pub(crate) fn hints(&self) -> u16 {
+        self.hints
+    }
+
+    #[observe]
     pub(crate) fn modal(&self) -> ExpeditionModal {
         self.modal
     }
@@ -126,9 +118,25 @@ impl FoldModel {
     }
 
     #[observe]
-    pub(crate) fn progress(&self) -> FoldProgress {
-        FoldProgress {
-            stars: self.records.map(LevelRecord::stars),
+    pub(crate) fn progress(&self) -> ExpeditionProgress {
+        ExpeditionProgress::of(&self.records)
+    }
+
+    /// What the map shows, for the director that animates it.
+    #[observe]
+    pub(crate) fn board(&self) -> FoldBoard {
+        let (cells, len) = occupied(self.state);
+        FoldBoard {
+            shot: BoardShot {
+                level: self.level,
+                steps: self.actions.len(),
+                bumps: self.bumps,
+                modal: self.modal,
+                stars: self.records[usize::from(self.level)].stars(),
+            },
+            cells,
+            len,
+            bump: self.bump,
         }
     }
 
@@ -148,9 +156,8 @@ impl FoldModel {
         }
         let level = self.level();
         let Some(next) = moved(level, self.state, direction) else {
-            if self.message == FoldMessage::Unsupported {
-                return ChangeSet::NONE;
-            }
+            self.bumps = self.bumps.wrapping_add(1);
+            self.bump = direction;
             self.message = FoldMessage::Unsupported;
             return ChangeSet::MODEL;
         };
@@ -315,6 +322,8 @@ impl FoldModel {
             } else {
                 FoldMessage::Complete
             },
+            bumps: 0,
+            bump: Direction4::Up,
         })
     }
 }

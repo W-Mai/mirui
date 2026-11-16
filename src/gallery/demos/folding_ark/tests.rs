@@ -1,17 +1,22 @@
+use super::geometry::{hull_rect, panel_box};
 use super::shell;
-use super::state::{FoldHintService, FoldSurface, next, select_map_level};
+use super::state::{FoldHintService, FoldSurface, FoldTrack, MapTarget, next, select_map_level};
+use crate::core::i18n::{I18n, Locale};
 use crate::core::model::{Model, ModelHandle};
 use crate::ecs::World;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::expeditions::{
-    Direction4, ExpeditionHintWorkspace, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel,
+    BoardMotion, Direction4, ExpeditionHintWorkspace, ExpeditionModal, ExpeditionPanel,
+    ExpeditionUiModel, ResultStars,
 };
-use crate::gallery::play::fold::{FoldMessage, FoldModel, SAVE_LEN};
+use crate::gallery::play::fold::{CHAPTER_TIPS, FoldMessage, FoldModel, SAVE_LEN};
+use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::ViewRegistry;
 use crate::ui::widgets::Text;
-use crate::ui::{Children, Hidden, HitTarget, InteractionFeedback};
+use crate::ui::{Children, ComputedRect, Hidden, HitTarget, InteractionFeedback};
+use alloc::vec::Vec;
 
 type Handles = (
     <FoldModel as Model>::Handle,
@@ -72,10 +77,36 @@ fn send_key(world: &mut World, root: Entity, position: PhysicalKey) {
     );
 }
 
+fn trigger(world: &mut World, event: &GestureEvent) -> bool {
+    let decision = crate::__macro_support::dispatch_entity_gesture(world, event, 0).unwrap();
+    crate::__macro_support::flush_entity_events(world).unwrap();
+    decision == crate::input::event::BubbleControl::Prevent
+}
+
 fn game_snapshot(model: &FoldModel) -> ([u8; SAVE_LEN], FoldMessage, ExpeditionModal) {
     let mut saved = [0; SAVE_LEN];
     model.encode_into(&mut saved).unwrap();
     (saved, model.message(), model.modal())
+}
+
+fn solve_level(game: &<FoldModel as Model>::Handle) {
+    let len = with_game(game, |model| model.level().solution_len());
+    for step in 0..len {
+        let direction = with_game(game, |model| model.level().solution(step).unwrap());
+        game.move_direction(direction);
+    }
+}
+
+fn blocked_direction(game: &<FoldModel as Model>::Handle) -> Direction4 {
+    with_game(game, |model| {
+        Direction4::ALL
+            .into_iter()
+            .find(|direction| {
+                let mut probe = *model;
+                !probe.move_direction(*direction).contains(ChangeSet::VISUAL)
+            })
+            .expect("initial Fold state has an unsupported direction")
+    })
 }
 
 #[test]
@@ -94,21 +125,32 @@ fn registered_keyboard_preserves_commands_and_bound_model_instances() {
     drop(game);
     drop(expedition);
 
-    for (position, direction) in [
-        (PhysicalKey::KeyW, Direction4::Up),
-        (PhysicalKey::KeyD, Direction4::Right),
-        (PhysicalKey::KeyS, Direction4::Down),
-        (PhysicalKey::KeyA, Direction4::Left),
+    for (positions, direction) in [
+        ([PhysicalKey::KeyW, PhysicalKey::ArrowUp], Direction4::Up),
+        (
+            [PhysicalKey::KeyD, PhysicalKey::ArrowRight],
+            Direction4::Right,
+        ),
+        (
+            [PhysicalKey::KeyS, PhysicalKey::ArrowDown],
+            Direction4::Down,
+        ),
+        (
+            [PhysicalKey::KeyA, PhysicalKey::ArrowLeft],
+            Direction4::Left,
+        ),
     ] {
-        observer.restart();
-        let mut expected = with_game(&observer, |game| *game);
-        expected.move_direction(direction);
-        send_key(&mut app.world, root, position);
-        assert_eq!(
-            with_game(&observer, game_snapshot),
-            game_snapshot(&expected)
-        );
-        assert_eq!(app.world.resource::<UnhandledKey>().unwrap().0, None);
+        for position in positions {
+            observer.restart();
+            let mut expected = with_game(&observer, |game| *game);
+            expected.move_direction(direction);
+            send_key(&mut app.world, root, position);
+            assert_eq!(
+                with_game(&observer, game_snapshot),
+                game_snapshot(&expected)
+            );
+            assert_eq!(app.world.resource::<UnhandledKey>().unwrap().0, None);
+        }
     }
 
     observer.restart();
@@ -128,6 +170,9 @@ fn registered_keyboard_preserves_commands_and_bound_model_instances() {
         assert!(matches!(observer.message(), FoldMessage::Hint(_, _)));
         assert_eq!(app.world.resource::<UnhandledKey>().unwrap().0, None);
     }
+    observer.move_direction(direction);
+    send_key(&mut app.world, root, PhysicalKey::KeyR);
+    assert_eq!(observer.steps(), 0);
 
     panel.open_rules();
     let before = with_game(&observer, game_snapshot);
@@ -144,7 +189,10 @@ fn registered_keyboard_preserves_commands_and_bound_model_instances() {
             Some(position)
         );
     }
-    panel.close();
+    app.world.resource_mut::<UnhandledKey>().unwrap().0 = None;
+    send_key(&mut app.world, root, PhysicalKey::Escape);
+    assert_eq!(panel.panel(), ExpeditionPanel::None);
+    assert_eq!(app.world.resource::<UnhandledKey>().unwrap().0, None);
     send_key(&mut app.world, root, PhysicalKey::KeyQ);
     assert_eq!(with_game(&observer, game_snapshot), before);
     assert_eq!(
@@ -153,11 +201,7 @@ fn registered_keyboard_preserves_commands_and_bound_model_instances() {
     );
 
     observer.restart();
-    let solution_len = with_game(&observer, |game| game.level().solution_len());
-    for step in 0..solution_len {
-        let direction = with_game(&observer, |game| game.level().solution(step).unwrap());
-        observer.move_direction(direction);
-    }
+    solve_level(&observer);
     assert_ne!(observer.modal(), ExpeditionModal::None);
     let completed = with_game(&observer, game_snapshot);
     app.world.resource_mut::<UnhandledKey>().unwrap().0 = None;
@@ -166,6 +210,8 @@ fn registered_keyboard_preserves_commands_and_bound_model_instances() {
         assert_eq!(with_game(&observer, game_snapshot), completed);
         assert_eq!(app.world.resource::<UnhandledKey>().unwrap().0, None);
     }
+    send_key(&mut app.world, root, PhysicalKey::Enter);
+    assert_eq!(observer.level_index(), 1);
     assert_eq!(
         with_game(&independent, game_snapshot),
         game_snapshot(&FoldModel::default())
@@ -272,11 +318,7 @@ fn completion_updates_visual_revision_and_progress_text() {
     let surface = world.find_by_id("fold_surface").unwrap();
     world.remove::<VisualDirty>(surface);
     let revision = game.visual_revision();
-    let solution_len = with_game(&game, |model| model.level().solution_len());
-    for step in 0..solution_len {
-        let direction = with_game(&game, |model| model.level().solution(step).unwrap());
-        game.move_direction(direction);
-    }
+    solve_level(&game);
     flush(&mut world);
 
     assert!(game.visual_revision() > revision);
@@ -305,15 +347,7 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     let visual_revision = game.visual_revision();
     let saved = with_game(&game, game_snapshot).0;
 
-    let blocked = with_game(&game, |model| {
-        Direction4::ALL
-            .into_iter()
-            .find(|direction| {
-                let mut probe = *model;
-                !probe.move_direction(*direction).contains(ChangeSet::VISUAL)
-            })
-            .expect("initial Fold state has an unsupported direction")
-    });
+    let blocked = blocked_direction(&game);
     let changes = game.move_direction(blocked);
     assert!(changes.contains(ChangeSet::MODEL));
     assert!(!changes.contains(ChangeSet::VISUAL));
@@ -324,7 +358,7 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     let status = world
         .get::<Text>(world.find_by_id("fold_status").unwrap())
         .unwrap();
-    assert!(status.resolve(world.resource()).contains("没有执行"));
+    assert!(status.resolve(world.resource()).contains("sink"));
 
     let changes = game.request_hint(&mut ExpeditionHintWorkspace::new());
     assert!(changes.contains(ChangeSet::MODEL));
@@ -338,7 +372,7 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     let status = world
         .get::<Text>(world.find_by_id("fold_status").unwrap())
         .unwrap();
-    assert!(status.resolve(world.resource()).contains("提示"));
+    assert!(status.resolve(world.resource()).starts_with("Hint"));
 }
 
 fn text_of(world: &World, id: &'static str) -> alloc::string::String {
@@ -361,9 +395,7 @@ fn assert_texts_fit(world: &World) {
 }
 
 #[test]
-fn chapters_brief_their_rule_and_the_footer_counts_seals() {
-    use crate::gallery::play::fold::{CHAPTER_MECHANICS, CHAPTER_TIPS};
-
+fn chapters_are_briefed_and_the_seal_counter_follows_the_hull() {
     let mut app = App::headless(480, 320);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
@@ -371,22 +403,17 @@ fn chapters_brief_their_rule_and_the_footer_counts_seals() {
     app.set_root(root);
     app.render().unwrap();
     assert_texts_fit(&app.world);
-    assert_eq!(text_of(&app.world, "fold_rule"), CHAPTER_MECHANICS[0]);
-    assert_eq!(
-        text_of(&app.world, "fold_steps"),
-        "UPRIGHT  STEP 00  PAR 05"
-    );
+    assert_eq!(text_of(&app.world, "fold_steps"), "STEP 00 · PAR 05");
+    let seals = app.world.find_by_id("fold_seals").unwrap();
+    assert!(app.world.has::<Hidden>(seals), "level 1 has no seals");
 
     for level in 0..12 {
-        let len = with_game(&game, |model| model.level().solution_len());
-        for step in 0..len {
-            let direction = with_game(&game, |model| model.level().solution(step).unwrap());
-            game.move_direction(direction);
-        }
+        solve_level(&game);
         flush(&mut app.world);
         app.render().unwrap();
         assert_texts_fit(&app.world);
-        assert!(text_of(&app.world, "fold_result_stats").starts_with("★★★"));
+        assert_eq!(game.progress().stars(level), 3);
+        assert_eq!(text_of(&app.world, "fold_next"), "Next →");
         next(&game, &expedition);
         flush(&mut app.world);
         app.render().unwrap();
@@ -396,34 +423,195 @@ fn chapters_brief_their_rule_and_the_footer_counts_seals() {
             assert_eq!(expedition.panel(), ExpeditionPanel::Briefing);
             assert_eq!(
                 text_of(&app.world, "fold_briefing_tip_0"),
-                CHAPTER_TIPS[chapter][0]
+                CHAPTER_TIPS[chapter][0].en
             );
             expedition.close();
         }
     }
 
     assert_eq!(game.level_index(), 12);
-    assert_eq!(text_of(&app.world, "fold_next"), "回第一关");
-    assert_eq!(text_of(&app.world, "fold_rule"), CHAPTER_MECHANICS[2]);
-    assert!(text_of(&app.world, "fold_steps").ends_with("SEAL 0/1"));
-    let len = with_game(&game, |model| model.level().solution_len());
-    for step in 0..len {
-        let direction = with_game(&game, |model| model.level().solution(step).unwrap());
-        game.move_direction(direction);
-    }
     flush(&mut app.world);
-    assert!(text_of(&app.world, "fold_steps").ends_with("SEAL 1/1"));
+    assert!(!app.world.has::<Hidden>(seals));
+    assert_eq!(text_of(&app.world, "fold_seals"), "◆ 0/1");
+    solve_level(&game);
+    flush(&mut app.world);
+    assert_eq!(text_of(&app.world, "fold_seals"), "◆ 1/1");
+}
 
-    // A lying hull makes the footer longest; it still fits.
-    game.restart();
-    let mut lying = false;
-    for step in 0..len {
-        let direction = with_game(&game, |model| model.level().solution(step).unwrap());
-        game.move_direction(direction);
+#[test]
+fn chinese_mode_relabels_every_screen_and_still_fits() {
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let (game, expedition) = shell::setup_test_app(&mut app, root);
+    app.set_root(root);
+    app.render().unwrap();
+    assert_eq!(text_of(&app.world, "fold_title"), "FOLDING ARK");
+
+    app.world
+        .resource::<I18n>()
+        .unwrap()
+        .set_locale(Locale::ZhCn);
+    flush(&mut app.world);
+    app.render().unwrap();
+    assert_texts_fit(&app.world);
+    assert_eq!(text_of(&app.world, "fold_title"), "折叠方舟");
+    assert_eq!(
+        text_of(&app.world, "fold_status"),
+        "翻滚船体，让它直立停进终点"
+    );
+    assert_eq!(text_of(&app.world, "fold_chapter"), "启动船体");
+    assert_eq!(text_of(&app.world, "fold_steps"), "步数 00 · 最少 05");
+
+    for panel in [
+        ExpeditionPanel::Map,
+        ExpeditionPanel::Rules,
+        ExpeditionPanel::Briefing,
+        ExpeditionPanel::Summary,
+    ] {
+        match panel {
+            ExpeditionPanel::Map => expedition.open(0),
+            ExpeditionPanel::Rules => expedition.open_rules(),
+            ExpeditionPanel::Briefing => expedition.open_briefing(),
+            _ => expedition.open_summary(),
+        }
         flush(&mut app.world);
         app.render().unwrap();
         assert_texts_fit(&app.world);
-        lying |= !text_of(&app.world, "fold_steps").starts_with("UPRIGHT");
     }
-    assert!(lying);
+    expedition.close();
+    solve_level(&game);
+    flush(&mut app.world);
+    app.render().unwrap();
+    assert_texts_fit(&app.world);
+    assert_eq!(text_of(&app.world, "fold_result_title"), "方舟已归港");
+    assert_eq!(text_of(&app.world, "fold_next"), "下一海域 →");
+}
+
+#[test]
+fn a_tap_or_a_swipe_rolls_the_hull() {
+    let (mut world, (game, _expedition)) = fixture();
+    let target = world
+        .query::<MapTarget>()
+        .iter()
+        .map(|(entity, _)| entity)
+        .next()
+        .unwrap();
+    let (left, top, width, height) = panel_box();
+    world.insert(target, ComputedRect(Rect::new(left, top, width, height)));
+    let direction = with_game(&game, |model| {
+        Direction4::ALL
+            .into_iter()
+            .find(|direction| {
+                let mut probe = *model;
+                probe.move_direction(*direction).contains(ChangeSet::VISUAL)
+            })
+            .expect("the hull can roll somewhere from the start")
+    });
+    let mut expected = with_game(&game, |model| *model);
+    expected.move_direction(direction);
+    let board = game.board();
+    let hull = hull_rect(board.cells, board.len);
+    let (dx, dy) = direction.delta();
+    let pitch = Fixed::from_int(34);
+    let half = Fixed::from_int(2);
+    let x = hull.x + hull.w / half + pitch * Fixed::from_int(i32::from(dx));
+    let y = hull.y + hull.h / half + pitch * Fixed::from_int(i32::from(dy));
+    assert!(trigger(&mut world, &GestureEvent::Tap { x, y, target }));
+    assert_eq!(with_game(&game, game_snapshot), game_snapshot(&expected));
+
+    // A tap on the hull itself does nothing.
+    let board = game.board();
+    let hull = hull_rect(board.cells, board.len);
+    let before = with_game(&game, game_snapshot);
+    let (x, y) = (hull.x + Fixed::from_int(3), hull.y + Fixed::from_int(3));
+    assert!(trigger(&mut world, &GestureEvent::Tap { x, y, target }));
+    assert_eq!(with_game(&game, game_snapshot), before);
+
+    let surface = world.find_by_id("fold_surface").unwrap();
+    world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
+    game.restart();
+    let mut expected = with_game(&game, |model| *model);
+    expected.move_direction(direction);
+    let (dx, dy) = direction.delta();
+    let start = (Fixed::from_int(240), Fixed::from_int(160));
+    let end = (
+        start.0 + Fixed::from_int(40 * i32::from(dx)),
+        start.1 + Fixed::from_int(40 * i32::from(dy)),
+    );
+    assert!(trigger(
+        &mut world,
+        &GestureEvent::DragStart {
+            x: start.0,
+            y: start.1,
+            target: surface,
+        }
+    ));
+    assert!(trigger(
+        &mut world,
+        &GestureEvent::DragEnd {
+            x: end.0,
+            y: end.1,
+            vx: Fixed::ZERO,
+            vy: Fixed::ZERO,
+            target: surface,
+        }
+    ));
+    assert_eq!(with_game(&game, game_snapshot), game_snapshot(&expected));
+}
+
+#[test]
+fn rolls_travel_refusals_bump_and_a_clear_pops_its_stars() {
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let (game, expedition) = shell::setup_test_app(&mut app, root);
+    app.set_root(root);
+    app.tick();
+    let surface = app.world.find_by_id("fold_surface").unwrap();
+    assert!(expedition.banner(), "a level starts with its name");
+
+    let start = game.board();
+    let first = with_game(&game, |model| model.level().solution(0).unwrap());
+    game.move_direction(first);
+    app.tick();
+    assert!(!expedition.banner(), "a roll clears the banner");
+    assert_eq!(
+        app.world.get::<FoldTrack>(surface).unwrap().from,
+        (start.cells, start.len)
+    );
+    let mut travel = Vec::new();
+    for _ in 0..16 {
+        app.tick();
+        travel.push(app.world.get::<BoardMotion>(surface).unwrap().travel);
+    }
+    assert!(travel[0] > Fixed::ZERO && travel[0] < Fixed::ONE);
+    assert!(travel.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert_eq!(*travel.last().unwrap(), Fixed::ONE);
+
+    game.restart();
+    app.tick();
+    game.move_direction(blocked_direction(&game));
+    let mut furthest = Fixed::ZERO;
+    for _ in 0..40 {
+        app.tick();
+        furthest = furthest.max(app.world.get::<BoardMotion>(surface).unwrap().bump);
+    }
+    assert!(
+        furthest > Fixed::from_int(2),
+        "a refused roll nudges the hull"
+    );
+    assert_eq!(
+        app.world.get::<BoardMotion>(surface).unwrap().bump,
+        Fixed::ZERO
+    );
+
+    solve_level(&game);
+    for _ in 0..60 {
+        app.tick();
+    }
+    let row = app.world.find_by_id("fold_result_stars").unwrap();
+    let stars = *app.world.get::<ResultStars>(row).unwrap();
+    assert_eq!(stars.earned(), 3);
+    assert_eq!(stars.scales(), [Fixed::ONE; 3]);
 }

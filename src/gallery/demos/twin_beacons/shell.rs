@@ -1,19 +1,18 @@
 use super::geometry::target_box;
-use super::input::{board_tap, keyboard, swipe_cancel, swipe_end, swipe_start};
+use super::input::{board_tap, keyboard, swipe_end};
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
 use super::render::surface_render;
 use super::state::{
-    StationTarget, SwipeStart, TwinHintService, TwinSurface, TwinTrack, direct_twin, next,
-    select_map_level,
+    StationTarget, TwinHintService, TwinSurface, TwinTrack, direct_twin, next, select_map_level,
 };
 use super::style::{APRICOT, BG, FLOOR, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT, WALL};
 use crate::core::i18n::Phrase;
 use crate::gallery::play::expeditions::{
     BoardMotion, ChapterLine, ChapterTitle, Direction4, ExpeditionModal, ExpeditionPanel,
     ExpeditionUiModel, HintText, LevelNumber, LevelTile, MAP_FOOTER, MAP_TITLE, MapSummary,
-    ResultStars, START_CHAPTER, StepLine, chinese, install_expedition_motion, result_next,
-    result_title, twin_level,
+    ResultStars, START_CHAPTER, StepLine, SwipeStart, chinese, install_expedition_motion,
+    result_next, result_title, swipe_cancel, swipe_start, twin_level,
 };
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::twin::{

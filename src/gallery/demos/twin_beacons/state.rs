@@ -43,11 +43,6 @@ impl Default for TwinTrack {
     }
 }
 
-/// Where a drag over the boards began, until it ends as a swipe.
-#[crate::component]
-#[derive(Default)]
-pub(super) struct SwipeStart(pub(super) Option<(Fixed, Fixed)>);
-
 #[derive(Clone)]
 pub(super) struct TwinHintService(Rc<RefCell<ExpeditionHintWorkspace>>);
 
