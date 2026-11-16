@@ -83,11 +83,19 @@ impl FlightModel {
             .as_ref()
             .map(|raster| raster.palette.day)
             .unwrap_or_default();
+        self.rebuild(w, h, day);
+    }
+    fn rebuild(&mut self, width: usize, height: usize, day: super::raster::Daylight) {
         self.cockpit = None;
         self.raster = None;
-        let mut raster = Raster::new(w, h).expect("bounded flight frame");
-        raster.palette = Palette::new(day);
-        self.cockpit = Some(Cockpit::new(w, h, &raster.palette));
+        let palette = Palette::new(day);
+        let cockpit = match self.profile {
+            Profile::Desktop => Cockpit::new(width, height, &palette),
+            Profile::Compact => Cockpit::new_compact(width, height, &palette),
+        };
+        let mut raster = Raster::new(width, height).expect("bounded flight frame");
+        raster.palette = palette;
+        self.cockpit = Some(cockpit);
         self.raster = Some(raster);
     }
     fn render_frame(&mut self) {
@@ -223,14 +231,16 @@ impl FlightModel {
                 self.flight.set_wingmen(self.flight.count % 3);
             }
             PhysicalKey::KeyT => {
-                if let Some(raster) = &mut self.raster {
-                    self.cockpit = None;
-                    raster.palette = Palette::new(raster.palette.day.next());
-                    self.cockpit = Some(Cockpit::new(
+                if let Some((width, height, day, seen)) = self.raster.as_ref().map(|raster| {
+                    (
                         raster.frame.width,
                         raster.frame.height,
-                        &raster.palette,
-                    ));
+                        raster.palette.day.next(),
+                        raster.seen,
+                    )
+                }) {
+                    self.rebuild(width, height, day);
+                    self.raster.as_mut().expect("rebuilt flight scene").seen = seen;
                 }
             }
             _ => {}

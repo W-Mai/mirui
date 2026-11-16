@@ -409,7 +409,7 @@ pub struct Raster {
     pub flame_count: usize,
     slices: [&'static [jet::Voxel]; jet::LAYERS],
     shadow: [u8; jet::WIDTH * jet::LENGTH],
-    seen: [[Fixed; 3]; 6],
+    pub(super) seen: [[Fixed; 3]; 6],
 }
 #[doc = " Integral scaling preserves hard scene pixels and caps CPU work independently of window size."]
 pub fn scene_size(width: u16, height: u16) -> (usize, usize, usize) {

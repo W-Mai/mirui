@@ -84,6 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add a bounded Pixel Flight Compact profile for small screens, preserving the three camera views and flight effects across viewport changes.
 - Add automatic flight presentation with timed camera changes, pause/resume handling and a parameter-controlled embedded entry.
 - Reuse scene workspaces across flight rendering passes and keep color-only frames free of depth and masking buffers.
+- Store Compact cockpit layers as lossless MIRX RLE rows while retaining procedural artwork and live instrument rendering.
 
 ## [0.56.0] - 2026-11-12
 
