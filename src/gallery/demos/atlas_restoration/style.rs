@@ -9,3 +9,7 @@ pub(super) const LAVENDER: Color = Color::rgb(191, 169, 242);
 pub(super) const APRICOT: Color = Color::rgb(244, 185, 105);
 pub(super) const TEXT: Color = Color::rgb(233, 241, 237);
 pub(super) const MUTED: Color = Color::rgb(129, 154, 166);
+/// Clues of a line that already matches them.
+pub(super) const DONE: Color = Color::rgb(70, 92, 104);
+/// The frame of a wrong cell after a check.
+pub(super) const ERROR: Color = Color::rgb(238, 112, 100);

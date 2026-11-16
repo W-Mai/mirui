@@ -1,5 +1,5 @@
 use super::geometry::board_geometry_for_level;
-use super::state::PictureSurface;
+use super::state::{PictureSurface, next};
 use crate::gallery::play::expeditions::{
     Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, picture_level,
 };
@@ -102,9 +102,6 @@ pub(super) fn keyboard(
     model: model!(PictureModel),
     expedition: model!(ExpeditionUiModel),
 ) -> bool {
-    if expedition.panel() != ExpeditionPanel::None || model.modal() != ExpeditionModal::None {
-        return false;
-    }
     if !input.pressed
         || input
             .modifiers
@@ -112,15 +109,35 @@ pub(super) fn keyboard(
     {
         return false;
     }
-    match input.physical {
-        Some(PhysicalKey::KeyW) => model.move_cursor(Direction4::Up),
-        Some(PhysicalKey::KeyD) => model.move_cursor(Direction4::Right),
-        Some(PhysicalKey::KeyS) => model.move_cursor(Direction4::Down),
-        Some(PhysicalKey::KeyA) => model.move_cursor(Direction4::Left),
-        Some(PhysicalKey::Space) => model.apply_cursor(None),
-        Some(PhysicalKey::KeyX) => model.apply_cursor(Some(PictureTool::Mark)),
-        Some(PhysicalKey::KeyZ) => model.undo(),
-        Some(PhysicalKey::KeyH) => model.reveal_hint(),
+    let Some(key) = input.physical else {
+        return false;
+    };
+    if expedition.panel() != ExpeditionPanel::None {
+        let closes = key == PhysicalKey::Escape
+            || (key == PhysicalKey::Enter && expedition.panel() == ExpeditionPanel::Briefing);
+        if closes {
+            expedition.close();
+        }
+        return closes;
+    }
+    if model.modal() != ExpeditionModal::None {
+        if key == PhysicalKey::Enter {
+            next(model, expedition);
+            return true;
+        }
+        return false;
+    }
+    if let Some(direction) = Direction4::from_key(key) {
+        model.move_cursor(direction);
+        return true;
+    }
+    match key {
+        PhysicalKey::Space | PhysicalKey::Enter => model.apply_cursor(None),
+        PhysicalKey::KeyX => model.apply_cursor(Some(PictureTool::Mark)),
+        PhysicalKey::KeyZ => model.undo(),
+        PhysicalKey::KeyH => model.reveal_hint(),
+        PhysicalKey::KeyC => model.check(),
+        PhysicalKey::KeyR => model.restart(),
         _ => return false,
     };
     true

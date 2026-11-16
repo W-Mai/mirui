@@ -458,6 +458,7 @@ fn compose_banner(game: model!(FoldModel), expedition: model!(ExpeditionUiModel)
             height: 60,
             padding: Padding::all(8),
             row_gap: 2,
+            align: AlignItems::Center,
             bg_color: PANEL,
             border_color: LAVENDER,
             border_width: 1,

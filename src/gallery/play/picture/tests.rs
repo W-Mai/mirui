@@ -131,6 +131,36 @@ fn model_memory_is_bounded() {
 }
 
 #[test]
+fn a_line_counts_as_matched_once_its_runs_equal_the_clues() {
+    let mut model = PictureModel::default();
+    let level = model.level();
+    let size = level.size();
+    let full: u32 = (1 << size) - 1;
+    let rows = |model: &PictureModel| model.matched_lines() & full;
+    // Rows and columns with no runs match from the start; the others wait.
+    let empty_rows = (0..size)
+        .filter(|row| (0..size).all(|offset| !level.target(row * size + offset)))
+        .fold(0, |bits, row| bits | 1 << row);
+    assert_eq!(rows(&model), empty_rows);
+    let row = (0..size)
+        .find(|row| (0..size).any(|offset| level.target(row * size + offset)))
+        .unwrap();
+    for offset in 0..size {
+        if level.target(row * size + offset) {
+            model.cells.set(row * size + offset, PictureCell::Filled);
+        }
+    }
+    assert_ne!(rows(&model) & 1 << row, 0);
+    let wrong = (0..size)
+        .find(|offset| !level.target(row * size + offset))
+        .map(|offset| row * size + offset);
+    if let Some(cell) = wrong {
+        model.cells.set(cell, PictureCell::Filled);
+        assert_eq!(rows(&model) & 1 << row, 0);
+    }
+}
+
+#[test]
 fn save_round_trip_preserves_board_history_and_rejects_corruption() {
     let mut model = PictureModel::default();
     model.begin_stroke(0);

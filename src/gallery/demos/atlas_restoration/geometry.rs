@@ -1,39 +1,57 @@
 use crate::gallery::play::expeditions::picture_level;
 use crate::gallery::play::picture::PictureModel;
 
-const BOARD_AREA_X: i32 = 91;
-const BOARD_AREA_WIDTH: i32 = 172;
-const BOARD_AREA_HEIGHT: i32 = 191;
+/// The area that holds the board and its clues.
+const AREA_LEFT: i32 = 8;
+const AREA_TOP: i32 = 32;
+const AREA_WIDTH: i32 = 388;
+const AREA_HEIGHT: i32 = 260;
+/// The height of one stacked column clue, and the width of one row clue.
+pub(super) const CLUE_LINE: i32 = 12;
+const CLUE_WIDTH: i32 = 11;
+const MAX_CELL: i32 = 44;
+
 #[derive(Clone, Copy)]
 pub(super) struct BoardGeometry {
     pub(super) x: i32,
     pub(super) y: i32,
     pub(super) cell: i32,
     pub(super) size: i32,
+    /// The width of the row clues left of the board.
+    pub(super) row_clues: i32,
+    /// The height of the column clues above the board.
+    pub(super) column_clues: i32,
 }
 
 pub(super) fn board_geometry(model: &PictureModel) -> BoardGeometry {
     board_geometry_for_level(model.level_index())
 }
 
+/// The largest square cells that leave room for the level's longest clues;
+/// the board and its clues sit in the middle of the area.
 pub(super) fn board_geometry_for_level(level_index: u8) -> BoardGeometry {
     let level = picture_level(level_index).expect("validated Picture level");
     let size = level.size();
-    let mut max_column_clues = 1;
-    for column in 0..size {
+    let (mut rows, mut columns) = (1, 1);
+    for line in 0..size {
         let mut clues = [0; 5];
-        max_column_clues =
-            max_column_clues.max(clues_for_level(level_index, false, column, &mut clues));
+        rows = rows.max(clues_for_level(level_index, true, line, &mut clues));
+        columns = columns.max(clues_for_level(level_index, false, line, &mut clues));
     }
-    let cell = 26.min(
-        (BOARD_AREA_HEIGHT - i32::try_from(max_column_clues).unwrap_or(1) * 10) / i32::from(size),
-    );
-    let board = cell * i32::from(size);
+    let row_clues = i32::try_from(rows).unwrap_or(5) * CLUE_WIDTH + 6;
+    let column_clues = i32::try_from(columns).unwrap_or(5) * CLUE_LINE + 4;
+    let cells = i32::from(size);
+    let cell = MAX_CELL
+        .min((AREA_HEIGHT - column_clues) / cells)
+        .min((AREA_WIDTH - row_clues) / cells);
+    let board = cell * cells;
     BoardGeometry {
-        x: BOARD_AREA_X + (BOARD_AREA_WIDTH - board) / 2,
-        y: 61 + i32::try_from(max_column_clues).unwrap_or(1) * 10,
+        x: AREA_LEFT + row_clues + (AREA_WIDTH - row_clues - board) / 2,
+        y: AREA_TOP + column_clues + (AREA_HEIGHT - column_clues - board) / 2,
         cell,
         size: board,
+        row_clues,
+        column_clues,
     }
 }
 

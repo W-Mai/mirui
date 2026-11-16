@@ -3,8 +3,8 @@ use super::types::{HISTORY_CAPACITY, PackedPicture, PictureCell, PictureMessage,
 use super::types::{PACKED_BYTES, SAVE_LEN, SAVE_MAGIC, SAVE_PAYLOAD, SAVE_VERSION};
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::expeditions::{
-    EXPEDITION_LEVELS, ExpeditionModal, LevelRecord, PictureLevelRef, accepted_change,
-    picture_level, picture_stars, unlocked_level,
+    BoardShot, EXPEDITION_LEVELS, ExpeditionModal, ExpeditionProgress, LevelRecord,
+    PictureLevelRef, accepted_change, picture_level, picture_stars, unlocked_level,
 };
 #[cfg(any(feature = "persistence", test))]
 use crate::gallery::play::expeditions::{
@@ -35,23 +35,26 @@ pub(crate) struct PictureModel {
     message: PictureMessage,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct PictureProgress {
-    stars: [u8; EXPEDITION_LEVELS],
-}
-
-impl PictureProgress {
-    pub(crate) const fn stars(self, level: u8) -> u8 {
-        self.stars[level as usize]
+/// The run lengths of the cells along one line for which `filled` holds,
+/// and how many runs there are.
+fn runs(len: u8, filled: impl Fn(u8) -> bool) -> ([u8; 5], usize) {
+    let mut runs = [0; 5];
+    let mut count = 0;
+    let mut run = 0;
+    for offset in 0..=len {
+        if offset < len && filled(offset) {
+            run += 1;
+        } else if run != 0 {
+            if count == runs.len() {
+                // More runs than any clue has: it cannot match.
+                return ([u8::MAX; 5], runs.len() + 1);
+            }
+            runs[count] = run;
+            count += 1;
+            run = 0;
+        }
     }
-
-    pub(crate) const fn completed(self, level: u8) -> bool {
-        self.stars(level) != 0
-    }
-
-    pub(crate) fn completed_count(self) -> u8 {
-        self.stars.iter().filter(|stars| **stars != 0).count() as u8
-    }
+    (runs, count)
 }
 
 impl Default for PictureModel {
@@ -131,10 +134,47 @@ impl PictureModel {
     }
 
     #[observe]
-    pub(crate) fn progress(&self) -> PictureProgress {
-        PictureProgress {
-            stars: self.records.map(LevelRecord::stars),
+    pub(crate) fn progress(&self) -> ExpeditionProgress {
+        ExpeditionProgress::of(&self.records)
+    }
+
+    /// What the board shows, for the director that starts its banner and
+    /// result stars. Strokes count as steps.
+    #[observe]
+    pub(crate) fn board(&self) -> BoardShot {
+        BoardShot {
+            level: self.level,
+            steps: u16::from(self.history_len),
+            bumps: 0,
+            modal: self.modal,
+            stars: self.records[usize::from(self.level)].stars(),
         }
+    }
+
+    /// The rows (bits 0 to 9) and columns (bits 16 to 25) whose filled
+    /// cells already match their clues.
+    #[observe]
+    pub(crate) fn matched_lines(&self) -> u32 {
+        let level = self.level();
+        let size = level.size();
+        let mut matched = 0;
+        for line in 0..size {
+            let target_row = runs(size, |offset| level.target(line * size + offset));
+            let filled_row = runs(size, |offset| {
+                self.cells.get(line * size + offset) == PictureCell::Filled
+            });
+            if target_row == filled_row {
+                matched |= 1 << line;
+            }
+            let target_column = runs(size, |offset| level.target(offset * size + line));
+            let filled_column = runs(size, |offset| {
+                self.cells.get(offset * size + line) == PictureCell::Filled
+            });
+            if target_column == filled_column {
+                matched |= 1 << (16 + line);
+            }
+        }
+        matched
     }
 
     pub(crate) fn set_tool(&mut self, tool: PictureTool) -> ChangeSet {
