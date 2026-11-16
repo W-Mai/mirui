@@ -1,9 +1,9 @@
-//! Indexed horizontal aircraft slices with immutable compressed storage.
-
+#![doc = " Indexed horizontal aircraft slices with immutable compressed storage."]
+use crate::types::Fixed;
 pub const WIDTH: usize = 34;
 pub const LENGTH: usize = 46;
 pub const LAYERS: usize = 13;
-pub const PIVOT: [f32; 2] = [25.30, 5.0];
+pub const PIVOT: [Fixed; 2] = [Fixed::from_ratio(2530, 100), Fixed::from_int(5)];
 pub const PALETTE: &[[u8; 5]] = &[
     [1, 14, 15, 22, 0],
     [2, 29, 31, 42, 0],
@@ -32,7 +32,6 @@ pub const PALETTE: &[[u8; 5]] = &[
     [52, 255, 178, 54, 3],
     [53, 255, 236, 170, 3],
 ];
-
 const RUNS: &[u8] = &[
     255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 201, 0, 1, 2, 4, 0, 1, 2, 28, 0, 1, 2,
     4, 0, 1, 2, 28, 0, 1, 3, 1, 0, 2, 3, 1, 0, 1, 3, 28, 0, 1, 3, 1, 0, 2, 3, 1, 0, 1, 3, 28, 0, 1,
@@ -175,8 +174,7 @@ const RUNS: &[u8] = &[
     16, 0, 1, 17, 16, 0, 1, 17, 16, 0, 1, 17, 16, 0, 1, 17, 16, 0, 1, 17, 16, 0, 1, 17, 16, 0, 1,
     1, 16, 0, 1, 1, 8, 0,
 ];
-
-/// Decodes once into caller-owned storage. Empty entries stay transparent.
+#[doc = " Decodes once into caller-owned storage. Empty entries stay transparent."]
 pub fn decode(out: &mut [u8; WIDTH * LENGTH * LAYERS]) {
     let mut offset = 0;
     for pair in RUNS.chunks_exact(2) {
@@ -186,7 +184,6 @@ pub fn decode(out: &mut [u8; WIDTH * LENGTH * LAYERS]) {
     }
     assert_eq!(offset, out.len());
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +197,6 @@ mod tests {
                 .all(|c| *c == 0 || PALETTE.iter().any(|p| p[0] == *c))
         );
         assert!(cells.iter().any(|c| *c != 0));
-        assert!(cells.iter().any(|c| *c == 0));
+        assert!(cells.contains(&0));
     }
 }

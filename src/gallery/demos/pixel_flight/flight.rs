@@ -1,27 +1,27 @@
-//! Flight dynamics and a single camera shared by all three views.
-
+#![doc = " Flight dynamics and a single camera shared by all three views."]
+use super::math::FixedMath as _;
+use super::math::{PI, TAU};
 use super::{
     jet,
     world::{CLOUD_ALT, MAX_HEIGHT, World},
 };
-use crate::{anim::Spring, types::Fixed};
-use core::f32::consts::{PI, TAU};
-
+use crate::{
+    anim::Spring,
+    types::{Fixed, Fixed64},
+};
 pub const TRAIL_CAPACITY: usize = 160;
 pub const SMOKE_CAPACITY: usize = 96;
-pub type V3 = [f32; 3];
-
-pub fn wrap_angle(angle: f32) -> f32 {
+pub type V3 = [Fixed; 3];
+pub fn wrap_angle(angle: Fixed) -> Fixed {
     angle - TAU * (angle / TAU).round()
 }
-fn follow(value: &mut f32, target: f32, rate: f32, dt: f32) {
-    *value += (target - *value) * (1.0 - (-dt * rate).exp());
+fn follow(value: &mut Fixed, target: Fixed, rate: Fixed, dt: Fixed) {
+    *value += (target - *value) * (Fixed::ONE - (-dt * rate).exp());
 }
-pub fn smooth(value: f32) -> f32 {
-    let t = value.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
+pub fn smooth(value: Fixed) -> Fixed {
+    let t = value.clamp(Fixed::ZERO, Fixed::ONE);
+    t * t * (Fixed::from_int(3) - Fixed::from_int(2) * t)
 }
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum View {
     #[default]
@@ -38,107 +38,106 @@ impl View {
         }
     }
 }
-
 #[derive(Clone, Copy)]
 pub struct Settings {
-    pub speed: f32,
-    pub boost: f32,
-    pub agility: f32,
-    pub bank: f32,
-    pub altitude: f32,
-    pub ceiling: f32,
-    pub clearance: f32,
-    pub jet_scale: f32,
-    pub spread: f32,
-    pub transition: f32,
-    pub camera_follow: f32,
-    pub chase_distance: f32,
-    pub chase_angle: f32,
-    pub chase_size: f32,
-    pub afterburner: f32,
-    pub clouds: f32,
+    pub speed: Fixed,
+    pub boost: Fixed,
+    pub agility: Fixed,
+    pub bank: Fixed,
+    pub altitude: Fixed,
+    pub ceiling: Fixed,
+    pub clearance: Fixed,
+    pub jet_scale: Fixed,
+    pub spread: Fixed,
+    pub transition: Fixed,
+    pub camera_follow: Fixed,
+    pub chase_distance: Fixed,
+    pub chase_angle: Fixed,
+    pub chase_size: Fixed,
+    pub afterburner: Fixed,
+    pub clouds: Fixed,
     pub stunts: bool,
     pub intro: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            speed: 92.0,
-            boost: 1.8,
-            agility: 1.25,
-            bank: 52.0,
-            altitude: 110.0,
-            ceiling: 300.0,
-            clearance: 7.0,
-            jet_scale: 0.6,
-            spread: 1.0,
-            transition: 1.4,
-            camera_follow: 0.6,
-            chase_distance: 2.6,
-            chase_angle: 12.0,
-            chase_size: 0.19,
-            afterburner: 1.0,
-            clouds: 0.45,
+            speed: Fixed::from_int(92),
+            boost: Fixed::from_ratio(18, 10),
+            agility: Fixed::from_ratio(125, 100),
+            bank: Fixed::from_int(52),
+            altitude: Fixed::from_int(110),
+            ceiling: Fixed::from_int(300),
+            clearance: Fixed::from_int(7),
+            jet_scale: Fixed::from_ratio(6, 10),
+            spread: Fixed::ONE,
+            transition: Fixed::from_ratio(14, 10),
+            camera_follow: Fixed::from_ratio(6, 10),
+            chase_distance: Fixed::from_ratio(26, 10),
+            chase_angle: Fixed::from_int(12),
+            chase_size: Fixed::from_ratio(19, 100),
+            afterburner: Fixed::ONE,
+            clouds: Fixed::from_ratio(45, 100),
             stunts: true,
             intro: false,
         }
     }
 }
-
 #[derive(Clone, Copy, Default)]
 pub struct TrailPoint {
     pub position: V3,
-    pub born: f32,
+    pub born: Fixed,
 }
 pub struct Aircraft {
     pub position: V3,
-    pub yaw: f32,
-    pub yaw_rate: f32,
-    pub roll: f32,
-    pub pitch: f32,
-    pub velocity: [f32; 2],
-    pub stunt: f32,
-    pub stunt_direction: f32,
-    pub stunt_delay: f32,
+    pub yaw: Fixed,
+    pub yaw_rate: Fixed,
+    pub roll: Fixed,
+    pub pitch: Fixed,
+    pub velocity: [Fixed; 2],
+    pub stunt: Fixed,
+    pub stunt_direction: Fixed,
+    pub stunt_delay: Fixed,
     pub trails: [[TrailPoint; TRAIL_CAPACITY]; 2],
     pub trail_head: usize,
     pub trail_len: usize,
-    pub last_trail: [f32; 2],
-    pub load: f32,
+    pub last_trail: [Fixed; 2],
+    pub load: Fixed,
 }
 impl Aircraft {
-    fn new(position: V3, yaw: f32) -> Self {
+    fn new(position: V3, yaw: Fixed) -> Self {
         Self {
             position,
             yaw,
-            yaw_rate: 0.0,
-            roll: 0.0,
-            pitch: 0.0,
-            velocity: [0.0; 2],
-            stunt: -1.0,
-            stunt_direction: 1.0,
-            stunt_delay: 0.0,
+            yaw_rate: Fixed::ZERO,
+            roll: Fixed::ZERO,
+            pitch: Fixed::ZERO,
+            velocity: [Fixed::ZERO; 2],
+            stunt: -Fixed::ONE,
+            stunt_direction: Fixed::ONE,
+            stunt_delay: Fixed::ZERO,
             trails: [[TrailPoint::default(); TRAIL_CAPACITY]; 2],
             trail_head: 0,
             trail_len: 0,
             last_trail: [position[0], position[1]],
-            load: 0.0,
+            load: Fixed::ZERO,
         }
     }
-    pub fn spin(&self) -> f32 {
-        if self.stunt < 0.0 || self.stunt_delay > 0.0 {
-            return 0.0;
+    pub fn spin(&self) -> Fixed {
+        if self.stunt < Fixed::ZERO || self.stunt_delay > Fixed::ZERO {
+            return Fixed::ZERO;
         }
         let t = self.stunt;
         self.stunt_direction
             * TAU
-            * if t < 0.5 {
-                2.0 * t * t
+            * if t < Fixed::from_ratio(5, 10) {
+                Fixed::from_int(2) * t * t
             } else {
-                1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
+                Fixed::ONE
+                    - (-Fixed::from_int(2) * t + Fixed::from_int(2)).powi(2) / Fixed::from_int(2)
             }
     }
-    /// Right wing, nose and dorsal axes; a positive bank lowers the right wing.
+    #[doc = " Right wing, nose and dorsal axes; a positive bank lowers the right wing."]
     pub fn axes(&self) -> [V3; 3] {
         let (sn, cs) = self.yaw.sin_cos();
         let (sr, cr) = (self.roll + self.spin()).sin_cos();
@@ -149,7 +148,7 @@ impl Aircraft {
             [cs * sr * cp - sn * sp, sn * sr * cp + cs * sp, cr * cp],
         ]
     }
-    pub fn local(&self, local: V3, scale: f32) -> V3 {
+    pub fn local(&self, local: V3, scale: Fixed) -> V3 {
         let [right, forward, up] = self.axes();
         core::array::from_fn(|i| {
             self.position[i]
@@ -157,39 +156,44 @@ impl Aircraft {
         })
     }
 }
-
 #[derive(Clone, Copy, Default)]
 pub struct Smoke {
     pub position: V3,
-    pub born: f32,
-    pub size: f32,
-    pub push: [f32; 2],
-    pub strength: f32,
-    pub life: f32,
+    pub born: Fixed,
+    pub size: Fixed,
+    pub push: [Fixed; 2],
+    pub strength: Fixed,
+    pub life: Fixed,
 }
-
 #[derive(Clone, Copy, Debug)]
 pub struct Projection {
     pub position: V3,
-    pub yaw: f32,
-    pub perspective: f32,
-    pub slope: f32,
-    pub scale: f32,
-    pub center: [f32; 2],
-    pub roll: f32,
-    pub jet_alpha: f32,
-    pub cockpit: f32,
-    pub steer_y: f32,
+    pub yaw: Fixed,
+    #[doc = " Reciprocal camera distance needs fractions below one Q24.8 unit."]
+    pub perspective: Fixed64,
+    pub slope: Fixed,
+    pub scale: Fixed,
+    pub center: [Fixed; 2],
+    pub roll: Fixed,
+    pub jet_alpha: Fixed,
+    pub cockpit: Fixed,
+    pub steer_y: Fixed,
 }
 impl Projection {
-    /// Returns screen x/y, scale and camera depth. Points behind the eye are rejected.
-    pub fn project(&self, point: V3) -> Option<[f32; 4]> {
+    pub fn apply_perspective(&self, value: Fixed) -> Fixed {
+        (self.perspective * Fixed64::from_fixed(value)).to_fixed()
+    }
+    pub fn divide_perspective(&self, value: Fixed) -> Fixed {
+        (Fixed64::from_fixed(value) / self.perspective).to_fixed()
+    }
+    #[doc = " Returns screen x/y, scale and camera depth. Points behind the eye are rejected."]
+    pub fn project(&self, point: V3) -> Option<[Fixed; 4]> {
         let (sn, cs) = self.yaw.sin_cos();
         let dx = point[0] - self.position[0];
         let dy = point[1] - self.position[1];
         let depth = -(dx * sn + dy * cs);
-        let den = 1.0 + self.perspective * depth;
-        if den < 0.12 {
+        let den = Fixed::ONE + self.apply_perspective(depth);
+        if den < Fixed::from_ratio(12, 100) {
             return None;
         }
         let m = self.scale / den;
@@ -200,20 +204,20 @@ impl Projection {
             depth,
         ])
     }
-    pub fn cockpit_in(&self) -> f32 {
-        let t = ((self.cockpit - 0.16) / 0.84).clamp(0.0, 1.0);
-        t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+    pub fn cockpit_in(&self) -> Fixed {
+        let t = ((self.cockpit - Fixed::from_ratio(16, 100)) / Fixed::from_ratio(84, 100))
+            .clamp(Fixed::ZERO, Fixed::ONE);
+        t * t * t * (t * (t * Fixed::from_int(6) - Fixed::from_int(15)) + Fixed::from_int(10))
     }
 }
-
-/// Independent physical key bits keep aliases and simultaneous presses correct.
+#[doc = " Independent physical key bits keep aliases and simultaneous presses correct."]
 #[derive(Default)]
 pub struct Controls {
     pub keys: u16,
-    pub pointer: Option<[f32; 2]>,
-    pub pointer_idle: f32,
+    pub pointer: Option<[Fixed; 2]>,
+    pub pointer_idle: Fixed,
     pub holding: bool,
-    pub hold_time: f32,
+    pub hold_time: Fixed,
     pub keyboard: bool,
 }
 impl Controls {
@@ -233,69 +237,78 @@ impl Controls {
             self.keyboard = true;
         }
     }
-    pub fn point(&mut self, position: [f32; 2]) {
+    pub fn point(&mut self, position: [Fixed; 2]) {
         if self.pointer != Some(position) {
-            self.pointer_idle = 0.0;
+            self.pointer_idle = Fixed::ZERO;
             self.keyboard = false;
         }
         self.pointer = Some(position);
     }
     pub fn press(&mut self) {
         self.holding = true;
-        self.hold_time = 0.0;
+        self.hold_time = Fixed::ZERO;
     }
 }
-
 pub struct Flight {
     pub settings: Settings,
     pub jets: [Aircraft; 3],
     pub count: usize,
     pub controls: Controls,
     pub view: View,
-    pub time: f32,
-    pub intro: f32,
-    pub burn: f32,
-    pub boost: f32,
-    pub speed: f32,
-    pub spread: f32,
+    pub time: Fixed,
+    elapsed_ms: u64,
+    pub intro: Fixed,
+    pub burn: Fixed,
+    pub boost: Fixed,
+    pub speed: Fixed,
+    pub spread: Fixed,
     pub smoke: [Smoke; SMOKE_CAPACITY],
     pub smoke_head: usize,
-    pub chase: [f32; 3],
-    pub cockpit: [f32; 3],
+    pub chase: [Fixed64; 3],
+    pub cockpit: [Fixed64; 3],
     pub head: [Spring; 2],
     follow: V3,
-    camera_yaw: f32,
-    chase_yaw: f32,
-    yaw_diff: f32,
-    spin_camera: f32,
-    altitude_goal: f32,
-    climb_velocity: f32,
-    pub climb_tilt: f32,
-    floor: f32,
-    camera_floor: f32,
-    camera_fix: f32,
-    auto_stunt: f32,
-    smoke_clock: f32,
+    camera_yaw: Fixed,
+    chase_yaw: Fixed,
+    yaw_diff: Fixed,
+    spin_camera: Fixed,
+    altitude_goal: Fixed,
+    climb_velocity: Fixed,
+    pub climb_tilt: Fixed,
+    floor: Fixed,
+    camera_floor: Fixed,
+    camera_fix: Fixed,
+    auto_stunt: Fixed,
+    smoke_clock: Fixed,
 }
 impl Flight {
     pub fn new(world: &World, settings: Settings) -> Self {
         let position = [world.spawn[0], world.spawn[1], settings.altitude];
         Self {
             settings,
-            jets: core::array::from_fn(|_| Aircraft::new(position, 0.9)),
+            jets: core::array::from_fn(|_| Aircraft::new(position, Fixed::from_ratio(9, 10))),
             count: 1,
             controls: Controls::default(),
             view: View::Overhead,
-            time: 0.0,
-            intro: if settings.intro { 0.0 } else { 99.0 },
-            burn: if settings.intro { 0.0 } else { 1.0 },
-            boost: 0.0,
+            time: Fixed::ZERO,
+            elapsed_ms: 0,
+            intro: if settings.intro {
+                Fixed::ZERO
+            } else {
+                Fixed::from_int(99)
+            },
+            burn: if settings.intro {
+                Fixed::ZERO
+            } else {
+                Fixed::ONE
+            },
+            boost: Fixed::ZERO,
             speed: settings.speed,
             spread: settings.spread,
             smoke: [Smoke::default(); SMOKE_CAPACITY],
             smoke_head: 0,
-            chase: [0.0; 3],
-            cockpit: [0.0; 3],
+            chase: [Fixed64::ZERO; 3],
+            cockpit: [Fixed64::ZERO; 3],
             head: [Spring::with_params(
                 Fixed::ZERO,
                 Fixed::ZERO,
@@ -303,31 +316,36 @@ impl Flight {
                 Fixed::from_int(11),
             ); 2],
             follow: position,
-            camera_yaw: -0.9 * settings.camera_follow,
-            chase_yaw: -0.9,
-            yaw_diff: -0.9 + 0.9 * settings.camera_follow,
-            spin_camera: 0.0,
+            camera_yaw: -Fixed::from_ratio(9, 10) * settings.camera_follow,
+            chase_yaw: -Fixed::from_ratio(9, 10),
+            yaw_diff: -Fixed::from_ratio(9, 10) + Fixed::from_ratio(9, 10) * settings.camera_follow,
+            spin_camera: Fixed::ZERO,
             altitude_goal: settings.altitude,
-            climb_velocity: 0.0,
-            climb_tilt: 0.0,
-            floor: 0.0,
-            camera_floor: 0.0,
-            camera_fix: 0.0,
-            auto_stunt: 7.0,
-            smoke_clock: 0.0,
+            climb_velocity: Fixed::ZERO,
+            climb_tilt: Fixed::ZERO,
+            floor: Fixed::ZERO,
+            camera_floor: Fixed::ZERO,
+            camera_fix: Fixed::ZERO,
+            auto_stunt: Fixed::from_int(7),
+            smoke_clock: Fixed::ZERO,
         }
     }
     pub fn set_wingmen(&mut self, count: usize) {
         self.count = 1 + count.min(2);
         for i in 1..self.count {
-            let side = if i == 1 { -1.0 } else { 1.0 };
+            let side = if i == 1 { -Fixed::ONE } else { Fixed::ONE };
             let p = self.jets[0].local(
                 [
-                    side * (jet::WIDTH as f32 * 1.2 * self.settings.jet_scale + 2.0),
-                    -(jet::LENGTH as f32) * 0.74 * self.settings.jet_scale,
-                    0.0,
+                    side * (Fixed::from_int((jet::WIDTH) as i32)
+                        * Fixed::from_ratio(12, 10)
+                        * self.settings.jet_scale
+                        + Fixed::from_int(2)),
+                    -(Fixed::from_int((jet::LENGTH) as i32))
+                        * Fixed::from_ratio(74, 100)
+                        * self.settings.jet_scale,
+                    Fixed::ZERO,
                 ],
-                1.0,
+                Fixed::ONE,
             );
             self.jets[i] = Aircraft::new(p, self.jets[0].yaw);
         }
@@ -336,176 +354,231 @@ impl Flight {
         self.view = self.view.next();
     }
     pub fn roll(&mut self) {
-        if self.jets[0].stunt >= 0.0 {
+        if self.jets[0].stunt >= Fixed::ZERO {
             return;
         }
-        self.spin_camera = if self.cockpit[2] > 0.5 { 1.0 } else { 0.0 };
-        let direction = if self.jets[0].yaw_rate >= 0.0 {
-            1.0
+        self.spin_camera = if self.cockpit[2].to_fixed() > Fixed::from_ratio(5, 10) {
+            Fixed::ONE
         } else {
-            -1.0
+            Fixed::ZERO
+        };
+        let direction = if self.jets[0].yaw_rate >= Fixed::ZERO {
+            Fixed::ONE
+        } else {
+            -Fixed::ONE
         };
         for (i, j) in self.jets[..self.count].iter_mut().enumerate() {
-            j.stunt = 0.0;
+            j.stunt = Fixed::ZERO;
             j.stunt_direction = direction;
-            j.stunt_delay = i as f32 * 0.16;
+            j.stunt_delay = Fixed::from_int((i) as i32) * Fixed::from_ratio(16, 100);
         }
     }
     pub fn release_pointer(&mut self, cancelled: bool) {
-        if !cancelled && self.controls.holding && self.controls.hold_time < 0.2 {
+        if !cancelled && self.controls.holding && self.controls.hold_time < Fixed::from_ratio(2, 10)
+        {
             self.roll();
         }
         self.controls.holding = false;
     }
-    pub fn flame_length(&self) -> f32 {
-        (0.07 + 0.17 * self.settings.afterburner)
-            * jet::LENGTH as f32
+    pub fn flame_length(&self) -> Fixed {
+        (Fixed::from_ratio(7, 100) + Fixed::from_ratio(17, 100) * self.settings.afterburner)
+            * Fixed::from_int((jet::LENGTH) as i32)
             * self.burn
-            * (1.6 - self.spread * 0.6).clamp(0.0, 1.0)
-            * (1.0 + 1.6 * self.boost)
+            * (Fixed::from_ratio(16, 10) - self.spread * Fixed::from_ratio(6, 10))
+                .clamp(Fixed::ZERO, Fixed::ONE)
+            * (Fixed::ONE + Fixed::from_ratio(16, 10) * self.boost)
     }
-    pub fn flame_bend(&self) -> f32 {
-        (self.jets[0].yaw_rate / self.settings.agility.max(0.1)).clamp(-1.0, 1.0) * 0.36
+    pub fn flame_bend(&self) -> Fixed {
+        (self.jets[0].yaw_rate / self.settings.agility.max(Fixed::from_ratio(1, 10)))
+            .clamp(-Fixed::ONE, Fixed::ONE)
+            * Fixed::from_ratio(36, 100)
     }
-
     pub fn projection(&self, width: usize, height: usize) -> Projection {
         let s = self.settings;
         let j = &self.jets[0];
-        let c = self.chase[2];
-        let k = self.cockpit[2];
-        let top = 1.0 - c - k;
+        let c = self.chase[2].to_fixed();
+        let k = self.cockpit[2].to_fixed();
+        let top = Fixed::ONE - c - k;
         let mut p = Projection {
             position: self.follow,
             yaw: self.camera_yaw,
-            perspective: 0.0,
-            slope: 1.0,
-            scale: 1.0,
-            center: [(width / 2) as f32, (height / 2) as f32],
-            roll: 0.0,
-            jet_alpha: 1.0,
+            perspective: Fixed64::ZERO,
+            slope: Fixed::ONE,
+            scale: Fixed::ONE,
+            center: [
+                Fixed::from_int((width / 2) as i32),
+                Fixed::from_int((height / 2) as i32),
+            ],
+            roll: Fixed::ZERO,
+            jet_alpha: Fixed::ONE,
             cockpit: k,
-            steer_y: (height / 2) as f32,
+            steer_y: Fixed::from_int((height / 2) as i32),
         };
-        if c == 0.0 && k == 0.0 {
+        if c == Fixed::ZERO && k == Fixed::ZERO {
             return p;
         }
-        let distance = s.chase_distance.clamp(1.0, 8.0)
-            * jet::LENGTH as f32
+        let distance = s.chase_distance.clamp(Fixed::ONE, Fixed::from_int(8))
+            * Fixed::from_int((jet::LENGTH) as i32)
             * s.jet_scale
-            * (1.0 - 0.16 * self.boost);
-        let zoom = (s.chase_size.clamp(0.05, 0.6) * width as f32
-            / (jet::WIDTH as f32 * s.jet_scale))
-            .max(1.0);
-        let focal = width as f32 * 0.6 * (1.0 - 0.1 * self.boost);
-        p.position[0] += (j.position[0] + j.yaw.sin() * 64.0 * k - self.follow[0]) * k;
-        p.position[1] += (j.position[1] - j.yaw.cos() * 64.0 * k - self.follow[1]) * k;
-        p.position[2] += (j.position[2] + 3.0 * s.jet_scale - self.follow[2]) * k;
-        p.perspective = c / distance + k / 64.0;
-        p.scale = (c * zoom.ln() + k * (focal / 64.0).ln()).exp();
-        let lean = ((45.0 * top + s.chase_angle.clamp(2.0, 40.0) * c) * PI / 180.0).tan()
-            - 0.5 * self.climb_tilt * c;
-        p.slope = (lean + self.camera_fix * p.perspective * (1.0 - k))
-            .max((self.camera_floor - p.position[2]) * p.perspective * (1.0 - k))
-            .max((2.0 - p.position[2]) * p.perspective);
-        let pivot = (height as f32 * 0.34).round();
-        let chase_y = (height / 2) as f32 + height as f32 * (0.14 - 0.03 * self.boost);
-        let cockpit_y = pivot + p.scale / p.perspective * (j.pitch * 0.8).clamp(-0.6, 0.6).tan();
-        p.center[1] = top * (height / 2) as f32 + c * chase_y + k * cockpit_y;
-        p.steer_y = top * (height / 2) as f32 + c * chase_y + k * height as f32 * 0.34;
+            * (Fixed::ONE - Fixed::from_ratio(16, 100) * self.boost);
+        let zoom = (s
+            .chase_size
+            .clamp(Fixed::from_ratio(5, 100), Fixed::from_ratio(6, 10))
+            * Fixed::from_int((width) as i32)
+            / (Fixed::from_int((jet::WIDTH) as i32) * s.jet_scale))
+            .max(Fixed::ONE);
+        let focal = Fixed::from_int((width) as i32)
+            * Fixed::from_ratio(6, 10)
+            * (Fixed::ONE - Fixed::from_ratio(1, 10) * self.boost);
+        p.position[0] +=
+            (j.position[0] + j.yaw.sin() * Fixed::from_int(64) * k - self.follow[0]) * k;
+        p.position[1] +=
+            (j.position[1] - j.yaw.cos() * Fixed::from_int(64) * k - self.follow[1]) * k;
+        p.position[2] += (j.position[2] + Fixed::from_int(3) * s.jet_scale - self.follow[2]) * k;
+        p.perspective =
+            Fixed64::from_fixed(c) / Fixed64::from_fixed(distance) + Fixed64::from_fixed(k) / 64;
+        p.scale = (c * zoom.ln() + k * (focal / Fixed::from_int(64)).ln()).exp();
+        let lean = ((Fixed::from_int(45) * top
+            + s.chase_angle.clamp(Fixed::from_int(2), Fixed::from_int(40)) * c)
+            * PI
+            / Fixed::from_int(180))
+        .tan()
+            - Fixed::from_ratio(5, 10) * self.climb_tilt * c;
+        p.slope = (lean + p.apply_perspective(self.camera_fix) * (Fixed::ONE - k))
+            .max(p.apply_perspective(self.camera_floor - p.position[2]) * (Fixed::ONE - k))
+            .max(p.apply_perspective(Fixed::from_int(2) - p.position[2]));
+        let pivot = (Fixed::from_int((height) as i32) * Fixed::from_ratio(34, 100)).round();
+        let chase_y = Fixed::from_int((height / 2) as i32)
+            + Fixed::from_int((height) as i32)
+                * (Fixed::from_ratio(14, 100) - Fixed::from_ratio(3, 100) * self.boost);
+        let cockpit_y = pivot
+            + p.divide_perspective(p.scale)
+                * (j.pitch * Fixed::from_ratio(8, 10))
+                    .clamp(-Fixed::from_ratio(6, 10), Fixed::from_ratio(6, 10))
+                    .tan();
+        p.center[1] = top * Fixed::from_int((height / 2) as i32) + c * chase_y + k * cockpit_y;
+        p.steer_y = top * Fixed::from_int((height / 2) as i32)
+            + c * chase_y
+            + k * Fixed::from_int((height) as i32) * Fixed::from_ratio(34, 100);
         p.roll = j.roll * k + j.spin() * self.spin_camera;
         let behind = self.camera_yaw + self.yaw_diff;
         p.yaw = self.camera_yaw + self.yaw_diff * (c + k) + wrap_angle(-j.yaw - behind) * k;
-        p.jet_alpha = 1.0 - smooth((k - 0.12) / 0.4);
+        p.jet_alpha =
+            Fixed::ONE - smooth((k - Fixed::from_ratio(12, 100)) / Fixed::from_ratio(4, 10));
         p
     }
-
-    pub fn step(&mut self, world: &World, seconds: f32, width: usize, height: usize) {
-        let dt = if seconds.is_finite() {
-            seconds.clamp(0.0, 0.05)
-        } else {
-            0.0
-        };
-        if dt == 0.0 {
+    pub fn step(&mut self, world: &World, milliseconds: u16, width: usize, height: usize) {
+        self.elapsed_ms += u64::from(milliseconds.min(50));
+        let now = (Fixed64::from_int(self.elapsed_ms as i64) / 1000).to_fixed();
+        let dt = now - self.time;
+        if dt == Fixed::ZERO {
             return;
         }
         let s = self.settings;
         let old_camera = self.projection(width, height);
-        self.time += dt;
+        self.time = now;
         self.intro += dt;
         self.controls.pointer_idle += dt;
         if self.controls.holding {
             self.controls.hold_time += dt;
         }
-        let ready = self.intro > 1.9;
-        follow(&mut self.burn, if ready { 1.0 } else { 0.0 }, 5.0, dt);
+        let ready = self.intro > Fixed::from_ratio(19, 10);
+        follow(
+            &mut self.burn,
+            if ready { Fixed::ONE } else { Fixed::ZERO },
+            Fixed::from_int(5),
+            dt,
+        );
         let pushing = ready
-            && ((self.controls.holding && self.controls.hold_time >= 0.2)
+            && ((self.controls.holding && self.controls.hold_time >= Fixed::from_ratio(2, 10))
                 || self.controls.keys & 768 != 0);
         follow(
             &mut self.boost,
-            if pushing { 1.0 } else { 0.0 },
-            if pushing { 5.0 } else { 2.4 },
+            if pushing { Fixed::ONE } else { Fixed::ZERO },
+            if pushing {
+                Fixed::from_int(5)
+            } else {
+                Fixed::from_ratio(24, 10)
+            },
             dt,
         );
-        if !pushing && self.boost < 0.0005 {
-            self.boost = 0.0;
+        if !pushing && self.boost < Fixed::from_ratio(5, 10000) {
+            self.boost = Fixed::ZERO;
         }
-        self.speed = s.speed * (1.0 + (s.boost.clamp(1.0, 4.0) - 1.0) * self.boost);
-        follow(&mut self.spread, s.spread, 11.0, dt);
+        self.speed = s.speed
+            * (Fixed::ONE
+                + (s.boost.clamp(Fixed::ONE, Fixed::from_int(4)) - Fixed::ONE) * self.boost);
+        follow(&mut self.spread, s.spread, Fixed::from_int(11), dt);
         let j = &self.jets[0];
-        let rate = s.agility.max(0.1);
-        let clearance = s.clearance.clamp(2.0, 60.0);
+        let rate = s.agility.max(Fixed::from_ratio(1, 10));
+        let clearance = s.clearance.clamp(Fixed::from_int(2), Fixed::from_int(60));
         let mut ground: u8 = 0;
         for i in 0..=4 {
             for side in -1..=1 {
-                let distance = self.speed * 0.16 * i as f32;
-                ground = ground.max(world.height(
-                    (j.position[0] + j.yaw.sin() * distance + j.yaw.cos() * side as f32 * 7.0)
-                        as i32,
-                    (j.position[1] - j.yaw.cos() * distance + j.yaw.sin() * side as f32 * 7.0)
-                        as i32,
-                ));
+                let distance = self.speed * Fixed::from_ratio(16, 100) * Fixed::from_int(i);
+                ground = ground.max(
+                    world.height(
+                        (j.position[0]
+                            + j.yaw.sin() * distance
+                            + j.yaw.cos() * Fixed::from_int(side) * Fixed::from_int(7))
+                        .trunc_to_int(),
+                        (j.position[1] - j.yaw.cos() * distance
+                            + j.yaw.sin() * Fixed::from_int(side) * Fixed::from_int(7))
+                        .trunc_to_int(),
+                    ),
+                );
             }
         }
-        let floor = f32::from(ground) + clearance;
-        if self.floor == 0.0 {
+        let floor = Fixed::from_int((ground) as i32) + clearance;
+        if self.floor == Fixed::ZERO {
             self.floor = floor;
         }
-        let floor_rate = if floor > self.floor { 9.0 } else { 3.0 };
+        let floor_rate = if floor > self.floor {
+            Fixed::from_int(9)
+        } else {
+            Fixed::from_int(3)
+        };
         follow(&mut self.floor, floor, floor_rate, dt);
-        let ceiling = self.floor.max(s.altitude).max(s.ceiling.clamp(20.0, 900.0));
-        let climb_max = self.speed * 0.55;
-        let chase = self.chase[2] + self.cockpit[2] > 0.5;
+        let ceiling = self
+            .floor
+            .max(s.altitude)
+            .max(s.ceiling.clamp(Fixed::from_int(20), Fixed::from_int(900)));
+        let climb_max = self.speed * Fixed::from_ratio(55, 100);
+        let chase =
+            self.chase[2].to_fixed() + self.cockpit[2].to_fixed() > Fixed::from_ratio(5, 10);
         let mut flown = false;
-        let mut want = 0.0;
+        let mut want = Fixed::ZERO;
         if ready {
             if self.controls.keyboard {
                 let bits = self.controls.keys;
-                want = (i32::from(bits & 12 != 0) - i32::from(bits & 3 != 0)) as f32 * rate;
-                self.altitude_goal += (i32::from(bits & 48 != 0) - i32::from(bits & 192 != 0))
-                    as f32
-                    * climb_max
-                    * dt;
+                want = Fixed::from_int(i32::from(bits & 12 != 0) - i32::from(bits & 3 != 0)) * rate;
+                self.altitude_goal +=
+                    Fixed::from_int(i32::from(bits & 48 != 0) - i32::from(bits & 192 != 0))
+                        * climb_max
+                        * dt;
                 flown = true;
             } else if let Some(pointer) = self
                 .controls
                 .pointer
-                .filter(|_| self.controls.pointer_idle < 5.0)
+                .filter(|_| self.controls.pointer_idle < Fixed::from_int(5))
             {
                 if chase {
-                    let turn = ((pointer[0] - old_camera.center[0]) / (width as f32 * 0.26))
-                        .clamp(-1.0, 1.0);
-                    if turn.abs() > 0.06 {
+                    let turn = ((pointer[0] - old_camera.center[0])
+                        / (Fixed::from_int((width) as i32) * Fixed::from_ratio(26, 100)))
+                    .clamp(-Fixed::ONE, Fixed::ONE);
+                    if turn.abs() > Fixed::from_ratio(6, 100) {
                         want = turn * rate;
                     }
                     let y = old_camera.steer_y;
                     let raw = if pointer[1] < y {
-                        (y - pointer[1]) / y.max(1.0)
+                        (y - pointer[1]) / y.max(Fixed::ONE)
                     } else {
-                        -(pointer[1] - y) / (height as f32 - y).max(1.0)
+                        -(pointer[1] - y) / (Fixed::from_int((height) as i32) - y).max(Fixed::ONE)
                     };
-                    let up = raw.signum() * (raw.abs() - 0.08).max(0.0) / 0.92;
-                    self.altitude_goal = if up >= 0.0 {
+                    let up = raw.signum()
+                        * (raw.abs() - Fixed::from_ratio(8, 100)).max(Fixed::ZERO)
+                        / Fixed::from_ratio(92, 100);
+                    self.altitude_goal = if up >= Fixed::ZERO {
                         s.altitude + up * (ceiling - s.altitude)
                     } else {
                         s.altitude + up * (s.altitude - self.floor)
@@ -514,78 +587,106 @@ impl Flight {
                 } else if let Some(point) = old_camera.project(j.position) {
                     let dx = pointer[0] - point[0];
                     let dy = pointer[1] - point[1];
-                    if dx * dx + dy * dy > 324.0 {
+                    if dx * dx + dy * dy > Fixed::from_int(324) {
                         let (sn, cs) = old_camera.yaw.sin_cos();
                         want =
                             (wrap_angle((dx * cs + dy * sn).atan2(-(-dx * sn + dy * cs)) - j.yaw)
-                                * 2.6)
-                                .clamp(-rate, rate);
+                                * Fixed::from_ratio(26, 10))
+                            .clamp(-rate, rate);
                     }
                     flown = true;
                 }
             } else {
                 want = (rate
-                    * (0.62 * (self.time * 0.31 + 1.3).sin()
-                        + 0.38 * (self.time * 0.73 + 0.4).sin()
-                        + 0.22 * (self.time * 0.17).sin()))
+                    * (Fixed::from_ratio(62, 100)
+                        * (self.time * Fixed::from_ratio(31, 100) + Fixed::from_ratio(13, 10))
+                            .sin()
+                        + Fixed::from_ratio(38, 100)
+                            * (self.time * Fixed::from_ratio(73, 100) + Fixed::from_ratio(4, 10))
+                                .sin()
+                        + Fixed::from_ratio(22, 100)
+                            * (self.time * Fixed::from_ratio(17, 100)).sin()))
                 .clamp(-rate, rate);
                 if s.stunts {
                     self.auto_stunt -= dt;
-                    if self.auto_stunt <= 0.0 {
+                    if self.auto_stunt <= Fixed::ZERO {
                         self.roll();
-                        self.auto_stunt = 9.0
-                            + f32::from(super::world::hash8((self.time * 10.0) as u32)) / 255.0
-                                * 7.0;
+                        self.auto_stunt = Fixed::from_int(9)
+                            + Fixed::from_int(
+                                (super::world::hash8(
+                                    (self.time * Fixed::from_int(10)).trunc_to_int() as u32,
+                                )) as i32,
+                            ) / Fixed::from_int(255)
+                                * Fixed::from_int(7);
                     }
                 }
             }
         }
         let j = &mut self.jets[0];
-        follow(&mut j.yaw_rate, want, 2.6, dt);
+        follow(&mut j.yaw_rate, want, Fixed::from_ratio(26, 10), dt);
         j.yaw += j.yaw_rate * dt;
         follow(
             &mut j.roll,
-            (j.yaw_rate / rate).clamp(-1.0, 1.0) * s.bank * PI / 180.0,
-            5.0,
+            (j.yaw_rate / rate).clamp(-Fixed::ONE, Fixed::ONE) * s.bank * PI / Fixed::from_int(180),
+            Fixed::from_int(5),
             dt,
         );
         j.velocity = [j.yaw.sin() * self.speed, -j.yaw.cos() * self.speed];
         j.position[0] += j.velocity[0] * dt;
         j.position[1] += j.velocity[1] * dt;
         if !flown {
-            follow(&mut self.altitude_goal, s.altitude, 0.9, dt);
+            follow(
+                &mut self.altitude_goal,
+                s.altitude,
+                Fixed::from_ratio(9, 10),
+                dt,
+            );
         }
         self.altitude_goal = self.altitude_goal.clamp(self.floor, ceiling);
-        let dz = ((self.altitude_goal + (self.time * 0.9).sin() * 1.5 - j.position[2])
-            * (1.0 - (-dt * 3.0).exp()))
+        let dz = ((self.altitude_goal
+            + (self.time * Fixed::from_ratio(9, 10)).sin() * Fixed::from_ratio(15, 10)
+            - j.position[2])
+            * (Fixed::ONE - (-dt * Fixed::from_int(3)).exp()))
         .clamp(-climb_max * dt, climb_max * dt);
         j.position[2] += dz;
-        let hard =
-            f32::from(world.height(j.position[0] as i32, j.position[1] as i32)) + clearance * 0.7;
+        let hard = Fixed::from_int(
+            (world.height(
+                (j.position[0]).trunc_to_int(),
+                (j.position[1]).trunc_to_int(),
+            )) as i32,
+        ) + clearance * Fixed::from_ratio(7, 10);
         if j.position[2] < hard {
-            follow(&mut j.position[2], hard, 22.0, dt);
+            follow(&mut j.position[2], hard, Fixed::from_int(22), dt);
         }
-        follow(&mut self.climb_velocity, dz / dt.max(1e-4), 6.0, dt);
+        follow(
+            &mut self.climb_velocity,
+            dz / dt.max(Fixed::from_ratio(1, 10000)),
+            Fixed::from_int(6),
+            dt,
+        );
         self.climb_tilt = (self.climb_velocity.signum()
-            * (self.climb_velocity.abs() - 3.0).max(0.0)
-            / self.speed.max(20.0)
-            * 1.25)
-            .clamp(-0.5, 0.5);
+            * (self.climb_velocity.abs() - Fixed::from_int(3)).max(Fixed::ZERO)
+            / self.speed.max(Fixed::from_int(20))
+            * Fixed::from_ratio(125, 100))
+        .clamp(-Fixed::from_ratio(5, 10), Fixed::from_ratio(5, 10));
         follow(
             &mut j.pitch,
-            (j.yaw_rate / rate).abs() * 0.1 + self.climb_tilt,
-            4.0,
+            (j.yaw_rate / rate).abs() * Fixed::from_ratio(1, 10) + self.climb_tilt,
+            Fixed::from_int(4),
             dt,
         );
         let goals = [
-            (j.yaw_rate / rate).clamp(-1.0, 1.0) * 6.4 + (self.time * 0.53).sin() * 0.3,
-            (self.climb_tilt / 0.5).clamp(-1.0, 1.0) * 3.4
-                + self.boost * 1.6
-                + (self.time * 0.71 + 1.0).sin() * 0.25,
+            (j.yaw_rate / rate).clamp(-Fixed::ONE, Fixed::ONE) * Fixed::from_ratio(64, 10)
+                + (self.time * Fixed::from_ratio(53, 100)).sin() * Fixed::from_ratio(3, 10),
+            (self.climb_tilt / Fixed::from_ratio(5, 10)).clamp(-Fixed::ONE, Fixed::ONE)
+                * Fixed::from_ratio(34, 10)
+                + self.boost * Fixed::from_ratio(16, 10)
+                + (self.time * Fixed::from_ratio(71, 100) + Fixed::ONE).sin()
+                    * Fixed::from_ratio(25, 100),
         ];
         for (spring, goal) in self.head.iter_mut().zip(goals) {
-            spring.retarget(Fixed::from_f32(goal), None);
-            spring.tick((dt * 1000.0).round() as u16);
+            spring.retarget(goal, None);
+            spring.tick((dt * Fixed::from_int(1000)).round().to_int() as u16);
         }
         let position = j.position;
         let yaw = j.yaw;
@@ -595,9 +696,12 @@ impl Flight {
         let yaw_rate = j.yaw_rate;
         for i in 1..self.count {
             let j = &mut self.jets[i];
-            let side = if i == 1 { -1.0 } else { 1.0 };
-            let x = side * (jet::WIDTH as f32 * 1.2 * s.jet_scale + 2.0);
-            let y = jet::LENGTH as f32 * 0.74 * s.jet_scale;
+            let side = if i == 1 { -Fixed::ONE } else { Fixed::ONE };
+            let x = side
+                * (Fixed::from_int((jet::WIDTH) as i32) * Fixed::from_ratio(12, 10) * s.jet_scale
+                    + Fixed::from_int(2));
+            let y =
+                Fixed::from_int((jet::LENGTH) as i32) * Fixed::from_ratio(74, 100) * s.jet_scale;
             let target = [
                 position[0] + yaw.cos() * x - yaw.sin() * y,
                 position[1] + yaw.sin() * x + yaw.cos() * y,
@@ -605,51 +709,67 @@ impl Flight {
             for k in 0..2 {
                 let old = j.position[k];
                 j.position[k] += velocity[k] * dt;
-                follow(&mut j.position[k], target[k], 3.2, dt);
+                follow(&mut j.position[k], target[k], Fixed::from_ratio(32, 10), dt);
                 j.velocity[k] = (j.position[k] - old) / dt;
             }
-            j.yaw += wrap_angle(yaw - j.yaw) * (1.0 - (-dt * 4.0).exp());
-            follow(&mut j.roll, roll, 3.2, dt);
+            j.yaw += wrap_angle(yaw - j.yaw) * (Fixed::ONE - (-dt * Fixed::from_int(4)).exp());
+            follow(&mut j.roll, roll, Fixed::from_ratio(32, 10), dt);
             j.pitch = pitch;
             follow(
                 &mut j.position[2],
-                position[2] + (self.time * 1.1 + i as f32 * 2.0).sin() * 1.2,
-                3.0,
+                position[2]
+                    + (self.time * Fixed::from_ratio(11, 10)
+                        + Fixed::from_int((i) as i32) * Fixed::from_int(2))
+                    .sin()
+                        * Fixed::from_ratio(12, 10),
+                Fixed::from_int(3),
                 dt,
             );
             j.position[2] = j.position[2].max(
-                f32::from(world.height(j.position[0] as i32, j.position[1] as i32))
-                    + clearance * 0.7,
+                Fixed::from_int(
+                    (world.height(
+                        (j.position[0]).trunc_to_int(),
+                        (j.position[1]).trunc_to_int(),
+                    )) as i32,
+                ) + clearance * Fixed::from_ratio(7, 10),
             );
         }
         for j in &mut self.jets[..self.count] {
             let load = (yaw_rate.abs() / rate
-                + if j.stunt >= 0.0 { 0.7 } else { 0.0 }
-                + self.boost * 0.9
+                + if j.stunt >= Fixed::ZERO {
+                    Fixed::from_ratio(7, 10)
+                } else {
+                    Fixed::ZERO
+                }
+                + self.boost * Fixed::from_ratio(9, 10)
                 + self.climb_tilt.abs())
-            .clamp(0.0, 1.0);
-            follow(&mut j.load, load, 2.5, dt);
-            if j.stunt >= 0.0 {
-                if j.stunt_delay > 0.0 {
+            .clamp(Fixed::ZERO, Fixed::ONE);
+            follow(&mut j.load, load, Fixed::from_ratio(25, 10), dt);
+            if j.stunt >= Fixed::ZERO {
+                if j.stunt_delay > Fixed::ZERO {
                     j.stunt_delay -= dt;
                 } else {
-                    j.stunt += dt / 0.85;
-                    if j.stunt >= 1.0 {
-                        j.stunt = -1.0;
+                    j.stunt += dt / Fixed::from_ratio(85, 100);
+                    if j.stunt >= Fixed::ONE {
+                        j.stunt = -Fixed::ONE;
                     }
                 }
             }
             if (j.position[0] - j.last_trail[0]).powi(2) + (j.position[1] - j.last_trail[1]).powi(2)
-                > 6.25
+                > Fixed::from_ratio(625, 100)
             {
                 j.last_trail = [j.position[0], j.position[1]];
                 for w in 0..2 {
                     j.trails[w][j.trail_head] = TrailPoint {
                         position: j.local(
                             [
-                                if w == 0 { -15.5 } else { 15.5 },
-                                jet::PIVOT[0] - 33.0,
-                                4.0 - jet::PIVOT[1],
+                                if w == 0 {
+                                    -Fixed::from_ratio(155, 10)
+                                } else {
+                                    Fixed::from_ratio(155, 10)
+                                },
+                                jet::PIVOT[0] - Fixed::from_int(33),
+                                Fixed::from_int(4) - jet::PIVOT[1],
                             ],
                             s.jet_scale,
                         ),
@@ -661,71 +781,96 @@ impl Flight {
             }
         }
         self.smoke_clock += dt;
-        if self.smoke_clock >= 0.034 - 0.012 * self.boost
-            && self.burn > 0.6
-            && s.afterburner > 0.05
-            && self.spread < 2.0
+        if self.smoke_clock
+            >= Fixed::from_ratio(34, 1000) - Fixed::from_ratio(12, 1000) * self.boost
+            && self.burn > Fixed::from_ratio(6, 10)
+            && s.afterburner > Fixed::from_ratio(5, 100)
+            && self.spread < Fixed::from_int(2)
         {
-            self.smoke_clock = 0.0;
+            self.smoke_clock = Fixed::ZERO;
             let length = self.flame_length();
             let bend = self.flame_bend();
-            let t = length * 0.78;
+            let t = length * Fixed::from_ratio(78, 100);
             for (i, j) in self.jets[..self.count].iter().enumerate() {
                 let head = self.smoke_head;
-                let side = if (head + i) & 1 != 0 { 1.0 } else { -1.0 };
+                let side = if (head + i) & 1 != 0 {
+                    Fixed::ONE
+                } else {
+                    -Fixed::ONE
+                };
                 self.smoke[head] = Smoke {
                     position: j.local(
                         [
-                            side * 1.96 + bend * t * t / length.max(1.0),
-                            jet::PIVOT[0] - 43.6 - t,
-                            4.1 - jet::PIVOT[1],
+                            side * Fixed::from_ratio(196, 100)
+                                + bend * t * t / length.max(Fixed::ONE),
+                            jet::PIVOT[0] - Fixed::from_ratio(436, 10) - t,
+                            Fixed::from_ratio(41, 10) - jet::PIVOT[1],
                         ],
                         s.jet_scale,
                     ),
                     born: self.time,
-                    size: (1.3
-                        + f32::from(super::world::hash8((head * 31 + 7) as u32)) / 255.0 * 1.2)
+                    size: (Fixed::from_ratio(13, 10)
+                        + Fixed::from_int((super::world::hash8((head * 31 + 7) as u32)) as i32)
+                            / Fixed::from_int(255)
+                            * Fixed::from_ratio(12, 10))
                         * s.jet_scale,
                     push: [
-                        -velocity[0] * 0.3
-                            + (f32::from(super::world::hash8((head * 17 + 3) as u32)) - 128.0)
-                                * 0.05,
-                        -velocity[1] * 0.3
-                            + (f32::from(super::world::hash8((head * 13 + 5) as u32)) - 128.0)
-                                * 0.05,
+                        -velocity[0] * Fixed::from_ratio(3, 10)
+                            + (Fixed::from_int(
+                                (super::world::hash8((head * 17 + 3) as u32)) as i32,
+                            ) - Fixed::from_int(128))
+                                * Fixed::from_ratio(5, 100),
+                        -velocity[1] * Fixed::from_ratio(3, 10)
+                            + (Fixed::from_int(
+                                (super::world::hash8((head * 13 + 5) as u32)) as i32,
+                            ) - Fixed::from_int(128))
+                                * Fixed::from_ratio(5, 100),
                     ],
-                    strength: (0.46 + 0.36 * self.boost) * (s.afterburner * 1.4).clamp(0.0, 1.0),
-                    life: 0.75
-                        + 0.5 * self.boost
-                        + f32::from(super::world::hash8((head * 5) as u32)) / 255.0 * 0.3,
+                    strength: (Fixed::from_ratio(46, 100)
+                        + Fixed::from_ratio(36, 100) * self.boost)
+                        * (s.afterburner * Fixed::from_ratio(14, 10))
+                            .clamp(Fixed::ZERO, Fixed::ONE),
+                    life: Fixed::from_ratio(75, 100)
+                        + Fixed::from_ratio(5, 10) * self.boost
+                        + Fixed::from_int((super::world::hash8((head * 5) as u32)) as i32)
+                            / Fixed::from_int(255)
+                            * Fixed::from_ratio(3, 10),
                 };
                 self.smoke_head = (head + 1) % SMOKE_CAPACITY;
             }
         }
-        // Cascaded camera filters preserve the published pose blend and retarget continuously.
         let targets = [
-            f32::from(self.view == View::Chase),
-            f32::from(self.view == View::Cockpit),
+            Fixed64::from_int(i64::from(self.view == View::Chase)),
+            Fixed64::from_int(i64::from(self.view == View::Cockpit)),
         ];
-        let ease = 1.0 - (-dt * 7.6 / s.transition.clamp(0.2, 8.0)).exp();
+        let ease = Fixed::ONE
+            - (-dt * Fixed::from_ratio(76, 10)
+                / s.transition
+                    .clamp(Fixed::from_ratio(2, 10), Fixed::from_int(8)))
+            .exp();
         for (weights, goal) in [
             (&mut self.chase, targets[0]),
             (&mut self.cockpit, targets[1]),
         ] {
             for i in 0..3 {
-                weights[i] += ((if i == 0 { goal } else { weights[i - 1] }) - weights[i]) * ease;
+                weights[i] += ((if i == 0 { goal } else { weights[i - 1] }) - weights[i])
+                    * Fixed64::from_fixed(ease);
             }
         }
-        if self.chase.iter().all(|w| (*w - targets[0]).abs() < 0.0004)
+        if self
+            .chase
+            .iter()
+            .all(|w| (*w - targets[0]).abs() <= Fixed64::from_ratio(1, 512))
             && self
                 .cockpit
                 .iter()
-                .all(|w| (*w - targets[1]).abs() < 0.0004)
+                .all(|w| (*w - targets[1]).abs() <= Fixed64::from_ratio(1, 512))
         {
             self.chase.fill(targets[0]);
             self.cockpit.fill(targets[1]);
         }
-        let look = (22.0 + 16.0 * self.boost) * (1.0 - self.chase[2] - self.cockpit[2]);
+        let look = (Fixed::from_int(22) + Fixed::from_int(16) * self.boost)
+            * (Fixed::ONE - self.chase[2].to_fixed() - self.cockpit[2].to_fixed());
         for (k, target) in [
             position[0] + yaw.sin() * look,
             position[1] - yaw.cos() * look,
@@ -734,71 +879,86 @@ impl Flight {
         .enumerate()
         {
             self.follow[k] += velocity[k] * dt;
-            follow(&mut self.follow[k], target, 3.5, dt);
+            follow(&mut self.follow[k], target, Fixed::from_ratio(35, 10), dt);
         }
         follow(
             &mut self.camera_yaw,
-            -yaw * s.camera_follow.clamp(0.0, 1.0),
-            1.6,
+            -yaw * s.camera_follow.clamp(Fixed::ZERO, Fixed::ONE),
+            Fixed::from_ratio(16, 10),
             dt,
         );
-        follow(&mut self.follow[2], position[2], 3.0, dt);
-        let mut fix = 0.0;
-        self.camera_floor = 0.0;
-        if self.chase[2] > 0.3 && old_camera.perspective > 1e-4 {
-            let back = 1.0 / old_camera.perspective;
+        follow(&mut self.follow[2], position[2], Fixed::from_int(3), dt);
+        let mut fix = Fixed::ZERO;
+        self.camera_floor = Fixed::ZERO;
+        if self.chase[2].to_fixed() > Fixed::from_ratio(3, 10)
+            && old_camera.perspective > Fixed64::from_ratio(1, 10000)
+        {
+            let back = old_camera.divide_perspective(Fixed::ONE);
             let (sn, cs) = old_camera.yaw.sin_cos();
             let x = old_camera.position[0] + sn * back;
             let y = old_camera.position[1] + cs * back;
             let mut high = 0;
             for dy in -1..=1 {
                 for dx in -1..=1 {
-                    high = high.max(
-                        world.height((x + dx as f32 * 9.0) as i32, (y + dy as f32 * 9.0) as i32),
-                    );
+                    high = high.max(world.height(
+                        (x + Fixed::from_int(dx) * Fixed::from_int(9)).trunc_to_int(),
+                        (y + Fixed::from_int(dy) * Fixed::from_int(9)).trunc_to_int(),
+                    ));
                 }
             }
-            self.camera_floor = f32::from(high) + 5.0;
+            self.camera_floor = Fixed::from_int((high) as i32) + Fixed::from_int(5);
             let nominal = self.follow[2] + old_camera.slope * back;
             let mut wanted = nominal.max(self.camera_floor);
-            if wanted > CLOUD_ALT - 3.0 && wanted < MAX_HEIGHT as f32 + 3.0 {
-                wanted = if position[2] < CLOUD_ALT - 8.0 {
-                    self.camera_floor.max(CLOUD_ALT - 3.0)
+            if wanted > CLOUD_ALT - Fixed::from_int(3)
+                && wanted < Fixed::from_int((MAX_HEIGHT) as i32) + Fixed::from_int(3)
+            {
+                wanted = if position[2] < CLOUD_ALT - Fixed::from_int(8) {
+                    self.camera_floor.max(CLOUD_ALT - Fixed::from_int(3))
                 } else {
-                    MAX_HEIGHT as f32 + 3.0
+                    Fixed::from_int((MAX_HEIGHT) as i32) + Fixed::from_int(3)
                 };
             }
             fix = wanted - nominal;
         }
-        follow(&mut self.camera_fix, fix, 7.0, dt);
-        follow(&mut self.chase_yaw, -yaw, 3.4, dt);
+        follow(&mut self.camera_fix, fix, Fixed::from_int(7), dt);
+        follow(&mut self.chase_yaw, -yaw, Fixed::from_ratio(34, 10), dt);
         let raw = self.chase_yaw - self.camera_yaw;
-        if self.chase[2] == 0.0 && self.cockpit[2] == 0.0 {
+        if self.chase[2].to_fixed() == Fixed::ZERO && self.cockpit[2].to_fixed() == Fixed::ZERO {
             self.yaw_diff = wrap_angle(raw);
         } else {
             self.yaw_diff += wrap_angle(raw - self.yaw_diff);
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn camera_retargets_without_teleporting_and_all_views_settle() {
-        let world = World::new(7, 0.33);
+        let world = World::new(7, Fixed::from_ratio(33, 100));
         let mut flight = Flight::new(&world, Settings::default());
         for target in [View::Chase, View::Cockpit, View::Overhead, View::Cockpit] {
             let before = flight.projection(427, 240);
             flight.view = target;
             assert_eq!(before.center, flight.projection(427, 240).center);
             for _ in 0..400 {
-                flight.step(&world, 0.016, 427, 240);
+                flight.step(&world, 16, 427, 240);
                 let p = flight.projection(427, 240);
-                assert!(p.center.into_iter().chain(p.position).all(f32::is_finite));
+                assert!(
+                    p.center
+                        .into_iter()
+                        .chain(p.position)
+                        .all(|v| v.abs() < Fixed::from_int(1_000_000))
+                );
             }
-            assert_eq!(flight.cockpit[2], f32::from(target == View::Cockpit));
-            assert_eq!(flight.chase[2], f32::from(target == View::Chase));
+            assert_eq!(
+                flight.cockpit[2].to_fixed(),
+                Fixed::from_int((target == View::Cockpit) as i32)
+            );
+            assert_eq!(
+                flight.chase[2].to_fixed(),
+                Fixed::from_int((target == View::Chase) as i32)
+            );
         }
         for i in 0..300 {
             flight.view = if i % 2 == 0 {
@@ -806,13 +966,13 @@ mod tests {
             } else {
                 View::Cockpit
             };
-            flight.step(&world, 0.016, 427, 240);
-            assert!(flight.chase[2] + flight.cockpit[2] <= 1.00001);
+            flight.step(&world, 16, 427, 240);
+            assert!(flight.chase[2] + flight.cockpit[2] <= Fixed64::from_ratio(100001, 100000));
         }
     }
     #[test]
     fn controls_cancel_and_history_storage_remain_bounded() {
-        let world = World::new(7, 0.33);
+        let world = World::new(7, Fixed::from_ratio(33, 100));
         let mut flight = Flight::new(&world, Settings::default());
         flight.set_wingmen(2);
         flight.controls.key(0, true);
@@ -821,22 +981,27 @@ mod tests {
         assert_eq!(flight.controls.keys, 2);
         flight.controls.press();
         flight.release_pointer(true);
-        assert!(flight.jets[0].stunt < 0.0);
+        assert!(flight.jets[0].stunt < Fixed::from_ratio(0, 1));
         flight.controls.press();
         flight.release_pointer(false);
-        assert_eq!(flight.jets[0].stunt, 0.0);
+        assert_eq!(flight.jets[0].stunt, Fixed::from_ratio(0, 1));
         flight.controls.release_all();
         assert_eq!(flight.controls.keys, 0);
         let allocations = crate::test_support::tracked_allocations(|| {
             for _ in 0..2000 {
-                flight.step(&world, 0.016, 427, 240);
+                flight.step(&world, 16, 427, 240);
             }
         });
         assert_eq!(allocations, 0);
+        assert_eq!(flight.time, Fixed::from_int(32));
         for jet in &flight.jets {
             assert!(jet.trail_len <= TRAIL_CAPACITY);
             assert!(jet.trail_head < TRAIL_CAPACITY);
-            assert!(jet.position.iter().all(|v| v.is_finite()));
+            assert!(
+                jet.position
+                    .iter()
+                    .all(|v| v.abs() < Fixed::from_int(1_000_000))
+            );
         }
         assert!(flight.smoke_head < SMOKE_CAPACITY);
     }

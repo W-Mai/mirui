@@ -17,7 +17,6 @@ use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::font::{Font, FontManager};
 use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 use crate::ui::{ComputedRect, view::PaintCtx};
-
 #[crate::model]
 pub struct FlightModel {
     terrain: Terrain,
@@ -27,13 +26,13 @@ pub struct FlightModel {
     flames: Flames,
     viewport: (u16, u16),
     revision: u32,
-    hint_time: f32,
+    hint_time: Fixed,
     focused: bool,
     visible: bool,
 }
 impl FlightModel {
     fn new(width: u16, height: u16) -> Self {
-        let terrain = Terrain::new(7, 0.33);
+        let terrain = Terrain::new(7, Fixed::from_ratio(33, 100));
         let flight = Flight::new(&terrain, Settings::default());
         let mut state = Self {
             terrain,
@@ -43,7 +42,7 @@ impl FlightModel {
             flames: Flames::new().expect("flight flame storage"),
             viewport: (width, height),
             revision: 0,
-            hint_time: 0.0,
+            hint_time: Fixed::ZERO,
             focused: true,
             visible: true,
         };
@@ -61,7 +60,6 @@ impl FlightModel {
         {
             return;
         }
-        // Release the old workspaces before allocating the replacement set.
         let day = self
             .raster
             .as_ref()
@@ -89,14 +87,13 @@ impl FlightModel {
             .prepare(
                 &raster.flames[..raster.flame_count],
                 self.flight.time,
-                scale as f32,
+                Fixed::from_int((scale) as i32),
                 [raster.frame.width, raster.frame.height],
             )
             .expect("prepared flame textures");
         self.revision = self.revision.wrapping_add(1);
     }
 }
-
 #[crate::model]
 impl FlightModel {
     #[observe]
@@ -109,7 +106,10 @@ impl FlightModel {
             r: 255,
             g: 255,
             b: 255,
-            a: ((1.0 - super::flight::smooth((self.hint_time - 5.0) / 1.0)) * 220.0) as u8,
+            a: ((Fixed::ONE
+                - super::flight::smooth((self.hint_time - Fixed::from_int(5)) / Fixed::ONE))
+                * Fixed::from_int(220))
+            .trunc_to_int() as u8,
         }
     }
     #[observe]
@@ -118,11 +118,11 @@ impl FlightModel {
     }
     pub fn select_view(&mut self, view: CameraView) {
         self.flight.view = view;
-        self.hint_time = 0.0;
+        self.hint_time = Fixed::ZERO;
     }
     pub fn cycle_view(&mut self) {
         self.flight.cycle_view();
-        self.hint_time = 0.0;
+        self.hint_time = Fixed::ZERO;
     }
     pub fn press(&mut self) {
         self.flight.controls.press();
@@ -169,14 +169,14 @@ impl FlightModel {
             PhysicalKey::Digit2 => self.select_view(CameraView::Chase),
             PhysicalKey::Digit3 => self.select_view(CameraView::Cockpit),
             PhysicalKey::KeyR => {
-                self.flight.intro = 0.0;
-                self.flight.burn = 0.0;
+                self.flight.intro = Fixed::ZERO;
+                self.flight.burn = Fixed::ZERO;
             }
             PhysicalKey::KeyE => {
-                self.flight.settings.spread = if self.flight.settings.spread > 1.0 {
-                    1.0
+                self.flight.settings.spread = if self.flight.settings.spread > Fixed::ONE {
+                    Fixed::ONE
                 } else {
-                    5.0
+                    Fixed::from_int(5)
                 };
             }
             PhysicalKey::KeyF => {
@@ -201,7 +201,7 @@ impl FlightModel {
         milliseconds: u32,
         width: u16,
         height: u16,
-        pointer: Option<[f32; 2]>,
+        pointer: Option<[Fixed; 2]>,
     ) {
         if width == 0 || height == 0 || !self.focused || !self.visible {
             return;
@@ -211,11 +211,19 @@ impl FlightModel {
         if let Some(point) = pointer {
             self.flight.controls.point([
                 (point[0]
-                    - ((f32::from(width) - (scene_width * scale) as f32) / 2.0 + 0.5).floor())
-                    / scale as f32,
+                    - ((Fixed::from_int((width) as i32)
+                        - Fixed::from_int((scene_width * scale) as i32))
+                        / Fixed::from_int(2)
+                        + Fixed::from_ratio(5, 10))
+                    .floor())
+                    / Fixed::from_int((scale) as i32),
                 (point[1]
-                    - ((f32::from(height) - (scene_height * scale) as f32) / 2.0 + 0.5).floor())
-                    / scale as f32,
+                    - ((Fixed::from_int((height) as i32)
+                        - Fixed::from_int((scene_height * scale) as i32))
+                        / Fixed::from_int(2)
+                        + Fixed::from_ratio(5, 10))
+                    .floor())
+                    / Fixed::from_int((scale) as i32),
             ]);
         } else {
             self.flight.controls.pointer = None;
@@ -224,11 +232,11 @@ impl FlightModel {
         let raster = self.raster.as_ref().expect("prepared flight raster");
         self.flight.step(
             &self.terrain,
-            milliseconds as f32 / 1000.0,
+            milliseconds.min(50) as u16,
             raster.frame.width,
             raster.frame.height,
         );
-        self.hint_time += milliseconds.min(50) as f32 / 1000.0;
+        self.hint_time += Fixed::from_int((milliseconds.min(50)) as i32) / Fixed::from_int(1000);
         self.render_frame();
     }
     pub fn paint(&self, paint: &mut PaintCtx<'_>) {
@@ -264,19 +272,16 @@ impl FlightModel {
             + self.flames.bytes()
     }
 }
-
 #[crate::component]
 pub(super) struct Stage {
     pub model: model!(FlightModel),
 }
-
-#[crate::view(component=Stage,name="Pixel Flight",priority=60)]
+# [crate :: view (component = Stage , name = "Pixel Flight" , priority = 60)]
 fn flight_scene(model: model!(component.model, watch(revision)), paint: paint!()) {
     paint.set_background_handled(true);
     model.paint(paint);
 }
-
-#[crate::system(order=Animation)]
+# [crate :: system (order = Animation)]
 fn animate(
     stages: query!(Stage, ComputedRect),
     cursor: res!(PointerCursor),
@@ -289,7 +294,7 @@ fn animate(
             && cursor.y >= rect.y
             && cursor.x < rect.x + rect.w
             && cursor.y < rect.y + rect.h)
-            .then(|| [(cursor.x - rect.x).to_f32(), (cursor.y - rect.y).to_f32()]);
+            .then(|| [(cursor.x - rect.x), (cursor.y - rect.y)]);
         stage.model.advance(
             delta.0.into(),
             rect.w.to_int().clamp(0, 65535) as u16,
@@ -350,7 +355,6 @@ fn cancel(event: event!(PressCancelled), model: model!(FlightModel)) {
         model.release(true);
     }
 }
-
 #[crate::compose]
 fn build_widgets(model: model!(FlightModel)) {
     ui! {
@@ -381,7 +385,6 @@ fn build_widgets(model: model!(FlightModel)) {
         } on Pressed(press::callback(model.clone())) on Released(release::callback(model.clone())) on PressCancelled(cancel::callback(model))
     };
 }
-
 fn hint(view: CameraView) -> &'static str {
     match view {
         CameraView::Overhead => {
@@ -395,8 +398,7 @@ fn hint(view: CameraView) -> &'static str {
         }
     }
 }
-
-/// Install the flight scene and its standard keyboard and pointer controls.
+#[doc = " Install the flight scene and its standard keyboard and pointer controls."]
 pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app: &mut App<B, F>,
     parent: Entity,
@@ -423,7 +425,6 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.compose(parent, build_widgets(model.clone()));
     model
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,14 +1,14 @@
-//! Resize-time metalwork layers and live flight instruments.
-
+#![doc = " Resize-time metalwork layers and live flight instruments."]
+use super::math::FixedMath as _;
+use super::math::{PI, SQRT_2, TAU};
 use super::{
     flight::Flight,
     jet,
     raster::{BAYER, Canvas, Palette, blend, rgba},
     world::{World, hash8},
 };
+use crate::types::Fixed;
 use alloc::{vec, vec::Vec};
-use core::f32::consts::{PI, SQRT_2, TAU};
-
 const GREEN: [u32; 6] = [
     0xff0d1403, 0xff162205, 0xff28420a, 0xff4e9616, 0xff7ee246, 0xffd2ffba,
 ];
@@ -29,7 +29,6 @@ const DIGITS: [[u8; 5]; 10] = [
     [7, 5, 7, 5, 7],
     [7, 5, 7, 1, 7],
 ];
-
 #[derive(Clone, Copy, Default)]
 struct Box2 {
     x: i32,
@@ -43,12 +42,11 @@ struct Dial {
     y: i32,
     r: i32,
 }
-
-/// Only procedural instrument artwork uses these small pixel primitives.
+#[doc = " Only procedural instrument artwork uses these small pixel primitives."]
 trait Ink {
     fn put(&mut self, x: i32, y: i32, color: u32);
     fn get(&self, x: i32, y: i32) -> u32;
-    fn tint(&mut self, x: i32, y: i32, color: u32, alpha: f32) {
+    fn tint(&mut self, x: i32, y: i32, color: u32, alpha: Fixed) {
         let old = self.get(x, y);
         if old != 0 {
             self.put(x, y, blend(old, color, alpha));
@@ -61,13 +59,18 @@ trait Ink {
             }
         }
     }
-    fn line(&mut self, a: [f32; 2], b: [f32; 2], color: u32) {
-        let n = (b[0] - a[0]).abs().max((b[1] - a[1]).abs()).ceil().max(1.0) as i32;
+    fn line(&mut self, a: [Fixed; 2], b: [Fixed; 2], color: u32) {
+        let n = ((b[0] - a[0])
+            .abs()
+            .max((b[1] - a[1]).abs())
+            .ceil()
+            .max(Fixed::ONE))
+        .trunc_to_int();
         for i in 0..=n {
-            let t = i as f32 / n as f32;
+            let t = Fixed::from_int(i) / Fixed::from_int(n);
             self.put(
-                (a[0] + (b[0] - a[0]) * t).round() as i32,
-                (a[1] + (b[1] - a[1]) * t).round() as i32,
+                ((a[0] + (b[0] - a[0]) * t).round()).trunc_to_int(),
+                ((a[1] + (b[1] - a[1]) * t).round()).trunc_to_int(),
                 color,
             );
         }
@@ -165,11 +168,10 @@ impl Ink for Live<'_, '_> {
         }
     }
 }
-
 pub struct Cockpit {
     width: i32,
     height: i32,
-    scale: f32,
+    scale: Fixed,
     pad: i32,
     layers: [Layer; 4],
     body: [u32; 9],
@@ -198,11 +200,11 @@ impl Cockpit {
     pub fn new(width: usize, height: usize, palette: &Palette) -> Self {
         let w = width as i32;
         let h = height as i32;
-        let s = height as f32 / 300.0;
+        let s = Fixed::from_int((height) as i32) / Fixed::from_int(300);
         let cx = w / 2;
-        let r = |v: i32| (v as f32 * s).round() as i32;
+        let r = |v: i32| ((Fixed::from_int(v) * s).round()).trunc_to_int();
         let x = |u: i32| cx + r(u);
-        let pad = (14.0 * s).ceil() as i32 + 3;
+        let pad = ((Fixed::from_int(14) * s).ceil()).trunc_to_int() + 3;
         let b = core::array::from_fn(|i| palette.jets[0][i + 1]);
         let a = core::array::from_fn(|i| palette.jets[0][i + 17]);
         let mut art = Self {
@@ -241,27 +243,34 @@ impl Cockpit {
                 }
             }
         }
-        let inside = |dx: f32, dy: f32, ax: f32, ay: f32| {
-            (dx.abs() / ax).powf(2.5) + (dy.abs() / ay).powf(2.5)
+        let inside = |dx: Fixed, dy: Fixed, ax: Fixed, ay: Fixed| {
+            (dx.abs() / ax).pow_fraction(Fixed::from_ratio(25, 10))
+                + (dy.abs() / ay).pow_fraction(Fixed::from_ratio(25, 10))
         };
-        // Padded rear frame and a segmented, paint-chipped canopy hoop.
         for yy in -pad..h + pad {
-            let dy = 252.0 * s - yy as f32;
-            if dy <= 0.0 {
+            let dy = Fixed::from_int(252) * s - Fixed::from_int(yy);
+            if dy <= Fixed::ZERO {
                 continue;
             }
             for xx in -pad..w + pad {
-                let v = inside((xx - cx) as f32, dy, 280.0 * s, 276.0 * s);
-                if v <= 1.0 {
+                let v = inside(
+                    Fixed::from_int(xx - cx),
+                    dy,
+                    Fixed::from_int(280) * s,
+                    Fixed::from_int(276) * s,
+                );
+                if v <= Fixed::ONE {
                     continue;
                 }
-                let f = (v.powf(0.4) - 1.0) * 280.0 * s;
+                let f = (v.pow_fraction(Fixed::from_ratio(4, 10)) - Fixed::ONE)
+                    * Fixed::from_int(280)
+                    * s;
                 let n = hash8((xx * 71 + yy * 409) as u32);
-                let color = if f < 1.2 {
+                let color = if f < Fixed::from_ratio(12, 10) {
                     b[5]
-                } else if f < 2.4 + s {
+                } else if f < Fixed::from_ratio(24, 10) + s {
                     b[3]
-                } else if f < 2.4 + 6.0 * s {
+                } else if f < Fixed::from_ratio(24, 10) + Fixed::from_int(6) * s {
                     if n < 20 { b[1] } else { b[2] }
                 } else if n > 248 {
                     b[2]
@@ -273,86 +282,121 @@ impl Cockpit {
             }
         }
         for i in 0..40 {
-            let angle = i as f32 / 40.0 * PI;
+            let angle = Fixed::from_int(i) / Fixed::from_int(40) * PI;
             let (sn, cs) = angle.sin_cos();
-            let m = 1.0 + 9.0 / 280.0;
-            let xx = (cx as f32 + cs.signum() * cs.abs().powf(0.8) * 280.0 * s * m).round() as i32;
-            let yy = (252.0 * s - sn.abs().powf(0.8) * 276.0 * s * m).round() as i32;
+            let m = Fixed::ONE + Fixed::from_int(9) / Fixed::from_int(280);
+            let xx = ((Fixed::from_int(cx)
+                + cs.signum()
+                    * cs.abs().pow_fraction(Fixed::from_ratio(8, 10))
+                    * Fixed::from_int(280)
+                    * s
+                    * m)
+                .round())
+            .trunc_to_int();
+            let yy = ((Fixed::from_int(252) * s
+                - sn.abs().pow_fraction(Fixed::from_ratio(8, 10)) * Fixed::from_int(276) * s * m)
+                .round())
+            .trunc_to_int();
             if art.layers[3].get(xx, yy) != 0 {
                 art.layers[3].bolt(xx, yy, b[5], b[0]);
             }
         }
-        let bar = (13.0 * s).max(6.0);
-        let rx = 226.0 * s;
-        let ry = 228.0 * s;
-        let oy = 236.0 * s;
+        let bar = (Fixed::from_int(13) * s).max(Fixed::from_int(6));
+        let rx = Fixed::from_int(226) * s;
+        let ry = Fixed::from_int(228) * s;
+        let oy = Fixed::from_int(236) * s;
         for yy in -pad..h + pad {
-            let dy = oy - yy as f32;
-            if dy <= 0.0 {
+            let dy = oy - Fixed::from_int(yy);
+            if dy <= Fixed::ZERO {
                 continue;
             }
             for xx in -pad..w + pad {
-                let dx = (xx - cx) as f32;
+                let dx = Fixed::from_int(xx - cx);
                 let inner = inside(dx, dy, rx, ry);
-                if inner <= 1.0 || inside(dx, dy, rx + bar, ry + bar) > 1.0 {
+                if inner <= Fixed::ONE || inside(dx, dy, rx + bar, ry + bar) > Fixed::ONE {
                     continue;
                 }
-                let f = ((inner.powf(0.4) - 1.0) / ((rx + bar) / rx - 1.0)).clamp(0.0, 1.0);
-                let part = (dy / ry).atan2(dx / rx) / PI * 15.0;
-                let section = part.floor() as i32;
+                let f = ((inner.pow_fraction(Fixed::from_ratio(4, 10)) - Fixed::ONE)
+                    / ((rx + bar) / rx - Fixed::ONE))
+                    .clamp(Fixed::ZERO, Fixed::ONE);
+                let part = (dy / ry).atan2(dx / rx) / PI * Fixed::from_int(15);
+                let section = (part.floor()).trunc_to_int();
                 let along = part.fract();
                 let n = hash8((xx * 131 + yy * 977) as u32);
-                let seam = !(0.035..=0.965).contains(&along);
+                let seam =
+                    !(Fixed::from_ratio(35, 1000)..=Fixed::from_ratio(965, 1000)).contains(&along);
                 let mut color = if seam {
                     b[0]
-                } else if f < 0.08 {
+                } else if f < Fixed::from_ratio(8, 100) {
                     b[2]
-                } else if f < 0.2 {
+                } else if f < Fixed::from_ratio(2, 10) {
                     b[6]
-                } else if f < 0.34 {
+                } else if f < Fixed::from_ratio(34, 100) {
                     b[5]
-                } else if f < 0.66 {
+                } else if f < Fixed::from_ratio(66, 100) {
                     if n < 14 { b[3] } else { b[4] }
-                } else if f < 0.86 {
+                } else if f < Fixed::from_ratio(86, 100) {
                     b[2]
                 } else {
                     b[0]
                 };
-                if !seam && [1, 4, 7, 10, 13].contains(&section) && f > 0.14 && f < 0.86 {
-                    let edge = along.min(1.0 - along) * 9.0 + (f - 0.14).min(0.86 - f) * 5.0;
-                    if f32::from(n) > 70.0 - edge * 150.0 {
-                        color = if f < 0.3 {
+                if !seam
+                    && [1, 4, 7, 10, 13].contains(&section)
+                    && f > Fixed::from_ratio(14, 100)
+                    && f < Fixed::from_ratio(86, 100)
+                {
+                    let edge = along.min(Fixed::ONE - along) * Fixed::from_int(9)
+                        + (f - Fixed::from_ratio(14, 100)).min(Fixed::from_ratio(86, 100) - f)
+                            * Fixed::from_int(5);
+                    if Fixed::from_int((n) as i32)
+                        > Fixed::from_int(70) - edge * Fixed::from_int(150)
+                    {
+                        color = if f < Fixed::from_ratio(3, 10) {
                             a[5]
-                        } else if f < 0.42 {
+                        } else if f < Fixed::from_ratio(42, 100) {
                             a[4]
-                        } else if f < 0.68 {
+                        } else if f < Fixed::from_ratio(68, 100) {
                             a[3]
                         } else {
                             a[2]
                         };
                     }
-                } else if !seam && f > 0.24 && f < 0.8 && n > 249 {
+                } else if !seam
+                    && f > Fixed::from_ratio(24, 100)
+                    && f < Fixed::from_ratio(8, 10)
+                    && n > 249
+                {
                     color = a[2];
                 }
                 art.layers[0].put(xx, yy, color);
             }
         }
         for i in 1..15 {
-            for off in [-0.09, 0.09] {
-                let angle = (i as f32 + off) / 15.0 * PI;
-                let m = 1.0 + bar / (2.0 * rx);
+            for off in [-Fixed::from_ratio(9, 100), Fixed::from_ratio(9, 100)] {
+                let angle = (Fixed::from_int(i) + off) / Fixed::from_int(15) * PI;
+                let m = Fixed::ONE + bar / (Fixed::from_int(2) * rx);
                 let cosine = angle.cos();
-                let xx =
-                    (cx as f32 + cosine.signum() * cosine.abs().powf(0.8) * rx * m).round() as i32;
-                let yy = (oy - angle.sin().abs().powf(0.8) * ry * m).round() as i32;
+                let xx = ((Fixed::from_int(cx)
+                    + cosine.signum()
+                        * cosine.abs().pow_fraction(Fixed::from_ratio(8, 10))
+                        * rx
+                        * m)
+                    .round())
+                .trunc_to_int();
+                let yy = ((oy - angle.sin().abs().pow_fraction(Fixed::from_ratio(8, 10)) * ry * m)
+                    .round())
+                .trunc_to_int();
                 if art.layers[0].get(xx, yy) != 0 {
                     art.layers[0].bolt(xx - 1, yy - 1, b[7], b[0]);
                 }
             }
         }
-        let ty = (oy - ry - bar).round() as i32;
+        let ty = ((oy - ry - bar).round()).trunc_to_int();
         for yy in -pad..r(21) {
-            let inset = (yy as f32 * 0.45).max(0.0).round() as i32;
+            let inset = ((Fixed::from_int(yy) * Fixed::from_ratio(45, 100))
+                .max(Fixed::ZERO)
+                .round())
+            .trunc_to_int();
             art.layers[0].rect(
                 cx - r(26) + inset,
                 ty + yy,
@@ -371,8 +415,15 @@ impl Cockpit {
         art.layers[0].rect(x(-12), ty + r(8), x(12), ty + r(12), a[4]);
         for side in [-1, 1] {
             let ly = r(118);
-            let half = rx * (1.0 - ((oy - ly as f32) / ry).powf(2.5)).max(0.0).powf(0.4);
-            let lx = (cx as f32 + side as f32 * (half + bar * 0.35)).round() as i32;
+            let half = rx
+                * (Fixed::ONE
+                    - ((oy - Fixed::from_int(ly)) / ry).pow_fraction(Fixed::from_ratio(25, 10)))
+                .max(Fixed::ZERO)
+                .pow_fraction(Fixed::from_ratio(4, 10));
+            let lx = ((Fixed::from_int(cx)
+                + Fixed::from_int(side) * (half + bar * Fixed::from_ratio(35, 100)))
+            .round())
+            .trunc_to_int();
             art.layers[0].rect(lx - r(5), ly - r(9), lx + r(5), ly + r(9), b[0]);
             art.layers[0].rect(lx - r(4), ly - r(8), lx + r(4), ly + r(8), a[3]);
             art.layers[0].bolt(lx - 1, ly - 1, b[7], b[0]);
@@ -387,13 +438,19 @@ impl Cockpit {
                 for i in 0..=n {
                     for k in 0..r(wide).max(1) {
                         let xx = cx
-                            + (side as f32
-                                * (u0 as f32 + (u1 - u0) as f32 * i as f32 / n as f32)
+                            + ((Fixed::from_int(side)
+                                * (Fixed::from_int(u0)
+                                    + Fixed::from_int(u1 - u0) * Fixed::from_int(i)
+                                        / Fixed::from_int(n))
                                 * s)
-                                .round() as i32
+                                .round())
+                            .trunc_to_int()
                             + k * side;
-                        let yy = ((v0 as f32 + (v1 - v0) as f32 * i as f32 / n as f32) * s).round()
-                            as i32
+                        let yy = (((Fixed::from_int(v0)
+                            + Fixed::from_int(v1 - v0) * Fixed::from_int(i) / Fixed::from_int(n))
+                            * s)
+                            .round())
+                        .trunc_to_int()
                             + k;
                         if art.layers[0].get(xx, yy) == 0
                             && ((k == 0 && i.min(n - i) >= 2) || (xx + yy) & 1 == 0)
@@ -404,43 +461,46 @@ impl Cockpit {
                 }
             }
         }
-        let top_of = |u: f32| {
+        let top_of = |u: Fixed| {
             let u = u.abs();
-            if u <= 58.0 {
-                168.0
-            } else if u <= 74.0 {
-                168.0 + (u - 58.0) / 16.0 * 11.0
-            } else if u <= 92.0 {
-                179.0
-            } else if u <= 104.0 {
-                179.0 - (u - 92.0) / 12.0 * 9.0
-            } else if u <= 206.0 {
-                170.0 + (u - 104.0) * 0.02
+            if u <= Fixed::from_int(58) {
+                Fixed::from_int(168)
+            } else if u <= Fixed::from_int(74) {
+                Fixed::from_int(168)
+                    + (u - Fixed::from_int(58)) / Fixed::from_int(16) * Fixed::from_int(11)
+            } else if u <= Fixed::from_int(92) {
+                Fixed::from_int(179)
+            } else if u <= Fixed::from_int(104) {
+                Fixed::from_int(179)
+                    - (u - Fixed::from_int(92)) / Fixed::from_int(12) * Fixed::from_int(9)
+            } else if u <= Fixed::from_int(206) {
+                Fixed::from_int(170) + (u - Fixed::from_int(104)) * Fixed::from_ratio(2, 100)
             } else {
-                172.0 + (u - 206.0) / 16.0 * 10.0
+                Fixed::from_int(172)
+                    + (u - Fixed::from_int(206)) / Fixed::from_int(16) * Fixed::from_int(10)
             }
         };
         let g = r(11).max(5);
         for xx in -pad..w + pad {
-            let u = (xx - cx) as f32 / s;
-            if u.abs() > 232.0 {
+            let u = Fixed::from_int(xx - cx) / s;
+            if u.abs() > Fixed::from_int(232) {
                 continue;
             }
-            let top = (top_of(u) * s).round() as i32;
+            let top = ((top_of(u) * s).round()).trunc_to_int();
             art.panel_top = art.panel_top.min(top);
             for yy in top..h + pad {
                 let d = yy - top;
                 let n = hash8((xx * 53 + yy * 311) as u32);
                 let mut color = if d < g {
-                    let near = d as f32 / g as f32;
-                    let ray = u.abs() / (15.0 + near * 9.0);
+                    let near = Fixed::from_int(d) / Fixed::from_int(g);
+                    let ray = u.abs() / (Fixed::from_int(15) + near * Fixed::from_int(9));
                     if d == 0 {
                         b[6]
                     } else if d == 1 {
                         b[4]
-                    } else if ray.fract() < 0.07 {
+                    } else if ray.fract() < Fixed::from_ratio(7, 100) {
                         b[0]
-                    } else if near < 0.45 {
+                    } else if near < Fixed::from_ratio(45, 100) {
                         if n > 236 { b[3] } else { b[2] }
                     } else {
                         b[1]
@@ -451,12 +511,15 @@ impl Cockpit {
                     b[0]
                 } else {
                     let below = d - g - 4;
-                    let v = yy as f32 / s;
-                    if below < r(4) || (below < r(8) && (xx + yy) & 1 == 0) || v > 262.0 {
+                    let v = Fixed::from_int(yy) / s;
+                    if below < r(4)
+                        || (below < r(8) && (xx + yy) & 1 == 0)
+                        || v > Fixed::from_int(262)
+                    {
                         b[0]
-                    } else if v > 250.0 {
+                    } else if v > Fixed::from_int(250) {
                         if (xx + yy) & 1 == 0 { b[0] } else { b[1] }
-                    } else if v > 222.0 || (xx + yy) & 3 == 0 {
+                    } else if v > Fixed::from_int(222) || (xx + yy) & 3 == 0 {
                         b[1]
                     } else {
                         b[2]
@@ -490,7 +553,12 @@ impl Cockpit {
         );
         for i in 0..5 {
             let lamp = Box2 {
-                x: cx + ((-30.0 + i as f32 * 12.4) * s).round() as i32,
+                x: cx
+                    + (((-Fixed::from_int(30)
+                        + Fixed::from_int((i) as i32) * Fixed::from_ratio(124, 10))
+                        * s)
+                        .round())
+                    .trunc_to_int(),
                 y: r(185),
                 w: r(10).max(4),
                 h: r(5).max(3),
@@ -548,7 +616,10 @@ impl Cockpit {
             }
             for k in 0..6 {
                 let key = Box2 {
-                    x: screen.x + r(4) + k * (screen.w as f32 / 6.4).round() as i32,
+                    x: screen.x
+                        + r(4)
+                        + k * ((Fixed::from_int(screen.w) / Fixed::from_ratio(64, 10)).round())
+                            .trunc_to_int(),
                     y: y1 - r(7),
                     w: r(7).max(3),
                     h: r(3).max(2),
@@ -572,24 +643,27 @@ impl Cockpit {
         let outer = ball.r + r(8).max(4);
         for dy in -outer - 3..=outer + 3 {
             for dx in -outer - 3..=outer + 3 {
-                let d = ((dx * dx + dy * dy) as f32).sqrt();
-                if d > (outer + 3) as f32 {
+                let d = (Fixed::from_int(dx * dx + dy * dy)).sqrt();
+                if d > Fixed::from_int((outer + 3) as i32) {
                     continue;
                 }
-                let color = if d > outer as f32 + 1.0 {
-                    if ((dx + dy) as f32) < (outer as f32 * 0.4) {
+                let color = if d > Fixed::from_int((outer) as i32) + Fixed::ONE {
+                    if (Fixed::from_int(dx + dy))
+                        < (Fixed::from_int((outer) as i32) * Fixed::from_ratio(4, 10))
+                    {
                         continue;
                     }
                     b[0]
-                } else if d > outer as f32 {
+                } else if d > Fixed::from_int((outer) as i32) {
                     b[0]
-                } else if d > ball.r as f32 + 2.0 {
-                    let light = -(dx + dy) as f32 / (d * SQRT_2 + 0.001);
-                    if light > 0.55 {
+                } else if d > Fixed::from_int((ball.r) as i32) + Fixed::from_int(2) {
+                    let light =
+                        Fixed::from_int(-(dx + dy)) / (d * SQRT_2 + Fixed::from_ratio(1, 1000));
+                    if light > Fixed::from_ratio(55, 100) {
                         b[7]
-                    } else if light > 0.1 {
+                    } else if light > Fixed::from_ratio(1, 10) {
                         b[5]
-                    } else if light > -0.45 {
+                    } else if light > -Fixed::from_ratio(45, 100) {
                         b[4]
                     } else {
                         b[2]
@@ -601,15 +675,33 @@ impl Cockpit {
             }
         }
         let brass = [
-            rgba(120.0, 86.0, 26.0),
-            rgba(206.0, 158.0, 54.0),
-            rgba(255.0, 222.0, 120.0),
+            rgba(
+                Fixed::from_int(120),
+                Fixed::from_int(86),
+                Fixed::from_int(26),
+            ),
+            rgba(
+                Fixed::from_int(206),
+                Fixed::from_int(158),
+                Fixed::from_int(54),
+            ),
+            rgba(
+                Fixed::from_int(255),
+                Fixed::from_int(222),
+                Fixed::from_int(120),
+            ),
         ];
         let rb = ball.r + r(5).max(3);
         for sx in [-1, 1] {
             for sy in [-1, 1] {
-                let xx = (ball.x as f32 + sx as f32 * rb as f32 / SQRT_2).round() as i32;
-                let yy = (ball.y as f32 + sy as f32 * rb as f32 / SQRT_2).round() as i32;
+                let xx = ((Fixed::from_int((ball.x) as i32)
+                    + Fixed::from_int(sx) * Fixed::from_int((rb) as i32) / SQRT_2)
+                    .round())
+                .trunc_to_int() as i32;
+                let yy = ((Fixed::from_int((ball.y) as i32)
+                    + Fixed::from_int(sy) * Fixed::from_int((rb) as i32) / SQRT_2)
+                    .round())
+                .trunc_to_int() as i32;
                 art.layers[1].put(xx, yy, brass[2]);
                 art.layers[1].put(xx + 1, yy, brass[1]);
                 art.layers[1].put(xx, yy + 1, brass[1]);
@@ -670,25 +762,33 @@ impl Cockpit {
             art.dials[i] = dial;
             for dy in -dial.r - 3..=dial.r + 4 {
                 for dx in -dial.r - 3..=dial.r + 4 {
-                    let d = ((dx * dx + dy * dy) as f32).sqrt();
-                    if d > dial.r as f32 + 3.5 {
+                    let d = (Fixed::from_int(dx * dx + dy * dy)).sqrt();
+                    if d > Fixed::from_int(dial.r) + Fixed::from_ratio(35, 10) {
                         continue;
                     }
-                    let color = if d > (dial.r + 2) as f32 {
-                        if ((dx + dy) as f32) < (dial.r as f32 * 0.5) {
+                    let color = if d > Fixed::from_int(dial.r + 2) {
+                        if (Fixed::from_int(dx + dy))
+                            < (Fixed::from_int(dial.r) * Fixed::from_ratio(5, 10))
+                        {
                             continue;
                         }
                         b[0]
-                    } else if d > dial.r as f32 {
-                        if -(dx + dy) as f32 > dial.r as f32 * 0.4 {
+                    } else if d > Fixed::from_int(dial.r) {
+                        if Fixed::from_int(-(dx + dy))
+                            > Fixed::from_int(dial.r) * Fixed::from_ratio(4, 10)
+                        {
                             b[7]
-                        } else if -(dx + dy) as f32 > -dial.r as f32 * 0.5 {
+                        } else if Fixed::from_int(-(dx + dy))
+                            > Fixed::from_int(-dial.r) * Fixed::from_ratio(5, 10)
+                        {
                             b[5]
                         } else {
                             b[2]
                         }
-                    } else if d > dial.r as f32 - 1.5
-                        || (d > (dial.r - 4) as f32 && -(dx + dy) as f32 > dial.r as f32 * 0.3)
+                    } else if d > Fixed::from_int(dial.r) - Fixed::from_ratio(15, 10)
+                        || (d > Fixed::from_int(dial.r - 4)
+                            && Fixed::from_int(-(dx + dy))
+                                > Fixed::from_int(dial.r) * Fixed::from_ratio(3, 10))
                     {
                         b[0]
                     } else {
@@ -698,10 +798,10 @@ impl Cockpit {
                 }
             }
             for mark in 0..10 {
-                let angle = (-225 + mark * 30) as f32 * PI / 180.0;
+                let angle = Fixed::from_int(-225 + mark * 30) * PI / Fixed::from_int(180);
                 art.layers[1].put(
-                    dial.x + (angle.cos() * (dial.r - 3) as f32).round() as i32,
-                    dial.y + (angle.sin() * (dial.r - 3) as f32).round() as i32,
+                    dial.x + ((angle.cos() * Fixed::from_int(dial.r - 3)).round()).trunc_to_int(),
+                    dial.y + ((angle.sin() * Fixed::from_int(dial.r - 3)).round()).trunc_to_int(),
                     if mark > 7 { a[4] } else { b[7] },
                 );
             }
@@ -730,28 +830,30 @@ impl Cockpit {
                 }
             }
         }
-        // The nearer consoles and sidewalls look down toward the pilot's seat.
         for xx in -pad..w + pad {
-            let u = (xx - cx) as f32 / s;
+            let u = Fixed::from_int(xx - cx) / s;
             let abs = u.abs();
-            let top = (if abs <= 212.0 {
-                263.0
-            } else if abs <= 222.0 {
-                263.0 - (abs - 212.0) / 10.0 * 77.0
+            let top = ((if abs <= Fixed::from_int(212) {
+                Fixed::from_int(263)
+            } else if abs <= Fixed::from_int(222) {
+                Fixed::from_int(263)
+                    - (abs - Fixed::from_int(212)) / Fixed::from_int(10) * Fixed::from_int(77)
             } else {
-                (186.0 - (abs - 222.0) * 0.42).max(110.0)
+                (Fixed::from_int(186) - (abs - Fixed::from_int(222)) * Fixed::from_ratio(42, 100))
+                    .max(Fixed::from_int(110))
             } * s)
-                .round() as i32;
-            if abs <= 212.0 {
+                .round())
+            .trunc_to_int();
+            if abs <= Fixed::from_int(212) {
                 art.deck_top = art.deck_top.min(top);
             }
             for yy in top..h + pad {
                 let d = yy - top;
                 let n = hash8((xx * 59 + yy * 211) as u32);
-                let v = yy as f32 / s;
-                let color = if abs > 212.0 {
-                    let ray = (v - 112.0) / abs.max(1.0) * 7.0;
-                    let rib = ray.fract() < 0.06;
+                let v = Fixed::from_int(yy) / s;
+                let color = if abs > Fixed::from_int(212) {
+                    let ray = (v - Fixed::from_int(112)) / abs.max(Fixed::ONE) * Fixed::from_int(7);
+                    let rib = ray.fract() < Fixed::from_ratio(6, 100);
                     if d == 0 {
                         b[6]
                     } else if d < r(3) {
@@ -760,17 +862,17 @@ impl Cockpit {
                         b[2]
                     } else if d < r(7) {
                         b[0]
-                    } else if abs < 222.0 {
-                        if abs < 215.0 {
+                    } else if abs < Fixed::from_int(222) {
+                        if abs < Fixed::from_int(215) {
                             b[5]
-                        } else if abs < 218.0 {
+                        } else if abs < Fixed::from_int(218) {
                             b[3]
                         } else {
                             b[1]
                         }
                     } else if rib {
                         b[0]
-                    } else if ray.floor() as i32 % 2 == 0 {
+                    } else if (ray.floor()).trunc_to_int() % 2 == 0 {
                         if n > 250 { b[3] } else { b[2] }
                     } else {
                         b[1]
@@ -779,7 +881,7 @@ impl Cockpit {
                     b[6]
                 } else if d == 1 {
                     b[4]
-                } else if v > 290.0 {
+                } else if v > Fixed::from_int(290) {
                     if (xx + yy) & 1 == 0 { b[1] } else { b[2] }
                 } else if n > 250 {
                     b[4]
@@ -793,8 +895,16 @@ impl Cockpit {
             a[3],
             a[3],
             b[4],
-            rgba(255.0, 206.0, 84.0),
-            rgba(255.0, 206.0, 84.0),
+            rgba(
+                Fixed::from_int(255),
+                Fixed::from_int(206),
+                Fixed::from_int(84),
+            ),
+            rgba(
+                Fixed::from_int(255),
+                Fixed::from_int(206),
+                Fixed::from_int(84),
+            ),
             b[4],
             b[4],
             a[3],
@@ -871,15 +981,17 @@ impl Cockpit {
         }
         for dy in -r(10)..=r(10) {
             for dx in -r(32)..=r(32) {
-                let d = dx as f32 * dx as f32 / (r(32).max(1) as f32).powi(2)
-                    + dy as f32 * dy as f32 / (r(10).max(1) as f32).powi(2);
-                if d <= 1.0 {
+                let d = Fixed::from_int(dx) * Fixed::from_int(dx)
+                    / (Fixed::from_int(r(32).max(1))).powi(2)
+                    + Fixed::from_int(dy) * Fixed::from_int(dy)
+                        / (Fixed::from_int(r(10).max(1))).powi(2);
+                if d <= Fixed::ONE {
                     art.layers[2].put(
                         cx + dx,
                         r(296) + dy,
-                        if d > 0.8 {
+                        if d > Fixed::from_ratio(8, 10) {
                             if dy < 0 { b[1] } else { b[5] }
-                        } else if d > 0.62 {
+                        } else if d > Fixed::from_ratio(62, 100) {
                             b[0]
                         } else {
                             b[1]
@@ -955,71 +1067,101 @@ impl Cockpit {
         }
         art
     }
-
     pub fn draw(&self, canvas: &mut Canvas<'_>, world: &World, flight: &Flight, palette: &Palette) {
         let p = flight.projection(self.width as usize, self.height as usize);
         let amount = p.cockpit_in();
-        if amount <= 0.0 {
+        if amount <= Fixed::ZERO {
             return;
         }
         let s = self.scale;
-        let r = |v: i32| (v as f32 * s).round() as i32;
+        let r = |v: i32| ((Fixed::from_int(v) * s).round()).trunc_to_int();
         let cx = self.width / 2;
         let j = &flight.jets[0];
         let b = self.body;
         let a = self.hot;
         let head = [
-            flight.head[0].position.to_f32() * s,
-            (flight.head[1].position.to_f32()
-                + if flight.boost > 0.2 {
-                    ((flight.time * 30.0) as i32 & 1) as f32 * 1.5 * flight.boost
-                        - 0.75 * flight.boost
+            flight.head[0].position * s,
+            (flight.head[1].position
+                + if flight.boost > Fixed::from_ratio(2, 10) {
+                    Fixed::from_int((flight.time * Fixed::from_int(30)).trunc_to_int() & 1)
+                        * Fixed::from_ratio(15, 10)
+                        * flight.boost
+                        - Fixed::from_ratio(75, 100) * flight.boost
                 } else {
-                    0.0
+                    Fixed::ZERO
                 })
                 * s,
         ];
-        let away = 1.0 - amount;
-        let deck_slide = away * (self.height - self.deck_top + 8) as f32 * 1.5;
-        let offset = |near: f32, slide: f32| {
+        let away = Fixed::ONE - amount;
+        let deck_slide =
+            away * Fixed::from_int(self.height - self.deck_top + 8) * Fixed::from_ratio(15, 10);
+        let offset = |near: Fixed, slide: Fixed| {
             let whole = slide.floor();
             [
                 -(head[0] * near)
                     .round()
-                    .clamp(-self.pad as f32, self.pad as f32),
+                    .clamp(Fixed::from_int(-self.pad), Fixed::from_int(self.pad)),
                 -(head[1] * near)
                     .round()
-                    .clamp(-self.pad as f32, self.pad as f32)
+                    .clamp(Fixed::from_int(-self.pad), Fixed::from_int(self.pad))
                     + whole,
                 slide - whole,
             ]
         };
-        let canopy = offset(0.3, -away * self.height as f32 * 0.62);
-        let glass = offset(0.5, away * (self.height - self.panel_top + 8) as f32);
-        let panel = offset(0.72, away * (self.height - self.panel_top + 8) as f32);
-        let deck = offset(1.0, deck_slide);
-        let lever = offset(1.12, deck_slide);
-        let stick = offset(1.32, deck_slide);
-        let rear = offset(1.65, -away * self.height as f32 * 0.9);
+        let canopy = offset(
+            Fixed::from_ratio(3, 10),
+            -away * Fixed::from_int(self.height) * Fixed::from_ratio(62, 100),
+        );
+        let glass = offset(
+            Fixed::from_ratio(5, 10),
+            away * Fixed::from_int(self.height - self.panel_top + 8),
+        );
+        let panel = offset(
+            Fixed::from_ratio(72, 100),
+            away * Fixed::from_int(self.height - self.panel_top + 8),
+        );
+        let deck = offset(Fixed::ONE, deck_slide);
+        let lever = offset(Fixed::from_ratio(112, 100), deck_slide);
+        let stick = offset(Fixed::from_ratio(132, 100), deck_slide);
+        let rear = offset(
+            Fixed::from_ratio(165, 100),
+            -away * Fixed::from_int(self.height) * Fixed::from_ratio(9, 10),
+        );
         let light_length = (palette.sun[0].powi(2) + palette.sun[1].powi(2)).sqrt();
         let sun_side =
             (-palette.sun[0] * j.yaw.cos() - palette.sun[1] * j.yaw.sin()) / light_length;
         let sun_front =
             (-palette.sun[0] * j.yaw.sin() + palette.sun[1] * j.yaw.cos()) / light_length;
         let sun_power = match palette.day {
-            super::raster::Daylight::Day => 1.0,
-            super::raster::Daylight::Sunset => 1.1,
-            super::raster::Daylight::Night => 0.45,
+            super::raster::Daylight::Day => Fixed::ONE,
+            super::raster::Daylight::Sunset => Fixed::from_ratio(11, 10),
+            super::raster::Daylight::Night => Fixed::from_ratio(45, 100),
         };
         let light = Light {
-            x: cx as f32 - sun_side * r(176) as f32,
-            slope: (p.roll.tan() * 0.9 - sun_side * 0.6).clamp(-2.4, 2.4),
-            half: r(78) as f32,
-            alpha: 58.0 * sun_power * (0.72 - 0.28 * sun_front) / 256.0,
+            x: Fixed::from_int(cx) - sun_side * Fixed::from_int(r(176)),
+            slope: (p.roll.tan() * Fixed::from_ratio(9, 10) - sun_side * Fixed::from_ratio(6, 10))
+                .clamp(-Fixed::from_ratio(24, 10), Fixed::from_ratio(24, 10)),
+            half: Fixed::from_int(r(78)),
+            alpha: Fixed::from_int(58)
+                * sun_power
+                * (Fixed::from_ratio(72, 100) - Fixed::from_ratio(28, 100) * sun_front)
+                / Fixed::from_int(256),
             color: match palette.day {
-                super::raster::Daylight::Day => rgba(255.0, 246.0, 222.0),
-                super::raster::Daylight::Sunset => rgba(255.0, 170.0, 92.0),
-                super::raster::Daylight::Night => rgba(150.0, 190.0, 255.0),
+                super::raster::Daylight::Day => rgba(
+                    Fixed::from_int(255),
+                    Fixed::from_int(246),
+                    Fixed::from_int(222),
+                ),
+                super::raster::Daylight::Sunset => rgba(
+                    Fixed::from_int(255),
+                    Fixed::from_int(170),
+                    Fixed::from_int(92),
+                ),
+                super::raster::Daylight::Night => rgba(
+                    Fixed::from_int(150),
+                    Fixed::from_int(190),
+                    Fixed::from_int(255),
+                ),
             },
             top: self.panel_top,
         };
@@ -1028,7 +1170,7 @@ impl Cockpit {
             0,
             canopy,
             Some(Light {
-                alpha: light.alpha * 0.5,
+                alpha: light.alpha * Fixed::from_ratio(5, 10),
                 ..light
             }),
         );
@@ -1037,38 +1179,46 @@ impl Cockpit {
         {
             let mut live = Live {
                 canvas,
-                offset: [panel[0] as i32, panel[1] as i32],
+                offset: [(panel[0]).trunc_to_int(), (panel[1]).trunc_to_int()],
             };
             for (i, lamp) in self.lamps.iter().enumerate() {
-                if flight.boost > 0.25
+                if flight.boost > Fixed::from_ratio(25, 100)
                     || i < 2
-                    || (i == 2 && (flight.time * 2.0) as i32 % 2 == 0)
-                    || (i == 4 && hash8((flight.time * 3.0) as u32 * 7) > 200)
+                    || (i == 2 && (flight.time * Fixed::from_int(2)).trunc_to_int() % 2 == 0)
+                    || (i == 4
+                        && hash8((flight.time * Fixed::from_int(3)).trunc_to_int() as u32 * 7)
+                            > 200)
                 {
                     live.rect(lamp.x, lamp.y, lamp.x + lamp.w, lamp.y + lamp.h, a[4]);
                     live.rect(lamp.x, lamp.y, lamp.x + lamp.w, lamp.y + 1, a[5]);
                 }
             }
             for (i, key) in self.panel_keys.iter().enumerate() {
-                if hash8((i * 53) as u32 + (flight.time * (0.7 + i as f32 * 0.23)) as u32) <= 150 {
+                if hash8(
+                    (i * 53) as u32
+                        + (flight.time
+                            * (Fixed::from_ratio(7, 10)
+                                + Fixed::from_int((i) as i32) * Fixed::from_ratio(23, 100)))
+                        .trunc_to_int() as u32,
+                ) <= 150
+                {
                     live.rect(key.x, key.y, key.x + key.w, key.y + key.h, b[3]);
                 }
             }
-            // Terrain radar, range rings, moving scan and formation contacts.
             let radar = self.screens[0];
-            let radius = radar.w.min(radar.h) as f32 * 0.47;
-            let zoom = 9.0 / s;
-            let sweep = (flight.time * 1.6).rem_euclid(TAU);
+            let radius = Fixed::from_int(radar.w.min(radar.h)) * Fixed::from_ratio(47, 100);
+            let zoom = Fixed::from_int(9) / s;
+            let sweep = (flight.time * Fixed::from_ratio(16, 10)).rem_euclid(TAU);
             for yy in 0..radar.h {
                 for xx in 0..radar.w {
                     let dx = xx - radar.w / 2;
                     let dy = yy - radar.h / 2;
-                    let distance = ((dx * dx + dy * dy) as f32).sqrt();
-                    let right = dx as f32 * zoom;
-                    let ahead = -dy as f32 * zoom;
+                    let distance = (Fixed::from_int(dx * dx + dy * dy)).sqrt();
+                    let right = Fixed::from_int(dx) * zoom;
+                    let ahead = Fixed::from_int(-dy) * zoom;
                     let mat = world.material(
-                        (j.position[0] + right * j.yaw.cos() + ahead * j.yaw.sin()) as i32,
-                        (j.position[1] + right * j.yaw.sin() - ahead * j.yaw.cos()) as i32,
+                        (j.position[0] + right * j.yaw.cos() + ahead * j.yaw.sin()).trunc_to_int(),
+                        (j.position[1] + right * j.yaw.sin() - ahead * j.yaw.cos()).trunc_to_int(),
                     );
                     let mut tone = if mat >= 12 {
                         4
@@ -1083,17 +1233,24 @@ impl Cockpit {
                         tone = 2;
                     }
                     if mat < 12
-                        && [1.0, 0.66, 0.33]
-                            .into_iter()
-                            .any(|ring| (distance / radius - ring).abs() < 0.5 / radius)
+                        && [
+                            Fixed::ONE,
+                            Fixed::from_ratio(66, 100),
+                            Fixed::from_ratio(33, 100),
+                        ]
+                        .into_iter()
+                        .any(|ring| {
+                            (distance / radius - ring).abs() < Fixed::from_ratio(5, 10) / radius
+                        })
                     {
                         tone = tone.max(if mat >= 4 { 4 } else { 2 });
                     }
                     if distance <= radius {
-                        let angle = (sweep - (dx as f32).atan2(-dy as f32)).rem_euclid(TAU);
-                        if angle < 0.12 {
+                        let angle = (sweep - (Fixed::from_int(dx)).atan2(Fixed::from_int(-dy)))
+                            .rem_euclid(TAU);
+                        if angle < Fixed::from_ratio(12, 100) {
                             tone = 5;
-                        } else if angle < 0.7 && tone < 5 {
+                        } else if angle < Fixed::from_ratio(7, 10) && tone < 5 {
                             tone += 1;
                         }
                     }
@@ -1105,9 +1262,9 @@ impl Cockpit {
                 let ey = other.position[1] - j.position[1];
                 let x = radar.x
                     + radar.w / 2
-                    + ((ex * j.yaw.cos() + ey * j.yaw.sin()) / zoom).round() as i32;
+                    + (((ex * j.yaw.cos() + ey * j.yaw.sin()) / zoom).round()).trunc_to_int();
                 let y = radar.y + radar.h / 2
-                    - ((ex * j.yaw.sin() - ey * j.yaw.cos()) / zoom).round() as i32;
+                    - (((ex * j.yaw.sin() - ey * j.yaw.cos()) / zoom).round()).trunc_to_int();
                 if x > radar.x + 1
                     && x < radar.x + radar.w - 2
                     && y > radar.y + 1
@@ -1140,7 +1297,6 @@ impl Cockpit {
                 );
             }
             instrument_glass(&mut live, radar);
-            // Aircraft status silhouette, two engine meters and numeric readouts.
             let status = self.screens[1];
             for y in 0..status.h {
                 live.rect(
@@ -1151,19 +1307,26 @@ impl Cockpit {
                     GREEN[(y & 1) as usize],
                 );
             }
-            let fit = ((status.h - 8) as f32 / jet::LENGTH as f32)
-                .min(status.w as f32 * 0.5 / jet::WIDTH as f32)
-                .max(0.01);
-            let jw = (jet::WIDTH as f32 * fit).round() as i32;
-            let jh = (jet::LENGTH as f32 * fit).round() as i32;
-            let jx = status.x + (status.w as f32 * 0.31).round() as i32 - jw / 2;
+            let fit = (Fixed::from_int(status.h - 8) / Fixed::from_int((jet::LENGTH) as i32))
+                .min(
+                    Fixed::from_int(status.w) * Fixed::from_ratio(5, 10)
+                        / Fixed::from_int((jet::WIDTH) as i32),
+                )
+                .max(Fixed::from_ratio(1, 100));
+            let jw = ((Fixed::from_int((jet::WIDTH) as i32) * fit).round()).trunc_to_int();
+            let jh = ((Fixed::from_int((jet::LENGTH) as i32) * fit).round()).trunc_to_int();
+            let jx = status.x
+                + ((Fixed::from_int(status.w) * Fixed::from_ratio(31, 100)).round()).trunc_to_int()
+                - jw / 2;
             let jy = status.y + (status.h - jh) / 2;
             let at = |xx: i32, yy: i32| {
                 if xx < 0 || yy < 0 || xx >= jw || yy >= jh {
                     0
                 } else {
-                    self.top_jet[((yy as f32 / fit) as usize).min(jet::LENGTH - 1) * jet::WIDTH
-                        + ((xx as f32 / fit) as usize).min(jet::WIDTH - 1)]
+                    self.top_jet[((Fixed::from_int(yy) / fit).trunc_to_int() as usize)
+                        .min(jet::LENGTH - 1)
+                        * jet::WIDTH
+                        + ((Fixed::from_int(xx) / fit).trunc_to_int() as usize).min(jet::WIDTH - 1)]
                 }
             };
             for yy in 0..jh {
@@ -1191,38 +1354,47 @@ impl Cockpit {
                     );
                 }
             }
-            if hash8((flight.time * 12.0) as u32) > 60 {
+            if hash8((flight.time * Fixed::from_int(12)).trunc_to_int() as u32) > 60 {
                 for side in [-1, 1] {
                     let xx = jx + jw / 2 + side * 2;
                     live.rect(
                         xx - 1,
                         jy + jh,
                         xx + 1,
-                        jy + jh + 1 + (flight.boost * 3.0).round() as i32,
+                        jy + jh + 1 + ((flight.boost * Fixed::from_int(3)).round()).trunc_to_int(),
                         a[5],
                     );
                 }
             }
             let bh = status.h - 16;
             for engine in 0..2 {
-                let bx = status.x + (status.w as f32 * 0.66).round() as i32 + engine * r(12).max(8);
+                let bx = status.x
+                    + ((Fixed::from_int(status.w) * Fixed::from_ratio(66, 100)).round())
+                        .trunc_to_int()
+                    + engine * r(12).max(8);
                 let by = status.y + 7;
                 let bw = r(8).max(5);
                 live.rect(bx - 1, by - 1, bx + bw + 1, by + bh + 1, GREEN[3]);
                 live.rect(bx, by, bx + bw, by + bh, GREEN[0]);
-                let level = (0.5
-                    + 0.45 * flight.boost
-                    + (f32::from(hash8((flight.time * 9.0) as u32 + engine as u32 * 31)) - 128.0)
-                        / 2600.0)
-                    .clamp(0.0, 1.0);
-                for yy in 0..(bh as f32 * level).round() as i32 {
+                let level = (Fixed::from_ratio(5, 10)
+                    + Fixed::from_ratio(45, 100) * flight.boost
+                    + (Fixed::from_int(
+                        (hash8(
+                            (flight.time * Fixed::from_int(9)).trunc_to_int() as u32
+                                + engine as u32 * 31,
+                        )) as i32,
+                    ) - Fixed::from_int(128))
+                        / Fixed::from_int(2600))
+                .clamp(Fixed::ZERO, Fixed::ONE);
+                for yy in 0..((Fixed::from_int(bh) * level).round()).trunc_to_int() {
                     if yy % 3 != 2 {
                         live.rect(
                             bx + 1,
                             by + bh - 1 - yy,
                             bx + bw - 1,
                             by + bh - yy,
-                            if yy as f32 > bh as f32 * 0.8 {
+                            if Fixed::from_int(yy) > Fixed::from_int(bh) * Fixed::from_ratio(8, 10)
+                            {
                                 a[4]
                             } else {
                                 GREEN[4]
@@ -1234,130 +1406,203 @@ impl Cockpit {
             live.number(
                 status.x + 3,
                 status.y + 3,
-                (j.position[2] * 120.0).round() as u32,
+                ((j.position[2] * Fixed::from_int(120)).round()).trunc_to_int() as u32,
                 5,
                 GREEN[4],
             );
             live.number(
                 status.x + 3,
                 status.y + status.h - 7,
-                (flight.speed * 4.2).round() as u32,
+                ((flight.speed * Fixed::from_ratio(42, 10)).round()).trunc_to_int() as u32,
                 3,
                 GREEN[4],
             );
             instrument_glass(&mut live, status);
             let ball = self.ball;
             let (sn, cs) = p.roll.sin_cos();
-            let per = ball.r as f32 / 34.0;
-            let pitch = (j.pitch.to_degrees() * per * 0.9)
-                .clamp(-ball.r as f32 * 0.85, ball.r as f32 * 0.85);
-            let rung = (5.0 * per * 2.0).round().max(6.0) / 2.0;
+            let per = Fixed::from_int(ball.r) / Fixed::from_int(34);
+            let pitch = (j.pitch.to_degrees() * per * Fixed::from_ratio(9, 10)).clamp(
+                Fixed::from_int(-ball.r) * Fixed::from_ratio(85, 100),
+                Fixed::from_int(ball.r) * Fixed::from_ratio(85, 100),
+            );
+            let rung = (Fixed::from_int(5) * per * Fixed::from_int(2))
+                .round()
+                .max(Fixed::from_int(6))
+                / Fixed::from_int(2);
             for dy in -ball.r..=ball.r {
                 for dx in -ball.r..=ball.r {
-                    let d = (dx * dx + dy * dy) as f32;
-                    if d > (ball.r * ball.r) as f32 {
+                    let d = Fixed::from_int(dx * dx + dy * dy);
+                    if d > Fixed::from_int(ball.r * ball.r) {
                         continue;
                     }
-                    let bx = cs * dx as f32 - sn * dy as f32;
-                    let by = sn * dx as f32 + cs * dy as f32 - pitch;
-                    let mut color = if by > 0.0 {
-                        if by > ball.r as f32 * 0.55 {
-                            rgba(120.0, 70.0, 30.0)
+                    let bx = cs * Fixed::from_int(dx) - sn * Fixed::from_int(dy);
+                    let by = sn * Fixed::from_int(dx) + cs * Fixed::from_int(dy) - pitch;
+                    let mut color = if by > Fixed::ZERO {
+                        if by > Fixed::from_int(ball.r) * Fixed::from_ratio(55, 100) {
+                            rgba(
+                                Fixed::from_int(120),
+                                Fixed::from_int(70),
+                                Fixed::from_int(30),
+                            )
                         } else {
-                            rgba(150.0, 92.0, 40.0)
+                            rgba(
+                                Fixed::from_int(150),
+                                Fixed::from_int(92),
+                                Fixed::from_int(40),
+                            )
                         }
-                    } else if by < -ball.r as f32 * 0.55 {
-                        rgba(70.0, 140.0, 224.0)
+                    } else if by < Fixed::from_int(-ball.r) * Fixed::from_ratio(55, 100) {
+                        rgba(
+                            Fixed::from_int(70),
+                            Fixed::from_int(140),
+                            Fixed::from_int(224),
+                        )
                     } else {
-                        rgba(110.0, 176.0, 240.0)
+                        rgba(
+                            Fixed::from_int(110),
+                            Fixed::from_int(176),
+                            Fixed::from_int(240),
+                        )
                     };
                     let k = (by / rung).round();
-                    if by.abs() < 0.6
-                        || (k != 0.0
-                            && (by - k * rung).abs() < 0.55
+                    if by.abs() < Fixed::from_ratio(6, 10)
+                        || (k != Fixed::ZERO
+                            && (by - k * rung).abs() < Fixed::from_ratio(55, 100)
                             && bx.abs()
-                                < ball.r as f32 * if k as i32 % 2 == 0 { 0.34 } else { 0.18 })
-                        || (bx.abs() < 0.6 && by.abs() < ball.r as f32 * 0.7)
+                                < Fixed::from_int(ball.r)
+                                    * if (k).trunc_to_int() % 2 == 0 {
+                                        Fixed::from_ratio(34, 100)
+                                    } else {
+                                        Fixed::from_ratio(18, 100)
+                                    })
+                        || (bx.abs() < Fixed::from_ratio(6, 10)
+                            && by.abs() < Fixed::from_int(ball.r) * Fixed::from_ratio(7, 10))
                     {
                         color = WHITE;
                     }
-                    let rim = d / (ball.r * ball.r).max(1) as f32;
-                    let fall = if rim > 0.9 {
-                        130.0
-                    } else if rim > 0.74 {
-                        80.0
-                    } else if rim > 0.55 {
-                        34.0
+                    let rim = d / Fixed::from_int((ball.r * ball.r).max(1));
+                    let fall = if rim > Fixed::from_ratio(9, 10) {
+                        Fixed::from_int(130)
+                    } else if rim > Fixed::from_ratio(74, 100) {
+                        Fixed::from_int(80)
+                    } else if rim > Fixed::from_ratio(55, 100) {
+                        Fixed::from_int(34)
                     } else {
-                        0.0
+                        Fixed::ZERO
                     };
                     color = blend(
                         color,
                         BLACK,
-                        (fall + ((dx + dy) as f32 / (ball.r as f32 * SQRT_2) * 46.0).round())
-                            .clamp(0.0, 200.0)
-                            / 256.0,
+                        (fall
+                            + (Fixed::from_int(dx + dy) / (Fixed::from_int(ball.r) * SQRT_2)
+                                * Fixed::from_int(46))
+                            .round())
+                        .clamp(Fixed::ZERO, Fixed::from_int(200))
+                            / Fixed::from_int(256),
                     );
                     live.put(ball.x + dx, ball.y + dy, color);
                 }
             }
-            let amber = rgba(255.0, 206.0, 84.0);
+            let amber = rgba(
+                Fixed::from_int(255),
+                Fixed::from_int(206),
+                Fixed::from_int(84),
+            );
             for dy in -ball.r..0 {
                 for dx in -ball.r..0 {
-                    let d = ((dx * dx + dy * dy) as f32).sqrt() / ball.r.max(1) as f32;
-                    if d > 0.5
-                        && d < 0.72
-                        && (dx as f32) < dy as f32 * 0.4 + ball.r as f32 * 0.1
-                        && (dx as f32) > dy as f32 * 2.4
+                    let d = (Fixed::from_int(dx * dx + dy * dy)).sqrt()
+                        / Fixed::from_int(ball.r.max(1));
+                    if d > Fixed::from_ratio(5, 10)
+                        && d < Fixed::from_ratio(72, 100)
+                        && (Fixed::from_int(dx))
+                            < Fixed::from_int(dy) * Fixed::from_ratio(4, 10)
+                                + Fixed::from_int(ball.r) * Fixed::from_ratio(1, 10)
+                        && (Fixed::from_int(dx)) > Fixed::from_int(dy) * Fixed::from_ratio(24, 10)
                     {
-                        live.tint(ball.x + dx, ball.y + dy, WHITE, 54.0 / 256.0);
+                        live.tint(
+                            ball.x + dx,
+                            ball.y + dy,
+                            WHITE,
+                            Fixed::from_int(54) / Fixed::from_int(256),
+                        );
                     }
                 }
             }
             for side in [-1, 1] {
-                let start = ball.x + side * (ball.r as f32 * 0.2).round() as i32;
-                let end = ball.x + side * (ball.r as f32 * 0.62).round() as i32;
+                let start = ball.x
+                    + side
+                        * ((Fixed::from_int(ball.r) * Fixed::from_ratio(2, 10)).round())
+                            .trunc_to_int();
+                let end = ball.x
+                    + side
+                        * ((Fixed::from_int(ball.r) * Fixed::from_ratio(62, 100)).round())
+                            .trunc_to_int();
                 live.line(
-                    [start as f32, ball.y as f32],
-                    [end as f32, ball.y as f32],
+                    [Fixed::from_int(start), Fixed::from_int(ball.y)],
+                    [Fixed::from_int(end), Fixed::from_int(ball.y)],
                     amber,
                 );
             }
             live.rect(ball.x - 1, ball.y - 1, ball.x + 2, ball.y + 2, amber);
-            live.put(ball.x, ball.y, rgba(255.0, 244.0, 190.0));
+            live.put(
+                ball.x,
+                ball.y,
+                rgba(
+                    Fixed::from_int(255),
+                    Fixed::from_int(244),
+                    Fixed::from_int(190),
+                ),
+            );
             let needles = [
-                -225.0
+                -Fixed::from_int(225)
                     + (flight.speed
-                        / (flight.settings.speed * flight.settings.boost * 1.08).max(1.0))
-                    .clamp(0.0, 1.0)
-                        * 270.0,
-                -225.0
+                        / (flight.settings.speed
+                            * flight.settings.boost
+                            * Fixed::from_ratio(108, 100))
+                        .max(Fixed::ONE))
+                    .clamp(Fixed::ZERO, Fixed::ONE)
+                        * Fixed::from_int(270),
+                -Fixed::from_int(225)
                     + (j.position[2] / flight.settings.ceiling.max(flight.settings.altitude))
-                        .clamp(0.0, 1.0)
-                        * 270.0,
-                -90.0 + (flight.climb_tilt / 0.5).clamp(-1.0, 1.0) * 120.0,
-                -90.0 + (j.yaw_rate / flight.settings.agility.max(0.1)).clamp(-1.0, 1.0) * 120.0,
+                        .clamp(Fixed::ZERO, Fixed::ONE)
+                        * Fixed::from_int(270),
+                -Fixed::from_int(90)
+                    + (flight.climb_tilt / Fixed::from_ratio(5, 10)).clamp(-Fixed::ONE, Fixed::ONE)
+                        * Fixed::from_int(120),
+                -Fixed::from_int(90)
+                    + (j.yaw_rate / flight.settings.agility.max(Fixed::from_ratio(1, 10)))
+                        .clamp(-Fixed::ONE, Fixed::ONE)
+                        * Fixed::from_int(120),
             ];
             for (dial, degrees) in self.dials.iter().zip(needles) {
                 let (sn, cs) = degrees.to_radians().sin_cos();
                 let end = [
-                    dial.x as f32 + cs * (dial.r - 3) as f32,
-                    dial.y as f32 + sn * (dial.r - 3) as f32,
+                    Fixed::from_int(dial.x) + cs * Fixed::from_int(dial.r - 3),
+                    Fixed::from_int(dial.y) + sn * Fixed::from_int(dial.r - 3),
                 ];
                 live.line(
-                    [dial.x as f32 + 1.0, dial.y as f32 + 1.0],
-                    [end[0] + 1.0, end[1] + 1.0],
+                    [
+                        Fixed::from_int(dial.x) + Fixed::ONE,
+                        Fixed::from_int(dial.y) + Fixed::ONE,
+                    ],
+                    [end[0] + Fixed::ONE, end[1] + Fixed::ONE],
                     BLACK,
                 );
-                live.line([dial.x as f32, dial.y as f32], end, a[4]);
+                live.line(
+                    [Fixed::from_int(dial.x), Fixed::from_int(dial.y)],
+                    end,
+                    a[4],
+                );
                 live.put(dial.x, dial.y, b[7]);
                 for k in 0..4 {
-                    let angle = (-150 + k * 12) as f32 * PI / 180.0;
+                    let angle = Fixed::from_int(-150 + k * 12) * PI / Fixed::from_int(180);
                     live.tint(
-                        dial.x + (angle.cos() * (dial.r - 5) as f32).round() as i32,
-                        dial.y + (angle.sin() * (dial.r - 5) as f32).round() as i32,
+                        dial.x
+                            + ((angle.cos() * Fixed::from_int(dial.r - 5)).round()).trunc_to_int(),
+                        dial.y
+                            + ((angle.sin() * Fixed::from_int(dial.r - 5)).round()).trunc_to_int(),
                         WHITE,
-                        110.0 / 256.0,
+                        Fixed::from_int(110) / Fixed::from_int(256),
                     );
                 }
             }
@@ -1366,18 +1611,28 @@ impl Cockpit {
         {
             let mut live = Live {
                 canvas,
-                offset: [deck[0] as i32, deck[1] as i32],
+                offset: [(deck[0]).trunc_to_int(), (deck[1]).trunc_to_int()],
             };
             for (i, key) in self.deck_keys.iter().enumerate() {
-                if hash8((i * 91) as u32 + (flight.time * (0.9 + i as f32 * 0.31)) as u32) <= 150 {
+                if hash8(
+                    (i * 91) as u32
+                        + (flight.time
+                            * (Fixed::from_ratio(9, 10)
+                                + Fixed::from_int((i) as i32) * Fixed::from_ratio(31, 100)))
+                        .trunc_to_int() as u32,
+                ) <= 150
+                {
                     live.rect(key.x, key.y, key.x + key.w, key.y + key.h, b[3]);
                 }
             }
-            live.offset = [lever[0] as i32, lever[1] as i32];
+            live.offset = [(lever[0]).trunc_to_int(), (lever[1]).trunc_to_int()];
             let throttle = cx + r(-150);
             let yy = r(290)
-                - ((r(290) - r(270)) as f32 * (0.18 + 0.82 * flight.boost).clamp(0.0, 1.0)).round()
-                    as i32;
+                - ((Fixed::from_int(r(290) - r(270))
+                    * (Fixed::from_ratio(18, 100) + Fixed::from_ratio(82, 100) * flight.boost)
+                        .clamp(Fixed::ZERO, Fixed::ONE))
+                .round())
+                .trunc_to_int();
             for u in [-7, 10] {
                 live.rect(
                     throttle + r(u),
@@ -1416,18 +1671,26 @@ impl Cockpit {
                 yy + r(9),
                 a[2],
             );
-            live.offset = [stick[0] as i32, stick[1] as i32];
-            let top =
-                r(253) - ((flight.climb_tilt / 0.5).clamp(-1.0, 1.0) * r(3) as f32).round() as i32;
-            let lean =
-                (j.yaw_rate / flight.settings.agility.max(0.1)).clamp(-1.0, 1.0) * r(9) as f32;
+            live.offset = [(stick[0]).trunc_to_int(), (stick[1]).trunc_to_int()];
+            let top = r(253)
+                - (((flight.climb_tilt / Fixed::from_ratio(5, 10)).clamp(-Fixed::ONE, Fixed::ONE)
+                    * Fixed::from_int(r(3)))
+                .round())
+                .trunc_to_int();
+            let lean = (j.yaw_rate / flight.settings.agility.max(Fixed::from_ratio(1, 10)))
+                .clamp(-Fixed::ONE, Fixed::ONE)
+                * Fixed::from_int(r(9));
             let reach = self.height + r(40) - top;
             let head_height = r(14).max(7);
             let grip_height = r(17).max(8);
             let fold = r(5).max(3);
             for y in top + r(4)..self.height + self.pad {
                 let d = y - top;
-                let xx = (cx as f32 + lean * (1.0 - d as f32 / reach as f32)).round() as i32 + r(5);
+                let xx = ((Fixed::from_int(cx)
+                    + lean * (Fixed::ONE - Fixed::from_int(d) / Fixed::from_int(reach)))
+                .round())
+                .trunc_to_int()
+                    + r(5);
                 let half = if d < head_height {
                     r(12)
                 } else if d < head_height + grip_height {
@@ -1437,13 +1700,21 @@ impl Cockpit {
                 };
                 for i in -half..=half {
                     if (xx + i + y) & 1 == 0 {
-                        live.tint(xx + i, y + r(3), BLACK, 150.0 / 256.0);
+                        live.tint(
+                            xx + i,
+                            y + r(3),
+                            BLACK,
+                            Fixed::from_int(150) / Fixed::from_int(256),
+                        );
                     }
                 }
             }
             for y in top..self.height + self.pad {
                 let d = y - top;
-                let xx = (cx as f32 + lean * (1.0 - d as f32 / reach as f32)).round() as i32;
+                let xx = ((Fixed::from_int(cx)
+                    + lean * (Fixed::ONE - Fixed::from_int(d) / Fixed::from_int(reach)))
+                .round())
+                .trunc_to_int();
                 let half = if d < head_height {
                     r(12)
                         - if d < 2 {
@@ -1460,7 +1731,7 @@ impl Cockpit {
                         - i32::from((d - head_height - grip_height) % fold == 0)
                 };
                 for i in -half..=half {
-                    let f = i as f32 / half.max(1) as f32;
+                    let f = Fixed::from_int(i) / Fixed::from_int(half.max(1));
                     let color = if d < head_height {
                         if d == 0 {
                             b[5]
@@ -1468,11 +1739,11 @@ impl Cockpit {
                             b[6]
                         } else if d > head_height - r(3).max(2) {
                             b[1]
-                        } else if f < -0.8 {
+                        } else if f < -Fixed::from_ratio(8, 10) {
                             b[5]
-                        } else if f > 0.78 {
+                        } else if f > Fixed::from_ratio(78, 100) {
                             b[1]
-                        } else if f > 0.3 {
+                        } else if f > Fixed::from_ratio(3, 10) {
                             b[2]
                         } else {
                             b[3]
@@ -1480,16 +1751,20 @@ impl Cockpit {
                     } else if d < head_height + grip_height {
                         let groove = (d - head_height) % r(4).max(3) == r(3).max(2);
                         if groove {
-                            if f < -0.05 { b[2] } else { b[0] }
-                        } else if f < -0.8 {
+                            if f < -Fixed::from_ratio(5, 100) {
+                                b[2]
+                            } else {
+                                b[0]
+                            }
+                        } else if f < -Fixed::from_ratio(8, 10) {
                             b[2]
-                        } else if f < -0.45 {
+                        } else if f < -Fixed::from_ratio(45, 100) {
                             b[5]
-                        } else if f < -0.05 {
+                        } else if f < -Fixed::from_ratio(5, 100) {
                             b[4]
-                        } else if f < 0.45 {
+                        } else if f < Fixed::from_ratio(45, 100) {
                             b[3]
-                        } else if f < 0.8 {
+                        } else if f < Fixed::from_ratio(8, 10) {
                             b[1]
                         } else {
                             b[0]
@@ -1497,10 +1772,14 @@ impl Cockpit {
                     } else {
                         let within = (d - head_height - grip_height) % fold;
                         if within == 0 {
-                            if f < 0.2 { b[4] } else { b[2] }
-                        } else if within == fold - 1 || f > 0.5 {
+                            if f < Fixed::from_ratio(2, 10) {
+                                b[4]
+                            } else {
+                                b[2]
+                            }
+                        } else if within == fold - 1 || f > Fixed::from_ratio(5, 10) {
                             b[0]
-                        } else if f < -0.55 {
+                        } else if f < -Fixed::from_ratio(55, 100) {
                             b[2]
                         } else {
                             b[1]
@@ -1511,7 +1790,7 @@ impl Cockpit {
                 live.put(xx - half - 1, y, b[0]);
                 live.put(xx + half + 1, y, b[0]);
             }
-            let xx = (cx as f32 + lean).round() as i32;
+            let xx = ((Fixed::from_int(cx) + lean).round()).trunc_to_int();
             for side in [-1, 1] {
                 let x = xx + side * r(6);
                 live.disc(x, top + r(7) + 1, r(4).max(2), b[0]);
@@ -1520,7 +1799,11 @@ impl Cockpit {
                     top + r(7),
                     r(3).max(2),
                     if side > 0 {
-                        if flight.boost > 0.3 { a[5] } else { a[3] }
+                        if flight.boost > Fixed::from_ratio(3, 10) {
+                            a[5]
+                        } else {
+                            a[3]
+                        }
                     } else {
                         b[2]
                     },
@@ -1530,11 +1813,10 @@ impl Cockpit {
         }
         self.lay(canvas, 3, rear, None);
     }
-
-    fn lay(&self, canvas: &mut Canvas<'_>, layer: usize, offset: [f32; 3], light: Option<Light>) {
+    fn lay(&self, canvas: &mut Canvas<'_>, layer: usize, offset: [Fixed; 3], light: Option<Light>) {
         let source = &self.layers[layer];
-        let dx = offset[0] as i32;
-        let dy = offset[1] as i32;
+        let dx = (offset[0]).trunc_to_int();
+        let dy = (offset[1]).trunc_to_int();
         let fraction = offset[2];
         for y in 0..self.height {
             let sy = y - dy + self.pad;
@@ -1548,12 +1830,12 @@ impl Cockpit {
                 }
                 let at = (sy * source.width + sx) as usize;
                 let mut color = source.pixels[at];
-                let mut cover = 1.0;
-                if fraction > 0.004 && sy > 0 {
+                let mut cover = Fixed::ONE;
+                if fraction > Fixed::from_ratio(4, 1000) && sy > 0 {
                     let above = source.pixels[at - source.width as usize];
                     if above != color {
                         if above == 0 {
-                            cover = 1.0 - fraction;
+                            cover = Fixed::ONE - fraction;
                         } else if color == 0 {
                             color = above;
                             cover = fraction;
@@ -1566,15 +1848,17 @@ impl Cockpit {
                     continue;
                 }
                 if let Some(light) = light {
-                    let mid = light.x + (y - light.top) as f32 * light.slope;
-                    let xx = x as f32;
+                    let mid = light.x + Fixed::from_int(y - light.top) * light.slope;
+                    let xx = Fixed::from_int(x);
                     if xx >= mid - light.half
                         && xx < mid + light.half
-                        && !(xx >= mid - light.half * 0.22 && xx < mid + light.half * 0.02)
+                        && !(xx >= mid - light.half * Fixed::from_ratio(22, 100)
+                            && xx < mid + light.half * Fixed::from_ratio(2, 100))
                     {
                         let edge = (xx - mid + light.half).min(mid + light.half - xx);
-                        if edge >= 4.0
-                            || f32::from(BAYER[((y & 3) * 4 + (x & 3)) as usize]) <= edge * 4.0
+                        if edge >= Fixed::from_int(4)
+                            || Fixed::from_int((BAYER[((y & 3) * 4 + (x & 3)) as usize]) as i32)
+                                <= edge * Fixed::from_int(4)
                         {
                             color = blend(color, light.color, light.alpha);
                         }
@@ -1583,7 +1867,7 @@ impl Cockpit {
                 let out = y as usize * canvas.width + x as usize;
                 canvas.put(
                     out,
-                    if cover == 1.0 {
+                    if cover == Fixed::ONE {
                         color
                     } else {
                         blend(canvas.get(out), color, cover)
@@ -1592,56 +1876,79 @@ impl Cockpit {
             }
         }
     }
-
-    fn hud(&self, canvas: &mut Canvas<'_>, flight: &Flight, offset: [f32; 3]) {
+    fn hud(&self, canvas: &mut Canvas<'_>, flight: &Flight, offset: [Fixed; 3]) {
         let p = flight.projection(self.width as usize, self.height as usize);
-        let alpha = super::flight::smooth((p.cockpit - 0.72) / 0.28);
-        if alpha <= 0.0 {
+        let alpha = super::flight::smooth(
+            (p.cockpit - Fixed::from_ratio(72, 100)) / Fixed::from_ratio(28, 100),
+        );
+        if alpha <= Fixed::ZERO {
             return;
         }
-        let r = |v: i32| (v as f32 * self.scale).round() as i32;
+        let r = |v: i32| ((Fixed::from_int(v) * self.scale).round()).trunc_to_int();
         let cx = self.width / 2;
-        let pivot = (self.height as f32 * 0.34).round() as i32;
-        let gx = offset[0] as i32;
-        let gy = offset[1] as i32;
+        let pivot =
+            ((Fixed::from_int(self.height) * Fixed::from_ratio(34, 100)).round()).trunc_to_int();
+        let gx = (offset[0]).trunc_to_int();
+        let gy = (offset[1]).trunc_to_int();
         let top = pivot - r(57) + gy;
         let bottom = r(170) + gy;
         let edge = |y: i32| {
-            r(76) as f32
-                + (r(86) - r(76)) as f32 * (bottom - y) as f32 / (bottom - top).max(1) as f32
+            Fixed::from_int(r(76))
+                + Fixed::from_int(r(86) - r(76)) * Fixed::from_int(bottom - y)
+                    / Fixed::from_int((bottom - top).max(1))
         };
         for y in top.max(0)..bottom.min(self.height) {
-            let half = edge(y).round() as i32;
+            let half = (edge(y).round()).trunc_to_int();
             let left = (cx + gx - half).max(0);
             let right = (cx + gx + half).min(self.width - 1);
             for x in left..=right {
                 let at = y as usize * canvas.width + x as usize;
-                let sheen = ((x - left) as f32) < r(10) as f32 + (y - top) as f32 * 0.12
-                    && (x - left) as f32 > r(4) as f32 + (y - top) as f32 * 0.12;
+                let sheen = (Fixed::from_int(x - left))
+                    < Fixed::from_int(r(10))
+                        + Fixed::from_int(y - top) * Fixed::from_ratio(12, 100)
+                    && Fixed::from_int(x - left)
+                        > Fixed::from_int(r(4))
+                            + Fixed::from_int(y - top) * Fixed::from_ratio(12, 100);
                 canvas.put(
                     at,
                     blend(
                         canvas.get(at),
                         GLASS,
-                        if sheen { 30.0 } else { 10.0 } * alpha / 256.0,
+                        if sheen {
+                            Fixed::from_int(30)
+                        } else {
+                            Fixed::from_int(10)
+                        } * alpha
+                            / Fixed::from_int(256),
                     ),
                 );
             }
             if left > 0 {
                 let at = y as usize * canvas.width + left as usize;
-                canvas.put(at, blend(canvas.get(at), GLINT, 150.0 / 256.0 * alpha));
+                canvas.put(
+                    at,
+                    blend(
+                        canvas.get(at),
+                        GLINT,
+                        Fixed::from_int(150) / Fixed::from_int(256) * alpha,
+                    ),
+                );
             }
             if right < self.width - 1 {
                 let at = y as usize * canvas.width + right as usize;
                 canvas.put(
                     at,
-                    blend(canvas.get(at), self.body[5], 120.0 / 256.0 * alpha),
+                    blend(
+                        canvas.get(at),
+                        self.body[5],
+                        Fixed::from_int(120) / Fixed::from_int(256) * alpha,
+                    ),
                 );
             }
         }
         for side in [-1, 1] {
             for y in bottom - r(14)..bottom + 2 {
-                let x = cx + gx + side * (edge(y).round() as i32 + 1);
+                let x = cx + gx + side * ((edge(y).round()).trunc_to_int() + 1);
                 for i in 0..r(3).max(2) {
                     let xx = x + side * i;
                     if xx >= 0 && xx < self.width && y >= 0 && y < self.height {
@@ -1662,8 +1969,8 @@ impl Cockpit {
             alpha,
         };
         hud.line(
-            [(cx + gx - r(86)) as f32, top as f32],
-            [(cx + gx + r(86)) as f32, top as f32],
+            [Fixed::from_int(cx + gx - r(86)), Fixed::from_int(top)],
+            [Fixed::from_int(cx + gx + r(86)), Fixed::from_int(top)],
             GLINT,
         );
         let q = r(9);
@@ -1671,50 +1978,67 @@ impl Cockpit {
         for sx in [-1, 1] {
             for sy in [-1, 1] {
                 hud.line(
-                    [(cx + sx * q) as f32, (pivot + sy * q) as f32],
-                    [(cx + sx * (q - l)) as f32, (pivot + sy * q) as f32],
+                    [
+                        Fixed::from_int(cx + sx * q),
+                        Fixed::from_int(pivot + sy * q),
+                    ],
+                    [
+                        Fixed::from_int(cx + sx * (q - l)),
+                        Fixed::from_int(pivot + sy * q),
+                    ],
                     HUD,
                 );
                 hud.line(
-                    [(cx + sx * q) as f32, (pivot + sy * q) as f32],
-                    [(cx + sx * q) as f32, (pivot + sy * (q - l)) as f32],
+                    [
+                        Fixed::from_int(cx + sx * q),
+                        Fixed::from_int(pivot + sy * q),
+                    ],
+                    [
+                        Fixed::from_int(cx + sx * q),
+                        Fixed::from_int(pivot + sy * (q - l)),
+                    ],
                     HUD,
                 );
             }
         }
         hud.line(
-            [(cx - r(3)) as f32, pivot as f32],
-            [(cx + r(3)) as f32, pivot as f32],
+            [Fixed::from_int(cx - r(3)), Fixed::from_int(pivot)],
+            [Fixed::from_int(cx + r(3)), Fixed::from_int(pivot)],
             HUD,
         );
         hud.line(
-            [cx as f32, (pivot - r(3)) as f32],
-            [cx as f32, (pivot + r(3)) as f32],
+            [Fixed::from_int(cx), Fixed::from_int(pivot - r(3))],
+            [Fixed::from_int(cx), Fixed::from_int(pivot + r(3))],
             HUD,
         );
         let (sn, cs) = p.roll.sin_cos();
-        let focal = p.scale / p.perspective.max(1e-6);
+        let focal = p.divide_perspective(p.scale);
         for degrees in (-20_i32..=20).step_by(10) {
-            let dy = p.center[1] - pivot as f32 - focal * (degrees as f32 * PI / 180.0 * 0.8).tan();
+            let dy = p.center[1]
+                - Fixed::from_int(pivot)
+                - focal
+                    * (Fixed::from_int(degrees) * PI / Fixed::from_int(180)
+                        * Fixed::from_ratio(8, 10))
+                    .tan();
             for side in [-1, 1] {
-                let xa = (side * r(if degrees == 0 { 16 } else { 8 })) as f32;
-                let xb = (side * r(if degrees == 0 { 54 } else { 20 })) as f32;
+                let xa = Fixed::from_int(side * r(if degrees == 0 { 16 } else { 8 }));
+                let xb = Fixed::from_int(side * r(if degrees == 0 { 54 } else { 20 }));
                 let a = [
-                    cx as f32 + cs * xa + sn * dy,
-                    pivot as f32 - sn * xa + cs * dy,
+                    Fixed::from_int(cx) + cs * xa + sn * dy,
+                    Fixed::from_int(pivot) - sn * xa + cs * dy,
                 ];
                 let b = [
-                    cx as f32 + cs * xb + sn * dy,
-                    pivot as f32 - sn * xb + cs * dy,
+                    Fixed::from_int(cx) + cs * xb + sn * dy,
+                    Fixed::from_int(pivot) - sn * xb + cs * dy,
                 ];
                 hud.line(a, b, HUD);
                 if degrees != 0 {
-                    let tick = dy + degrees.signum() as f32 * r(3) as f32;
+                    let tick = dy + Fixed::from_int(degrees.signum()) * Fixed::from_int(r(3));
                     hud.line(
                         b,
                         [
-                            cx as f32 + cs * xb + sn * tick,
-                            pivot as f32 - sn * xb + cs * tick,
+                            Fixed::from_int(cx) + cs * xb + sn * tick,
+                            Fixed::from_int(pivot) - sn * xb + cs * tick,
                         ],
                         HUD,
                     );
@@ -1726,61 +2050,71 @@ impl Cockpit {
         for side in [-1, 1] {
             let x = cx + side * r(62);
             hud.line(
-                [x as f32, (pivot - half) as f32],
-                [x as f32, (pivot + half) as f32],
+                [Fixed::from_int(x), Fixed::from_int(pivot - half)],
+                [Fixed::from_int(x), Fixed::from_int(pivot + half)],
                 HUD,
             );
             let value = if side < 0 {
-                flight.speed * 0.6
+                flight.speed * Fixed::from_ratio(6, 10)
             } else {
-                flight.jets[0].position[2] * 0.8
+                flight.jets[0].position[2] * Fixed::from_ratio(8, 10)
             };
-            let off = value.rem_euclid((step * 4) as f32);
+            let off = value.rem_euclid(Fixed::from_int(step * 4));
             for yy in (-half - step * 4..=half).step_by(step as usize) {
-                let y = (pivot as f32 + yy as f32 + off).round() as i32;
+                let y =
+                    ((Fixed::from_int(pivot) + Fixed::from_int(yy) + off).round()).trunc_to_int();
                 if y < pivot - half || y > pivot + half {
                     continue;
                 }
                 let long = (yy + half + step * 4) / step % 4 == 0;
                 hud.line(
-                    [x as f32, y as f32],
-                    [(x - side * r(if long { 6 } else { 3 })) as f32, y as f32],
+                    [Fixed::from_int(x), Fixed::from_int(y)],
+                    [
+                        Fixed::from_int(x - side * r(if long { 6 } else { 3 })),
+                        Fixed::from_int(y),
+                    ],
                     HUD,
                 );
             }
             let px = x + side * r(4);
             hud.line(
-                [px as f32, pivot as f32],
-                [(px + side * r(4)) as f32, (pivot - r(3)) as f32],
+                [Fixed::from_int(px), Fixed::from_int(pivot)],
+                [
+                    Fixed::from_int(px + side * r(4)),
+                    Fixed::from_int(pivot - r(3)),
+                ],
                 HUD,
             );
             hud.line(
-                [px as f32, pivot as f32],
-                [(px + side * r(4)) as f32, (pivot + r(3)) as f32],
+                [Fixed::from_int(px), Fixed::from_int(pivot)],
+                [
+                    Fixed::from_int(px + side * r(4)),
+                    Fixed::from_int(pivot + r(3)),
+                ],
                 HUD,
             );
         }
         hud.number(
             cx - r(62) - 6,
             pivot - half - 8,
-            (flight.speed * 4.2).round() as u32,
+            ((flight.speed * Fixed::from_ratio(42, 10)).round()).trunc_to_int() as u32,
             3,
             HUD,
         );
         hud.number(
             cx + r(62) - 10,
             pivot - half - 8,
-            (flight.jets[0].position[2] * 120.0).round() as u32,
+            ((flight.jets[0].position[2] * Fixed::from_int(120)).round()).trunc_to_int() as u32,
             5,
             HUD,
         );
         for i in 0..3 {
             let y = pivot - r(22) + i * r(4);
             let w = r(if i == 1 { 6 } else { 9 });
-            if flight.boost > (2 - i) as f32 * 0.33 {
+            if flight.boost > Fixed::from_int(2 - i) * Fixed::from_ratio(33, 100) {
                 hud.line(
-                    [(cx - w) as f32, y as f32],
-                    [(cx + w) as f32, y as f32],
+                    [Fixed::from_int(cx - w), Fixed::from_int(y)],
+                    [Fixed::from_int(cx + w), Fixed::from_int(y)],
                     HUD,
                 );
             } else {
@@ -1791,37 +2125,48 @@ impl Cockpit {
         let by = pivot + r(40);
         let span = r(34);
         hud.line(
-            [(cx - span) as f32, by as f32],
-            [(cx + span) as f32, by as f32],
+            [Fixed::from_int(cx - span), Fixed::from_int(by)],
+            [Fixed::from_int(cx + span), Fixed::from_int(by)],
             HUD,
         );
-        let heading = flight.jets[0].yaw.to_degrees().rem_euclid(360.0);
-        let per = r(4).max(2) as f32 / 5.0;
-        for degrees in
-            (((heading - 60.0) / 5.0).floor() as i32 * 5..=heading as i32 + 60).step_by(5)
+        let heading = flight.jets[0]
+            .yaw
+            .to_degrees()
+            .rem_euclid(Fixed::from_int(360));
+        let per = Fixed::from_int(r(4).max(2)) / Fixed::from_int(5);
+        for degrees in ((((heading - Fixed::from_int(60)) / Fixed::from_int(5)).floor())
+            .trunc_to_int()
+            * 5..=(heading).trunc_to_int() + 60)
+            .step_by(5)
         {
-            let x = (cx as f32 + (degrees as f32 - heading) * per).round() as i32;
+            let x = ((Fixed::from_int(cx) + (Fixed::from_int(degrees) - heading) * per).round())
+                .trunc_to_int();
             if (x - cx).abs() <= span {
                 hud.line(
-                    [x as f32, by as f32],
+                    [Fixed::from_int(x), Fixed::from_int(by)],
                     [
-                        x as f32,
-                        (by - r(if degrees.rem_euclid(15) == 0 { 4 } else { 2 })) as f32,
+                        Fixed::from_int(x),
+                        Fixed::from_int(by - r(if degrees.rem_euclid(15) == 0 { 4 } else { 2 })),
                     ],
                     HUD,
                 );
             }
         }
-        hud.number(cx - 5, by - r(4) - 8, heading.round() as u32, 3, HUD);
+        hud.number(
+            cx - 5,
+            by - r(4) - 8,
+            (heading.round()).trunc_to_int() as u32,
+            3,
+            HUD,
+        );
     }
 }
-
 #[derive(Clone, Copy)]
 struct Light {
-    x: f32,
-    slope: f32,
-    half: f32,
-    alpha: f32,
+    x: Fixed,
+    slope: Fixed,
+    half: Fixed,
+    alpha: Fixed,
     color: u32,
     top: i32,
 }
@@ -1833,14 +2178,31 @@ fn instrument_glass(ink: &mut impl Ink, r: Box2) {
                     r.x + x,
                     r.y + y,
                     BLACK,
-                    if x < 1 || y < 1 { 120.0 } else { 60.0 } / 256.0,
+                    if x < 1 || y < 1 {
+                        Fixed::from_int(120)
+                    } else {
+                        Fixed::from_int(60)
+                    } / Fixed::from_int(256),
                 );
             } else {
-                let d = x as f32 + y as f32 * 0.9 - r.w as f32 * 0.34;
-                if d > 0.0 && d < r.w as f32 * 0.16 {
-                    ink.tint(r.x + x, r.y + y, WHITE, 22.0 / 256.0);
-                } else if d > r.w as f32 * 0.24 && d < r.w as f32 * 0.28 {
-                    ink.tint(r.x + x, r.y + y, WHITE, 16.0 / 256.0);
+                let d = Fixed::from_int(x) + Fixed::from_int(y) * Fixed::from_ratio(9, 10)
+                    - Fixed::from_int(r.w) * Fixed::from_ratio(34, 100);
+                if d > Fixed::ZERO && d < Fixed::from_int(r.w) * Fixed::from_ratio(16, 100) {
+                    ink.tint(
+                        r.x + x,
+                        r.y + y,
+                        WHITE,
+                        Fixed::from_int(22) / Fixed::from_int(256),
+                    );
+                } else if d > Fixed::from_int(r.w) * Fixed::from_ratio(24, 100)
+                    && d < Fixed::from_int(r.w) * Fixed::from_ratio(28, 100)
+                {
+                    ink.tint(
+                        r.x + x,
+                        r.y + y,
+                        WHITE,
+                        Fixed::from_int(16) / Fixed::from_int(256),
+                    );
                 }
             }
         }
@@ -1853,20 +2215,20 @@ struct Hud<'a, 'b> {
     cx: i32,
     top_half: i32,
     bottom_half: i32,
-    alpha: f32,
+    alpha: Fixed,
 }
 impl Ink for Hud<'_, '_> {
     fn put(&mut self, x: i32, y: i32, color: u32) {
-        let edge = self.bottom_half as f32
-            + (self.top_half - self.bottom_half) as f32 * (self.bottom - y) as f32
-                / (self.bottom - self.top).max(1) as f32;
+        let edge = Fixed::from_int(self.bottom_half)
+            + Fixed::from_int(self.top_half - self.bottom_half) * Fixed::from_int(self.bottom - y)
+                / Fixed::from_int((self.bottom - self.top).max(1));
         if y < self.top
             || y >= self.bottom - 2
             || x < 0
             || y < 0
             || x >= self.canvas.width as i32
             || y >= self.canvas.height as i32
-            || (x - self.cx).abs() as f32 > edge - 2.0
+            || Fixed::from_int((x - self.cx).abs()) > edge - Fixed::from_int(2)
         {
             return;
         }
@@ -1882,7 +2244,6 @@ impl Ink for Hud<'_, '_> {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::super::{
@@ -1892,11 +2253,11 @@ mod tests {
     use super::*;
     #[test]
     fn layered_cockpit_has_bounded_storage_and_live_instruments_allocate_nothing() {
-        let world = World::new(7, 0.33);
+        let world = World::new(7, Fixed::from_ratio(33, 100));
         let mut flight = Flight::new(&world, Settings::default());
         flight.view = View::Cockpit;
         for _ in 0..300 {
-            flight.step(&world, 0.016, 480, 300);
+            flight.step(&world, 16, 480, 300);
         }
         let mut raster = Raster::new(480, 300).unwrap();
         let art = Cockpit::new(480, 300, &raster.palette);

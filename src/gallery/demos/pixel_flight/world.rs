@@ -1,13 +1,12 @@
-//! Seeded, wrapping terrain and cloud fields. Map generation is a cold path.
-
+#![doc = " Seeded, wrapping terrain and cloud fields. Map generation is a cold path."]
+use super::math::FixedMath as _;
+use crate::types::Fixed;
 use alloc::{vec, vec::Vec};
-
 pub const SIDE: usize = 1024;
 pub const CLOUD_SIDE: usize = 512;
-pub const CLOUD_ALT: f32 = 40.0;
+pub const CLOUD_ALT: Fixed = Fixed::from_int(40);
 pub const CLOUD_LAYERS: usize = 8;
 pub const MAX_HEIGHT: usize = 48;
-
 pub const TOP: [[u8; 3]; 17] = [
     [36, 104, 180],
     [44, 124, 198],
@@ -46,48 +45,42 @@ pub const WALL: [[u8; 3]; 17] = [
     [186, 202, 228],
     [176, 192, 220],
 ];
-
 pub fn hash8(value: u32) -> u8 {
     let mut h = (value ^ (value >> 13)).wrapping_mul(0x5bd1_e995);
     h ^= h >> 15;
     h = h.wrapping_mul(0x2c1b_3c6d);
     (h >> 24) as u8
 }
-
 struct Random(u32);
 impl Random {
-    fn next(&mut self) -> f32 {
+    fn next(&mut self) -> Fixed {
         self.0 = self.0.wrapping_add(0x6d2b_79f5);
         let mut t = (self.0 ^ (self.0 >> 15)).wrapping_mul(1 | self.0);
         t = t.wrapping_add((t ^ (t >> 7)).wrapping_mul(61 | t)) ^ t;
-        ((t ^ (t >> 14)) as f64 / 4_294_967_296.0) as f32
+        Fixed::from_ratio(((t ^ (t >> 14)) >> 16) as i32, 65536)
     }
 }
-
-/// A unit is one ground pixel. Reducing the map changes repetition distance.
+#[doc = " A unit is one ground pixel. Reducing the map changes repetition distance."]
 pub struct World {
     pub heights: Vec<u8>,
     pub materials: Vec<u8>,
     pub clouds: Vec<u8>,
     pub noise: Vec<u8>,
-    pub spawn: [f32; 2],
+    pub spawn: [Fixed; 2],
 }
-
 fn index(x: i32, y: i32, side: usize) -> usize {
     (y as usize & (side - 1)) * side + (x as usize & (side - 1))
 }
-
-fn octave(field: &mut [f32], cell: usize, amplitude: f32, random: &mut Random) {
+fn octave(field: &mut [Fixed], cell: usize, amplitude: Fixed, random: &mut Random) {
     let count = SIDE / cell;
-    // One bounded lattice; all coordinate interpolation stays on the stack.
-    let mut lattice = [0.0; 64 * 64];
+    let mut lattice = [Fixed::ZERO; 64 * 64];
     for value in &mut lattice[..count * count] {
         *value = random.next();
     }
-    let mut blend = [0.0; SIDE];
+    let mut blend = [Fixed::ZERO; SIDE];
     for (x, value) in blend.iter_mut().enumerate() {
-        let f = (x % cell) as f32 / cell as f32;
-        *value = f * f * (3.0 - 2.0 * f);
+        let f = Fixed::from_int((x % cell) as i32) / Fixed::from_int((cell) as i32);
+        *value = f * f * (Fixed::from_int(3) - Fixed::from_int(2) * f);
     }
     for y in 0..SIDE {
         let a = y / cell * count;
@@ -101,74 +94,78 @@ fn octave(field: &mut [f32], cell: usize, amplitude: f32, random: &mut Random) {
         }
     }
 }
-
 impl World {
-    pub fn new(seed: u32, land: f32) -> Self {
+    pub fn new(seed: u32, land: Fixed) -> Self {
         let mut random = Random(seed.wrapping_mul(7919).wrapping_add(13));
         let mut world = Self {
             heights: vec![0; SIDE * SIDE],
             materials: vec![0; SIDE * SIDE],
             clouds: vec![0; CLOUD_SIDE * CLOUD_SIDE],
             noise: (0..256 * 256)
-                .map(|_| (random.next() * 256.0) as u8)
+                .map(|_| (random.next() * Fixed::from_int(256)).trunc_to_int() as u8)
                 .collect(),
-            spawn: [SIDE as f32 / 2.0; 2],
+            spawn: [Fixed::from_int((SIDE) as i32) / Fixed::from_int(2); 2],
         };
-        let mut elevation = vec![0.0; SIDE * SIDE];
+        let mut elevation = vec![Fixed::from_ratio(0, 1); SIDE * SIDE];
         for (cell, amplitude) in [
-            (512, 0.55),
-            (256, 1.0),
-            (128, 0.5),
-            (64, 0.25),
-            (32, 0.11),
-            (16, 0.05),
+            (512, Fixed::from_ratio(55, 100)),
+            (256, Fixed::ONE),
+            (128, Fixed::from_ratio(5, 10)),
+            (64, Fixed::from_ratio(25, 100)),
+            (32, Fixed::from_ratio(11, 100)),
+            (16, Fixed::from_ratio(5, 100)),
         ] {
             octave(&mut elevation, cell, amplitude, &mut random);
         }
-        let min = elevation.iter().copied().fold(f32::INFINITY, f32::min);
-        let max = elevation.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let min = elevation.iter().copied().fold(Fixed::MAX, Fixed::min);
+        let max = elevation.iter().copied().fold(Fixed::MIN, Fixed::max);
         let mut bins = [0usize; 1024];
         for value in &mut elevation {
-            *value = (*value - min) / (max - min).max(f32::EPSILON);
-            bins[(*value * 1023.0) as usize] += 1;
+            *value = (*value - min) / (max - min).max(Fixed::from_ratio(1, 256));
+            bins[(*value * Fixed::from_int(1023)).trunc_to_int() as usize] += 1;
         }
-        let target = (1.0 - land.clamp(0.02, 0.9)) * elevation.len() as f32;
+        let target = (Fixed::ONE - land.clamp(Fixed::from_ratio(2, 100), Fixed::from_ratio(9, 10)))
+            * Fixed::from_int((elevation.len()) as i32);
         let mut acc = 0;
-        let mut sea = 1.0;
+        let mut sea = Fixed::ONE;
         for (i, n) in bins.into_iter().enumerate() {
             acc += n;
-            if acc as f32 >= target {
-                sea = (i + 1) as f32 / 1023.0;
+            if Fixed::from_int((acc) as i32) >= target {
+                sea = Fixed::from_int((i + 1) as i32) / Fixed::from_int(1023);
                 break;
             }
         }
-        let span = (1.0 - sea - 0.012).max(0.05);
+        let span = (Fixed::ONE - sea - Fixed::from_ratio(12, 1000)).max(Fixed::from_ratio(5, 100));
         for y in 0..SIDE {
             for x in 0..SIDE {
                 let i = y * SIDE + x;
                 let h = hash8(i as u32);
                 let d = elevation[i] - sea;
-                if d < 0.0 {
-                    let depth = -d + (f32::from(h) - 128.0) * 0.00004;
-                    world.materials[i] = if depth > 0.07 {
+                if d < Fixed::ZERO {
+                    let depth = -d
+                        + (Fixed::from_int((h) as i32) - Fixed::from_int(128))
+                            * Fixed::from_ratio(4, 100000);
+                    world.materials[i] = if depth > Fixed::from_ratio(7, 100) {
                         0
-                    } else if depth > 0.03 {
+                    } else if depth > Fixed::from_ratio(3, 100) {
                         1
-                    } else if depth > 0.008 {
+                    } else if depth > Fixed::from_ratio(8, 1000) {
                         2
                     } else {
                         3
                     };
-                } else if d < 0.012 {
+                } else if d < Fixed::from_ratio(12, 1000) {
                     world.materials[i] = if h < 34 { 5 } else { 4 };
                 } else {
-                    let relative = (d - 0.012) / span;
-                    let level = (if relative < 0.5 {
-                        1 + (relative * 16.0) as u8
-                    } else if relative < 0.78 {
-                        9 + ((relative - 0.5) / 0.07) as u8
+                    let relative = (d - Fixed::from_ratio(12, 1000)) / span;
+                    let level = (if relative < Fixed::from_ratio(5, 10) {
+                        1 + ((relative * Fixed::from_int(16)).trunc_to_int() as u8)
+                    } else if relative < Fixed::from_ratio(78, 100) {
+                        9 + (((relative - Fixed::from_ratio(5, 10)) / Fixed::from_ratio(7, 100))
+                            .trunc_to_int() as u8)
                     } else {
-                        13 + ((relative - 0.78) / 0.09) as u8
+                        13 + (((relative - Fixed::from_ratio(78, 100)) / Fixed::from_ratio(9, 100))
+                            .trunc_to_int() as u8)
                     })
                     .min(15);
                     world.heights[i] = if level <= 8 {
@@ -178,8 +175,8 @@ impl World {
                     };
                     let gradient = elevation[index(x as i32 - 2, y as i32 - 2, SIDE)]
                         - elevation[index(x as i32 + 2, y as i32 + 2, SIDE)];
-                    let lit = gradient < -0.007;
-                    let shaded = gradient > 0.007;
+                    let lit = gradient < -Fixed::from_ratio(7, 1000);
+                    let shaded = gradient > Fixed::from_ratio(7, 1000);
                     world.materials[i] = if level >= 13 {
                         if shaded { 16 } else { 15 }
                     } else if level >= 9 {
@@ -212,16 +209,19 @@ impl World {
                     continue;
                 }
                 let f = elevation[index(SIDE as i32 - 1 - cx + 911, cy + 613, SIDE)];
-                let probability = (f - sea) * 30.0;
-                if probability <= 0.0 || probability * 255.0 < f32::from(hash8(i as u32 + 99)) {
+                let probability = (f - sea) * Fixed::from_int(30);
+                if probability <= Fixed::ZERO
+                    || probability * Fixed::from_int(255)
+                        < Fixed::from_int((hash8(i as u32 + 99)) as i32)
+                {
                     continue;
                 }
                 let r = 2 + i32::from((hs >> 4) & 1);
                 let base = world.heights[i];
                 for dy in -r..=r {
                     for dx in -r..=r {
-                        let distance = ((dx * dx + dy * dy) as f32).sqrt();
-                        if distance > r as f32 + 0.3 {
+                        let distance = (Fixed::from_int(dx * dx + dy * dy)).sqrt();
+                        if distance > Fixed::from_int(r) + Fixed::from_ratio(3, 10) {
                             continue;
                         }
                         let j = index(cx + dx, cy + dy, SIDE);
@@ -230,12 +230,16 @@ impl World {
                         }
                         let height = base
                             + 1
-                            + ((1.0 - distance / (r as f32 + 0.5)) * (r + 1) as f32).round() as u8;
+                            + (((Fixed::ONE
+                                - distance / (Fixed::from_int(r) + Fixed::from_ratio(5, 10)))
+                                * Fixed::from_int(r + 1))
+                            .round())
+                            .trunc_to_int() as u8;
                         if height > world.heights[j] {
                             world.heights[j] = height;
-                            world.materials[j] = if distance < 1.1 {
+                            world.materials[j] = if distance < Fixed::from_ratio(11, 10) {
                                 9
-                            } else if distance < r as f32 - 0.5 {
+                            } else if distance < Fixed::from_int(r) - Fixed::from_ratio(5, 10) {
                                 10
                             } else {
                                 11
@@ -247,49 +251,66 @@ impl World {
         }
         let mut best = -1;
         for _ in 0..400 {
-            let x = (random.next() * SIDE as f32) as i32;
-            let y = (random.next() * SIDE as f32) as i32;
+            let x = (random.next() * Fixed::from_int((SIDE) as i32)).trunc_to_int();
+            let y = (random.next() * Fixed::from_int((SIDE) as i32)).trunc_to_int();
             if world.material(x, y) > 2 {
                 continue;
             }
             let near = (0..8)
                 .filter(|a| {
-                    let angle = *a as f32 * core::f32::consts::FRAC_PI_4;
+                    let angle = Fixed::from_int(*a) * (super::math::PI / 4);
                     world.material(
-                        x + (angle.cos() * 120.0) as i32,
-                        y + (angle.sin() * 120.0) as i32,
+                        x + (angle.cos() * Fixed::from_int(120)).trunc_to_int(),
+                        y + (angle.sin() * Fixed::from_int(120)).trunc_to_int(),
                     ) >= 4
                 })
                 .count() as i32;
             if near > best && near <= 5 {
                 best = near;
-                world.spawn = [x as f32, y as f32];
+                world.spawn = [Fixed::from_int(x), Fixed::from_int(y)];
             }
         }
-        // Preserve cloud size and density when the wrapping field becomes smaller.
         for i in 0..50 {
             let rank = (i & 15) as u8;
-            let cx = random.next() * CLOUD_SIDE as f32;
-            let cy = random.next() * CLOUD_SIDE as f32;
-            let scale = 0.6 + random.next() * random.next() * 1.25;
-            let angle = 0.35 + (random.next() - 0.5) * 1.3;
-            let length = (12.0 + random.next() * 24.0) * scale;
-            let puffs = 4 + (random.next() * 7.0) as i32;
+            let cx = random.next() * Fixed::from_int((CLOUD_SIDE) as i32);
+            let cy = random.next() * Fixed::from_int((CLOUD_SIDE) as i32);
+            let scale = Fixed::from_ratio(6, 10)
+                + random.next() * random.next() * Fixed::from_ratio(125, 100);
+            let angle = Fixed::from_ratio(35, 100)
+                + (random.next() - Fixed::from_ratio(5, 10)) * Fixed::from_ratio(13, 10);
+            let length = (Fixed::from_int(12) + random.next() * Fixed::from_int(24)) * scale;
+            let puffs = 4 + (random.next() * Fixed::from_int(7)).trunc_to_int();
             for puff in 0..puffs {
-                let t = puff as f32 / (puffs - 1) as f32 * 2.0 - 1.0;
-                let px = cx + angle.cos() * t * length + (random.next() - 0.5) * 9.0 * scale;
-                let py = cy + angle.sin() * t * length + (random.next() - 0.5) * 9.0 * scale;
-                let radius = (6.0 + random.next() * 8.0) * scale * (1.0 - 0.45 * t.abs());
-                let thickness = (radius * 0.6).round().clamp(2.0, CLOUD_LAYERS as f32);
-                let bound = radius.ceil() as i32;
+                let t = Fixed::from_int(puff) / Fixed::from_int(puffs - 1) * Fixed::from_int(2)
+                    - Fixed::ONE;
+                let px = cx
+                    + angle.cos() * t * length
+                    + (random.next() - Fixed::from_ratio(5, 10)) * Fixed::from_int(9) * scale;
+                let py = cy
+                    + angle.sin() * t * length
+                    + (random.next() - Fixed::from_ratio(5, 10)) * Fixed::from_int(9) * scale;
+                let radius = (Fixed::from_int(6) + random.next() * Fixed::from_int(8))
+                    * scale
+                    * (Fixed::ONE - Fixed::from_ratio(45, 100) * t.abs());
+                let thickness = (radius * Fixed::from_ratio(6, 10))
+                    .round()
+                    .clamp(Fixed::from_int(2), Fixed::from_int((CLOUD_LAYERS) as i32));
+                let bound = (radius.ceil()).trunc_to_int();
                 for dy in -bound..=bound {
                     for dx in -bound..=bound {
-                        let d = (dx * dx + dy * dy) as f32 / (radius * radius);
-                        if d > 1.0 {
+                        let d = Fixed::from_int(dx * dx + dy * dy) / (radius * radius);
+                        if d > Fixed::ONE {
                             continue;
                         }
-                        let n = ((1.0 - d).sqrt() * thickness).round().max(1.0) as u8;
-                        let j = index(px.round() as i32 + dx, py.round() as i32 + dy, CLOUD_SIDE);
+                        let n = (((Fixed::ONE - d).sqrt() * thickness)
+                            .round()
+                            .max(Fixed::ONE))
+                        .trunc_to_int() as u8;
+                        let j = index(
+                            (px.round()).trunc_to_int() + dx,
+                            (py.round()).trunc_to_int() + dy,
+                            CLOUD_SIDE,
+                        );
                         if n > world.clouds[j] & 15 {
                             world.clouds[j] = (rank << 4) | n;
                         }
@@ -299,7 +320,6 @@ impl World {
         }
         world
     }
-
     pub fn height(&self, x: i32, y: i32) -> u8 {
         self.heights[index(x, y, SIDE)]
     }
@@ -316,14 +336,13 @@ impl World {
             + self.noise.capacity()
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn seeded_fields_are_bounded_wrapped_and_deterministic() {
-        let a = World::new(7, 0.33);
-        let b = World::new(7, 0.33);
+        let a = World::new(7, Fixed::from_ratio(33, 100));
+        let b = World::new(7, Fixed::from_ratio(33, 100));
         assert_eq!(a.bytes(), 2_424_832);
         assert_eq!(a.heights, b.heights);
         assert_eq!(a.materials, b.materials);
@@ -337,10 +356,14 @@ mod tests {
                 a.cloud(x - CLOUD_SIDE as i32, y + CLOUD_SIDE as i32)
             );
         }
-        let land = a.materials.iter().filter(|m| **m >= 4).count() as f32 / (SIDE * SIDE) as f32;
-        assert!((land - 0.33).abs() < 0.02, "land fraction {land}");
+        let land = Fixed::from_int((a.materials.iter().filter(|m| **m >= 4).count()) as i32)
+            / Fixed::from_int((SIDE * SIDE) as i32);
+        assert!(
+            (land - Fixed::from_ratio(33, 100)).abs() < Fixed::from_ratio(1, 50),
+            "land fraction {land}"
+        );
         assert!(a.materials.iter().any(|m| (9..=11).contains(m)));
         assert!(a.clouds.iter().any(|c| *c != 0));
-        assert!(a.material(a.spawn[0] as i32, a.spawn[1] as i32) <= 2);
+        assert!(a.material((a.spawn[0]).trunc_to_int(), (a.spawn[1]).trunc_to_int()) <= 2);
     }
 }

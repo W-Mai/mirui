@@ -4,6 +4,7 @@ pub mod cockpit;
 pub mod flame;
 pub mod flight;
 pub mod jet;
+mod math;
 pub mod raster;
 mod runtime;
 pub mod world;
