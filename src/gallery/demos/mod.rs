@@ -53,6 +53,8 @@ pub mod particles;
 pub mod persistence_counter;
 pub mod persistence_settings;
 pub mod pinch_rotate;
+#[cfg(feature = "std")]
+pub mod pixel_flight;
 pub mod pixel_loom;
 pub mod pocket_post;
 pub mod render_showcase;
