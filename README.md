@@ -15,6 +15,8 @@ The artwork above is the Iris demo, one component tree recorded from the scene r
 
 The Glass Light Toggle demo supports clicking, dragging, Space/Enter and arrow keys. Run `cargo run -p gallery --example glass_light_toggle_demo --release --no-default-features --features sdl-gpu` or select Glass Light Toggle in the browser gallery.
 
+Pixel Flight has overhead, chase and cockpit views, procedural islands, layered aircraft and live instruments. Run `cargo run -p gallery --example pixel_flight_demo --profile release-opt --no-default-features --features sdl-gpu`. See [controls and rendering limits](docs/pixel-flight.md).
+
 ## Features
 
 - **ECS architecture** — entities, components, systems, resources, queries; system scheduler with named priority slots

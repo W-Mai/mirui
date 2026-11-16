@@ -39,6 +39,11 @@ macro_rules! split_demo_sources {
 }
 
 split_demo_sources! {
+    PIXEL_FLIGHT => {
+        demo: "pixel_flight",
+        marker: "fn flight_scene",
+        parts: ["world.rs", "jet.rs", "flight.rs", "raster.rs", "cockpit.rs", "flame.rs", "runtime.rs"]
+    },
     CHORD_PROMPTER => {
         demo: "chord_prompter",
         marker: "fn rhythm_strip",

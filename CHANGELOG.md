@@ -78,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Show a queued jump destination on the prompter display's next page and keep the played bar on its previous page; project the browser view across a confirmed jump until a status sample shows it.
 
 - Count in one bar before prompter playback, step the tempo with buttons, and apply valid song-sheet edits to the browser preview as you type from the same place in the song.
+- Add Pixel Flight with three camera views, layered aircraft, procedural terrain, cockpit instruments and flight controls.
 
 ## [0.56.0] - 2026-11-12
 
