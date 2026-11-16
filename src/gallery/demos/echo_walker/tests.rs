@@ -2,7 +2,9 @@ use super::input::local_cell;
 use super::render::{cell_origin, map_box};
 use super::setup_app;
 use super::state::EchoSurface;
+use crate::core::i18n::{I18n, Locale};
 use crate::ecs::World;
+use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::echo::tests::path_to;
 use crate::gallery::play::echo::{Direction, EchoModal, EchoModel, EchoModelHandle};
 #[cfg(feature = "persistence")]
@@ -36,22 +38,38 @@ fn flush(world: &mut World) {
     crate::core::reactive::flush_signal_dirty(world);
 }
 
-fn assert_text(world: &World, id: &'static str, expected: &str) {
+fn text_of(world: &World, id: &'static str) -> alloc::string::String {
     let text = world
         .get::<Text>(world.find_by_id(id).unwrap())
         .expect("text widget");
-    assert_eq!(text.resolve(world.resource()).as_ref(), expected, "{id}");
     assert!(text.has_valid_content(), "{id}");
     assert_eq!(text.last_content_error(), None, "{id}");
+    text.resolve(world.resource()).into_owned()
+}
+
+fn assert_text(world: &World, id: &'static str, expected: &str) {
+    assert_eq!(text_of(world, id), expected, "{id}");
+}
+
+fn hidden(world: &World, id: &'static str) -> bool {
+    world.has::<Hidden>(world.find_by_id(id).unwrap())
 }
 
 #[test]
 fn composition_uses_one_dense_board_and_semantic_controls() {
     let world = fixture();
-    assert!(world.find_by_id("echo_surface").is_some());
-    assert!(world.find_by_id("echo_rewind").is_some());
+    for id in [
+        "echo_surface",
+        "echo_rewind",
+        "echo_wait",
+        "echo_undo",
+        "echo_restart",
+        "echo_menu",
+    ] {
+        assert!(world.find_by_id(id).is_some(), "{id}");
+    }
     assert_eq!(world.query::<EchoSurface>().collect().len(), 1);
-    assert!(world.query::<Button>().collect().len() >= 15);
+    assert!(world.query::<Button>().collect().len() >= 11);
 }
 
 #[test]
@@ -67,6 +85,15 @@ fn board_hit_testing_maps_the_player_cell() {
     let screen_x = rect.x + Fixed::from_int(x + map.size / 2) * rect.w / Fixed::from_int(480);
     let screen_y = rect.y + Fixed::from_int(y + map.size / 2) * rect.h / Fixed::from_int(320);
     assert_eq!(local_cell(map, rect, screen_x, screen_y), Some(position));
+}
+
+#[test]
+fn the_board_gets_most_of_the_screen() {
+    let world = fixture();
+    let map = with_model(&world, map_box);
+    // The first room is four floor columns by five rows.
+    assert!(map.size >= 48, "cell {}", map.size);
+    assert!(map.size * 5 >= 240);
 }
 
 #[test]
@@ -94,6 +121,29 @@ fn keyboard_wait_advances_exactly_one_beat() {
 }
 
 #[test]
+fn tapping_yourself_waits_and_a_swipe_steps_once() {
+    let mut world = fixture();
+    let surface = world.find_by_id("echo_surface").unwrap();
+    world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
+    let model = model_handle(&world);
+    let position = model.position();
+    model.tap_cell(position);
+    assert_eq!(model.tick(), 1);
+    assert_eq!(model.position(), position);
+
+    let before = model.tick();
+    model.begin_swipe();
+    model.swipe(4, 1);
+    assert_eq!(model.tick(), before, "a short drag is not a swipe");
+    model.swipe(0, -30);
+    model.swipe(0, -60);
+    model.end_swipe();
+    let moved = model.tick() != before || with_model(&world, |model| model.nudge().1 > Fixed::ZERO);
+    assert!(moved, "the swipe stepped or bumped once");
+    assert!(model.tick() <= before + 1);
+}
+
+#[test]
 fn visual_and_modal_sources_dirty_only_their_bound_views() {
     let mut world = fixture();
     let surface = world.find_by_id("echo_surface").unwrap();
@@ -109,7 +159,7 @@ fn visual_and_modal_sources_dirty_only_their_bound_views() {
 
     world.remove::<VisualDirty>(surface);
     world.remove::<VisualDirty>(modal);
-    model.set_modal(EchoModal::Tapes);
+    model.set_modal(EchoModal::Menu);
     flush(&mut world);
     assert!(!world.has::<VisualDirty>(surface));
     assert!(world.has::<VisualDirty>(modal));
@@ -117,37 +167,57 @@ fn visual_and_modal_sources_dirty_only_their_bound_views() {
 }
 
 #[test]
+fn motion_repaints_until_it_settles() {
+    let world = fixture();
+    let model = model_handle(&world);
+    // The first room eases in, then rests.
+    while model.advance_ms(16) != ChangeSet::NONE {}
+    model.step(Direction::Wait);
+    assert!(with_model(&world, |model| model.slide().2 < Fixed::ONE));
+    assert_ne!(model.advance_ms(16), ChangeSet::NONE);
+    model.advance_ms(400);
+    assert_eq!(with_model(&world, |model| model.slide().2), Fixed::ONE);
+    assert_eq!(model.advance_ms(16), ChangeSet::NONE);
+}
+
+#[test]
 fn observed_text_and_tape_visibility_follow_the_model() {
     let mut world = fixture();
     let model = model_handle(&world);
+    assert!(!hidden(&world, "echo_tapes_empty"));
+    assert!(hidden(&world, "echo_tape_0"));
 
     model.step(Direction::Wait);
     model.rewind();
-    model.set_modal(EchoModal::Tapes);
     flush(&mut world);
 
     assert_text(&world, "echo_ghosts", "ECHOES 1/3");
-    assert_text(&world, "echo_run", "1 STEP / 1 ECHO");
-    assert_text(&world, "echo_tape_0", "ECHO 1 · 01 BEATS");
-    assert!(!world.has::<Hidden>(world.find_by_id("echo_tape_0").unwrap()));
-    assert!(world.has::<Hidden>(world.find_by_id("echo_tape_1").unwrap()));
-    assert_text(&world, "echo_modal_title", "ECHO TAPES");
+    assert_text(&world, "echo_tape_0", "● 1 BEAT");
+    assert!(hidden(&world, "echo_tapes_empty"));
+    assert!(!hidden(&world, "echo_tape_0"));
+    assert!(hidden(&world, "echo_tape_1"));
     assert_text(
         &world,
-        "echo_modal_subtitle",
-        "Tap a tape to show only that echo's route.",
+        "echo_message",
+        "Echo recorded · it walks your route as you move",
     );
 
     model.toggle_peek_ghost(0);
     flush(&mut world);
-    assert_text(&world, "echo_tape_0", "ECHO 1 · 01 BEATS · SOLO");
+    assert_text(&world, "echo_tape_0", "◉ 1 BEAT");
+    assert!(with_model(&world, |model| model.replay_beat().is_some()));
+
+    model.set_modal(EchoModal::Menu);
+    flush(&mut world);
+    assert_text(&world, "echo_modal_title", "HOW TO PLAY");
+    assert!(!hidden(&world, "echo_menu_body"));
+    assert!(hidden(&world, "echo_modal_primary"));
 
     for id in [
         "echo_room",
         "echo_memory",
         "echo_ghosts",
         "echo_tick",
-        "echo_run",
         "echo_message",
         "echo_modal_title",
         "echo_modal_subtitle",
@@ -162,6 +232,27 @@ fn observed_text_and_tape_visibility_follow_the_model() {
         assert!(text.has_valid_content(), "{id}");
         assert_eq!(text.last_content_error(), None, "{id}");
     }
+}
+
+#[test]
+fn chinese_mode_translates_every_label() {
+    let mut world = fixture();
+    let model = model_handle(&world);
+    assert_text(&world, "echo_room", "ROOM 01 / 12");
+    world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
+    flush(&mut world);
+    assert_text(&world, "echo_room", "密室 01 / 12");
+    assert_text(&world, "echo_memory", "片段 0/2");
+    assert_text(&world, "echo_message", "站上踏板，再录下回响替你压住。");
+    assert_text(&world, "echo_rewind", "● 录下回响");
+
+    model.step(Direction::Wait);
+    model.rewind();
+    model.set_modal(EchoModal::Menu);
+    flush(&mut world);
+    assert_text(&world, "echo_tape_0", "● 1 步");
+    assert_text(&world, "echo_ghosts", "回响 1/3");
+    assert_text(&world, "echo_modal_title", "规则");
 }
 
 fn walk(model: &EchoModelHandle, target: u8) {
@@ -188,21 +279,21 @@ fn solve_room(model: &EchoModelHandle) {
 }
 
 #[test]
-fn empty_tapes_say_how_to_record_one() {
+fn the_rules_open_and_close_over_the_room() {
     let mut world = fixture();
     let model = model_handle(&world);
-    model.set_modal(EchoModal::Tapes);
+    model.set_modal(EchoModal::Menu);
     flush(&mut world);
     assert_text(
         &world,
-        "echo_modal_subtitle",
-        "No echoes yet. RECORD ECHO saves your route as one.",
-    );
-    assert_text(
-        &world,
         "echo_message",
-        "STEP ON A PLATE, THEN RECORD AN ECHO TO KEEP IT DOWN",
+        "Stand on a plate, then record an echo to hold it.",
     );
+    assert!(!hidden(&world, "echo_modal_secondary"));
+    assert_eq!(model.step(Direction::Wait), ChangeSet::NONE);
+    model.set_modal(EchoModal::None);
+    flush(&mut world);
+    assert!(hidden(&world, "echo_modal"));
 }
 
 #[test]
@@ -217,31 +308,25 @@ fn the_archive_ends_on_totals_without_a_button_that_does_nothing() {
             "echo_modal_title",
             &alloc::format!("ROOM {room:02} SOLVED"),
         );
-        assert_text(&world, "echo_message", "EXIT REACHED · ROOM SOLVED");
+        assert_text(&world, "echo_message", "Exit reached · room solved");
         assert_text(
             &world,
             "echo_modal_primary",
-            if room == 12 { "FINISH" } else { "NEXT ROOM" },
+            if room == 12 {
+                "FINISH"
+            } else {
+                "NEXT ROOM ▶"
+            },
         );
-        let primary = world.find_by_id("echo_modal_primary").unwrap();
-        assert!(!world.has::<Hidden>(primary), "room {room}");
+        assert!(!hidden(&world, "echo_modal_primary"), "room {room}");
         model.continue_archive();
     }
     flush(&mut world);
     assert_text(&world, "echo_modal_title", "ALL 12 ROOMS SOLVED");
-    assert_text(
-        &world,
-        "echo_modal_subtitle",
-        "Totals for the whole archive.",
-    );
-    assert_text(&world, "echo_message", "ALL 12 ROOMS SOLVED");
-    let primary = world.find_by_id("echo_modal_primary").unwrap();
-    assert!(world.has::<Hidden>(primary));
-    let stats = world
-        .get::<Text>(world.find_by_id("echo_result_stats").unwrap())
-        .unwrap()
-        .resolve(world.resource())
-        .into_owned();
+    assert_text(&world, "echo_modal_subtitle", "Totals for all 12 rooms.");
+    assert_text(&world, "echo_message", "All 12 rooms solved");
+    assert!(hidden(&world, "echo_modal_primary"));
+    let stats = text_of(&world, "echo_result_stats");
     assert!(
         stats.starts_with("TOTAL ") && stats.ends_with(" ECHOES"),
         "{stats}"

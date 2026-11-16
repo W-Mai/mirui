@@ -198,6 +198,14 @@ pub(crate) enum EchoMessage {
     Undone,
     Won,
     Complete,
+    /// A step was refused at the door of plate `n`.
+    DoorShut(u8),
+    /// A step was refused at a timed door that is shut on the next beat.
+    ClockShut,
+    /// REC ECHO before the first step: there is no route to replay yet.
+    NoRoute,
+    /// REC ECHO with all three echoes already recorded.
+    TapesFull,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -214,6 +222,7 @@ pub(crate) enum EchoCommand {
 pub(crate) enum EchoModal {
     #[default]
     None,
-    Tapes,
+    /// Rules, keys and the room reset.
+    Menu,
     Result,
 }

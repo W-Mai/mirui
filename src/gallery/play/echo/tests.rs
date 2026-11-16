@@ -154,6 +154,17 @@ fn rewind_records_route_holds_last_cell_and_caps_at_three() {
         assert_eq!(model.ghost_position(ghost, BEAT_LIMIT), model.room().start);
     }
     assert_ne!(model.step(Direction::Wait), ChangeSet::NONE);
+    assert_eq!(model.rewind(), ChangeSet::MODEL);
+    assert_eq!(model.ghost_count(), MAX_GHOSTS as u8);
+    assert_eq!(model.message(), EchoMessage::TapesFull);
+}
+
+#[test]
+fn recording_before_the_first_step_says_why() {
+    let mut model = EchoModel::new(9);
+    assert_eq!(model.rewind(), ChangeSet::MODEL);
+    assert_eq!(model.message(), EchoMessage::NoRoute);
+    assert_eq!(model.ghost_count(), 0);
     assert_eq!(model.rewind(), ChangeSet::NONE);
 }
 
@@ -260,4 +271,46 @@ fn full_replay_rejects_before_mutating_the_model() {
     assert_eq!(model.step(Direction::Wait), ChangeSet::NONE);
     assert_eq!(model.state, state);
     assert_eq!(model.history_len(), history_len);
+}
+
+#[test]
+fn a_refused_step_says_why_and_leans_into_the_shut_door() {
+    use crate::types::Fixed;
+
+    let mut model = EchoModel::new(9);
+    let door = model.room().doors[0];
+    let width = BOARD_WIDTH as u8;
+    let (side, direction) = if model.room().start % width < door % width {
+        (door - 1, Direction::Right)
+    } else {
+        (door + 1, Direction::Left)
+    };
+    walk_to(&mut model, side);
+    let tick = model.tick();
+    assert_eq!(model.step(direction), ChangeSet::MODEL | ChangeSet::VISUAL);
+    assert_eq!(model.tick(), tick);
+    assert_eq!(model.message(), EchoMessage::DoorShut(0));
+    assert_eq!(model.nudge(), (direction, Fixed::ONE));
+    assert!(model.advance_ms(16).contains(ChangeSet::VISUAL));
+    for _ in 0..30 {
+        model.advance_ms(16);
+    }
+    assert_eq!(model.nudge().1, Fixed::ZERO);
+}
+
+#[test]
+fn recording_an_echo_runs_the_route_back_until_the_next_input() {
+    let mut model = EchoModel::new(9);
+    while model.advance_ms(16) != ChangeSet::NONE {}
+    let gem = model.room().gems[0];
+    walk_to(&mut model, gem);
+    let len = model.route_len();
+    assert_ne!(model.rewind(), ChangeSet::NONE);
+    let (progress, rewound, echo) = model.rewinding().expect("the route runs back");
+    assert_eq!((rewound, echo), (len, Some(0)));
+    assert_eq!(progress, crate::types::Fixed::ZERO);
+    assert_eq!(model.rewind_cell(len), gem);
+    // The next input skips what is left of it.
+    assert_ne!(model.step(Direction::Wait), ChangeSet::NONE);
+    assert!(model.rewinding().is_none());
 }

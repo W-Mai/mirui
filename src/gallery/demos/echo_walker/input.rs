@@ -1,48 +1,54 @@
-use super::render::{MapBox, map_box_from_columns};
+use super::render::{MapBox, map_box_from_span};
 use super::state::EchoSurface;
-use crate::gallery::play::echo::{BOARD_HEIGHT, BOARD_WIDTH, Direction, EchoModel};
+use crate::ecs::DeltaTimeMs;
+use crate::gallery::play::echo::{BOARD_WIDTH, Direction, EchoModal, EchoModel};
 use crate::prelude::*;
 
-pub(super) fn local_cell(map: MapBox, rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
+/// The logical 480 × 320 point under a surface position.
+fn local_point(rect: Rect, x: Fixed, y: Fixed) -> Option<(i32, i32)> {
     if rect.w.is_zero() || rect.h.is_zero() {
         return None;
     }
-    let local_x = ((x - rect.x) * Fixed::from_int(480) / rect.w).to_int();
-    let local_y = ((y - rect.y) * Fixed::from_int(320) / rect.h).to_int();
+    Some((
+        ((x - rect.x) * Fixed::from_int(480) / rect.w).to_int(),
+        ((y - rect.y) * Fixed::from_int(320) / rect.h).to_int(),
+    ))
+}
+
+pub(super) fn local_cell(map: MapBox, rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
+    let (local_x, local_y) = local_point(rect, x, y)?;
     if local_x < map.x || local_y < map.y {
         return None;
     }
-    let column = (local_x - map.x) / map.size;
-    let row = (local_y - map.y) / map.size;
-    if column < 0 || row < 0 || row >= BOARD_HEIGHT as i32 {
-        return None;
-    }
-    let board_x = map.min as i32 + column;
-    if board_x > map.max as i32 {
-        return None;
-    }
-    Some((row as usize * BOARD_WIDTH + board_x as usize) as u8)
+    let column = map.min_x + ((local_x - map.x) / map.size) as usize;
+    let row = map.min_y + ((local_y - map.y) / map.size) as usize;
+    map.contains(column, row)
+        .then_some((row * BOARD_WIDTH + column) as u8)
 }
 
 pub(super) fn surface_tap(surface: &EchoSurface, rect: Rect, x: Fixed, y: Fixed) -> bool {
-    let (min, max) = surface.model.room_column_span();
-    let Some(cell) = local_cell(map_box_from_columns(min, max), rect, x, y) else {
+    let map = map_box_from_span(surface.model.room_span());
+    let Some(cell) = local_cell(map, rect, x, y) else {
         return false;
     };
-    let position = surface.model.position();
-    let dx = i16::from(cell % BOARD_WIDTH as u8) - i16::from(position % BOARD_WIDTH as u8);
-    let dy = i16::from(cell / BOARD_WIDTH as u8) - i16::from(position / BOARD_WIDTH as u8);
-    let direction = match (dx, dy) {
-        (0, -1) => Some(Direction::Up),
-        (1, 0) => Some(Direction::Right),
-        (0, 1) => Some(Direction::Down),
-        (-1, 0) => Some(Direction::Left),
-        _ => None,
-    };
-    if let Some(direction) = direction {
-        surface.model.step(direction);
-    }
+    surface.model.tap_cell(cell);
     true
+}
+
+pub(super) fn surface_drag_move(surface: &EchoSurface, rect: Rect, dx: Fixed, dy: Fixed) -> bool {
+    if rect.w.is_zero() || rect.h.is_zero() {
+        return false;
+    }
+    surface.model.swipe(
+        (dx * Fixed::from_int(480) / rect.w).to_int(),
+        (dy * Fixed::from_int(320) / rect.h).to_int(),
+    );
+    true
+}
+
+#[mirui_macros::system(order = Animation)]
+pub(super) fn echo_tick_system(model: model!(EchoModel), delta: res!(DeltaTimeMs)) {
+    model.advance_ms(delta.0);
 }
 
 #[event]
@@ -55,13 +61,16 @@ pub(super) fn keyboard(input: event!(Key), model: model!(EchoModel)) -> bool {
         return false;
     }
     match input.physical {
-        Some(PhysicalKey::KeyW) => model.step(Direction::Up),
-        Some(PhysicalKey::KeyA) => model.step(Direction::Left),
-        Some(PhysicalKey::KeyS) => model.step(Direction::Down),
-        Some(PhysicalKey::KeyD) => model.step(Direction::Right),
-        Some(PhysicalKey::Space) => model.step(Direction::Wait),
-        Some(PhysicalKey::KeyR) => model.rewind(),
-        Some(PhysicalKey::KeyU) => model.undo(),
+        Some(PhysicalKey::KeyW | PhysicalKey::ArrowUp) => model.step(Direction::Up),
+        Some(PhysicalKey::KeyA | PhysicalKey::ArrowLeft) => model.step(Direction::Left),
+        Some(PhysicalKey::KeyS | PhysicalKey::ArrowDown) => model.step(Direction::Down),
+        Some(PhysicalKey::KeyD | PhysicalKey::ArrowRight) => model.step(Direction::Right),
+        Some(PhysicalKey::Space | PhysicalKey::Period) => model.step(Direction::Wait),
+        Some(PhysicalKey::KeyE) => model.rewind(),
+        Some(PhysicalKey::KeyZ | PhysicalKey::KeyU) => model.undo(),
+        Some(PhysicalKey::KeyR) => model.restart(),
+        Some(PhysicalKey::Enter) => model.continue_archive(),
+        Some(PhysicalKey::Escape) => model.set_modal(EchoModal::None),
         _ => return false,
     };
     true

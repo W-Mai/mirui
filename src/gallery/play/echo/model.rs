@@ -3,9 +3,118 @@ use super::types::{
     BEAT_LIMIT, BOARD_HEIGHT, BOARD_WIDTH, CELL_COUNT, Direction, EchoCommand, EchoMessage,
     EchoModal, EchoResult, EchoRoom, HISTORY_CAPACITY, MAX_GHOSTS, PackedRoute, ROOM_COUNT,
 };
+use crate::anim::{Motion, PlayMode, SNAPPY, Transition, Tween, TweenConfig, ease};
 use crate::gallery::play::change::ChangeSet;
 #[cfg(feature = "persistence")]
 use crate::gallery::play::storage::{EchoReplayLog, ReplayKind};
+use crate::types::Fixed;
+
+/// One beat: the walker and the echoes slide from the cells they left.
+const SLIDE: TweenConfig = TweenConfig::new(150, &ease::OUT_CUBIC);
+/// A room eases into place when it opens.
+const INTRO: TweenConfig = TweenConfig::new(360, &ease::OUT_CUBIC);
+/// Time per beat while a soloed tape replays its route.
+const REPLAY_BEAT_MS: u16 = 130;
+/// Beats a soloed tape rests at its last cell before it replays again.
+const REPLAY_REST_BEATS: u8 = 3;
+/// Logical pixels a drag travels before it counts as a swipe.
+const SWIPE_DISTANCE: i32 = 10;
+
+/// Motion the board shows after a command. It is neither saved nor undone:
+/// a restored or undone game shows every piece at rest.
+#[derive(Clone, Copy)]
+struct EchoMotion {
+    slide: Tween,
+    slide_from: u8,
+    slide_tick: u8,
+    nudge: Motion,
+    nudge_direction: Direction,
+    rewind: Tween,
+    rewind_route: PackedRoute,
+    rewind_echo: Option<u8>,
+    replay: Tween,
+    intro: Tween,
+}
+
+impl EchoMotion {
+    fn rest() -> Self {
+        Self {
+            slide: Tween::preset(Fixed::ONE, Fixed::ONE, SLIDE),
+            slide_from: 0,
+            slide_tick: 0,
+            nudge: Transition::from(SNAPPY).motion(Fixed::ZERO, Fixed::ZERO),
+            nudge_direction: Direction::Wait,
+            rewind: Tween::preset(Fixed::ONE, Fixed::ONE, SLIDE),
+            rewind_route: PackedRoute::EMPTY,
+            rewind_echo: None,
+            replay: Tween::preset(Fixed::ZERO, Fixed::ZERO, SLIDE),
+            intro: Tween::preset(Fixed::ONE, Fixed::ONE, INTRO),
+        }
+    }
+
+    fn busy(&self) -> bool {
+        !self.slide.is_finished()
+            || !self.nudge.is_done()
+            || !self.rewind.is_finished()
+            || !self.intro.is_finished()
+    }
+
+    /// Jumps every one-shot motion to its end, so the next input never
+    /// waits for the last one.
+    fn settle(&mut self) {
+        let replay = self.replay;
+        *self = Self::rest();
+        self.replay = replay;
+    }
+
+    fn slide(&mut self, from: u8, tick: u8) {
+        self.settle();
+        self.slide_from = from;
+        self.slide_tick = tick;
+        self.slide = Tween::preset(Fixed::ZERO, Fixed::ONE, SLIDE);
+    }
+
+    fn rewind(&mut self, route: PackedRoute, echo: Option<u8>) {
+        self.settle();
+        let duration = (140 + u16::from(route.len()) * 10).min(380);
+        self.rewind_route = route;
+        self.rewind_echo = echo;
+        self.rewind = Tween::preset(
+            Fixed::ZERO,
+            Fixed::ONE,
+            TweenConfig::new(duration, &ease::IN_OUT_CUBIC),
+        );
+    }
+
+    fn intro(&mut self) {
+        self.settle();
+        self.intro = Tween::preset(Fixed::ZERO, Fixed::ONE, INTRO);
+    }
+
+    fn nudge(&mut self, direction: Direction) {
+        self.settle();
+        self.nudge_direction = direction;
+        self.nudge = Transition::from(SNAPPY).motion(Fixed::ONE, Fixed::ZERO);
+    }
+
+    fn replay(&mut self, beats: u8) {
+        let span = beats + REPLAY_REST_BEATS;
+        self.replay = Tween::new(
+            Fixed::ZERO,
+            Fixed::from_int(i32::from(span)),
+            u16::from(span) * REPLAY_BEAT_MS,
+            &ease::LINEAR,
+            PlayMode::Loop,
+        );
+    }
+
+    fn tick(&mut self, elapsed_ms: u16) {
+        self.slide.tick(elapsed_ms);
+        self.nudge.tick(elapsed_ms);
+        self.rewind.tick(elapsed_ms);
+        self.intro.tick(elapsed_ms);
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct EchoState {
@@ -89,6 +198,8 @@ pub(crate) struct EchoModel {
     message: EchoMessage,
     modal: EchoModal,
     peek_ghost: Option<u8>,
+    motion: EchoMotion,
+    swipe_armed: bool,
     #[cfg(feature = "persistence")]
     replay: EchoReplayLog,
 }
@@ -115,10 +226,13 @@ impl EchoModel {
             message: EchoMessage::Ready,
             modal: EchoModal::None,
             peek_ghost: None,
+            motion: EchoMotion::rest(),
+            swipe_armed: false,
             #[cfg(feature = "persistence")]
             replay: EchoReplayLog::new(ReplayKind::Echo, seed.max(1)),
         };
         model.make_room();
+        model.motion.intro();
         model
     }
 
@@ -171,6 +285,71 @@ impl EchoModel {
             .door_at(cell)
             .is_none_or(|door| self.door_open(door, beat, player))
             && self.clock_open(cell, beat)
+    }
+
+    /// What to tell the player about a refused step, or `None` when the
+    /// walker is simply against a wall.
+    fn refusal(&self, direction: Direction) -> Option<EchoMessage> {
+        if self.state.tick >= BEAT_LIMIT {
+            return Some(EchoMessage::BeatLimit);
+        }
+        let (dx, dy) = direction.delta();
+        let x = (self.state.pos % BOARD_WIDTH as u8) as i8 + dx;
+        let y = (self.state.pos / BOARD_WIDTH as u8) as i8 + dy;
+        if x < 0 || x >= BOARD_WIDTH as i8 || y < 0 || y >= BOARD_HEIGHT as i8 {
+            return None;
+        }
+        let cell = (y as usize * BOARD_WIDTH + x as usize) as u8;
+        let beat = self.state.tick + 1;
+        if let Some(door) = self.room.door_at(cell)
+            && !self.door_open(door, beat, self.state.pos)
+        {
+            return Some(EchoMessage::DoorShut(door as u8));
+        }
+        (!self.clock_open(cell, beat)).then_some(EchoMessage::ClockShut)
+    }
+
+    /// The walker's cell before the last beat, that beat, and how far the
+    /// slide to the cells shown now has come (0 to 1).
+    pub(crate) fn slide(&self) -> (u8, u8, Fixed) {
+        (
+            self.motion.slide_from,
+            self.motion.slide_tick,
+            self.motion.slide.value(),
+        )
+    }
+
+    /// The direction of a refused step and how far the walker still leans
+    /// into it (1 at the bump, 0 at rest).
+    pub(crate) fn nudge(&self) -> (Direction, Fixed) {
+        (self.motion.nudge_direction, self.motion.nudge.value())
+    }
+
+    /// While a route runs back to the start: the progress (0 to 1), the
+    /// route's length and the echo it became (`None` after a retry).
+    pub(crate) fn rewinding(&self) -> Option<(Fixed, u8, Option<u8>)> {
+        (!self.motion.rewind.is_finished()).then(|| {
+            (
+                self.motion.rewind.value(),
+                self.motion.rewind_route.len(),
+                self.motion.rewind_echo,
+            )
+        })
+    }
+
+    /// The cell the rewinding route reached at `beat`.
+    pub(crate) fn rewind_cell(&self, beat: u8) -> u8 {
+        route_position(self.room.start, self.motion.rewind_route, beat)
+    }
+
+    /// The beat, with its fraction, that the soloed tape is replaying.
+    pub(crate) fn replay_beat(&self) -> Option<Fixed> {
+        self.peek_ghost.map(|_| self.motion.replay.value())
+    }
+
+    /// How far the room has eased into place (1 once it is in place).
+    pub(crate) fn intro(&self) -> Fixed {
+        self.motion.intro.value()
     }
 
     fn step_raw(&mut self, direction: Direction) -> ChangeSet {
@@ -320,6 +499,10 @@ impl EchoModel {
             return ChangeSet::NONE;
         }
         self.peek_ghost = ghost;
+        if let Some(ghost) = ghost {
+            self.motion
+                .replay(self.state.routes[usize::from(ghost) + 1].len());
+        }
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
@@ -374,17 +557,21 @@ impl EchoModel {
         self.state.pos
     }
 
-    pub(crate) fn room_column_span(&self) -> (usize, usize) {
-        let mut min = BOARD_WIDTH - 1;
-        let mut max = 0;
+    /// The columns and rows that hold floor, `(min_x, max_x, min_y, max_y)`.
+    /// The room's outer wall is drawn as a frame around them.
+    pub(crate) fn room_span(&self) -> (usize, usize, usize, usize) {
+        let (mut min_x, mut max_x) = (BOARD_WIDTH - 1, 0);
+        let (mut min_y, mut max_y) = (BOARD_HEIGHT - 1, 0);
         for cell in 0..BOARD_WIDTH * BOARD_HEIGHT {
             if !self.room.is_wall(cell) {
-                let x = cell % BOARD_WIDTH;
-                min = min.min(x);
-                max = max.max(x);
+                let (x, y) = (cell % BOARD_WIDTH, cell / BOARD_WIDTH);
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
             }
         }
-        (min.saturating_sub(1), (max + 1).min(BOARD_WIDTH - 1))
+        (min_x, max_x.max(min_x), min_y, max_y.max(min_y))
     }
 
     #[observe]
@@ -490,27 +677,159 @@ impl EchoModel {
     }
 
     pub(crate) fn step(&mut self, direction: Direction) -> ChangeSet {
-        self.apply_command(EchoCommand::Step(direction))
+        if self.modal != EchoModal::None || self.state.won || self.complete {
+            return ChangeSet::NONE;
+        }
+        let (from, tick) = (self.state.pos, self.state.tick);
+        let changes = self.apply_command(EchoCommand::Step(direction));
+        if changes != ChangeSet::NONE {
+            self.motion.slide(from, tick);
+            return changes;
+        }
+        #[cfg(feature = "persistence")]
+        if self.replay.is_full() {
+            return ChangeSet::NONE;
+        }
+        let message = self.refusal(direction);
+        if direction == Direction::Wait && message.is_none() {
+            return ChangeSet::NONE;
+        }
+        if let Some(message) = message {
+            self.message = message;
+        }
+        if direction != Direction::Wait {
+            self.motion.nudge(direction);
+        }
+        ChangeSet::MODEL | ChangeSet::VISUAL
+    }
+
+    /// A tap on `cell` steps one cell toward it along the longer axis, or
+    /// waits when it is the walker's own cell. Diagonal taps do nothing.
+    pub(crate) fn tap_cell(&mut self, cell: u8) -> ChangeSet {
+        let width = BOARD_WIDTH as u8;
+        let dx = i16::from(cell % width) - i16::from(self.state.pos % width);
+        let dy = i16::from(cell / width) - i16::from(self.state.pos / width);
+        let direction = match dx.abs().cmp(&dy.abs()) {
+            core::cmp::Ordering::Greater if dx > 0 => Direction::Right,
+            core::cmp::Ordering::Greater => Direction::Left,
+            core::cmp::Ordering::Less if dy > 0 => Direction::Down,
+            core::cmp::Ordering::Less => Direction::Up,
+            core::cmp::Ordering::Equal if dx == 0 => Direction::Wait,
+            core::cmp::Ordering::Equal => return ChangeSet::NONE,
+        };
+        self.step(direction)
+    }
+
+    pub(crate) fn begin_swipe(&mut self) -> ChangeSet {
+        self.swipe_armed = true;
+        ChangeSet::NONE
+    }
+
+    /// A drag that has travelled `dx`, `dy` logical pixels so far steps
+    /// once, the first time it is long enough.
+    pub(crate) fn swipe(&mut self, dx: i32, dy: i32) -> ChangeSet {
+        if !self.swipe_armed || dx.abs().max(dy.abs()) < SWIPE_DISTANCE {
+            return ChangeSet::NONE;
+        }
+        self.swipe_armed = false;
+        let direction = if dx.abs() > dy.abs() {
+            if dx > 0 {
+                Direction::Right
+            } else {
+                Direction::Left
+            }
+        } else if dy > 0 {
+            Direction::Down
+        } else {
+            Direction::Up
+        };
+        self.step(direction)
+    }
+
+    pub(crate) fn end_swipe(&mut self) -> ChangeSet {
+        self.swipe_armed = false;
+        ChangeSet::NONE
     }
 
     pub(crate) fn rewind(&mut self) -> ChangeSet {
-        self.apply_command(EchoCommand::Rewind)
+        let route = self.state.routes[0];
+        let changes = self.apply_command(EchoCommand::Rewind);
+        if changes != ChangeSet::NONE {
+            self.motion.rewind(route, Some(self.state.ghost_count - 1));
+            return changes;
+        }
+        #[cfg(feature = "persistence")]
+        if self.replay.is_full() {
+            return ChangeSet::NONE;
+        }
+        if self.state.won || self.complete || self.modal != EchoModal::None {
+            return ChangeSet::NONE;
+        }
+        // Say why nothing was recorded.
+        let message = if self.state.ghost_count >= MAX_GHOSTS as u8 {
+            EchoMessage::TapesFull
+        } else {
+            EchoMessage::NoRoute
+        };
+        if self.message == message {
+            return ChangeSet::NONE;
+        }
+        self.message = message;
+        ChangeSet::MODEL
     }
 
     pub(crate) fn restart(&mut self) -> ChangeSet {
-        self.apply_command(EchoCommand::Restart)
+        let route = self.state.routes[0];
+        let changes = self.apply_command(EchoCommand::Restart);
+        if changes != ChangeSet::NONE {
+            self.motion.rewind(route, None);
+        }
+        changes
     }
 
     pub(crate) fn clear_room(&mut self) -> ChangeSet {
-        self.apply_command(EchoCommand::Clear)
+        let changes = self.apply_command(EchoCommand::Clear);
+        if changes != ChangeSet::NONE {
+            self.motion.intro();
+        }
+        changes
     }
 
     pub(crate) fn undo(&mut self) -> ChangeSet {
-        self.apply_command(EchoCommand::Undo)
+        let (from, tick) = (self.state.pos, self.state.tick);
+        let changes = self.apply_command(EchoCommand::Undo);
+        if changes != ChangeSet::NONE {
+            let width = BOARD_WIDTH as u8;
+            let distance = (from % width).abs_diff(self.state.pos % width)
+                + (from / width).abs_diff(self.state.pos / width);
+            if distance <= 1 {
+                self.motion.slide(from, tick);
+            } else {
+                self.motion.settle();
+            }
+        }
+        changes
     }
 
     pub(crate) fn continue_archive(&mut self) -> ChangeSet {
-        self.apply_command(EchoCommand::Continue)
+        let changes = self.apply_command(EchoCommand::Continue);
+        if changes != ChangeSet::NONE && !self.complete {
+            self.motion.intro();
+        }
+        changes
+    }
+
+    /// Advances the board's motion; repaints while anything moves.
+    pub(crate) fn advance_ms(&mut self, elapsed_ms: u16) -> ChangeSet {
+        let replaying = self.peek_ghost.is_some() && self.modal == EchoModal::None;
+        if elapsed_ms == 0 || !(self.motion.busy() || replaying) {
+            return ChangeSet::NONE;
+        }
+        self.motion.tick(elapsed_ms);
+        if replaying {
+            self.motion.replay.tick(elapsed_ms);
+        }
+        ChangeSet::VISUAL
     }
 
     pub(crate) fn set_modal(&mut self, modal: EchoModal) -> ChangeSet {

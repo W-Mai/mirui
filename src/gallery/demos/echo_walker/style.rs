@@ -12,3 +12,5 @@ pub(super) const ACCENT: Color = Color::rgb(220, 190, 132);
 pub(super) const TEAL: Color = Color::rgb(124, 190, 174);
 pub(super) const VIOLET: Color = Color::rgb(190, 166, 206);
 pub(super) const RUST: Color = Color::rgb(199, 161, 123);
+/// The first, second and third echo, on the board and on their tapes.
+pub(super) const ECHO_COLORS: [Color; 3] = [TEAL, VIOLET, RUST];

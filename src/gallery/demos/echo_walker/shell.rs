@@ -1,15 +1,20 @@
-use super::input::{keyboard, surface_tap};
+use super::input::{echo_tick_system, keyboard, surface_drag_move, surface_tap};
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
-use super::render::{modal_render, surface_render};
+use super::render::{LEGEND_X, modal_render, surface_render};
 use super::state::{EchoModalSurface, EchoSurface};
-use super::style::{ACCENT, BACKGROUND, HEADER, LINE, MUTED, PANEL, RUST, TEXT};
+use super::style::{ACCENT, BACKGROUND, ECHO_COLORS, HEADER, LINE, MUTED, PANEL, RUST, TEXT};
+#[cfg(feature = "std")]
+use crate::app::plugins::StdInstantClockPlugin;
+use crate::core::i18n::{Locale, Phrase, locale};
 use crate::gallery::play::echo::{Direction, EchoMessage, EchoModal, EchoModel};
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::tr;
 use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use core::fmt;
 
 fn label() -> ParagraphStyle {
     ParagraphStyle::label().with_align(TextAlign::Start)
@@ -23,90 +28,141 @@ fn action_text_color(enabled: bool) -> Color {
     if enabled { TEXT } else { MUTED }
 }
 
+fn chinese() -> bool {
+    locale() == Locale::ZhCn
+}
+
+/// `count` followed by the singular or plural English noun, or by the
+/// Chinese one.
+struct Count(u16, &'static str, &'static str, &'static str);
+
+impl fmt::Display for Count {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self(count, one, many, zh) = *self;
+        if chinese() {
+            write!(out, "{count} {zh}")
+        } else {
+            write!(out, "{count} {}", if count == 1 { one } else { many })
+        }
+    }
+}
+
 struct ModalTitle {
     modal: EchoModal,
     complete: bool,
     level: u8,
 }
 
-impl core::fmt::Display for ModalTitle {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if self.modal == EchoModal::Tapes {
-            formatter.write_str("ECHO TAPES")
-        } else if self.complete {
-            formatter.write_str("ALL 12 ROOMS SOLVED")
-        } else {
-            write!(formatter, "ROOM {:02} SOLVED", self.level + 1)
+impl fmt::Display for ModalTitle {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let room = self.level + 1;
+        match (self.modal, self.complete, chinese()) {
+            (EchoModal::Menu, _, _) => out.write_str(tr!(en: "HOW TO PLAY", zh: "规则").get()),
+            (_, true, _) => {
+                out.write_str(tr!(en: "ALL 12 ROOMS SOLVED", zh: "12 间密室全部完成").get())
+            }
+            (_, false, true) => write!(out, "密室 {room:02} 完成"),
+            (_, false, false) => write!(out, "ROOM {room:02} SOLVED"),
         }
     }
 }
 
-fn modal_subtitle(modal: EchoModal, complete: bool, echoes: u8) -> &'static str {
-    if modal == EchoModal::Tapes {
-        if echoes == 0 {
-            "No echoes yet. RECORD ECHO saves your route as one."
-        } else {
-            "Tap a tape to show only that echo's route."
-        }
-    } else if complete {
-        "Totals for the whole archive."
+fn modal_subtitle(complete: bool) -> Phrase {
+    if complete {
+        tr!(en: "Totals for all 12 rooms.", zh: "12 间密室的总计。")
     } else {
-        "Exit reached with every memory fragment."
+        tr!(en: "Exit reached with every memory.", zh: "带着全部片段到达出口。")
     }
 }
 
-fn primary_label(result_len: u8) -> &'static str {
+fn primary_label(result_len: u8) -> Phrase {
     if result_len == 11 {
-        "FINISH"
+        tr!(en: "FINISH", zh: "完成")
     } else {
-        "NEXT ROOM"
-    }
-}
-
-/// `count` followed by the singular or the plural noun.
-struct Count(u16, &'static str, &'static str);
-
-impl core::fmt::Display for Count {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            formatter,
-            "{} {}",
-            self.0,
-            if self.0 == 1 { self.1 } else { self.2 }
-        )
+        tr!(en: "NEXT ROOM ▶", zh: "下一间 ▶")
     }
 }
 
 struct MessageLabel(EchoMessage);
 
-impl core::fmt::Display for MessageLabel {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.0 {
-            EchoMessage::Ready => {
-                formatter.write_str("STEP ON A PLATE, THEN RECORD AN ECHO TO KEEP IT DOWN")
-            }
-            EchoMessage::Plate(index) => write!(
-                formatter,
-                "PLATE {} IS DOWN · RECORD AN ECHO TO HOLD IT",
-                char::from(b'A' + index)
+impl fmt::Display for MessageLabel {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let zh = chinese();
+        let phrase = match self.0 {
+            EchoMessage::Ready => tr!(
+                en: "Stand on a plate, then record an echo to hold it.",
+                zh: "站上踏板，再录下回响替你压住。"
             ),
-            EchoMessage::Fragment => formatter.write_str("MEMORY FOUND · IT STAYS WITH YOU"),
-            EchoMessage::Missing(1) => formatter.write_str("EXIT LOCKED · 1 MEMORY LEFT TO FIND"),
+            EchoMessage::Plate(index) => {
+                let plate = char::from(b'A' + index);
+                return if zh {
+                    write!(out, "踏板 {plate} 已压下 · 录下回响让它一直压着")
+                } else {
+                    write!(
+                        out,
+                        "Plate {plate} is down · record an echo to keep it there"
+                    )
+                };
+            }
+            EchoMessage::Fragment => tr!(
+                en: "Memory found · you keep it after an echo or a retry",
+                zh: "找到片段 · 录回响或重走后仍保留"
+            ),
             EchoMessage::Missing(count) => {
-                write!(formatter, "EXIT LOCKED · {count} MEMORIES LEFT TO FIND")
+                return if zh {
+                    write!(out, "出口未开 · 还缺 {count} 个片段")
+                } else {
+                    write!(
+                        out,
+                        "Exit locked · {}",
+                        Count(count.into(), "memory left", "memories left", "")
+                    )
+                };
             }
-            EchoMessage::BeatLimit => formatter.write_str("OUT OF BEATS · RECORD AN ECHO OR RETRY"),
-            EchoMessage::Recorded => {
-                formatter.write_str("ECHO RECORDED · IT WAITS WHERE YOU STOPPED")
+            EchoMessage::BeatLimit => tr!(
+                en: "Out of beats · record an echo or retry",
+                zh: "步数用完 · 录下回响或重走"
+            ),
+            EchoMessage::Recorded => tr!(
+                en: "Echo recorded · it walks your route as you move",
+                zh: "回响已录下 · 你走一步，它也重走一步"
+            ),
+            EchoMessage::Restarted => tr!(
+                en: "Back to the start · echoes and memories kept",
+                zh: "回到起点 · 回响和片段都保留"
+            ),
+            EchoMessage::Cleared => tr!(
+                en: "Room reset · echoes and memories cleared",
+                zh: "密室已重置 · 回响和片段已清空"
+            ),
+            EchoMessage::Undone => tr!(en: "Undone", zh: "已撤销"),
+            EchoMessage::Won => tr!(en: "Exit reached · room solved", zh: "到达出口 · 密室完成"),
+            EchoMessage::Complete => tr!(en: "All 12 rooms solved", zh: "12 间密室全部完成"),
+            EchoMessage::DoorShut(index) => {
+                let door = char::from(b'A' + index);
+                return if zh {
+                    write!(out, "门 {door} 关着 · 要有人站在踏板 {door} 上")
+                } else {
+                    write!(
+                        out,
+                        "Door {door} is shut · someone must stand on plate {door}"
+                    )
+                };
             }
-            EchoMessage::Restarted => {
-                formatter.write_str("ROUTE RESTARTED · ECHOES AND MEMORY KEPT")
-            }
-            EchoMessage::Cleared => formatter.write_str("ROOM RESET · ECHOES AND MEMORY ERASED"),
-            EchoMessage::Undone => formatter.write_str("LAST ACTION UNDONE"),
-            EchoMessage::Won => formatter.write_str("EXIT REACHED · ROOM SOLVED"),
-            EchoMessage::Complete => formatter.write_str("ALL 12 ROOMS SOLVED"),
-        }
+            EchoMessage::ClockShut => tr!(
+                en: "Timed door is shut · wait a beat or two",
+                zh: "定时门关着 · 等一两步再走"
+            ),
+            EchoMessage::NoRoute => tr!(
+                en: "Walk first · an echo replays the route you take",
+                zh: "先走几步 · 回响会重走你走过的路线"
+            ),
+            EchoMessage::TapesFull => tr!(
+                en: "All 3 echoes recorded · undo or reset the room",
+                zh: "3 个回响都已录下 · 可以撤销或重置密室"
+            ),
+        };
+        out.write_str(phrase.get())
     }
 }
 
@@ -116,123 +172,99 @@ struct ResultStats {
     loops: u16,
 }
 
-impl core::fmt::Display for ResultStats {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for ResultStats {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.complete {
-            formatter.write_str("TOTAL ")?;
+            write!(out, "{} ", tr!(en: "TOTAL", zh: "合计"))?;
         }
         write!(
-            formatter,
+            out,
             "{} · {}",
-            Count(self.steps, "STEP", "STEPS"),
-            Count(self.loops, "ECHO", "ECHOES")
+            Count(self.steps, "STEP", "STEPS", "步"),
+            Count(self.loops, "ECHO", "ECHOES", "个回响")
         )
     }
 }
 
-struct RouteStats {
-    steps: u16,
-    echoes: u8,
-}
+struct RoomLabel(u8);
 
-impl core::fmt::Display for RouteStats {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for RoomLabel {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
-            formatter,
-            "{} / {}",
-            Count(self.steps, "STEP", "STEPS"),
-            Count(self.echoes.into(), "ECHO", "ECHOES")
+            out,
+            "{} {:02} / 12",
+            tr!(en: "ROOM", zh: "密室"),
+            self.0 + 1
         )
     }
 }
 
 struct TapeLabel {
-    index: usize,
     beats: u8,
     solo: bool,
 }
 
-impl core::fmt::Display for TapeLabel {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for TapeLabel {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
-            formatter,
-            "ECHO {} · {:02} BEATS{}",
-            self.index + 1,
-            self.beats,
-            if self.solo { " · SOLO" } else { "" }
+            out,
+            "{} {}",
+            if self.solo { "◉" } else { "●" },
+            Count(self.beats.into(), "BEAT", "BEATS", "步")
         )
     }
+}
+
+fn tape_fill(solo: bool) -> Color {
+    if solo { LINE } else { HEADER }
 }
 
 #[compose]
 fn compose_header(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
-            "ECHO WALKER",
+            tr!(en : "ECHO WALKER", zh : "回响行者"),
             position: Position::Absolute,
-            left: 14,
+            left: 12,
             top: 7,
-            width: 120,
-            height: 22,
-            font_size: 15,
+            width: 104,
+            height: 14,
+            font_size: 10,
             text_color: TEXT,
             paragraph: label()
         )
     };
     ui! {
         Text (
-            "TAPE 002718",
-            position: Position::Absolute,
-            left: 270,
-            top: 10,
-            width: 196,
-            height: 16,
-            font_size: 9,
-            text_color: MUTED,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-        )
-    };
-    ui! {
-        Text (
-            text: ${ format_args!("ROOM {:02} / 12", model.level() + 1) },
-            capacity: 15,
+            text: ${ RoomLabel(model.level()) },
+            capacity: 16,
             id: "echo_room",
             position: Position::Absolute,
-            left: 14,
-            top: 39,
-            width: 110,
-            height: 16,
-            font_size: 9,
+            left: 124,
+            top: 7,
+            width: 100,
+            height: 14,
+            font_size: 10,
             text_color: ACCENT,
             paragraph: label()
         )
     };
     ui! {
         Text (
-            text: ${ format_args!("MEMORY {}/{}", model.collected_count(), model.gem_count()) },
-            capacity: 10,
+            text: ${
+                format_args!(
+                    "{} {}/{}", tr!(en : "MEMORY", zh : "片段"), model.collected_count(), model
+                    .gem_count()
+                )
+            },
+            capacity: 16,
             id: "echo_memory",
             position: Position::Absolute,
-            left: 146,
-            top: 39,
-            width: 90,
-            height: 16,
-            font_size: 9,
-            text_color: MUTED,
-            paragraph: label()
-        )
-    };
-    ui! {
-        Text (
-            text: ${ format_args!("ECHOES {}/3", model.ghost_count()) },
-            capacity: 10,
-            id: "echo_ghosts",
-            position: Position::Absolute,
-            left: 220,
-            top: 39,
-            width: 70,
-            height: 16,
-            font_size: 9,
+            left: 330,
+            top: 7,
+            width: 142,
+            height: 14,
+            font_size: 10,
             text_color: MUTED,
             paragraph: ParagraphStyle::label().with_align(TextAlign::End)
         )
@@ -243,14 +275,14 @@ fn compose_header(model: model!(EchoModel)) -> Entity {
 fn compose_controls(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
-            "TIME",
+            tr!(en : "BEAT", zh : "时间"),
             position: Position::Absolute,
-            left: 305,
-            top: 66,
-            width: 150,
+            left: 392,
+            top: 36,
+            width: 80,
             height: 12,
-            font_size: 8,
-            text_color: ACCENT,
+            font_size: 10,
+            text_color: MUTED,
             paragraph: label()
         )
     };
@@ -260,83 +292,56 @@ fn compose_controls(model: model!(EchoModel)) -> Entity {
             capacity: 2,
             id: "echo_tick",
             position: Position::Absolute,
-            left: 305,
-            top: 82,
+            left: 392,
+            top: 50,
+            width: 30,
+            height: 24,
+            font_size: 20,
+            text_color: TEXT,
+            paragraph: label()
+        )
+    };
+    ui! {
+        Text (
+            tr!(en : "/ 48", zh : "/ 48 步"),
+            position: Position::Absolute,
+            left: 424,
+            top: 60,
             width: 48,
-            height: 38,
-            font_size: 29,
-            text_color: TEXT,
-            paragraph: label()
-        )
-    };
-    ui! {
-        Text (
-            "/ 48 BEATS",
-            position: Position::Absolute,
-            left: 351,
-            top: 99,
-            width: 90,
-            height: 14,
-            font_size: 9,
-            text_color: MUTED,
-            paragraph: label()
-        )
-    };
-    ui! {
-        Text (
-            "ECHOES MOVE WHEN YOU MOVE",
-            position: Position::Absolute,
-            left: 305,
-            top: 119,
-            width: 161,
-            height: 14,
-            font_size: 7,
+            height: 12,
+            font_size: 10,
             text_color: MUTED,
             paragraph: label()
         )
     };
     ui! {
         Button (
-            "↑",
+            tr!(en : "● REC ECHO", zh : "● 录下回响"),
+            id: "echo_rewind",
             position: Position::Absolute,
-            left: 354,
-            top: 133,
-            width: 29,
-            height: 29,
+            left: 392,
+            top: 82,
+            width: 80,
+            height: 30,
             size: ButtonSize::Compact,
-            font_size: 15,
-            normal_color: PANEL,
-            pressed_color: LINE,
-            text_color: TEXT,
+            font_size: 10,
+            normal_color: ${ action_color(model.can_rewind()) },
+            pressed_color: RUST,
+            text_color: ${ if model.can_rewind() { ACCENT } else { MUTED } },
             border_radius: 4
-        ) on Tap { model.step(Direction::Up); }
+        ) on Tap { model.rewind(); }
     };
     ui! {
         Button (
-            "←",
+            tr!(en : "· WAIT", zh : "· 原地等"),
+            id: "echo_wait",
             position: Position::Absolute,
-            left: 321,
-            top: 166,
-            width: 29,
-            height: 29,
+            left: 392,
+            top: 116,
+            width: 80,
+            height: 28,
             size: ButtonSize::Compact,
-            font_size: 15,
-            normal_color: PANEL,
-            pressed_color: LINE,
-            text_color: TEXT,
-            border_radius: 4
-        ) on Tap { model.step(Direction::Left); }
-    };
-    ui! {
-        Button (
-            "·",
-            position: Position::Absolute,
-            left: 354,
-            top: 166,
-            width: 29,
-            height: 29,
-            size: ButtonSize::Compact,
-            font_size: 14,
+            font_size: 10,
             normal_color: PANEL,
             pressed_color: LINE,
             text_color: TEXT,
@@ -345,64 +350,15 @@ fn compose_controls(model: model!(EchoModel)) -> Entity {
     };
     ui! {
         Button (
-            "→",
-            position: Position::Absolute,
-            left: 387,
-            top: 166,
-            width: 29,
-            height: 29,
-            size: ButtonSize::Compact,
-            font_size: 15,
-            normal_color: PANEL,
-            pressed_color: LINE,
-            text_color: TEXT,
-            border_radius: 4
-        ) on Tap { model.step(Direction::Right); }
-    };
-    ui! {
-        Button (
-            "↓",
-            position: Position::Absolute,
-            left: 354,
-            top: 199,
-            width: 29,
-            height: 29,
-            size: ButtonSize::Compact,
-            font_size: 15,
-            normal_color: PANEL,
-            pressed_color: LINE,
-            text_color: TEXT,
-            border_radius: 4
-        ) on Tap { model.step(Direction::Down); }
-    };
-    ui! {
-        Button (
-            "RECORD ECHO",
-            id: "echo_rewind",
-            position: Position::Absolute,
-            left: 305,
-            top: 236,
-            width: 161,
-            height: 27,
-            size: ButtonSize::Compact,
-            font_size: 9,
-            normal_color: ${ action_color(model.can_rewind()) },
-            pressed_color: RUST,
-            text_color: ${ action_text_color(model.can_rewind()) },
-            border_radius: 4
-        ) on Tap { model.rewind(); }
-    };
-    ui! {
-        Button (
-            "↺ UNDO",
+            "↺",
             id: "echo_undo",
             position: Position::Absolute,
-            left: 305,
-            top: 270,
-            width: 48,
-            height: 23,
+            left: 392,
+            top: 148,
+            width: 25,
+            height: 28,
             size: ButtonSize::Compact,
-            font_size: 7,
+            font_size: 10,
             normal_color: ${ action_color(model.can_undo()) },
             pressed_color: LINE,
             text_color: ${ action_text_color(model.can_undo()) },
@@ -411,15 +367,15 @@ fn compose_controls(model: model!(EchoModel)) -> Entity {
     };
     ui! {
         Button (
-            "↻ RETRY",
+            "↻",
             id: "echo_restart",
             position: Position::Absolute,
-            left: 360,
-            top: 270,
-            width: 49,
-            height: 23,
+            left: 419,
+            top: 148,
+            width: 26,
+            height: 28,
             size: ButtonSize::Compact,
-            font_size: 7,
+            font_size: 10,
             normal_color: ${ action_color(model.can_restart()) },
             pressed_color: LINE,
             text_color: ${ action_text_color(model.can_restart()) },
@@ -428,72 +384,315 @@ fn compose_controls(model: model!(EchoModel)) -> Entity {
     };
     ui! {
         Button (
-            "TAPES",
-            id: "echo_tapes",
+            "?",
+            id: "echo_menu",
             position: Position::Absolute,
-            left: 416,
-            top: 270,
-            width: 50,
-            height: 23,
+            left: 447,
+            top: 148,
+            width: 25,
+            height: 28,
             size: ButtonSize::Compact,
-            font_size: 7,
+            font_size: 10,
             normal_color: PANEL,
             pressed_color: LINE,
             text_color: TEXT,
             border_radius: 4
-        ) on Tap { model.set_modal(EchoModal::Tapes); }
+        ) on Tap { model.set_modal(EchoModal::Menu); }
     }
 }
 
 #[compose]
-fn compose_route_status(model: model!(EchoModel)) -> Entity {
+fn compose_tapes(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
-            "CURRENT ROUTE",
+            text: ${ format_args!("{} {}/3", tr!(en : "ECHOES", zh : "回响"), model.ghost_count()) },
+            capacity: 16,
+            id: "echo_ghosts",
             position: Position::Absolute,
-            left: 14,
-            top: 281,
-            width: 90,
+            left: 392,
+            top: 188,
+            width: 80,
             height: 12,
-            font_size: 7,
+            font_size: 10,
             text_color: MUTED,
             paragraph: label()
         )
     };
     ui! {
         Text (
-            text: ${
-                RouteStats {
-                    steps: model.steps(),
-                    echoes: model.loops(),
-                }
-            },
-            capacity: 22,
-            id: "echo_run",
+            tr!(en : "None yet", zh : "还没有"),
+            id: "echo_tapes_empty",
             position: Position::Absolute,
-            left: 165,
-            top: 281,
-            width: 123,
+            left: 392,
+            top: 208,
+            width: 80,
             height: 12,
-            font_size: 7,
-            text_color: MUTED,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            font_size: 10,
+            text_color: LINE,
+            paragraph: label(),
+            visible: ${ model.ghost_count() == 0 }
         )
     };
+    ui! {
+        Button (
+            text: ${
+                TapeLabel {
+                    beats: model.ghost_route_lengths()[0],
+                    solo: model.peek_ghost() == Some(0),
+                }
+            },
+            capacity: 16,
+            id: "echo_tape_0",
+            position: Position::Absolute,
+            left: 392,
+            top: 204,
+            width: 80,
+            height: 26,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ tape_fill(model.peek_ghost() == Some(0)) },
+            pressed_color: LINE,
+            text_color: ECHO_COLORS[0],
+            border_radius: 4,
+            visible: ${ model.ghost_count() > 0 }
+        ) on Tap { model.toggle_peek_ghost(0); }
+    };
+    ui! {
+        Button (
+            text: ${
+                TapeLabel {
+                    beats: model.ghost_route_lengths()[1],
+                    solo: model.peek_ghost() == Some(1),
+                }
+            },
+            capacity: 16,
+            id: "echo_tape_1",
+            position: Position::Absolute,
+            left: 392,
+            top: 234,
+            width: 80,
+            height: 26,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ tape_fill(model.peek_ghost() == Some(1)) },
+            pressed_color: LINE,
+            text_color: ECHO_COLORS[1],
+            border_radius: 4,
+            visible: ${ model.ghost_count() > 1 }
+        ) on Tap { model.toggle_peek_ghost(1); }
+    };
+    ui! {
+        Button (
+            text: ${
+                TapeLabel {
+                    beats: model.ghost_route_lengths()[2],
+                    solo: model.peek_ghost() == Some(2),
+                }
+            },
+            capacity: 16,
+            id: "echo_tape_2",
+            position: Position::Absolute,
+            left: 392,
+            top: 264,
+            width: 80,
+            height: 26,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ tape_fill(model.peek_ghost() == Some(2)) },
+            pressed_color: LINE,
+            text_color: ECHO_COLORS[2],
+            border_radius: 4,
+            visible: ${ model.ghost_count() > 2 }
+        ) on Tap { model.toggle_peek_ghost(2); }
+    }
+}
+
+#[compose]
+fn compose_status(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
             text: ${ MessageLabel(model.message()) },
-            capacity: 64,
+            capacity: 96,
             id: "echo_message",
             position: Position::Absolute,
-            left: 14,
-            top: 301,
-            width: 452,
-            height: 14,
-            font_size: 7,
+            left: 12,
+            top: 306,
+            width: 370,
+            height: 13,
+            font_size: 10,
             text_color: MUTED,
             paragraph: label()
         )
+    }
+}
+
+#[compose]
+fn compose_menu(model: model!(EchoModel)) -> Entity {
+    ui! {
+        View (
+            id: "echo_menu_body",
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 320,
+            visible: ${ model.modal() == EchoModal::Menu }
+        ) {
+            Text (
+                tr!(en : "PLATE", zh : "踏板"),
+                position: Position::Absolute,
+                left: LEGEND_X[0],
+                top: 112,
+                width: 56,
+                height: 12,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                tr!(en : "DOOR", zh : "门"),
+                position: Position::Absolute,
+                left: LEGEND_X[1],
+                top: 112,
+                width: 56,
+                height: 12,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                tr!(en : "TIMED", zh : "定时门"),
+                position: Position::Absolute,
+                left: LEGEND_X[2],
+                top: 112,
+                width: 56,
+                height: 12,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                tr!(en : "MEMORY", zh : "片段"),
+                position: Position::Absolute,
+                left: LEGEND_X[3],
+                top: 112,
+                width: 56,
+                height: 12,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                tr!(en : "EXIT", zh : "出口"),
+                position: Position::Absolute,
+                left: LEGEND_X[4],
+                top: 112,
+                width: 56,
+                height: 12,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                tr!(
+                    en : "A door stays open while someone stands on its plate.", zh :
+                    "有人站在踏板上时，对应的门才会打开。"
+                ),
+                position: Position::Absolute,
+                left: 52,
+                top: 136,
+                width: 376,
+                height: 13,
+                font_size: 10,
+                text_color: TEXT,
+                paragraph: label()
+            )
+            Text (
+                tr!(
+                    en : "REC ECHO sends you back to the start; your route replays.", zh :
+                    "录下回响：你回到起点，回响重走这段路线。"
+                ),
+                position: Position::Absolute,
+                left: 52,
+                top: 152,
+                width: 376,
+                height: 13,
+                font_size: 10,
+                text_color: TEXT,
+                paragraph: label()
+            )
+            Text (
+                tr!(
+                    en : "Pick up every memory, then reach the exit. 48 beats a run.", zh :
+                    "收集所有片段，再走到出口。每次最多 48 步。"
+                ),
+                position: Position::Absolute,
+                left: 52,
+                top: 168,
+                width: 376,
+                height: 13,
+                font_size: 10,
+                text_color: TEXT,
+                paragraph: label()
+            )
+            Text (
+                tr!(
+                    en : "Timed doors open for 2 beats, then shut for 2.", zh :
+                    "定时门开 2 步，关 2 步。"
+                ),
+                position: Position::Absolute,
+                left: 52,
+                top: 184,
+                width: 376,
+                height: 13,
+                font_size: 10,
+                text_color: TEXT,
+                paragraph: label()
+            )
+            Text (
+                tr!(
+                    en : "Swipe or tap beside you to move; tap yourself to wait.", zh :
+                    "滑动或点相邻格移动，点自己原地等一步。"
+                ),
+                position: Position::Absolute,
+                left: 52,
+                top: 206,
+                width: 376,
+                height: 13,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: label()
+            )
+            Text (
+                tr!(
+                    en : "Keys: arrows/WASD · Space wait · E echo · Z undo · R retry", zh :
+                    "按键：方向键/WASD · 空格 等待 · E 回响 · Z 撤销 · R 重走"
+                ),
+                position: Position::Absolute,
+                left: 52,
+                top: 222,
+                width: 376,
+                height: 13,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: label()
+            )
+            Button (
+                tr!(en : "RESET ROOM", zh : "重置密室"),
+                id: "echo_modal_secondary",
+                position: Position::Absolute,
+                left: 52,
+                top: 250,
+                width: 132,
+                height: 32,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: HEADER,
+                pressed_color: LINE,
+                text_color: TEXT,
+                border_radius: 4
+            ) on Tap { model.clear_room(); }
+        }
     }
 }
 
@@ -522,113 +721,46 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
                         level: model.level(),
                     }
                 },
-                capacity: 23,
+                capacity: 32,
                 id: "echo_modal_title",
                 position: Position::Absolute,
-                left: 35,
-                top: 54,
-                width: 310,
-                height: 22,
-                font_size: 14,
+                left: 52,
+                top: 48,
+                width: 340,
+                height: 24,
+                font_size: 20,
                 text_color: TEXT,
                 paragraph: label()
             )
             Text (
-                text: ${ modal_subtitle(model.modal(), model.complete(), model.ghost_count()) },
-                capacity: 56,
+                text: ${ modal_subtitle(model.complete()) },
+                capacity: 64,
                 id: "echo_modal_subtitle",
                 position: Position::Absolute,
-                left: 35,
-                top: 78,
-                width: 390,
-                height: 14,
-                font_size: 8,
+                left: 52,
+                top: 82,
+                width: 376,
+                height: 13,
+                font_size: 10,
                 text_color: MUTED,
-                paragraph: label()
+                paragraph: label(),
+                visible: ${ model.modal() == EchoModal::Result }
             )
             Button (
                 "×",
+                id: "echo_modal_close",
                 position: Position::Absolute,
-                left: 421,
-                top: 50,
+                left: 412,
+                top: 46,
                 width: 26,
                 height: 24,
                 size: ButtonSize::Compact,
-                font_size: 15,
+                font_size: 10,
                 normal_color: HEADER,
                 pressed_color: LINE,
                 text_color: TEXT,
                 border_radius: 4
             ) on Tap { model.set_modal(EchoModal::None); }
-            Button (
-                text: ${
-                    TapeLabel {
-                        index: 0,
-                        beats: model.ghost_route_lengths()[0],
-                        solo: model.peek_ghost() == Some(0),
-                    }
-                },
-                capacity: 32,
-                id: "echo_tape_0",
-                position: Position::Absolute,
-                left: 35,
-                top: 111,
-                width: 412,
-                height: 32,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: HEADER,
-                pressed_color: LINE,
-                text_color: TEXT,
-                border_radius: 4,
-                visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 0 }
-            ) on Tap { model.toggle_peek_ghost(0); }
-            Button (
-                text: ${
-                    TapeLabel {
-                        index: 1,
-                        beats: model.ghost_route_lengths()[1],
-                        solo: model.peek_ghost() == Some(1),
-                    }
-                },
-                capacity: 32,
-                id: "echo_tape_1",
-                position: Position::Absolute,
-                left: 35,
-                top: 150,
-                width: 412,
-                height: 32,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: HEADER,
-                pressed_color: LINE,
-                text_color: TEXT,
-                border_radius: 4,
-                visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 1 }
-            ) on Tap { model.toggle_peek_ghost(1); }
-            Button (
-                text: ${
-                    TapeLabel {
-                        index: 2,
-                        beats: model.ghost_route_lengths()[2],
-                        solo: model.peek_ghost() == Some(2),
-                    }
-                },
-                capacity: 32,
-                id: "echo_tape_2",
-                position: Position::Absolute,
-                left: 35,
-                top: 189,
-                width: 412,
-                height: 32,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: HEADER,
-                pressed_color: LINE,
-                text_color: TEXT,
-                border_radius: 4,
-                visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 2 }
-            ) on Tap { model.toggle_peek_ghost(2); }
             Text (
                 text: ${
                     ResultStats {
@@ -641,13 +773,13 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
                         },
                     }
                 },
-                capacity: 40,
+                capacity: 48,
                 id: "echo_result_stats",
                 position: Position::Absolute,
-                left: 35,
-                top: 126,
-                width: 380,
-                height: 30,
+                left: 52,
+                top: 122,
+                width: 376,
+                height: 24,
                 font_size: 20,
                 text_color: ACCENT,
                 paragraph: label(),
@@ -658,10 +790,10 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
                 capacity: 16,
                 id: "echo_modal_primary",
                 position: Position::Absolute,
-                left: 35,
-                top: 236,
-                width: 255,
-                height: 36,
+                left: 52,
+                top: 246,
+                width: 220,
+                height: 34,
                 size: ButtonSize::Compact,
                 font_size: 10,
                 normal_color: ACCENT,
@@ -670,22 +802,7 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
                 border_radius: 4,
                 visible: ${ model.modal() == EchoModal::Result && !model.complete() }
             ) on Tap { model.continue_archive(); }
-            Button (
-                "RESET ROOM",
-                id: "echo_modal_secondary",
-                position: Position::Absolute,
-                left: 303,
-                top: 236,
-                width: 144,
-                height: 36,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: HEADER,
-                pressed_color: LINE,
-                text_color: TEXT,
-                border_radius: 4,
-                visible: ${ model.modal() == EchoModal::Tapes }
-            ) on Tap { model.clear_room(); }
+            compose_menu (model)
         }
     }
 }
@@ -701,7 +818,8 @@ fn build_widgets(model: model!(EchoModel)) {
         ] {
             compose_header (model)
             compose_controls (model)
-            compose_route_status (model)
+            compose_tapes (model)
+            compose_status (model)
             compose_modal (model)
         } on Tap(|event: event!(Tap), rows: query!(EchoSurface, ComputedRect)| {
             let Some((surface, rect)) = rows.get(event.target) else {
@@ -709,6 +827,30 @@ fn build_widgets(model: model!(EchoModel)) {
             };
             let rect = rect.0;
             surface_tap(surface, rect, event.x, event.y)
+        }) on DragStart(|event: event!(DragStart), rows: query!(EchoSurface)| {
+            let Some(surface) = rows.get(event.target) else {
+                return false;
+            };
+            surface.model.begin_swipe();
+            true
+        }) on DragMove(|event: event!(DragMove), rows: query!(EchoSurface, ComputedRect)| {
+            let Some((surface, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            surface_drag_move(surface, rect, event.dx, event.dy)
+        }) on DragEnd(|event: event!(DragEnd), rows: query!(EchoSurface)| {
+            let Some(surface) = rows.get(event.target) else {
+                return false;
+            };
+            surface.model.end_swipe();
+            true
+        }) on DragCancel(|event: event!(DragCancel), rows: query!(EchoSurface)| {
+            let Some(surface) = rows.get(event.target) else {
+                return false;
+            };
+            surface.model.end_swipe();
+            true
         })
     };
 }
@@ -719,27 +861,39 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(PlayFontPlugin);
+    #[cfg(feature = "std")]
+    app.add_plugin(StdInstantClockPlugin);
     #[cfg(feature = "persistence")]
     install_persistence(app);
     let model = app.add_model(EchoModel::default()).finish();
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
     app.on_event(Key::EVENT, keyboard::callback(model.clone()));
+    app.add_system(echo_tick_system::system(model.clone()));
     app.compose(parent, build_widgets(model));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{EchoMessage, MessageLabel, RouteStats};
+    use super::{Count, EchoMessage, MessageLabel, ResultStats};
     use alloc::format;
 
     #[test]
     fn counts_use_the_singular_for_one() {
-        let route = |steps, echoes| format!("{}", RouteStats { steps, echoes });
-        assert_eq!(route(1, 1), "1 STEP / 1 ECHO");
-        assert_eq!(route(0, 2), "0 STEPS / 2 ECHOES");
+        let count = |value| format!("{}", Count(value, "STEP", "STEPS", "步"));
+        assert_eq!(count(1), "1 STEP");
+        assert_eq!(count(2), "2 STEPS");
+        let stats = format!(
+            "{}",
+            ResultStats {
+                complete: false,
+                steps: 1,
+                loops: 2
+            }
+        );
+        assert_eq!(stats, "1 STEP · 2 ECHOES");
         let missing = |count| format!("{}", MessageLabel(EchoMessage::Missing(count)));
-        assert_eq!(missing(1), "EXIT LOCKED · 1 MEMORY LEFT TO FIND");
-        assert_eq!(missing(3), "EXIT LOCKED · 3 MEMORIES LEFT TO FIND");
+        assert_eq!(missing(1), "Exit locked · 1 memory left");
+        assert_eq!(missing(3), "Exit locked · 3 memories left");
     }
 }
