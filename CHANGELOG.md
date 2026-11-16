@@ -91,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve the complete rotated flight viewport across all roll quadrants.
 - Keep fixed aircraft histories out of flight Model construction temporaries and share immutable aircraft projection maps to reduce initialization stack usage.
 - Record native flight terrain, aircraft, cockpit and flame stages in existing performance traces.
+- Use 32-bit integer division for bounded `Fixed` operands on native 32-bit targets, preserving wide fallback and existing 64-bit and WebAssembly paths.
 
 ## [0.56.0] - 2026-11-12
 

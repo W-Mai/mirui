@@ -347,10 +347,20 @@ impl Div for Fixed {
     type Output = Self;
     #[inline]
     fn div(self, rhs: Self) -> Self {
-        // i64 intermediate: pure-i32 `(self.0 << 8) / rhs.0` overflows at
-        // |self.0| > 2^23, which Dimension::Percent hits past ~328 px.
+        // Native 32-bit CPUs otherwise need a software i64 quotient.
+        #[cfg(all(target_pointer_width = "32", not(target_family = "wasm")))]
+        if let Some(quotient) = native_fixed_quotient(self.0, rhs.0) {
+            return Self(quotient);
+        }
+        // Preserve wide numerators and the MIN / -1 narrowing case.
         Self((((self.0 as i64) << FRAC_BITS) / (rhs.0 as i64)) as i32)
     }
+}
+
+#[cfg(any(test, all(target_pointer_width = "32", not(target_family = "wasm"))))]
+#[inline]
+fn native_fixed_quotient(numerator: i32, denominator: i32) -> Option<i32> {
+    numerator.checked_mul(SCALE)?.checked_div(denominator)
 }
 
 impl Neg for Fixed {
@@ -898,6 +908,70 @@ mod tests {
         let b = Fixed::from_int(4);
         let c = a / b;
         assert_eq!(c.0, 640); // 2.5 * 256
+    }
+
+    #[test]
+    fn division_preserves_wide_formula_at_native_boundaries() {
+        let numerators = [
+            i32::MIN,
+            i32::MIN + 1,
+            i32::MIN / SCALE - 1,
+            i32::MIN / SCALE,
+            i32::MIN / SCALE + 1,
+            -257,
+            -256,
+            -1,
+            0,
+            1,
+            255,
+            256,
+            i32::MAX / SCALE - 1,
+            i32::MAX / SCALE,
+            i32::MAX / SCALE + 1,
+            i32::MAX,
+        ];
+        let denominators = [
+            i32::MIN,
+            -65_537,
+            -257,
+            -256,
+            -1,
+            1,
+            2,
+            255,
+            256,
+            65_537,
+            i32::MAX,
+        ];
+        let check = |a: i32, b: i32| {
+            let expected = ((i64::from(a) << FRAC_BITS) / i64::from(b)) as i32;
+            assert_eq!((Fixed(a) / Fixed(b)).0, expected);
+            if let Some(quotient) = native_fixed_quotient(a, b) {
+                assert_eq!(quotient, expected);
+            }
+        };
+        assert_eq!(native_fixed_quotient(i32::MIN / SCALE, -1), None);
+        assert_eq!(native_fixed_quotient(1, 0), None);
+        assert_eq!(native_fixed_quotient(i32::MAX / SCALE + 1, 1), None);
+        for a in numerators {
+            for b in denominators {
+                check(a, b);
+            }
+        }
+        let mut seed = 0x1b50_2d93_59ec_8471u64;
+        for _ in 0..20_000 {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            let a = (seed >> 32) as i32;
+            let b = (seed as i32) | 1;
+            check(a, b);
+            check(a >> 8, b);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn division_by_zero_still_panics() {
+        let _ = Fixed::ONE / Fixed::ZERO;
     }
 
     #[test]
