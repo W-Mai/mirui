@@ -34,3 +34,13 @@ The scene generates a 1024×1024 terrain height/material field and a 512×512 cl
 Scene storage is reused between frames. Resizing releases the old image, roll and cockpit workspaces before preparing replacements, preserving the flight and camera state. CPU scene storage is bounded below 16 MiB at the largest internal image, including maps, roll/depth workspaces, cockpit layers and six pairs of prepared flame tiles. The host framebuffer and the backend's existing texture upload cache are separate. This configuration targets desktop systems.
 
 The implementation uses standard Model, View, event and Animation-system registration. Generated pixels are submitted through ordinary Texture and Blit operations, with existing SourceOver and Add composition for afterburners. No additional engine or runtime dependency is required.
+
+## Desktop replay
+
+The snapshot tool advances the ordinary scene through all three views, interrupted transitions, a roll, boost, wingmen, layer expansion, sunset and night. It draws through the selected backend on every step and saves twelve PNGs. Select `snapshot,sdl`, `snapshot,sdl-gpu` or `snapshot,wgpu`.
+
+```sh
+cargo run -p gallery --example pixel_flight_snapshot --profile release-opt --no-default-features --features snapshot,sdl-gpu -- .local/screenshots/pixel-flight
+```
+
+Reported simulation and raster wall times exclude backend submission, presentation and readback. The scene memory figure excludes the host framebuffer, font management and backend upload caches.

@@ -73,6 +73,7 @@ struct Puff {
     inverse: f32,
     extinction: f32,
     t: f32,
+    reach: f32,
 }
 struct Prepared {
     flame: Flame,
@@ -87,6 +88,17 @@ impl Prepared {
             flame.points[1][0] - flame.points[0][0],
             flame.points[1][1] - flame.points[0][1],
         ]);
+        // Outside every support circle both density and the thresholded glow are zero.
+        // The warp's displacement is bounded by 0.604 nozzle radii.
+        let extinction_sum: f32 = (0..PUFFS)
+            .map(|i| (1.0 - (i as f32 + 0.5) / PUFFS as f32).powf(0.75))
+            .sum();
+        let glow_radius = ((flame.length / PUFFS as f32 * extinction_sum / 0.0609)
+            .max(1.0)
+            .ln()
+            / 0.42
+            + 0.0001)
+            .sqrt();
         let puffs = core::array::from_fn(|i| {
             let t = (i as f32 + 0.5) / PUFFS as f32;
             let r = flame.radius * mix(1.0, flame.tip_scale, t) * mix(1.0, 0.5, ramp(0.1, 1.0, t));
@@ -95,6 +107,7 @@ impl Prepared {
                 inverse: 1.0 / (r * r).max(1e-6),
                 extinction: (1.0 - t).powf(0.75),
                 t,
+                reach: (r * glow_radius).max(r + 0.604 * flame.radius),
             }
         });
         Self {
@@ -105,8 +118,16 @@ impl Prepared {
             flow: time.rem_euclid(600.0) * (5.0 + 6.0 * flame.power),
         }
     }
-    fn shade(&self, p: [f32; 2]) -> [f32; 4] {
+    fn shade<const CULL: bool>(&self, p: [f32; 2]) -> [f32; 4] {
         let f = &self.flame;
+        if CULL
+            && !self.puffs.iter().any(|puff| {
+                (p[0] - puff.center[0]).powi(2) + (p[1] - puff.center[1]).powi(2)
+                    <= puff.reach * puff.reach
+            })
+        {
+            return [0.0; 4];
+        }
         let root = [p[0] - f.points[0][0], p[1] - f.points[0][1]];
         let q = [
             (root[0] * self.across[0] + root[1] * self.across[1]) / f.radius,
@@ -291,13 +312,35 @@ impl Flames {
             let prepared = Prepared::new(flame, time);
             let mut base = tile.base.pixels_mut()?;
             let mut emission = tile.emission.pixels_mut()?;
+            base.bytes_mut()[..width * height * 4].fill(0);
+            emission.bytes_mut()[..width * height * 4].fill(0);
             for y in 0..height {
-                for x in 0..width {
+                let row_y = low[1] + (y as f32 + 0.5) / height as f32 * tile.bounds[3];
+                let mut left = f32::INFINITY;
+                let mut right = f32::NEG_INFINITY;
+                for puff in &prepared.puffs {
+                    let dy = row_y - puff.center[1];
+                    let remaining = puff.reach * puff.reach - dy * dy;
+                    if remaining < 0.0 {
+                        continue;
+                    }
+                    let span = remaining.sqrt();
+                    left = left.min(puff.center[0] - span);
+                    right = right.max(puff.center[0] + span);
+                }
+                if left >= right {
+                    continue;
+                }
+                let start = (((left - low[0]) / tile.bounds[2] * width as f32).floor() as i32 - 1)
+                    .clamp(0, width as i32) as usize;
+                let end = (((right - low[0]) / tile.bounds[2] * width as f32).ceil() as i32 + 1)
+                    .clamp(0, width as i32) as usize;
+                for x in start..end {
                     let position = [
                         low[0] + (x as f32 + 0.5) / width as f32 * tile.bounds[2],
                         low[1] + (y as f32 + 0.5) / height as f32 * tile.bounds[3],
                     ];
-                    let value = prepared.shade(position);
+                    let value = prepared.shade::<true>(position);
                     let alpha = value[3].clamp(0.0, 1.0);
                     let at = (y * width + x) * 4;
                     for (k, channel) in value[..3].iter().enumerate() {
@@ -379,7 +422,7 @@ mod tests {
         let mut emission = false;
         for y in -4..24 {
             for x in -8..8 {
-                let c = visible.shade([x as f32, y as f32]);
+                let c = visible.shade::<true>([x as f32, y as f32]);
                 assert!(c.iter().all(|v| v.is_finite()));
                 lit |= c[3] > 0.1;
                 emission |= c[0] > c[3];
@@ -388,7 +431,7 @@ mod tests {
         assert!(lit && emission);
         flame.visibility = [0.0; 3];
         let hidden = Prepared::new(flame, 3.0);
-        assert_eq!(hidden.shade([0.0, 3.0]), [0.0; 4]);
+        assert_eq!(hidden.shade::<true>([0.0, 3.0]), [0.0; 4]);
     }
     #[test]
     fn prepared_tiles_reuse_storage_and_fit_the_scene_budget() {
@@ -436,5 +479,34 @@ mod tests {
         assert!(flames.tiles[0].active);
         assert!(flames.tiles[0].size.iter().all(|n| usize::from(*n) <= TILE));
         assert!(flames.tiles[1..].iter().all(|tile| !tile.active));
+    }
+    #[test]
+    fn support_culling_preserves_quantized_shader_output() {
+        for tip_scale in [0.1, 0.5, 1.0, 3.0] {
+            for length in [1.0, 8.0, 25.0] {
+                let flame = Flame {
+                    points: [[0.0, 0.0], [0.0, 5.0], [2.0, 20.0]],
+                    radius: 2.0,
+                    tip_scale,
+                    power: 1.0,
+                    alpha: 1.0,
+                    visibility: [1.0; 3],
+                    seed: 2.0,
+                    length,
+                };
+                let prepared = Prepared::new(flame, 12.0);
+                for y in -16..40 {
+                    for x in -20..20 {
+                        let position = [x as f32 * 0.7, y as f32 * 0.7];
+                        let optimized = prepared.shade::<true>(position);
+                        let reference = prepared.shade::<false>(position);
+                        assert_eq!(
+                            optimized.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8),
+                            reference.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
+                        );
+                    }
+                }
+            }
+        }
     }
 }

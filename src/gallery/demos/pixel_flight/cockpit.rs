@@ -272,6 +272,16 @@ impl Cockpit {
                 art.rear_bottom = art.rear_bottom.max(yy);
             }
         }
+        for i in 0..40 {
+            let angle = i as f32 / 40.0 * PI;
+            let (sn, cs) = angle.sin_cos();
+            let m = 1.0 + 9.0 / 280.0;
+            let xx = (cx as f32 + cs.signum() * cs.abs().powf(0.8) * 280.0 * s * m).round() as i32;
+            let yy = (252.0 * s - sn.abs().powf(0.8) * 276.0 * s * m).round() as i32;
+            if art.layers[3].get(xx, yy) != 0 {
+                art.layers[3].bolt(xx, yy, b[5], b[0]);
+            }
+        }
         let bar = (13.0 * s).max(6.0);
         let rx = 226.0 * s;
         let ry = 228.0 * s;
@@ -589,6 +599,64 @@ impl Cockpit {
                 };
                 art.layers[1].put(ball.x + dx, ball.y + dy, color);
             }
+        }
+        let brass = [
+            rgba(120.0, 86.0, 26.0),
+            rgba(206.0, 158.0, 54.0),
+            rgba(255.0, 222.0, 120.0),
+        ];
+        let rb = ball.r + r(5).max(3);
+        for sx in [-1, 1] {
+            for sy in [-1, 1] {
+                let xx = (ball.x as f32 + sx as f32 * rb as f32 / SQRT_2).round() as i32;
+                let yy = (ball.y as f32 + sy as f32 * rb as f32 / SQRT_2).round() as i32;
+                art.layers[1].put(xx, yy, brass[2]);
+                art.layers[1].put(xx + 1, yy, brass[1]);
+                art.layers[1].put(xx, yy + 1, brass[1]);
+                art.layers[1].put(xx + 1, yy + 1, brass[0]);
+            }
+        }
+        let ph = r(5).max(3);
+        for i in 0..ph {
+            art.layers[1].rect(
+                ball.x - i,
+                ball.y - outer + ph - i,
+                ball.x + i + 1,
+                ball.y - outer + ph - i + 1,
+                if i == 0 { brass[2] } else { brass[1] },
+            );
+        }
+        let knob = &mut art.layers[1];
+        knob.rect(
+            ball.x - r(6),
+            ball.y + outer - r(2),
+            ball.x + r(6) + 2,
+            ball.y + outer + r(4),
+            b[0],
+        );
+        knob.rect(
+            ball.x - r(6),
+            ball.y + outer - r(3),
+            ball.x + r(6) + 1,
+            ball.y + outer + r(3),
+            brass[1],
+        );
+        knob.rect(
+            ball.x - r(6),
+            ball.y + outer - r(3),
+            ball.x + r(6) + 1,
+            ball.y + outer - r(2),
+            brass[2],
+        );
+        knob.rect(
+            ball.x - r(6),
+            ball.y + outer + r(2),
+            ball.x + r(6) + 1,
+            ball.y + outer + r(3),
+            brass[0],
+        );
+        for i in (-r(5)..=r(5)).step_by(2) {
+            knob.put(ball.x + i, ball.y + outer, brass[0]);
         }
         for (i, (u, v)) in [(-72, 211), (-72, 246), (72, 211), (72, 246)]
             .into_iter()
@@ -1234,6 +1302,18 @@ impl Cockpit {
                 }
             }
             let amber = rgba(255.0, 206.0, 84.0);
+            for dy in -ball.r..0 {
+                for dx in -ball.r..0 {
+                    let d = ((dx * dx + dy * dy) as f32).sqrt() / ball.r.max(1) as f32;
+                    if d > 0.5
+                        && d < 0.72
+                        && (dx as f32) < dy as f32 * 0.4 + ball.r as f32 * 0.1
+                        && (dx as f32) > dy as f32 * 2.4
+                    {
+                        live.tint(ball.x + dx, ball.y + dy, WHITE, 54.0 / 256.0);
+                    }
+                }
+            }
             for side in [-1, 1] {
                 let start = ball.x + side * (ball.r as f32 * 0.2).round() as i32;
                 let end = ball.x + side * (ball.r as f32 * 0.62).round() as i32;
@@ -1345,6 +1425,22 @@ impl Cockpit {
             let head_height = r(14).max(7);
             let grip_height = r(17).max(8);
             let fold = r(5).max(3);
+            for y in top + r(4)..self.height + self.pad {
+                let d = y - top;
+                let xx = (cx as f32 + lean * (1.0 - d as f32 / reach as f32)).round() as i32 + r(5);
+                let half = if d < head_height {
+                    r(12)
+                } else if d < head_height + grip_height {
+                    r(8)
+                } else {
+                    r(12) + (d - head_height - grip_height) / fold * r(3)
+                };
+                for i in -half..=half {
+                    if (xx + i + y) & 1 == 0 {
+                        live.tint(xx + i, y + r(3), BLACK, 150.0 / 256.0);
+                    }
+                }
+            }
             for y in top..self.height + self.pad {
                 let d = y - top;
                 let xx = (cx as f32 + lean * (1.0 - d as f32 / reach as f32)).round() as i32;
@@ -1541,6 +1637,19 @@ impl Cockpit {
                     at,
                     blend(canvas.get(at), self.body[5], 120.0 / 256.0 * alpha),
                 );
+            }
+        }
+        for side in [-1, 1] {
+            for y in bottom - r(14)..bottom + 2 {
+                let x = cx + gx + side * (edge(y).round() as i32 + 1);
+                for i in 0..r(3).max(2) {
+                    let xx = x + side * i;
+                    if xx >= 0 && xx < self.width && y >= 0 && y < self.height {
+                        let at = y as usize * canvas.width + xx as usize;
+                        let color = self.body[if i == 0 { 6 } else { 2 }];
+                        canvas.put(at, blend(canvas.get(at), color, alpha));
+                    }
+                }
             }
         }
         let mut hud = Hud {

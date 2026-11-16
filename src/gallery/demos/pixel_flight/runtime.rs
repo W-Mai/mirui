@@ -14,6 +14,7 @@ use crate::input::event::{
 };
 use crate::prelude::*;
 use crate::render::command::{CompositeMode, DrawCommand};
+use crate::render::font::{Font, FontManager};
 use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 use crate::ui::{ComputedRect, view::PaintCtx};
 
@@ -359,23 +360,24 @@ fn build_widgets(model: model!(FlightModel)) {
             direction: FlexDirection::Column,
             justify: JustifyContent::FlexEnd,
             padding: Padding {
-                bottom: Dimension::px(12),
+                bottom: Dimension::px(18),
+                left: Dimension::px(18),
+                right: Dimension::px(18),
                 ..Padding::all(0)
             }
         ) [
             Stage { model: model.clone() },
             crate::input::event::scroll::TouchAction::None,
         ] {
-            Column (width: Dimension::percent(100), padding: Padding::all(6)) [
+            Text (
+                ${ hint(model.view()) },
+                width: Dimension::percent(100),
+                font_size: 12,
+                text_color: ${ model.hint_color() },
+                paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
+            ) [
                 crate::ui::IgnoreHitTest,
-            ] {
-                Text (
-                    ${ hint(model.view()) },
-                    font_size: 8,
-                    text_color: ${ model.hint_color() },
-                    paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
-                )
-            }
+            ]
         } on Pressed(press::callback(model.clone())) on Released(release::callback(model.clone())) on PressCancelled(cancel::callback(model))
     };
 }
@@ -399,6 +401,14 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app: &mut App<B, F>,
     parent: Entity,
 ) -> FlightModelHandle {
+    let font = Font::from_mirx(
+        "Flight UI",
+        12,
+        include_bytes!("../assets/nearby-menu.mirx"),
+        &mirx::reader::PayloadLimits::HOST,
+    )
+    .expect("bundled pixel UI font");
+    app.with_fonts(FontManager::new(crate::core::cache::MaxSize::Unbound, font));
     app.compose(parent, crate::gallery::demos::clock::ensure_clock());
     let (width, height) = app.backend.viewport().logical_size();
     let model = app.add_model(FlightModel::new(width, height)).finish();
@@ -445,6 +455,25 @@ mod tests {
         let model = setup_app(&mut app, root);
         app.prepare_text_layout().unwrap();
         app.render().unwrap();
+        crate::gallery::demos::assert_text_layouts_fit(&app.world);
+        for (width, height) in [(480, 320), (640, 360), (1280, 720), (720, 960)] {
+            let mut preview = App::headless(width, height);
+            preview.with_default_widgets().with_default_systems();
+            let root = preview.spawn_root().id();
+            let state = setup_app(&mut preview, root);
+            for view in [CameraView::Overhead, CameraView::Chase, CameraView::Cockpit] {
+                state.select_view(view);
+                preview.prepare_text_layout().unwrap();
+                preview.render().unwrap();
+                for (entity, _) in preview.world.query::<Text>().iter() {
+                    let rect = preview.world.get::<ComputedRect>(entity).unwrap().0;
+                    assert!(rect.x >= Fixed::ZERO && rect.y >= Fixed::ZERO);
+                    assert!(rect.x + rect.w <= Fixed::from_int(i32::from(width)));
+                    assert!(rect.y + rect.h <= Fixed::from_int(i32::from(height) - 18));
+                }
+                crate::gallery::demos::assert_text_layouts_fit(&preview.world);
+            }
+        }
         let key = crate::test_support::physical_key(PhysicalKey::Space);
         crate::input::event::deliver_input(&mut app.world, Some(root), &key.into(), 1, 640, 360);
         assert_eq!(model.view(), CameraView::Chase);

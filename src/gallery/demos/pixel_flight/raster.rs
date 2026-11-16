@@ -975,9 +975,13 @@ fn draw_jet(
         }
     }
     let mut bounds = [canvas.width as i32, canvas.height as i32, -1, -1];
+    let first_slice = slices
+        .iter()
+        .position(|slice| !slice.is_empty())
+        .unwrap_or(jet::LAYERS);
     for layer in order {
         let intro = flight.intro - index as f32 * 0.25;
-        let t = (intro - layer as f32 * 0.07) / 0.36;
+        let t = (intro - layer.saturating_sub(first_slice) as f32 * 0.07) / 0.36;
         if t <= 0.0 {
             continue;
         }
