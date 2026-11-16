@@ -748,6 +748,7 @@ fn draw_world(
     p: &Projection,
     pal: &Palette,
 ) {
+    crate::trace_span!("flight.terrain");
     canvas.clear();
     let (sn, cs) = p.yaw.sin_cos();
     let q = p.perspective;
@@ -976,6 +977,7 @@ fn draw_world(
     }
 }
 fn draw_sky(canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette, frame_height: usize) {
+    crate::trace_span!("flight.sky");
     let horizon = if p.perspective > Fixed64::ZERO {
         p.center[1] - p.divide_perspective(p.scale * p.slope)
     } else {
@@ -1058,6 +1060,7 @@ fn draw_sky(canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette, fra
     }
 }
 fn draw_trails(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection, pal: &Palette) {
+    crate::trace_span!("flight.trails");
     for (i, jet) in flight.jets[..flight.count].iter().enumerate() {
         if i == 0 && p.jet_alpha < Fixed::from_ratio(5, 10) {
             continue;
@@ -1136,6 +1139,7 @@ fn draw_trails(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection
     }
 }
 fn draw_smoke(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection, day: Daylight) {
+    crate::trace_span!("flight.smoke");
     for smoke in &flight.smoke {
         let age = flight.time - smoke.born;
         if smoke.life <= Fixed::ZERO || age < Fixed::ZERO || age >= smoke.life {
@@ -1209,6 +1213,7 @@ fn draw_jet(
     pal: &Palette,
     slices: &[&[jet::Voxel]; jet::LAYERS],
 ) {
+    crate::trace_span!("flight.aircraft");
     let jet = &flight.jets[index];
     let fade = if index == 0 { p.jet_alpha } else { Fixed::ONE };
     if fade < Fixed::from_ratio(4, 1000) {

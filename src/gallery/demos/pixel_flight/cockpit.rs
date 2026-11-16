@@ -1202,6 +1202,7 @@ impl Cockpit {
         art
     }
     pub fn draw(&self, canvas: &mut Canvas<'_>, world: &World, flight: &Flight, palette: &Palette) {
+        crate::trace_span!("flight.cockpit");
         let p = flight.projection(self.width as usize, self.height as usize);
         let amount = p.cockpit_in();
         if amount <= Fixed::ZERO {

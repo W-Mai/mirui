@@ -12,6 +12,7 @@ impl Raster {
         flight: &Flight,
         cockpit: &super::super::cockpit::Cockpit,
     ) {
+        crate::trace_span!("flight.native_frame");
         let Self {
             frame,
             sheet,

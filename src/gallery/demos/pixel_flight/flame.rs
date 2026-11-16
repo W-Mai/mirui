@@ -111,6 +111,7 @@ struct Prepared {
 }
 impl Prepared {
     fn new(flame: Flame, time: Fixed) -> Self {
+        crate::trace_span!("flight.flame_prepare");
         let direction = normalize([
             flame.points[1][0] - flame.points[0][0],
             flame.points[1][1] - flame.points[0][1],
@@ -371,6 +372,7 @@ fn encode_sample(value: [Fixed; 4]) -> (Color, Color) {
     )
 }
 pub(super) fn composite_native(pixels: &mut TexturePixelsMut<'_>, flames: &[Flame], time: Fixed) {
+    crate::trace_span!("flight.flames");
     for mut flame in flames.iter().copied() {
         if flame.radius <= Fixed::ZERO || flame.alpha <= Fixed::ZERO {
             continue;
