@@ -8,7 +8,7 @@ pub(crate) use levels::LEVELS;
 #[cfg(test)]
 pub(crate) use model::LumenModelHandle;
 pub(crate) use model::{BeamStatus, LumenModel, LumenNote, MAX_STARS};
-#[cfg(any(feature = "persistence", test))]
+#[cfg(feature = "persistence")]
 pub(crate) use model::{LumenProgress, SAVE_LEN};
 #[allow(unused_imports)]
 pub(crate) use trace::{Trace, TraceStop, trace};

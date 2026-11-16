@@ -20,9 +20,14 @@ pub(super) const STATION_LEFT: i32 = 362;
 const STATION_WIDTH: i32 = 96;
 const STATION_HALF: i32 = 22;
 /// The queue slots along the foot of the board.
-pub(super) const QUEUE_LEFT: i32 = 50;
-pub(super) const QUEUE_PITCH: i32 = 24;
+const QUEUE_LEFT: i32 = 50;
+const QUEUE_PITCH: i32 = 24;
 pub(super) const QUEUE_TOP: i32 = 287;
+
+/// The left edge of queue slot `index`.
+pub(super) const fn queue_slot_left(index: usize) -> i32 {
+    QUEUE_LEFT + index as i32 * QUEUE_PITCH
+}
 
 /// A five-pointed star of radius 10, centred on the origin.
 static STAR: Path = crate::path!(
@@ -366,7 +371,7 @@ fn paint_post_surface(painter: &mut PlayPainter<'_, '_>, model: &PostModel) {
     for index in 0..5 {
         if model.queued(index).is_some() {
             painter.fill(
-                Rect::new(QUEUE_LEFT + index as i32 * QUEUE_PITCH, QUEUE_TOP, 19, 18),
+                Rect::new(queue_slot_left(index), QUEUE_TOP, 19, 18),
                 Color::rgb(39, 58, 60),
                 Fixed::from_int(4),
             );

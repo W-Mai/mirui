@@ -5,6 +5,6 @@ mod model;
 mod tests;
 
 pub(crate) use cells::{GRID_HEIGHT, GRID_WIDTH, MossCells};
-#[cfg(any(feature = "persistence", test))]
+#[cfg(feature = "persistence")]
 pub(crate) use model::{MossGarden, SAVE_LEN};
 pub(crate) use model::{MossModal, MossModel, MossTool};

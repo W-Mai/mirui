@@ -12,7 +12,7 @@ pub(crate) use data::{SHIFT_COUNT, SHIFTS, STATIONS, Shift};
 pub(crate) use model::PostModel;
 #[cfg(test)]
 pub(crate) use model::PostModelHandle;
-#[cfg(any(feature = "persistence", test))]
+#[cfg(feature = "persistence")]
 pub(crate) use model::{PostProgress, SAVE_LEN};
 #[allow(unused_imports)]
 pub(crate) use motion::{PostMotion, lever_angle};

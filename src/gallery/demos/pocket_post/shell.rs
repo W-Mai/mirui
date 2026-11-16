@@ -2,7 +2,7 @@ use super::input::{keyboard, post_tick_system};
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
 use super::render::{
-    QUEUE_LEFT, QUEUE_PITCH, QUEUE_TOP, STATION_LEFT, modal_frame, modal_render, surface_render,
+    QUEUE_TOP, STATION_LEFT, modal_frame, modal_render, queue_slot_left, surface_render,
 };
 use super::state::{PostModalSurface, PostSurface};
 use super::style::{
@@ -586,7 +586,7 @@ fn compose_foot(model: model!(PostModel)) -> Entity {
                 id: "post_queue_0",
                 visible: ${ model.queued_slots()[0].is_some() },
                 position: Position::Absolute,
-                left: QUEUE_LEFT + 0 * QUEUE_PITCH + 1,
+                left: queue_slot_left(0) + 1,
                 top: FOOT_TOP,
                 width: 17,
                 height: 14,
@@ -600,7 +600,7 @@ fn compose_foot(model: model!(PostModel)) -> Entity {
                 id: "post_queue_1",
                 visible: ${ model.queued_slots()[1].is_some() },
                 position: Position::Absolute,
-                left: QUEUE_LEFT + 1 * QUEUE_PITCH + 1,
+                left: queue_slot_left(1) + 1,
                 top: FOOT_TOP,
                 width: 17,
                 height: 14,
@@ -614,7 +614,7 @@ fn compose_foot(model: model!(PostModel)) -> Entity {
                 id: "post_queue_2",
                 visible: ${ model.queued_slots()[2].is_some() },
                 position: Position::Absolute,
-                left: QUEUE_LEFT + 2 * QUEUE_PITCH + 1,
+                left: queue_slot_left(2) + 1,
                 top: FOOT_TOP,
                 width: 17,
                 height: 14,
@@ -628,7 +628,7 @@ fn compose_foot(model: model!(PostModel)) -> Entity {
                 id: "post_queue_3",
                 visible: ${ model.queued_slots()[3].is_some() },
                 position: Position::Absolute,
-                left: QUEUE_LEFT + 3 * QUEUE_PITCH + 1,
+                left: queue_slot_left(3) + 1,
                 top: FOOT_TOP,
                 width: 17,
                 height: 14,
@@ -642,7 +642,7 @@ fn compose_foot(model: model!(PostModel)) -> Entity {
                 id: "post_queue_4",
                 visible: ${ model.queued_slots()[4].is_some() },
                 position: Position::Absolute,
-                left: QUEUE_LEFT + 4 * QUEUE_PITCH + 1,
+                left: queue_slot_left(4) + 1,
                 top: FOOT_TOP,
                 width: 17,
                 height: 14,

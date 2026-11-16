@@ -162,7 +162,7 @@ impl MossModel {
     }
 
     /// A drag is painting and not committed yet.
-    #[cfg(any(feature = "persistence", test))]
+    #[cfg(feature = "persistence")]
     pub(crate) const fn stroking(&self) -> bool {
         self.transaction.is_some()
     }
