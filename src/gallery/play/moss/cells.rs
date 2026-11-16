@@ -1,6 +1,6 @@
 pub(crate) const GRID_WIDTH: u8 = 20;
 pub(crate) const GRID_HEIGHT: u8 = 12;
-const CELL_COUNT: usize = GRID_WIDTH as usize * GRID_HEIGHT as usize;
+pub(super) const CELL_COUNT: usize = GRID_WIDTH as usize * GRID_HEIGHT as usize;
 const RANDOM_THRESHOLD: u32 = 1_245_540_515;
 pub(super) const GLIDER: [(i8, i8); 5] = [(1, 0), (2, 1), (0, 2), (1, 2), (2, 2)];
 
@@ -32,6 +32,17 @@ impl MossCells {
         let changed = self.ages[index] != age;
         self.ages[index] = age;
         changed
+    }
+
+    /// The age of every cell in reading order; zero is empty.
+    #[cfg(any(feature = "persistence", test))]
+    pub(super) const fn ages(&self) -> &[u8; CELL_COUNT] {
+        &self.ages
+    }
+
+    #[cfg(any(feature = "persistence", test))]
+    pub(super) const fn from_ages(ages: [u8; CELL_COUNT]) -> Self {
+        Self { ages }
     }
 
     pub(crate) fn live_count(&self) -> u16 {

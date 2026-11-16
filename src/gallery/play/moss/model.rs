@@ -1,7 +1,33 @@
+#[cfg(any(feature = "persistence", test))]
+use super::cells::CELL_COUNT;
 use super::cells::{GLIDER, GRID_HEIGHT, GRID_WIDTH, MossCells};
 use crate::gallery::play::change::ChangeSet;
+#[cfg(any(feature = "persistence", test))]
+use crate::gallery::play::expeditions::{ExpeditionSaveError, finish_packet, validate_packet};
 
 const HISTORY_CAPACITY: usize = 16;
+const MAX_GENERATION: u32 = 999_999;
+
+#[cfg(any(feature = "persistence", test))]
+const SAVE_MAGIC: [u8; 4] = *b"MOS1";
+#[cfg(any(feature = "persistence", test))]
+const SAVE_VERSION: u8 = 1;
+/// Magic, version, seed, rate and generation, then one age byte per cell.
+#[cfg(any(feature = "persistence", test))]
+const SAVE_PAYLOAD: usize = 11 + CELL_COUNT;
+#[cfg(any(feature = "persistence", test))]
+pub(crate) const SAVE_LEN: usize = SAVE_PAYLOAD + 4;
+
+/// What a restart keeps: the garden as it stands, its generation, the seed
+/// it grew from and the pace.
+#[cfg(any(feature = "persistence", test))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct MossGarden {
+    cells: MossCells,
+    generation: u32,
+    seed_id: u8,
+    rate_index: u8,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Snapshot {
@@ -78,7 +104,11 @@ struct PaintTransaction {
     last_y: u8,
 }
 
-#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+#[crate::model(
+    change = ChangeSet,
+    watch(visual = ChangeSet::VISUAL),
+    persistence(key = "moss_study/garden")
+)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MossModel {
     cells: MossCells,
@@ -129,6 +159,64 @@ impl MossModel {
     #[cfg(test)]
     pub(crate) const fn history_len(&self) -> u8 {
         self.history.len
+    }
+
+    /// A drag is painting and not committed yet.
+    #[cfg(any(feature = "persistence", test))]
+    pub(crate) const fn stroking(&self) -> bool {
+        self.transaction.is_some()
+    }
+
+    #[cfg(any(feature = "persistence", test))]
+    pub(crate) fn encode_into(&self, output: &mut [u8]) -> Result<usize, ExpeditionSaveError> {
+        if output.len() < SAVE_LEN {
+            return Err(ExpeditionSaveError::BufferTooSmall);
+        }
+        output[..4].copy_from_slice(&SAVE_MAGIC);
+        output[4] = SAVE_VERSION;
+        output[5] = self.seed_id;
+        output[6] = self.rate_index;
+        output[7..11].copy_from_slice(&self.generation.to_le_bytes());
+        output[11..SAVE_PAYLOAD].copy_from_slice(self.cells.ages());
+        finish_packet(output, SAVE_PAYLOAD);
+        Ok(SAVE_LEN)
+    }
+
+    #[cfg(any(feature = "persistence", test))]
+    pub(crate) fn decode_garden(input: &[u8]) -> Result<MossGarden, ExpeditionSaveError> {
+        validate_packet(input, SAVE_PAYLOAD)?;
+        if input[..4] != SAVE_MAGIC {
+            return Err(ExpeditionSaveError::InvalidMagic);
+        }
+        if input[4] != SAVE_VERSION {
+            return Err(ExpeditionSaveError::UnsupportedVersion);
+        }
+        let (seed_id, rate_index) = (input[5], input[6]);
+        let generation = u32::from_le_bytes([input[7], input[8], input[9], input[10]]);
+        if MossCells::seed(seed_id).is_none() || rate_index > 3 || generation > MAX_GENERATION {
+            return Err(ExpeditionSaveError::InvalidState);
+        }
+        let mut ages = [0; CELL_COUNT];
+        ages.copy_from_slice(&input[11..SAVE_PAYLOAD]);
+        Ok(MossGarden {
+            cells: MossCells::from_ages(ages),
+            generation,
+            seed_id,
+            rate_index,
+        })
+    }
+
+    /// Plants a saved garden, paused, with nothing to undo.
+    #[cfg(any(feature = "persistence", test))]
+    pub(crate) fn restore_garden(&mut self, garden: MossGarden) {
+        *self = Self {
+            cells: garden.cells,
+            live_count: garden.cells.live_count(),
+            generation: garden.generation,
+            seed_id: garden.seed_id,
+            rate_index: garden.rate_index,
+            ..Self::default()
+        };
     }
 
     const fn snapshot(&self) -> Snapshot {
@@ -198,7 +286,7 @@ impl MossModel {
         self.previous = self.cells;
         self.cells = next;
         self.live_count = next.live_count();
-        self.generation = self.generation.saturating_add(1).min(999_999);
+        self.generation = self.generation.saturating_add(1).min(MAX_GENERATION);
         if self.live_count == 0 {
             self.running = false;
             self.elapsed_ms = 0;
@@ -352,6 +440,15 @@ impl MossModel {
         }
         self.rotation = (self.rotation + 1) % 4;
         ChangeSet::MODEL
+    }
+
+    /// The glider tool: picks it, or turns it a quarter once it is picked.
+    pub(crate) fn pick_glider(&mut self) -> ChangeSet {
+        if self.tool == MossTool::Glider {
+            self.rotate_glider()
+        } else {
+            self.set_tool(MossTool::Glider)
+        }
     }
 
     pub(crate) fn cycle_rate(&mut self) -> ChangeSet {

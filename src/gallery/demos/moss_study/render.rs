@@ -1,17 +1,25 @@
 use super::state::{MossModalSurface, MossSurface};
-use super::style::{ACTIVE, BACKGROUND, BOARD, HEADER, PANEL};
+use super::style::{ACTIVE, BACKGROUND, BOARD, HEADER};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::moss::{GRID_HEIGHT, GRID_WIDTH, MossCells, MossModal, MossModel};
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::{Color, Fixed, Point, Rect};
+
+/// The top-left cell of the garden and the distance between cells.
+pub(super) const CELL_ORIGIN: (i32, i32) = (10, 38);
+pub(super) const CELL_PITCH: i32 = 23;
+const CELL_SIZE: i32 = 21;
+/// Where the seed cards sit in their dialog.
+pub(super) const SEED_CARD_TOP: i32 = 88;
+pub(super) const SEED_CARD_LEFT: [i32; 3] = [29, 171, 313];
 
 fn paint_cells(painter: &mut PlayPainter<'_, '_>, cells: &MossCells, previous: &MossCells) {
     for y in 0..GRID_HEIGHT {
         for x in 0..GRID_WIDTH {
             let age = cells.get(x, y);
             let old = previous.get(x, y);
-            let left = 17 + i32::from(x) * 17;
-            let top = 67 + i32::from(y) * 17;
+            let left = CELL_ORIGIN.0 + i32::from(x) * CELL_PITCH;
+            let top = CELL_ORIGIN.1 + i32::from(y) * CELL_PITCH;
             let fill = if age == 0 {
                 Color::rgb(27, 44, 33)
             } else if age == 1 {
@@ -21,21 +29,25 @@ fn paint_cells(painter: &mut PlayPainter<'_, '_>, cells: &MossCells, previous: &
             } else {
                 Color::rgb(120, 171, 112)
             };
-            painter.fill(Rect::new(left, top, 15, 15), fill, Fixed::from_int(3));
+            painter.fill(
+                Rect::new(left, top, CELL_SIZE, CELL_SIZE),
+                fill,
+                Fixed::from_int(4),
+            );
             if age != 0 {
                 painter.line(
-                    Point::new(left + 4, top + 11),
-                    Point::new(left + 10, top + 5),
+                    Point::new(left + 6, top + 15),
+                    Point::new(left + 14, top + 7),
                     if age == 1 {
                         Color::rgb(138, 184, 101)
                     } else {
                         Color::rgb(84, 137, 77)
                     },
-                    Fixed::ONE,
+                    Fixed::from_ratio(3, 2),
                 );
                 painter.circle(
-                    Point::new(left + 5, top + 4),
-                    Fixed::ONE,
+                    Point::new(left + 7, top + 6),
+                    Fixed::from_ratio(3, 2),
                     if age == 1 {
                         Color::rgb(237, 245, 205)
                     } else {
@@ -44,13 +56,13 @@ fn paint_cells(painter: &mut PlayPainter<'_, '_>, cells: &MossCells, previous: &
                 );
             } else if old != 0 {
                 painter.fill(
-                    Rect::new(left + 5, top + 5, 5, 5),
+                    Rect::new(left + 7, top + 7, 7, 7),
                     Color::rgb(67, 88, 65),
-                    Fixed::ONE,
+                    Fixed::from_int(2),
                 );
             } else {
                 painter.fill(
-                    Rect::new(left + 7, top + 7, 1, 1),
+                    Rect::new(left + 10, top + 10, 1, 1),
                     Color::rgb(64, 80, 62),
                     Fixed::ZERO,
                 );
@@ -61,63 +73,35 @@ fn paint_cells(painter: &mut PlayPainter<'_, '_>, cells: &MossCells, previous: &
 
 fn paint_moss_surface(painter: &mut PlayPainter<'_, '_>, model: &MossModel) {
     painter.fill(Rect::new(0, 0, 480, 320), BACKGROUND, Fixed::ZERO);
-    painter.fill(Rect::new(0, 0, 480, 35), HEADER, Fixed::ZERO);
+    painter.fill(Rect::new(0, 0, 480, 32), HEADER, Fixed::ZERO);
     painter.line(
-        Point::new(12, 34),
-        Point::new(468, 34),
+        Point::new(12, 32),
+        Point::new(468, 32),
         Color::rgb(57, 73, 58),
         Fixed::ONE,
     );
     painter.line(
-        Point::new(18, 22),
-        Point::new(24, 12),
+        Point::new(18, 24),
+        Point::new(24, 14),
         ACTIVE,
         Fixed::from_int(2),
     );
-    painter.circle(Point::new(17, 14), Fixed::from_int(3), ACTIVE);
-    painter.circle(Point::new(23, 10), Fixed::from_int(2), ACTIVE);
-    painter.fill(Rect::new(12, 64, 350, 211), BOARD, Fixed::from_int(7));
+    painter.circle(Point::new(17, 16), Fixed::from_int(3), ACTIVE);
+    painter.circle(Point::new(23, 12), Fixed::from_int(2), ACTIVE);
+    let frame = Rect::new(
+        CELL_ORIGIN.0 - 2,
+        CELL_ORIGIN.1 - 2,
+        CELL_PITCH * i32::from(GRID_WIDTH) + 4,
+        CELL_PITCH * i32::from(GRID_HEIGHT) + 4,
+    );
+    painter.fill(frame, BOARD, Fixed::from_int(7));
     painter.border(
-        Rect::new(12, 64, 350, 211),
+        frame,
         Color::rgb(60, 81, 60),
         Fixed::ONE,
         Fixed::from_int(7),
     );
     paint_cells(painter, model.cells(), model.previous());
-    painter.fill(Rect::new(371, 42, 97, 116), PANEL, Fixed::from_int(8));
-    painter.border(
-        Rect::new(371, 42, 97, 116),
-        Color::rgb(67, 86, 64),
-        Fixed::ONE,
-        Fixed::from_int(8),
-    );
-    painter.line(
-        Point::new(382, 100),
-        Point::new(457, 100),
-        Color::rgb(64, 88, 60),
-        Fixed::ONE,
-    );
-    painter.fill(
-        Rect::new(382, 136, 74, 4),
-        Color::rgb(58, 80, 53),
-        Fixed::from_int(2),
-    );
-    let density = Fixed::from_int(74) * Fixed::from_ratio(i32::from(model.live_count()), 240);
-    painter.fill(
-        Rect {
-            x: Fixed::from_int(382),
-            y: Fixed::from_int(136),
-            w: density,
-            h: Fixed::from_int(4),
-        },
-        ACTIVE,
-        Fixed::from_int(2),
-    );
-    painter.fill(
-        Rect::new(0, 282, 480, 38),
-        Color::rgb(24, 36, 27),
-        Fixed::ZERO,
-    );
 }
 
 #[crate::view(component = MossSurface, name = "MossSurface", priority = 60)]
@@ -129,6 +113,15 @@ pub(super) fn surface_render(
     let transform = fit_logical_canvas(paint.rect(), paint.transform(), 480, 320);
     let mut painter = PlayPainter::new(paint, transform);
     paint_moss_surface(&mut painter, model);
+}
+
+/// The panel a dialog sits on: the seeds need more room than a question.
+pub(super) fn modal_frame(modal: MossModal) -> Rect {
+    if modal == MossModal::Seeds {
+        Rect::new(17, 40, 446, 258)
+    } else {
+        Rect::new(17, 65, 446, 206)
+    }
 }
 
 fn paint_seed_preview(
@@ -172,28 +165,21 @@ pub(super) fn modal_render(model: model!(component.model, watch(modal, seed_id))
         Color::rgba(8, 13, 9, 224),
         Fixed::ZERO,
     );
-    painter.fill(
-        Rect::new(17, 65, 446, 206),
-        Color::rgb(32, 50, 37),
-        Fixed::from_int(10),
-    );
+    let frame = modal_frame(model.modal());
+    painter.fill(frame, Color::rgb(32, 50, 37), Fixed::from_int(10));
     painter.border(
-        Rect::new(17, 65, 446, 206),
+        frame,
         Color::rgb(72, 96, 67),
         Fixed::ONE,
         Fixed::from_int(10),
     );
     if model.modal() == MossModal::Seeds {
-        for seed_id in 0..3_u8 {
-            let left = 29 + i32::from(seed_id) * 142;
-            painter.fill(
-                Rect::new(left, 112, 135, 104),
-                Color::rgb(32, 50, 37),
-                Fixed::from_int(7),
-            );
+        for (seed_id, left) in SEED_CARD_LEFT.into_iter().enumerate() {
+            let card = Rect::new(left, SEED_CARD_TOP, 135, 96);
+            painter.fill(card, Color::rgb(32, 50, 37), Fixed::from_int(7));
             painter.border(
-                Rect::new(left, 112, 135, 104),
-                if model.seed_id() == seed_id {
+                card,
+                if usize::from(model.seed_id()) == seed_id {
                     ACTIVE
                 } else {
                     Color::rgb(72, 96, 67)
@@ -201,8 +187,8 @@ pub(super) fn modal_render(model: model!(component.model, watch(modal, seed_id))
                 Fixed::ONE,
                 Fixed::from_int(7),
             );
-            let cells = MossCells::seed(seed_id).expect("built-in seed");
-            paint_seed_preview(&mut painter, &cells, left + 8, 128);
+            let cells = MossCells::seed(seed_id as u8).expect("built-in seed");
+            paint_seed_preview(&mut painter, &cells, left + 8, SEED_CARD_TOP + 12);
         }
     } else {
         painter.fill(

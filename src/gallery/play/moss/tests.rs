@@ -201,3 +201,47 @@ fn model_storage_is_bounded() {
     assert_eq!(core::mem::size_of::<MossCells>(), 240);
     assert!(core::mem::size_of::<MossModel>() <= 8_804);
 }
+
+#[test]
+fn the_glider_button_picks_the_glider_then_turns_it() {
+    let mut model = MossModel::default();
+    assert_ne!(model.pick_glider(), ChangeSet::NONE);
+    assert_eq!(model.tool(), super::model::MossTool::Glider);
+    assert_eq!(model.rotation(), 0);
+    for turn in 1..=4 {
+        model.pick_glider();
+        assert_eq!(model.rotation(), turn % 4);
+    }
+}
+
+#[test]
+fn a_saved_garden_grows_back_paused_with_its_generation() {
+    use super::model::SAVE_LEN;
+
+    let mut source = MossModel::default();
+    source.cycle_rate();
+    source.toggle_running();
+    for _ in 0..12 {
+        source.advance_ms(125);
+    }
+    source.paint_cell(0, 0);
+    let mut bytes = [0_u8; SAVE_LEN];
+    assert_eq!(source.encode_into(&mut bytes), Ok(SAVE_LEN));
+    assert_eq!(&bytes[..4], b"MOS1");
+
+    let garden = MossModel::decode_garden(&bytes).unwrap();
+    let mut restored = MossModel::default();
+    restored.restore_garden(garden);
+    assert_eq!(*restored.cells(), *source.cells());
+    assert_eq!(restored.generation(), source.generation());
+    assert_eq!(restored.live_count(), source.live_count());
+    assert_eq!(restored.rate(), source.rate());
+    assert!(!restored.running());
+    assert!(!restored.can_undo());
+    assert_live_count_is_current(&restored);
+
+    let mut corrupt = bytes;
+    corrupt[20] ^= 1;
+    assert!(MossModel::decode_garden(&corrupt).is_err());
+    assert!(MossModel::decode_garden(&bytes[..SAVE_LEN - 1]).is_err());
+}
