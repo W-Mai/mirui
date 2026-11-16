@@ -196,6 +196,7 @@ register_demos! {
     ("editor_lab",           "Editor Lab",           "Components",  editor_lab, source = demo_sources::EDITOR_LAB),
     ("glass_light_toggle",    "Glass Light Toggle",    "Showcase",    glass_light_toggle, source = demo_sources::GLASS_LIGHT_TOGGLE),
     ("pixel_flight",          "Pixel Flight",          "Play",        pixel_flight, source = demo_sources::PIXEL_FLIGHT, preferred_size = mirui::gallery::demos::pixel_flight::VIEWPORT),
+    ("pixel_flight_compact",  "Pixel Flight Compact",  "Play",        pixel_flight_compact, source = demo_sources::PIXEL_FLIGHT, preferred_size = mirui::gallery::demos::pixel_flight_compact::VIEWPORT),
     ("page_studio",          "Page Studio",          "Showcase",    page_studio, source = demo_sources::PAGE_STUDIO),
     ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console, source = demo_sources::KINETIC_CONSOLE),
 

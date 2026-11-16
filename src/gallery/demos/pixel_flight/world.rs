@@ -67,46 +67,82 @@ pub struct World {
     pub clouds: Vec<u8>,
     pub noise: Vec<u8>,
     pub spawn: [Fixed; 2],
+    side: usize,
+    cloud_side: usize,
+    noise_side: usize,
+    sample_shift: u32,
 }
 fn index(x: i32, y: i32, side: usize) -> usize {
     (y as usize & (side - 1)) * side + (x as usize & (side - 1))
 }
-fn octave(field: &mut [Fixed], cell: usize, amplitude: Fixed, random: &mut Random) {
-    let count = SIDE / cell;
-    let mut lattice = [Fixed::ZERO; 64 * 64];
+fn octave(
+    field: &mut [Fixed],
+    cell: usize,
+    amplitude: Fixed,
+    random: &mut Random,
+    lattice: &mut [Fixed],
+    blend: &mut [Fixed],
+) {
+    let side = blend.len();
+    let count = side / cell;
     for value in &mut lattice[..count * count] {
         *value = random.next();
     }
-    let mut blend = [Fixed::ZERO; SIDE];
     for (x, value) in blend.iter_mut().enumerate() {
         let f = Fixed::from_int((x % cell) as i32) / Fixed::from_int((cell) as i32);
         *value = f * f * (Fixed::from_int(3) - Fixed::from_int(2) * f);
     }
-    for y in 0..SIDE {
+    for y in 0..side {
         let a = y / cell * count;
         let b = ((y / cell + 1) % count) * count;
-        for x in 0..SIDE {
+        for x in 0..side {
             let i = x / cell;
             let j = (i + 1) % count;
             let va = lattice[a + i] + (lattice[a + j] - lattice[a + i]) * blend[x];
             let vb = lattice[b + i] + (lattice[b + j] - lattice[b + i]) * blend[x];
-            field[y * SIDE + x] += amplitude * (va + (vb - va) * blend[y]);
+            field[y * side + x] += amplitude * (va + (vb - va) * blend[y]);
         }
     }
 }
 impl World {
     pub fn new(seed: u32, land: Fixed) -> Self {
+        Self::with_size(seed, land, SIDE, CLOUD_SIDE, 256)
+    }
+    pub(super) fn with_size(
+        seed: u32,
+        land: Fixed,
+        side: usize,
+        cloud_side: usize,
+        noise_side: usize,
+    ) -> Self {
+        assert!(side.is_power_of_two() && (64..=SIDE).contains(&side));
+        assert!(cloud_side.is_power_of_two() && cloud_side <= CLOUD_SIDE);
+        assert!(noise_side.is_power_of_two() && noise_side <= 256);
+        let sample_shift = (SIDE / side).trailing_zeros();
         let mut random = Random(seed.wrapping_mul(7919).wrapping_add(13));
+        let mut noise = vec![0; noise_side * noise_side];
+        let stride = 256 / noise_side;
+        for i in 0..256 * 256 {
+            let value = (random.next() * Fixed::from_int(256)).trunc_to_int() as u8;
+            let (x, y) = (i % 256, i / 256);
+            if x % stride == 0 && y % stride == 0 {
+                noise[(y / stride) * noise_side + x / stride] = value;
+            }
+        }
         let mut world = Self {
-            heights: vec![0; SIDE * SIDE],
-            materials: vec![0; SIDE * SIDE],
-            clouds: vec![0; CLOUD_SIDE * CLOUD_SIDE],
-            noise: (0..256 * 256)
-                .map(|_| (random.next() * Fixed::from_int(256)).trunc_to_int() as u8)
-                .collect(),
-            spawn: [Fixed::from_int((SIDE) as i32) / Fixed::from_int(2); 2],
+            heights: vec![0; side * side],
+            materials: vec![0; side * side],
+            clouds: vec![0; cloud_side * cloud_side],
+            noise,
+            spawn: [Fixed::from_int((side << sample_shift) as i32) / 2; 2],
+            side,
+            cloud_side,
+            noise_side,
+            sample_shift,
         };
-        let mut elevation = vec![Fixed::from_ratio(0, 1); SIDE * SIDE];
+        let mut elevation = vec![Fixed::from_ratio(0, 1); side * side];
+        let mut lattice = vec![Fixed::ZERO; 64 * 64];
+        let mut blend = vec![Fixed::ZERO; side];
         for (cell, amplitude) in [
             (512, Fixed::from_ratio(55, 100)),
             (256, Fixed::ONE),
@@ -115,7 +151,14 @@ impl World {
             (32, Fixed::from_ratio(11, 100)),
             (16, Fixed::from_ratio(5, 100)),
         ] {
-            octave(&mut elevation, cell, amplitude, &mut random);
+            octave(
+                &mut elevation,
+                (cell * side / SIDE).max(1),
+                amplitude,
+                &mut random,
+                &mut lattice,
+                &mut blend,
+            );
         }
         let min = elevation.iter().copied().fold(Fixed::MAX, Fixed::min);
         let max = elevation.iter().copied().fold(Fixed::MIN, Fixed::max);
@@ -136,9 +179,9 @@ impl World {
             }
         }
         let span = (Fixed::ONE - sea - Fixed::from_ratio(12, 1000)).max(Fixed::from_ratio(5, 100));
-        for y in 0..SIDE {
-            for x in 0..SIDE {
-                let i = y * SIDE + x;
+        for y in 0..side {
+            for x in 0..side {
+                let i = y * side + x;
                 let h = hash8(i as u32);
                 let d = elevation[i] - sea;
                 if d < Fixed::ZERO {
@@ -173,8 +216,8 @@ impl World {
                     } else {
                         16 + (level - 8) * 3
                     };
-                    let gradient = elevation[index(x as i32 - 2, y as i32 - 2, SIDE)]
-                        - elevation[index(x as i32 + 2, y as i32 + 2, SIDE)];
+                    let gradient = elevation[index(x as i32 - 2, y as i32 - 2, side)]
+                        - elevation[index(x as i32 + 2, y as i32 + 2, side)];
                     let lit = gradient < -Fixed::from_ratio(7, 1000);
                     let shaded = gradient > Fixed::from_ratio(7, 1000);
                     world.materials[i] = if level >= 13 {
@@ -199,16 +242,16 @@ impl World {
                 }
             }
         }
-        for gy in (0..SIDE).step_by(5) {
-            for gx in (0..SIDE).step_by(5) {
+        for gy in (0..side).step_by(5) {
+            for gx in (0..side).step_by(5) {
                 let hs = hash8((gy * 977 + gx * 131 + 7) as u32);
                 let cx = (gx + usize::from(hs & 3)) as i32;
                 let cy = (gy + usize::from((hs >> 2) & 3)) as i32;
-                let i = index(cx, cy, SIDE);
+                let i = index(cx, cy, side);
                 if !(6..=8).contains(&world.materials[i]) || world.heights[i] > 14 {
                     continue;
                 }
-                let f = elevation[index(SIDE as i32 - 1 - cx + 911, cy + 613, SIDE)];
+                let f = elevation[index(side as i32 - 1 - cx + 911, cy + 613, side)];
                 let probability = (f - sea) * Fixed::from_int(30);
                 if probability <= Fixed::ZERO
                     || probability * Fixed::from_int(255)
@@ -224,7 +267,7 @@ impl World {
                         if distance > Fixed::from_int(r) + Fixed::from_ratio(3, 10) {
                             continue;
                         }
-                        let j = index(cx + dx, cy + dy, SIDE);
+                        let j = index(cx + dx, cy + dy, side);
                         if world.materials[j] < 4 {
                             continue;
                         }
@@ -251,8 +294,8 @@ impl World {
         }
         let mut best = -1;
         for _ in 0..400 {
-            let x = (random.next() * Fixed::from_int((SIDE) as i32)).trunc_to_int();
-            let y = (random.next() * Fixed::from_int((SIDE) as i32)).trunc_to_int();
+            let x = (random.next() * Fixed::from_int(side as i32)).trunc_to_int() << sample_shift;
+            let y = (random.next() * Fixed::from_int(side as i32)).trunc_to_int() << sample_shift;
             if world.material(x, y) > 2 {
                 continue;
             }
@@ -270,12 +313,16 @@ impl World {
                 world.spawn = [Fixed::from_int(x), Fixed::from_int(y)];
             }
         }
-        for i in 0..50 {
+        let cloud_groups = (50 * cloud_side * cloud_side / (CLOUD_SIDE * CLOUD_SIDE)).max(1);
+        let density_scale = Fixed::from_ratio(cloud_side as i32, CLOUD_SIDE as i32)
+            * Fixed::from_ratio(50, cloud_groups as i32).sqrt();
+        for i in 0..cloud_groups {
             let rank = (i & 15) as u8;
-            let cx = random.next() * Fixed::from_int((CLOUD_SIDE) as i32);
-            let cy = random.next() * Fixed::from_int((CLOUD_SIDE) as i32);
-            let scale = Fixed::from_ratio(6, 10)
-                + random.next() * random.next() * Fixed::from_ratio(125, 100);
+            let cx = random.next() * Fixed::from_int((cloud_side) as i32);
+            let cy = random.next() * Fixed::from_int((cloud_side) as i32);
+            let scale = (Fixed::from_ratio(6, 10)
+                + random.next() * random.next() * Fixed::from_ratio(125, 100))
+                * density_scale;
             let angle = Fixed::from_ratio(35, 100)
                 + (random.next() - Fixed::from_ratio(5, 10)) * Fixed::from_ratio(13, 10);
             let length = (Fixed::from_int(12) + random.next() * Fixed::from_int(24)) * scale;
@@ -309,7 +356,7 @@ impl World {
                         let j = index(
                             (px.round()).trunc_to_int() + dx,
                             (py.round()).trunc_to_int() + dy,
-                            CLOUD_SIDE,
+                            cloud_side,
                         );
                         if n > world.clouds[j] & 15 {
                             world.clouds[j] = (rank << 4) | n;
@@ -321,13 +368,27 @@ impl World {
         world
     }
     pub fn height(&self, x: i32, y: i32) -> u8 {
-        self.heights[index(x, y, SIDE)]
+        self.heights[index(x >> self.sample_shift, y >> self.sample_shift, self.side)]
     }
     pub fn material(&self, x: i32, y: i32) -> u8 {
-        self.materials[index(x, y, SIDE)]
+        self.materials[index(x >> self.sample_shift, y >> self.sample_shift, self.side)]
     }
     pub fn cloud(&self, x: i32, y: i32) -> u8 {
-        self.clouds[index(x, y, CLOUD_SIDE)]
+        self.clouds[index(
+            x >> self.sample_shift,
+            y >> self.sample_shift,
+            self.cloud_side,
+        )]
+    }
+    pub fn period(&self) -> usize {
+        self.side << self.sample_shift
+    }
+    pub fn cloud_period(&self) -> usize {
+        self.cloud_side << self.sample_shift
+    }
+    pub fn noise_at(&self, x: i32, y: i32) -> u8 {
+        let shift = (256 / self.noise_side).trailing_zeros();
+        self.noise[index(x >> shift, y >> shift, self.noise_side)]
     }
     pub fn bytes(&self) -> usize {
         self.heights.capacity()

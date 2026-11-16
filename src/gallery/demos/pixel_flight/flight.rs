@@ -399,12 +399,15 @@ impl Flight {
         let c = self.chase[2].to_fixed();
         let k = self.cockpit[2].to_fixed();
         let top = Fixed::ONE - c - k;
+        let viewport_scale = (Fixed::from_ratio(width as i32, 427))
+            .min(Fixed::from_ratio(height as i32, 240))
+            .clamp(Fixed::from_ratio(1, 256), Fixed::ONE);
         let mut p = Projection {
             position: self.follow,
             yaw: self.camera_yaw,
             perspective: Fixed64::ZERO,
             slope: Fixed::ONE,
-            scale: Fixed::ONE,
+            scale: viewport_scale,
             center: [
                 Fixed::from_int((width / 2) as i32),
                 Fixed::from_int((height / 2) as i32),
@@ -426,7 +429,7 @@ impl Flight {
             .clamp(Fixed::from_ratio(5, 100), Fixed::from_ratio(6, 10))
             * Fixed::from_int((width) as i32)
             / (Fixed::from_int((jet::WIDTH) as i32) * s.jet_scale))
-            .max(Fixed::ONE);
+            .max(viewport_scale);
         let focal = Fixed::from_int((width) as i32)
             * Fixed::from_ratio(6, 10)
             * (Fixed::ONE - Fixed::from_ratio(1, 10) * self.boost);
@@ -437,7 +440,9 @@ impl Flight {
         p.position[2] += (j.position[2] + Fixed::from_int(3) * s.jet_scale - self.follow[2]) * k;
         p.perspective =
             Fixed64::from_fixed(c) / Fixed64::from_fixed(distance) + Fixed64::from_fixed(k) / 64;
-        p.scale = (c * zoom.ln() + k * (focal / Fixed::from_int(64)).ln()).exp();
+        p.scale =
+            (top * viewport_scale.ln() + c * zoom.ln() + k * (focal / Fixed::from_int(64)).ln())
+                .exp();
         let lean = ((Fixed::from_int(45) * top
             + s.chase_angle.clamp(Fixed::from_int(2), Fixed::from_int(40)) * c)
             * PI

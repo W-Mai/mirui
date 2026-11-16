@@ -1,8 +1,9 @@
 use super::{
+    Profile,
     cockpit::Cockpit,
     flame::Flames,
     flight::{Flight, Settings, View as CameraView},
-    raster::{Palette, Raster, scene_size},
+    raster::{Palette, Raster},
     world::World as Terrain,
 };
 use crate::ecs::DeltaTimeMs;
@@ -19,6 +20,7 @@ use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 use crate::ui::{ComputedRect, view::PaintCtx};
 #[crate::model]
 pub struct FlightModel {
+    profile: Profile,
     terrain: Terrain,
     flight: Flight,
     raster: Option<Raster>,
@@ -32,14 +34,26 @@ pub struct FlightModel {
 }
 impl FlightModel {
     fn new(width: u16, height: u16) -> Self {
-        let terrain = Terrain::new(7, Fixed::from_ratio(33, 100));
+        Self::with_profile(width, height, Profile::Desktop)
+    }
+    fn with_profile(width: u16, height: u16, profile: Profile) -> Self {
+        let terrain = match profile {
+            Profile::Desktop => Terrain::new(7, Fixed::from_ratio(33, 100)),
+            Profile::Compact => Terrain::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16),
+        };
         let flight = Flight::new(&terrain, Settings::default());
         let mut state = Self {
+            profile,
             terrain,
             flight,
             raster: None,
             cockpit: None,
-            flames: Flames::new().expect("flight flame storage"),
+            flames: Flames::with_limit(if profile == Profile::Compact {
+                16
+            } else {
+                super::flame::TILE
+            })
+            .expect("flight flame storage"),
             viewport: (width, height),
             revision: 0,
             hint_time: Fixed::ZERO,
@@ -51,7 +65,7 @@ impl FlightModel {
         state
     }
     fn prepare(&mut self, width: u16, height: u16) {
-        let (w, h, _) = scene_size(width, height);
+        let (w, h, _) = self.profile.scene_size(width, height);
         self.viewport = (width, height);
         if self
             .raster
@@ -82,7 +96,7 @@ impl FlightModel {
                 cockpit.draw(canvas, &self.terrain, &self.flight, &raster.palette)
             });
         }
-        let (_, _, scale) = scene_size(self.viewport.0, self.viewport.1);
+        let (_, _, scale) = self.profile.scene_size(self.viewport.0, self.viewport.1);
         self.flames
             .prepare(
                 &raster.flames[..raster.flame_count],
@@ -207,7 +221,7 @@ impl FlightModel {
             return;
         }
         self.prepare(width, height);
-        let (scene_width, scene_height, scale) = scene_size(width, height);
+        let (scene_width, scene_height, scale) = self.profile.scene_size(width, height);
         if let Some(point) = pointer {
             self.flight.controls.point([
                 (point[0]
@@ -244,7 +258,7 @@ impl FlightModel {
             return;
         };
         let rect = paint.rect();
-        let (_, _, scale) = scene_size(self.viewport.0, self.viewport.1);
+        let (_, _, scale) = self.profile.scene_size(self.viewport.0, self.viewport.1);
         let scale = Fixed::from_int(scale as i32);
         let width = Fixed::from_int(raster.frame.width as i32) * scale;
         let height = Fixed::from_int(raster.frame.height as i32) * scale;
@@ -356,7 +370,7 @@ fn cancel(event: event!(PressCancelled), model: model!(FlightModel)) {
     }
 }
 #[crate::compose]
-fn build_widgets(model: model!(FlightModel)) {
+fn build_widgets(model: model!(FlightModel), profile: Profile) {
     ui! {
         View (
             grow: 1.0,
@@ -364,9 +378,9 @@ fn build_widgets(model: model!(FlightModel)) {
             direction: FlexDirection::Column,
             justify: JustifyContent::FlexEnd,
             padding: Padding {
-                bottom: Dimension::px(18),
-                left: Dimension::px(18),
-                right: Dimension::px(18),
+                bottom: Dimension::px(if profile == Profile::Compact { 2 } else { 18 }),
+                left: Dimension::px(if profile == Profile::Compact { 2 } else { 18 }),
+                right: Dimension::px(if profile == Profile::Compact { 2 } else { 18 }),
                 ..Padding::all(0)
             }
         ) [
@@ -374,9 +388,9 @@ fn build_widgets(model: model!(FlightModel)) {
             crate::input::event::scroll::TouchAction::None,
         ] {
             Text (
-                ${ hint(model.view()) },
+                ${ hint(model.view(), profile) },
                 width: Dimension::percent(100),
-                font_size: 12,
+                font_size: if profile == Profile::Compact { 8 } else { 12 },
                 text_color: ${ model.hint_color() },
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             ) [
@@ -385,7 +399,14 @@ fn build_widgets(model: model!(FlightModel)) {
         } on Pressed(press::callback(model.clone())) on Released(release::callback(model.clone())) on PressCancelled(cancel::callback(model))
     };
 }
-fn hint(view: CameraView) -> &'static str {
+fn hint(view: CameraView, profile: Profile) -> &'static str {
+    if profile == Profile::Compact {
+        return match view {
+            CameraView::Overhead => "TOP / SPACE",
+            CameraView::Chase => "CHASE / SPACE",
+            CameraView::Cockpit => "COCKPIT / SPACE",
+        };
+    }
     match view {
         CameraView::Overhead => {
             "MOVE TO STEER · CLICK TO ROLL · HOLD / SHIFT TO BOOST · SPACE FOR CHASE VIEW"
@@ -403,17 +424,40 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app: &mut App<B, F>,
     parent: Entity,
 ) -> FlightModelHandle {
-    let font = Font::from_mirx(
-        "Flight UI",
-        12,
-        include_bytes!("../assets/nearby-menu.mirx"),
-        &mirx::reader::PayloadLimits::HOST,
-    )
-    .expect("bundled pixel UI font");
-    app.with_fonts(FontManager::new(crate::core::cache::MaxSize::Unbound, font));
+    setup_profile(app, parent, Profile::Desktop)
+}
+
+pub fn setup_compact_app<B: Surface, F: RendererFactory<B>>(
+    app: &mut App<B, F>,
+    parent: Entity,
+) -> FlightModelHandle {
+    setup_profile(app, parent, Profile::Compact)
+}
+
+fn setup_profile<B: Surface, F: RendererFactory<B>>(
+    app: &mut App<B, F>,
+    parent: Entity,
+    profile: Profile,
+) -> FlightModelHandle {
+    if profile == Profile::Desktop {
+        let font = Font::from_mirx(
+            "Flight UI",
+            12,
+            include_bytes!("../assets/nearby-menu.mirx"),
+            &mirx::reader::PayloadLimits::HOST,
+        )
+        .expect("bundled pixel UI font");
+        app.with_fonts(FontManager::new(crate::core::cache::MaxSize::Unbound, font));
+    }
     app.compose(parent, crate::gallery::demos::clock::ensure_clock());
     let (width, height) = app.backend.viewport().logical_size();
-    let model = app.add_model(FlightModel::new(width, height)).finish();
+    let model = app
+        .add_model(if profile == Profile::Desktop {
+            FlightModel::new(width, height)
+        } else {
+            FlightModel::with_profile(width, height, profile)
+        })
+        .finish();
     app.with_widget(flight_scene::view());
     app.add_system(animate::system());
     app.on_event(Key::EVENT, key::callback(model.clone()));
@@ -422,12 +466,63 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
         HostVisibilityChanged::EVENT,
         visibility::callback(model.clone()),
     );
-    app.compose(parent, build_widgets(model.clone()));
+    app.compose(parent, build_widgets(model.clone(), profile));
     model
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn compact_keeps_all_views_and_bounds_workspaces_across_resizes() {
+        let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
+        eprintln!("compact scene bytes: {}", scene.resident_bytes());
+        assert!(scene.resident_bytes() < 128 * 1024);
+        for (width, height) in [
+            (128, 128),
+            (160, 128),
+            (128, 160),
+            (320, 240),
+            (64, 64),
+            (800, 600),
+        ] {
+            for view in [CameraView::Overhead, CameraView::Chase, CameraView::Cockpit] {
+                scene.select_view(view);
+                scene.advance(16, width, height, None);
+                let allocations = crate::test_support::tracked_allocations(|| {
+                    for _ in 0..120 {
+                        scene.advance(16, width, height, None);
+                    }
+                });
+                assert_eq!(allocations, 0);
+                let raster = scene.raster.as_ref().unwrap();
+                assert!(raster.frame.width <= 28 && raster.frame.height <= 28);
+                assert!(scene.resident_bytes() < 128 * 1024);
+                assert!(
+                    raster
+                        .frame
+                        .texture
+                        .read_pixels()
+                        .unwrap()
+                        .bytes()
+                        .chunks_exact(4)
+                        .all(|p| p[3] == 255)
+                );
+            }
+        }
+        let mut app = App::headless(128, 128);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        let model = setup_compact_app(&mut app, root);
+        for view in [CameraView::Overhead, CameraView::Chase, CameraView::Cockpit] {
+            model.select_view(view);
+            app.render().unwrap();
+            crate::gallery::demos::assert_text_layouts_fit(&app.world);
+            for (entity, _) in app.world.query::<Text>().iter() {
+                let rect = app.world.get::<ComputedRect>(entity).unwrap().0;
+                assert!(rect.y >= Fixed::ZERO && rect.y + rect.h <= Fixed::from_int(126));
+            }
+        }
+    }
     #[test]
     fn host_focus_and_key_repeats_do_not_leave_stuck_controls() {
         let mut scene = FlightModel::new(640, 360);

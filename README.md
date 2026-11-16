@@ -17,6 +17,8 @@ The Glass Light Toggle demo supports clicking, dragging, Space/Enter and arrow k
 
 Pixel Flight has overhead, chase and cockpit views, procedural islands, layered aircraft and live instruments. Run `cargo run -p gallery --example pixel_flight_demo --profile release-opt --no-default-features --features sdl-gpu`. Space switches views; point to steer, click to roll, and hold or press Shift to boost.
 
+Pixel Flight Compact starts at 128×128 with bounded terrain, flame and scene buffers. Run `cargo run -p gallery --example pixel_flight_compact_demo --profile release-opt --no-default-features --features sdl-gpu`. Both flight demos support window resizing and the same controls.
+
 ## Features
 
 - **ECS architecture** — entities, components, systems, resources, queries; system scheduler with named priority slots

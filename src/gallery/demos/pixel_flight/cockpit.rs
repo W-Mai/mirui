@@ -29,6 +29,11 @@ const DIGITS: [[u8; 5]; 10] = [
     [7, 5, 7, 5, 7],
     [7, 5, 7, 1, 7],
 ];
+
+fn scaled_pixel(value: i32, scale: Fixed) -> i32 {
+    let result = (Fixed::from_int(value) * scale).round().to_int();
+    if result == 0 { value.signum() } else { result }
+}
 #[derive(Clone, Copy, Default)]
 struct Box2 {
     x: i32,
@@ -202,7 +207,7 @@ impl Cockpit {
         let h = height as i32;
         let s = Fixed::from_int((height) as i32) / Fixed::from_int(300);
         let cx = w / 2;
-        let r = |v: i32| ((Fixed::from_int(v) * s).round()).trunc_to_int();
+        let r = |v: i32| scaled_pixel(v, s);
         let x = |u: i32| cx + r(u);
         let pad = ((Fixed::from_int(14) * s).ceil()).trunc_to_int() + 3;
         let b = core::array::from_fn(|i| palette.jets[0][i + 1]);
@@ -475,7 +480,7 @@ impl Cockpit {
                     + (u - Fixed::from_int(206)) / Fixed::from_int(16) * Fixed::from_int(10)
             }
         };
-        let g = r(11).max(5);
+        let g = r(11).max(r(5).max(1));
         for xx in -pad..w + pad {
             let u = Fixed::from_int(xx - cx) / s;
             if u.abs() > Fixed::from_int(232) {
@@ -555,8 +560,8 @@ impl Cockpit {
                         .round())
                     .trunc_to_int(),
                 y: r(185),
-                w: r(10).max(4),
-                h: r(5).max(3),
+                w: r(10).max(r(4).max(1)),
+                h: r(5).max(r(3).max(1)),
             };
             art.lamps[i] = lamp;
             art.layers[1].rect(lamp.x, lamp.y, lamp.x + lamp.w, lamp.y + lamp.h, a[1]);
@@ -577,7 +582,7 @@ impl Cockpit {
                 },
                 [b[3], b[6], b[1]],
             );
-            let margin = r(7).max(4);
+            let margin = r(7).max(r(4).max(1));
             let screen = Box2 {
                 x: x0 + margin,
                 y: y0 + margin - 1,
@@ -616,8 +621,8 @@ impl Cockpit {
                         + k * ((Fixed::from_int(screen.w) / Fixed::from_ratio(64, 10)).round())
                             .trunc_to_int(),
                     y: y1 - r(7),
-                    w: r(7).max(3),
-                    h: r(3).max(2),
+                    w: r(7).max(r(3).max(1)),
+                    h: r(3).max(r(2).max(1)),
                 };
                 panel.plate(key, [b[5], b[7], b[0]]);
                 if k == 1 || k == 4 {
@@ -635,7 +640,7 @@ impl Cockpit {
             [b[2], b[5], b[0]],
         );
         let ball = art.ball;
-        let outer = ball.r + r(8).max(4);
+        let outer = ball.r + r(8).max(r(4).max(1));
         for dy in -outer - 3..=outer + 3 {
             for dx in -outer - 3..=outer + 3 {
                 let d = (Fixed::from_int(dx * dx + dy * dy)).sqrt();
@@ -686,7 +691,7 @@ impl Cockpit {
                 Fixed::from_int(120),
             ),
         ];
-        let rb = ball.r + r(5).max(3);
+        let rb = ball.r + r(5).max(r(3).max(1));
         for sx in [-1, 1] {
             for sy in [-1, 1] {
                 let xx = ((Fixed::from_int((ball.x) as i32)
@@ -703,7 +708,7 @@ impl Cockpit {
                 art.layers[1].put(xx + 1, yy + 1, brass[0]);
             }
         }
-        let ph = r(5).max(3);
+        let ph = r(5).max(r(3).max(1));
         for i in 0..ph {
             art.layers[1].rect(
                 ball.x - i,
@@ -752,7 +757,7 @@ impl Cockpit {
             let dial = Dial {
                 x: x(u),
                 y: r(v),
-                r: r(12).max(6),
+                r: r(12).max(r(6).max(1)),
             };
             art.dials[i] = dial;
             for dy in -dial.r - 3..=dial.r + 4 {
@@ -807,8 +812,8 @@ impl Cockpit {
                     let key = Box2 {
                         x: x(side * 72) - r(8) + i * r(9),
                         y: r(224) + j * r(6),
-                        w: r(7).max(4),
-                        h: r(5).max(3),
+                        w: r(7).max(r(4).max(1)),
+                        h: r(5).max(r(3).max(1)),
                     };
                     let lit = (i + j) % 2 == 0;
                     art.layers[1].plate(
@@ -914,8 +919,8 @@ impl Cockpit {
                             180 + i * 12
                         }),
                         y: r(269 + j * 9),
-                        w: r(10).max(5),
-                        h: r(6).max(3),
+                        w: r(10).max(r(5).max(1)),
+                        h: r(6).max(r(3).max(1)),
                     };
                     let color = key_colors[((if side < 0 {
                         i + j * 3
@@ -940,27 +945,27 @@ impl Cockpit {
             [b[1], b[5], b[0]],
         );
         for u in [-158, -141, -124] {
-            art.layers[2].rect(x(u), r(270), x(u) + r(3).max(2), h + pad, b[0]);
-            for yy in (r(272)..h + pad).step_by(r(4).max(2) as usize) {
-                art.layers[2].put(x(u) + r(3).max(2) + 1, yy, b[5]);
+            art.layers[2].rect(x(u), r(270), x(u) + r(3).max(r(2).max(1)), h + pad, b[0]);
+            for yy in (r(272)..h + pad).step_by(r(4).max(r(2).max(1)) as usize) {
+                art.layers[2].put(x(u) + r(3).max(r(2).max(1)) + 1, yy, b[5]);
             }
         }
         for i in 0..4 {
             let tx = x(112 + i * 11);
             let up = i % 2 == 0;
-            art.layers[2].rect(tx - 1, r(281), tx + r(6).max(4) + 1, r(288), b[0]);
-            art.layers[2].rect(tx, r(282), tx + r(5).max(3), r(286), b[5]);
+            art.layers[2].rect(tx - 1, r(281), tx + r(6).max(r(4).max(1)) + 1, r(288), b[0]);
+            art.layers[2].rect(tx, r(282), tx + r(5).max(r(3).max(1)), r(286), b[5]);
             art.layers[2].rect(
                 tx + 1,
                 r(if up { 273 } else { 284 }),
-                tx + r(3).max(2),
+                tx + r(3).max(r(2).max(1)),
                 r(if up { 283 } else { 293 }),
                 b[7],
             );
             art.layers[2].rect(
                 tx + 1,
                 r(if up { 273 } else { 290 }),
-                tx + r(3).max(2),
+                tx + r(3).max(r(2).max(1)),
                 r(if up { 275 } else { 293 }),
                 WHITE,
             );
@@ -1000,8 +1005,8 @@ impl Cockpit {
                 let key = Box2 {
                     x: x(side * 233) - if side < 0 { r(8) } else { 0 },
                     y: r(212 + j * 15),
-                    w: r(8).max(4),
-                    h: r(6).max(3),
+                    w: r(8).max(r(4).max(1)),
+                    h: r(6).max(r(3).max(1)),
                 };
                 art.layers[2].plate(
                     key,
@@ -1069,7 +1074,7 @@ impl Cockpit {
             return;
         }
         let s = self.scale;
-        let r = |v: i32| ((Fixed::from_int(v) * s).round()).trunc_to_int();
+        let r = |v: i32| scaled_pixel(v, s);
         let cx = self.width / 2;
         let j = &flight.jets[0];
         let b = self.body;
@@ -1366,9 +1371,9 @@ impl Cockpit {
                 let bx = status.x
                     + ((Fixed::from_int(status.w) * Fixed::from_ratio(66, 100)).round())
                         .trunc_to_int()
-                    + engine * r(12).max(8);
+                    + engine * r(12).max(r(8).max(1));
                 let by = status.y + 7;
-                let bw = r(8).max(5);
+                let bw = r(8).max(r(5).max(1));
                 live.rect(bx - 1, by - 1, bx + bw + 1, by + bh + 1, GREEN[3]);
                 live.rect(bx, by, bx + bw, by + bh, GREEN[0]);
                 let level = (Fixed::from_ratio(5, 10)
@@ -1656,7 +1661,7 @@ impl Cockpit {
                 throttle - r(11),
                 yy,
                 throttle + r(28),
-                yy + r(3).max(2),
+                yy + r(3).max(r(2).max(1)),
                 a[5],
             );
             live.rect(
@@ -1676,9 +1681,9 @@ impl Cockpit {
                 .clamp(-Fixed::ONE, Fixed::ONE)
                 * Fixed::from_int(r(9));
             let reach = self.height + r(40) - top;
-            let head_height = r(14).max(7);
-            let grip_height = r(17).max(8);
-            let fold = r(5).max(3);
+            let head_height = r(14).max(r(7).max(1));
+            let grip_height = r(17).max(r(8).max(1));
+            let fold = r(5).max(r(3).max(1));
             for y in top + r(4)..self.height + self.pad {
                 let d = y - top;
                 let xx = ((Fixed::from_int(cx)
@@ -1730,9 +1735,9 @@ impl Cockpit {
                     let color = if d < head_height {
                         if d == 0 {
                             b[5]
-                        } else if d < r(3).max(2) {
+                        } else if d < r(3).max(r(2).max(1)) {
                             b[6]
-                        } else if d > head_height - r(3).max(2) {
+                        } else if d > head_height - r(3).max(r(2).max(1)) {
                             b[1]
                         } else if f < -Fixed::from_ratio(8, 10) {
                             b[5]
@@ -1744,7 +1749,8 @@ impl Cockpit {
                             b[3]
                         }
                     } else if d < head_height + grip_height {
-                        let groove = (d - head_height) % r(4).max(3) == r(3).max(2);
+                        let groove =
+                            (d - head_height) % r(4).max(r(3).max(1)) == r(3).max(r(2).max(1));
                         if groove {
                             if f < -Fixed::from_ratio(5, 100) {
                                 b[2]
@@ -1788,11 +1794,11 @@ impl Cockpit {
             let xx = ((Fixed::from_int(cx) + lean).round()).trunc_to_int();
             for side in [-1, 1] {
                 let x = xx + side * r(6);
-                live.disc(x, top + r(7) + 1, r(4).max(2), b[0]);
+                live.disc(x, top + r(7) + 1, r(4).max(r(2).max(1)), b[0]);
                 live.disc(
                     x,
                     top + r(7),
-                    r(3).max(2),
+                    r(3).max(r(2).max(1)),
                     if side > 0 {
                         if flight.boost > Fixed::from_ratio(3, 10) {
                             a[5]
@@ -1879,7 +1885,7 @@ impl Cockpit {
         if alpha <= Fixed::ZERO {
             return;
         }
-        let r = |v: i32| ((Fixed::from_int(v) * self.scale).round()).trunc_to_int();
+        let r = |v: i32| scaled_pixel(v, self.scale);
         let cx = self.width / 2;
         let pivot =
             ((Fixed::from_int(self.height) * Fixed::from_ratio(34, 100)).round()).trunc_to_int();
@@ -1944,7 +1950,7 @@ impl Cockpit {
         for side in [-1, 1] {
             for y in bottom - r(14)..bottom + 2 {
                 let x = cx + gx + side * ((edge(y).round()).trunc_to_int() + 1);
-                for i in 0..r(3).max(2) {
+                for i in 0..r(3).max(r(2).max(1)) {
                     let xx = x + side * i;
                     if xx >= 0 && xx < self.width && y >= 0 && y < self.height {
                         let at = y as usize * canvas.width + xx as usize;
@@ -1969,7 +1975,7 @@ impl Cockpit {
             GLINT,
         );
         let q = r(9);
-        let l = r(4).max(2);
+        let l = r(4).max(r(2).max(1));
         for sx in [-1, 1] {
             for sy in [-1, 1] {
                 hud.line(
@@ -2041,7 +2047,7 @@ impl Cockpit {
             }
         }
         let half = r(30);
-        let step = r(5).max(3);
+        let step = r(5).max(r(3).max(1));
         for side in [-1, 1] {
             let x = cx + side * r(62);
             hud.line(
@@ -2128,7 +2134,7 @@ impl Cockpit {
             .yaw
             .to_degrees()
             .rem_euclid(Fixed::from_int(360));
-        let per = Fixed::from_int(r(4).max(2)) / Fixed::from_int(5);
+        let per = Fixed::from_int(r(4).max(r(2).max(1))) / Fixed::from_int(5);
         for degrees in ((((heading - Fixed::from_int(60)) / Fixed::from_int(5)).floor())
             .trunc_to_int()
             * 5..=(heading).trunc_to_int() + 60)

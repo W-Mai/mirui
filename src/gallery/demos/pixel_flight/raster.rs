@@ -370,14 +370,7 @@ pub struct Raster {
 }
 #[doc = " Integral scaling preserves hard scene pixels and caps CPU work independently of window size."]
 pub fn scene_size(width: u16, height: u16) -> (usize, usize, usize) {
-    let scale = 3usize
-        .max(usize::from(width).div_ceil(MAX_WIDTH))
-        .max(usize::from(height).div_ceil(MAX_HEIGHT));
-    (
-        usize::from(width).div_ceil(scale).max(8),
-        usize::from(height).div_ceil(scale).max(8),
-        scale,
-    )
+    super::Profile::Desktop.scene_size(width, height)
 }
 impl Raster {
     pub fn new(width: usize, height: usize) -> Result<Self, RenderError> {
@@ -526,16 +519,16 @@ fn draw_world(
     let slope = p.slope;
     let [cx, cy] = p.center;
     let alt = p.position[2];
-    let bx = p.position[0].rem_euclid(Fixed::from_int((world::SIDE) as i32))
-        + Fixed::from_int((world::SIDE) as i32) * Fixed::from_int(2);
-    let by = p.position[1].rem_euclid(Fixed::from_int((world::SIDE) as i32))
-        + Fixed::from_int((world::SIDE) as i32) * Fixed::from_int(2);
+    let bx = p.position[0].rem_euclid(Fixed::from_int(world.period() as i32))
+        + Fixed::from_int(world.period() as i32) * Fixed::from_int(2);
+    let by = p.position[1].rem_euclid(Fixed::from_int(world.period() as i32))
+        + Fixed::from_int(world.period() as i32) * Fixed::from_int(2);
     let rank = ((flight.settings.clouds.clamp(Fixed::ZERO, Fixed::ONE) * Fixed::from_int(16))
         .round())
     .trunc_to_int() as u8;
     let drift = [
-        (flight.time * Fixed::from_int(7)).rem_euclid(Fixed::from_int((world::CLOUD_SIDE) as i32)),
-        (flight.time * Fixed::from_int(3)).rem_euclid(Fixed::from_int((world::CLOUD_SIDE) as i32)),
+        (flight.time * Fixed::from_int(7)).rem_euclid(Fixed::from_int(world.cloud_period() as i32)),
+        (flight.time * Fixed::from_int(3)).rem_euclid(Fixed::from_int(world.cloud_period() as i32)),
     ];
     let below = Fixed::from_int(canvas.bounds[3]) - cy;
     let nearest = if q > Fixed64::ZERO {
@@ -709,8 +702,7 @@ fn draw_world(
                 pal.wall[material]
             };
             if material < 4 {
-                let noise =
-                    |x: i32, y: i32| world.noise[((y as usize & 255) * 256) + (x as usize & 255)];
+                let noise = |x: i32, y: i32| world.noise_at(x, y);
                 if material == 3
                     && noise(gx, gy)
                         .wrapping_add((flight.time * Fixed::from_int(36)).trunc_to_int() as u8)

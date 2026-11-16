@@ -54,11 +54,20 @@ fn advance<B: Surface, F: RendererFactory<B>>(
         model.view()
     );
 }
-fn capture<B: Surface, F: RendererFactory<B>>(mut app: App<B, F>, output: &Path, size: (u16, u16)) {
+fn capture<B: Surface, F: RendererFactory<B>>(
+    mut app: App<B, F>,
+    output: &Path,
+    size: (u16, u16),
+    compact: bool,
+) {
     use mirui::input::event::input::PhysicalKey;
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
-    let model = pixel_flight::setup_app(&mut app, root);
+    let model = if compact {
+        pixel_flight::setup_compact_app(&mut app, root)
+    } else {
+        pixel_flight::setup_app(&mut app, root)
+    };
     app.prepare_text_layout()
         .expect("prepare flight hint layout");
     save(&mut app, &output.join("initial.png"));
@@ -126,13 +135,49 @@ fn capture<B: Surface, F: RendererFactory<B>>(mut app: App<B, F>, output: &Path,
         model.resident_bytes()
     );
     println!("backend submission, presentation and readback are outside these timing samples");
+    if let Some(control) = app.backend.size_control() {
+        for target in [(128, 128), (320, 240), (256, 128), (128, 256), size] {
+            control
+                .request_size(target.0, target.1)
+                .expect("request replay window size");
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while control.state_untracked().requested.is_some() {
+                while app.backend.poll_event().is_some() {}
+                app.backend.frame_end().unwrap();
+                assert!(Instant::now() < deadline, "flight resize did not complete");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            assert_eq!(control.state_untracked().actual, target);
+            advance(&mut app, &model, 24, target, &mut times);
+            save(
+                &mut app,
+                &output.join(format!("resize-{}x{}.png", target.0, target.1)),
+            );
+        }
+    }
 }
 
 fn main() {
-    let output = env::args().nth(1).map(PathBuf::from).unwrap_or_else(|| {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../.local/screenshots/pixel-flight")
-    });
-    let size = (1280, 720);
+    let args: Vec<_> = env::args().skip(1).collect();
+    let compact = args.iter().any(|s| s == "--compact");
+    let output = args
+        .iter()
+        .find(|s| !s.starts_with("--"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.local/screenshots/pixel-flight")
+        });
+    let size = args
+        .iter()
+        .find_map(|s| s.strip_prefix("--size="))
+        .map(|value| {
+            let (w, h) = value.split_once('x').expect("--size=WIDTHxHEIGHT");
+            (
+                w.parse::<u16>().expect("width"),
+                h.parse::<u16>().expect("height"),
+            )
+        })
+        .unwrap_or(if compact { (128, 128) } else { (1280, 720) });
     #[cfg(feature = "wgpu")]
     {
         let backend =
@@ -142,6 +187,7 @@ fn main() {
             App::with_factory(backend, mirui::render::wgpu::WgpuRendererFactory::new()),
             &output,
             size,
+            compact,
         );
     }
     #[cfg(all(not(feature = "wgpu"), feature = "sdl-gpu"))]
@@ -153,12 +199,13 @@ fn main() {
             App::with_factory(backend, mirui::render::sdl_gpu::SdlGpuFactory::new()),
             &output,
             size,
+            compact,
         );
     }
     #[cfg(all(not(feature = "wgpu"), not(feature = "sdl-gpu"), feature = "sdl"))]
     {
         let backend = mirui::surface::sdl::SdlSurface::new("Pixel Flight capture", size.0, size.1);
-        capture(App::new(backend), &output, size);
+        capture(App::new(backend), &output, size, compact);
     }
     #[cfg(not(any(feature = "wgpu", feature = "sdl-gpu", feature = "sdl")))]
     {
@@ -169,6 +216,6 @@ fn main() {
             mirui::render::texture::ColorFormat::RGBA8888,
             flush,
         );
-        capture(App::new(backend), &output, size);
+        capture(App::new(backend), &output, size, compact);
     }
 }

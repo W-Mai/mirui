@@ -6,7 +6,6 @@ pub mod builder_form;
 pub mod butterfly;
 pub mod chord_prompter;
 pub mod clip_path;
-#[cfg(feature = "std")]
 mod clock;
 mod compact_layout;
 pub mod composite;
@@ -53,8 +52,8 @@ pub mod particles;
 pub mod persistence_counter;
 pub mod persistence_settings;
 pub mod pinch_rotate;
-#[cfg(feature = "std")]
 pub mod pixel_flight;
+pub mod pixel_flight_compact;
 pub mod pixel_loom;
 pub mod pocket_post;
 pub mod render_showcase;

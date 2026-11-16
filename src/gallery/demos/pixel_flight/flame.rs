@@ -7,7 +7,7 @@ use crate::{
         renderer::RenderError,
         texture::{AlphaMode, ColorFormat, Texture},
     },
-    types::{Fixed, Point, Rect},
+    types::{Fixed, Fixed64, Point, Rect},
     ui::view::PaintCtx,
 };
 pub const TILE: usize = 256;
@@ -69,18 +69,38 @@ fn bezier(f: &Flame, t: Fixed) -> [Fixed; 2] {
     })
 }
 fn normalize(v: [Fixed; 2]) -> [Fixed; 2] {
-    let n = (v[0] * v[0] + v[1] * v[1])
-        .sqrt()
-        .max(Fixed::from_ratio(1, 1000));
-    [v[0] / n, v[1] / n]
+    let largest = v[0].abs().max(v[1].abs());
+    if largest.is_zero() {
+        return [Fixed::ZERO; 2];
+    }
+    let scaled = v.map(|value| value / largest);
+    let norm = (scaled[0] * scaled[0] + scaled[1] * scaled[1]).sqrt();
+    scaled.map(|value| value / norm)
 }
 #[derive(Clone, Copy, Default)]
 struct Puff {
     center: [Fixed; 2],
-    inverse: Fixed,
+    inverse: Fixed64,
+    cutoff: Fixed64,
     extinction: Fixed,
     t: Fixed,
     reach: Fixed,
+}
+
+impl Puff {
+    fn scaled_distance(&self, point: [Fixed; 2]) -> Fixed {
+        // Small-screen radii have squares below a Q24.8 unit.
+        let dx = Fixed64::from_fixed(point[0] - self.center[0]);
+        let dy = Fixed64::from_fixed(point[1] - self.center[1]);
+        let distance = dx * dx + dy * dy;
+        // Beyond this bound density and the Q24.8 exponential are both zero.
+        // It also bounds the following product to less than 16 * 2^32.
+        if distance >= self.cutoff {
+            Fixed::from_int(16)
+        } else {
+            (distance * self.inverse).to_fixed()
+        }
+    }
 }
 struct Prepared {
     flame: Flame,
@@ -120,9 +140,12 @@ impl Prepared {
                     Fixed::from_ratio(5, 10),
                     ramp(Fixed::from_ratio(1, 10), Fixed::ONE, t),
                 );
+            let radius = Fixed64::from_fixed(r);
+            let square = (radius * radius).max(Fixed64::from_ratio(1, 65536));
             Puff {
                 center: bezier(&flame, t),
-                inverse: Fixed::ONE / (r * r).max(Fixed::from_ratio(1, 1000000)),
+                inverse: Fixed64::ONE / square,
+                cutoff: square * 16,
                 extinction: (Fixed::ONE - t).pow_fraction(Fixed::from_ratio(75, 100)),
                 t,
                 reach: (r * glow_radius).max(r + Fixed::from_ratio(604, 1000) * flame.radius),
@@ -176,14 +199,12 @@ impl Prepared {
         let mut sum = Fixed::ZERO;
         let mut weighted = Fixed::ZERO;
         for puff in &self.puffs {
-            let dd = ((pw[0] - puff.center[0]).powi(2) + (pw[1] - puff.center[1]).powi(2))
-                * puff.inverse;
+            let dd = puff.scaled_distance(pw);
             let g = (Fixed::ONE - dd).max(Fixed::ZERO).powi(2);
             density += g * puff.extinction;
             sum += g;
             weighted += g * puff.t;
-            let d0 =
-                ((p[0] - puff.center[0]).powi(2) + (p[1] - puff.center[1]).powi(2)) * puff.inverse;
+            let d0 = puff.scaled_distance(p);
             halo += (-d0 * Fixed::from_ratio(42, 100)).exp() * puff.extinction;
         }
         let per = f.length / Fixed::from_int((PUFFS) as i32);
@@ -332,15 +353,20 @@ pub struct Tile {
 }
 pub struct Flames {
     pub tiles: [Tile; 6],
+    limit: usize,
 }
 impl Flames {
     pub fn new() -> Result<Self, RenderError> {
+        Self::with_limit(TILE)
+    }
+    pub(super) fn with_limit(limit: usize) -> Result<Self, RenderError> {
+        assert!(limit > 0 && limit <= TILE);
         let mut values = alloc::vec::Vec::with_capacity(6);
         for _ in 0..6 {
-            let mut base = Texture::owned(TILE as u16, TILE as u16, ColorFormat::RGBA8888)?
+            let mut base = Texture::owned(limit as u16, limit as u16, ColorFormat::RGBA8888)?
                 .with_cache_revision(0);
             base.alpha_mode = AlphaMode::Blend;
-            let mut emission = Texture::owned(TILE as u16, TILE as u16, ColorFormat::RGBA8888)?
+            let mut emission = Texture::owned(limit as u16, limit as u16, ColorFormat::RGBA8888)?
                 .with_cache_revision(0);
             emission.alpha_mode = AlphaMode::Blend;
             values.push(Tile {
@@ -355,10 +381,10 @@ impl Flames {
             Ok(tiles) => tiles,
             Err(_) => unreachable!("six prepared flames"),
         };
-        Ok(Self { tiles })
+        Ok(Self { tiles, limit })
     }
     pub fn bytes(&self) -> usize {
-        12 * TILE * TILE * 4 + core::mem::size_of::<Self>()
+        12 * self.limit * self.limit * 4 + core::mem::size_of::<Self>()
     }
     pub fn prepare(
         &mut self,
@@ -408,11 +434,11 @@ impl Flames {
             tile.size = [
                 ((tile.bounds[2] * display_scale)
                     .ceil()
-                    .clamp(Fixed::ONE, Fixed::from_int((TILE) as i32)))
+                    .clamp(Fixed::ONE, Fixed::from_int(self.limit as i32)))
                 .trunc_to_int() as u16,
                 ((tile.bounds[3] * display_scale)
                     .ceil()
-                    .clamp(Fixed::ONE, Fixed::from_int((TILE) as i32)))
+                    .clamp(Fixed::ONE, Fixed::from_int(self.limit as i32)))
                 .trunc_to_int() as u16,
             ];
             let [width, height] = tile.size.map(usize::from);
