@@ -13,8 +13,8 @@ pub(crate) const STATION_X: i32 = 400;
 /// Where the branches to A and C turn level.
 pub(crate) const A_BEND_X: i32 = 195;
 pub(crate) const C_BEND_X: i32 = 306;
-/// The slanted part of each side branch: from S1 up to (195, 68), and from
-/// S2 down to (306, 246).
+/// The slanted part of each side branch: from the first switch up to
+/// (195, 68), and from the second switch down to (306, 246).
 const A_DIAGONAL: Fixed = Fixed::from_ratio(99_282, 1_000);
 const C_DIAGONAL: Fixed = Fixed::from_ratio(97_990, 1_000);
 

@@ -14,7 +14,7 @@ const POP: SpringConfig = SpringConfig {
 };
 
 /// Angle of a switch lever in degrees for the branch it sends parcels to:
-/// S1 sends branch 0 up to A, S2 sends branch 1 down to C.
+/// the first switch sends branch 0 up to A, the second sends branch 1 down to C.
 pub(crate) const fn lever_angle(switch: usize, branch: u8) -> i32 {
     match (switch, branch) {
         (0, 0) => -55,
