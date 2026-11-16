@@ -30,9 +30,9 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
             visible: ${ model.inspector() },
             position: Position::Absolute,
             left: 0,
-            top: 28,
+            top: 0,
             width: 480,
-            height: 264,
+            height: 292,
             bg_color: Color::rgba(6, 12, 8, 150)
         ) [
             TouchAction::None,
@@ -40,7 +40,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
             Column (
                 position: Position::Absolute,
                 left: 213,
-                top: 6,
+                top: 34,
                 width: 253,
                 height: 252,
                 padding: Padding::all(10),
@@ -147,7 +147,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Button (
-                        "－",
+                        "-",
                         id: "marble_pitch_down",
                         size: ButtonSize::Compact,
                         width: 34,
@@ -170,7 +170,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         paragraph: ParagraphStyle::label()
                     )
                     Button (
-                        "＋",
+                        "+",
                         id: "marble_pitch_up",
                         size: ButtonSize::Compact,
                         width: 34,

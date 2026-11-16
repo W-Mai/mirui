@@ -1,4 +1,5 @@
 use super::style::{BOARD_HEIGHT, BOARD_WIDTH, TEXT, color, mix};
+use crate::core::i18n::{Locale, locale};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::marble::{MarbleModel, Theme};
 use crate::gallery::play::paint::PlayPainter;
@@ -6,6 +7,26 @@ use crate::prelude::*;
 use crate::tr;
 use crate::types::Fixed64;
 use crate::ui::widgets::{ParagraphStyle, Slider, Switch, Text, TextAlign};
+use core::fmt;
+
+/// `GRAVITY · 0.80 g` and `TEMPO · 96 BPM`, or `重力 0.80 g` and
+/// `速度 96 BPM` in Chinese.
+enum SettingLabel {
+    Gravity(Fixed),
+    Tempo(u16),
+}
+
+impl fmt::Display for SettingLabel {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let zh = locale() == Locale::ZhCn;
+        match (self, zh) {
+            (Self::Gravity(value), true) => write!(out, "重力 {:.2} g", value.to_f32()),
+            (Self::Gravity(value), false) => write!(out, "GRAVITY · {:.2} g", value.to_f32()),
+            (Self::Tempo(bpm), true) => write!(out, "速度 {bpm} BPM"),
+            (Self::Tempo(bpm), false) => write!(out, "TEMPO · {bpm} BPM"),
+        }
+    }
+}
 
 #[crate::component]
 struct MarbleSettingsPanel {
@@ -59,13 +80,8 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
             },
         ] {
             Text (
-                text: ${
-                    format_args!(
-                        "{} · {:.2} g", tr!(en : "GRAVITY", zh : "重力"), model.gravity().to_fixed()
-                        .to_f32()
-                    )
-                },
-                capacity: 24,
+                text: ${ SettingLabel::Gravity(model.gravity().to_fixed()) },
+                capacity: 18,
                 id: "marble_setting_gravity",
                 position: Position::Absolute,
                 left: 42,
@@ -77,8 +93,8 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                text: ${ format_args!("{} · {} BPM", tr!(en : "TEMPO", zh : "速度"), model.bpm()) },
-                capacity: 24,
+                text: ${ SettingLabel::Tempo(model.bpm()) },
+                capacity: 16,
                 id: "marble_setting_bpm",
                 position: Position::Absolute,
                 left: 42,

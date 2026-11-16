@@ -136,8 +136,8 @@ fn composition_uses_real_text_and_button_widgets() {
         ("marble_audio", 8),
         ("marble_record", 12),
         ("marble_status", 48),
-        ("marble_setting_gravity", 24),
-        ("marble_setting_bpm", 24),
+        ("marble_setting_gravity", 18),
+        ("marble_setting_bpm", 16),
         ("marble_readout", 48),
         ("marble_pitch", 4),
         ("marble_timbre", 6),
@@ -1254,7 +1254,8 @@ fn chinese_mode_translates_the_bars_and_pages() {
     model.set_page(Page::Scenes);
     crate::core::reactive::flush_signal_dirty(world);
     assert_eq!(text(world, "marble_scene_2_name"), "失重");
-    assert_eq!(text(world, "marble_status"), "换场景会重置音盘和弹珠");
+    assert_eq!(text(world, "marble_status"), "选一个场景");
+    assert_eq!(text(world, "marble_readout"), "换场景会重置音盘和弹珠");
     model.set_page(Page::Edit);
     model.set_inspector(true);
     crate::core::reactive::flush_signal_dirty(world);

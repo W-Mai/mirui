@@ -34,10 +34,7 @@ fn marble_status(page: Page, paused: bool, add_mode: bool, toast: Phrase) -> Phr
             tr!(en: "TAP EMPTY SPACE TO PLACE A PAD", zh: "点空白处放一个音盘")
         }
         Page::Edit => tr!(en: "DRAG A PAD TO MOVE IT", zh: "拖动音盘来移动"),
-        Page::Scenes => tr!(
-            en: "A SCENE RESETS PADS AND MARBLES",
-            zh: "换场景会重置音盘和弹珠"
-        ),
+        Page::Scenes => tr!(en: "PICK A SCENE", zh: "选一个场景"),
         Page::Settings => tr!(en: "CHANGES APPLY AT ONCE", zh: "设置立即生效"),
     }
 }
@@ -80,7 +77,14 @@ impl fmt::Display for MarbleReadout {
                 tr!(en: "BOUNCE", zh: "弹性"),
                 self.bounce.to_f32()
             ),
-            Page::Scenes | Page::Settings => Ok(()),
+            Page::Scenes => out.write_str(
+                tr!(
+                    en: "A SCENE RESETS PADS AND MARBLES",
+                    zh: "换场景会重置音盘和弹珠"
+                )
+                .get(),
+            ),
+            Page::Settings => Ok(()),
         }
     }
 }

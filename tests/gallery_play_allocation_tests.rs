@@ -332,11 +332,11 @@ fn marble_scene_cards_ignore_gaps_and_margins_but_load_a_selected_scene() {
     let board_rect = app.world.get::<ComputedRect>(scene_board).unwrap().0;
     let label_rect = app.world.get::<ComputedRect>(scene_label).unwrap().0;
     assert_eq!(label_rect.x, board_rect.x + Fixed::from_int(183));
-    assert_eq!(label_rect.y, board_rect.y + Fixed::from_int(118));
+    assert_eq!(label_rect.y, board_rect.y + Fixed::from_int(172));
     let board_point = |local_x: i32, local_y: i32| {
         (
             board_rect.x + board_rect.w * Fixed::from_int(local_x) / Fixed::from_int(480),
-            board_rect.y + board_rect.h * Fixed::from_int(local_y) / Fixed::from_int(199),
+            board_rect.y + board_rect.h * Fixed::from_int(local_y) / Fixed::from_int(264),
         )
     };
     for (index, local_x) in [12, 163, 314, 465].into_iter().enumerate() {
@@ -376,7 +376,7 @@ fn marble_scene_cards_ignore_gaps_and_margins_but_load_a_selected_scene() {
             "{card_id} must own its painted area"
         );
     }
-    for local_y in [17, 182] {
+    for local_y in [17, 246] {
         let (x, y) = board_point(204, local_y);
         assert_eq!(
             hit_test(&app.world, root, x, y, width, height),
