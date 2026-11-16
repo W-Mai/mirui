@@ -1,7 +1,9 @@
 use super::data::{SHIFT_COUNT, SHIFTS};
-use super::model::PostModel;
+use super::model::{PostModel, SAVE_LEN};
+use super::motion::lever_angle;
 use super::route::PostRoute;
 use super::types::{MAX_EVENTS, MAX_PARCELS, PostModal, PostParcel};
+use crate::gallery::play::change::ChangeSet;
 use crate::types::Fixed;
 
 fn run_steps(model: &mut PostModel, count: usize) {
@@ -46,6 +48,12 @@ fn perfect_score(parcels: usize) -> u16 {
     (0..parcels)
         .map(|index| 100 + 20 * index.min(5) as u16)
         .sum()
+}
+
+fn settle(model: &mut PostModel) {
+    for _ in 0..60 {
+        model.advance_ms(16);
+    }
 }
 
 #[test]
@@ -112,7 +120,10 @@ fn the_rails_hold_only_what_the_shift_allows_without_a_hidden_queue() {
 fn terminal_delivery_is_recorded_exactly_once() {
     let mut model = PostModel::default();
     model.toggle_running();
-    run_steps(&mut model, 406);
+    // The first parcel rides the inlet and the whole branch to A at one
+    // pixel a step; one more step passes its arrival.
+    let arrival = (PostRoute::Entry.length() + PostRoute::StationA.length()).to_int();
+    run_steps(&mut model, arrival as usize + 2);
     assert_eq!(model.event_len(), 1);
     assert_eq!(model.delivered(), 1);
     let event = model.event(0).unwrap();
@@ -268,11 +279,111 @@ fn changing_shift_keeps_stars_best_scores_and_speed() {
     assert_eq!(model.best()[0], perfect_score(6));
     assert_eq!(model.score(), 0);
     assert!(!model.started());
-    assert_eq!(
-        model.load_shift(SHIFT_COUNT as u8),
-        crate::gallery::play::change::ChangeSet::NONE
-    );
+    assert_eq!(model.load_shift(SHIFT_COUNT as u8), ChangeSet::NONE);
     assert_eq!(model.shift(), 3);
+}
+
+#[test]
+fn a_switch_lever_swings_over_instead_of_jumping() {
+    let mut model = PostModel::default();
+    let start = Fixed::from_int(lever_angle(0, 0));
+    assert_eq!(model.motion().lever(0), start);
+    model.toggle_switch(0);
+    assert_eq!(
+        model.motion().lever(0),
+        start,
+        "it leaves from where it was"
+    );
+    assert!(model.advance_ms(16).contains(ChangeSet::VISUAL));
+    let swinging = model.motion().lever(0);
+    assert!(swinging > start && swinging < Fixed::ZERO);
+    settle(&mut model);
+    assert_eq!(model.motion().lever(0), Fixed::from_int(lever_angle(0, 1)));
+    assert_eq!(
+        model.advance_ms(16),
+        ChangeSet::NONE,
+        "nothing left to draw"
+    );
+}
+
+#[test]
+fn each_delivery_rings_its_station_and_a_wrong_one_is_marked() {
+    let mut model = PostModel::default();
+    model.record_delivery(PostParcel::new(0, 0), PostRoute::StationA);
+    model.record_delivery(PostParcel::new(1, 0), PostRoute::StationB);
+    let correct = |model: &PostModel, station| model.motion().ring(station).map(|ring| ring.1);
+    assert_eq!(correct(&model, 0), Some(true));
+    assert_eq!(correct(&model, 1), Some(false));
+    assert_eq!(correct(&model, 2), None);
+    settle(&mut model);
+    assert_eq!(model.motion().ring(0), None);
+}
+
+#[test]
+fn a_clean_shift_pops_its_star_and_only_a_higher_score_is_a_new_best() {
+    let mut model = PostModel::default();
+    play_out(&mut model, false);
+    let _ = model.step_fixed();
+    assert!(model.new_best(), "the first finish sets the best, once");
+    settle(&mut model);
+    assert_eq!(model.motion().star(), Fixed::ZERO, "no star with misses");
+    model.restart();
+    assert!(!model.new_best());
+    play_out(&mut model, true);
+    assert!(model.new_best());
+    settle(&mut model);
+    assert_eq!(model.motion().star(), Fixed::ONE);
+    model.restart();
+    play_out(&mut model, true);
+    assert!(!model.new_best(), "the same score again is not a new best");
+}
+
+#[test]
+fn enter_and_escape_follow_the_panel_in_front() {
+    let mut model = PostModel::default();
+    model.confirm();
+    assert!(model.running());
+    model.back();
+    assert_eq!(model.modal(), PostModal::Shifts);
+    assert_eq!(model.confirm(), ChangeSet::NONE);
+    model.back();
+    assert_eq!(model.modal(), PostModal::None);
+    model.open_reset();
+    model.confirm();
+    assert_eq!(model.modal(), PostModal::None);
+    assert!(
+        !model.started(),
+        "a confirmed restart opens the shift fresh"
+    );
+    play_out(&mut model, true);
+    model.confirm();
+    assert_eq!(model.shift(), 1, "Enter on the summary moves on");
+}
+
+#[test]
+fn progress_keeps_stars_best_scores_and_the_shift_in_play() {
+    let mut source = PostModel::default();
+    play_out(&mut source, true);
+    source.load_shift(2);
+    source.toggle_running();
+    let mut bytes = [0_u8; SAVE_LEN];
+    assert_eq!(source.encode_into(&mut bytes), Ok(SAVE_LEN));
+    assert_eq!(&bytes[..4], b"PST1");
+
+    let progress = PostModel::decode_progress(&bytes).unwrap();
+    let mut restored = PostModel::default();
+    restored.cycle_speed();
+    restored.restore(progress);
+    assert_eq!(restored.shift(), 2);
+    assert!(!restored.started(), "the shift opens fresh");
+    assert_eq!(restored.starred(), 1);
+    assert_eq!(restored.best(), source.best());
+    assert_eq!(restored.speed_x2(), 3, "the chosen speed stays");
+
+    let mut corrupt = bytes;
+    corrupt[7] ^= 1;
+    assert!(PostModel::decode_progress(&corrupt).is_err());
+    assert!(PostModel::decode_progress(&bytes[..SAVE_LEN - 1]).is_err());
 }
 
 #[test]

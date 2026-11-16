@@ -16,3 +16,7 @@ pub(super) const STATION_COLORS: [Color; 3] = [
     Color::rgb(202, 180, 237),
     Color::rgb(237, 186, 145),
 ];
+/// A parcel taken by the wrong station.
+pub(super) const MISS: Color = Color::rgb(236, 132, 120);
+/// The summary star before a clean shift fills it.
+pub(super) const STAR_SLOT: Color = Color::rgb(58, 76, 80);

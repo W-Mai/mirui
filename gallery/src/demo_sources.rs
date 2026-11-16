@@ -542,6 +542,7 @@ split_demo_sources! {
             "state.rs",
             "render.rs",
             "input.rs",
+            "persistence.rs",
             "shell.rs",
             "tests.rs",
         ]

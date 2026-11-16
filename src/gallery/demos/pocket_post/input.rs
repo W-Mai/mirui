@@ -1,6 +1,6 @@
 use super::state::PostSurface;
 use crate::ecs::DeltaTimeMs;
-use crate::gallery::play::post::PostModel;
+use crate::gallery::play::post::{MAIN_Y, PostModel, SWITCH_X};
 use crate::prelude::*;
 
 fn local_point(rect: Rect, x: Fixed, y: Fixed) -> Option<Point> {
@@ -17,9 +17,9 @@ pub(super) fn surface_tap(surface: &PostSurface, rect: Rect, x: Fixed, y: Fixed)
     let Some(point) = local_point(rect, x, y) else {
         return false;
     };
-    for (index, center_x) in [151, 265].into_iter().enumerate() {
+    for (index, center_x) in SWITCH_X.into_iter().enumerate() {
         let dx = point.x - Fixed::from_int(center_x);
-        let dy = point.y - Fixed::from_int(157);
+        let dy = point.y - Fixed::from_int(MAIN_Y);
         if dx * dx + dy * dy <= Fixed::from_int(23) * Fixed::from_int(23) {
             surface.model.toggle_switch(index);
             return true;
@@ -33,6 +33,8 @@ pub(super) fn post_tick_system(model: model!(PostModel), delta: res!(DeltaTimeMs
     model.advance_ms(delta.0);
 }
 
+/// A and S (or 1 and 2) flip the switches, Space starts and pauses, Enter
+/// moves on, R asks to restart, and Esc opens or closes the shift list.
 #[event]
 pub(super) fn keyboard(input: event!(Key), model: model!(PostModel)) -> bool {
     if !input.pressed
@@ -43,9 +45,12 @@ pub(super) fn keyboard(input: event!(Key), model: model!(PostModel)) -> bool {
         return false;
     }
     match input.physical {
-        Some(PhysicalKey::KeyA) => model.toggle_switch(0),
-        Some(PhysicalKey::KeyS) => model.toggle_switch(1),
+        Some(PhysicalKey::KeyA | PhysicalKey::Digit1) => model.toggle_switch(0),
+        Some(PhysicalKey::KeyS | PhysicalKey::Digit2) => model.toggle_switch(1),
         Some(PhysicalKey::Space) => model.toggle_running(),
+        Some(PhysicalKey::Enter | PhysicalKey::NumpadEnter) => model.confirm(),
+        Some(PhysicalKey::KeyR) => model.open_reset(),
+        Some(PhysicalKey::Escape) => model.back(),
         _ => return false,
     };
     true
@@ -127,6 +132,30 @@ mod tests {
             assert_eq!(model.switch(0), 1);
             assert_eq!(model.switch(1), 1);
             assert!(!model.running());
+        });
+
+        for (at, position) in [(3, PhysicalKey::Escape), (4, PhysicalKey::KeyR)] {
+            dispatch_input(
+                &mut app.world,
+                None,
+                &crate::test_support::physical_key(position).into(),
+                at,
+                1,
+                1,
+            );
+        }
+        observer.read(|model| assert_eq!(model.modal(), PostModal::Reset));
+        dispatch_input(
+            &mut app.world,
+            None,
+            &crate::test_support::physical_key(PhysicalKey::Enter).into(),
+            5,
+            1,
+            1,
+        );
+        observer.read(|model| {
+            assert_eq!(model.modal(), PostModal::None);
+            assert!(!model.started(), "Enter confirmed the restart");
         });
     }
 }

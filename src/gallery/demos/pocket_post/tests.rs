@@ -1,5 +1,6 @@
 use super::state::PostSurface;
 use super::{VIEWPORT, setup_app};
+use crate::core::i18n::{I18n, Locale};
 use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::gallery::play::post::{PostModel, PostModelHandle};
 use crate::input::event::gesture::GestureEvent;
@@ -33,12 +34,24 @@ fn flush(world: &mut World) {
     crate::core::reactive::flush_signal_dirty(world);
 }
 
-fn assert_text(world: &World, id: &'static str, expected: &str) {
+fn text_of(world: &World, id: &'static str) -> alloc::string::String {
     let entity = world.find_by_id(id).unwrap();
     let text = world.get::<Text>(entity).unwrap();
-    assert_eq!(text.resolve(world.resource()).as_ref(), expected, "{id}");
     assert!(text.has_valid_content(), "{id}");
     assert_eq!(text.last_content_error(), None, "{id}");
+    text.resolve(world.resource()).as_ref().into()
+}
+
+fn assert_text(world: &World, id: &'static str, expected: &str) {
+    assert_eq!(text_of(world, id), expected, "{id}");
+}
+
+fn has_text(world: &World, wanted: &str) -> bool {
+    world.query::<Text>().collect().into_iter().any(|entity| {
+        world
+            .get::<Text>(entity)
+            .is_some_and(|text| text.resolve(world.resource()).as_ref() == wanted)
+    })
 }
 
 fn assert_bounded_text_valid(world: &World) {
@@ -46,7 +59,6 @@ fn assert_bounded_text_valid(world: &World) {
         "post_shift",
         "post_sorted",
         "post_status",
-        "post_misses",
         "post_station_0",
         "post_station_1",
         "post_station_2",
@@ -86,6 +98,17 @@ fn trigger(world: &mut World, event: &GestureEvent) -> bool {
         crate::__macro_support::flush_entity_events(world).unwrap();
         decision == crate::input::event::BubbleControl::Prevent
     }
+}
+
+fn finish_the_shift(model: &PostModelHandle) {
+    model.toggle_running();
+    for _ in 0..2_000 {
+        model.advance_ms(120);
+        if model.finished() {
+            break;
+        }
+    }
+    assert!(model.finished());
 }
 
 #[test]
@@ -133,8 +156,16 @@ fn tick_system_rejects_a_missing_delta_resource() {
 fn composition_uses_one_dense_route_surface_and_semantic_controls() {
     let world = fixture(VIEWPORT.0, VIEWPORT.1);
     assert!(world.find_by_id("post_surface").is_some());
-    assert!(world.find_by_id("post_run").is_some());
-    assert!(world.find_by_id("post_shift_stars").is_some());
+    for id in [
+        "post_run",
+        "post_send",
+        "post_speed",
+        "post_restart",
+        "post_shifts",
+        "post_shift_stars",
+    ] {
+        assert!(world.find_by_id(id).is_some(), "{id}");
+    }
     assert_eq!(world.query::<PostSurface>().collect().len(), 1);
 }
 
@@ -182,41 +213,47 @@ fn observed_state_updates_bounded_text_and_visibility() {
     let mut world = fixture(VIEWPORT.0, VIEWPORT.1);
     let model = model_handle(&world);
 
-    assert_text(&world, "post_status", "按 ▶ 开始，点 S1 S2 拨道岔");
-    assert_text(&world, "post_shift", "01 晨班");
+    assert_text(&world, "post_status", "▶ to start · tap S1 S2 to switch");
+    assert_text(&world, "post_shift", "01 Dawn");
+    assert_text(&world, "post_run", "▶");
     assert!(is_hidden(&world, "post_modal"));
     assert_bounded_text_valid(&world);
 
     model.open_shifts();
     flush(&mut world);
     assert!(!is_hidden(&world, "post_modal"));
-    assert!(!is_hidden(&world, "post_shift_stars"));
+    assert!(!is_hidden(&world, "post_shift_list"));
     assert!(is_hidden(&world, "post_summary_score"));
-    assert_text(&world, "post_modal_title", "选择班次");
-    assert_text(&world, "post_modal_subtitle", "全部送对，这一班得 ★。");
+    assert_text(&world, "post_modal_title", "Shifts");
+    assert_text(
+        &world,
+        "post_modal_subtitle",
+        "Sort every parcel right to earn ★.",
+    );
     assert_text(&world, "post_shift_stars", "★ 0 / 6");
+    assert!(has_text(&world, "01 Dawn\n6 parcels · every 3.0 s\n☆"));
 
     model.load_shift(1);
     flush(&mut world);
     assert!(is_hidden(&world, "post_modal"));
-    assert_text(&world, "post_sorted", "SORTED 0 / 9");
-    assert_text(&world, "post_shift", "02 上午班");
+    assert_text(&world, "post_sorted", "Sorted 0/9");
+    assert_text(&world, "post_shift", "02 Morning");
 
     model.load_shift(0);
     model.spawn_manual();
     model.spawn_manual();
     flush(&mut world);
-    assert_text(&world, "post_status", "已暂停");
-    assert_text(&world, "post_in_transit", "2 / 2 在途");
+    assert_text(&world, "post_status", "Paused · missed 0 · streak 0");
+    assert_text(&world, "post_in_transit", "On rails 2/2");
     assert!(!is_hidden(&world, "post_queue_0"));
     assert!(is_hidden(&world, "post_queue_4"));
 
     model.open_reset();
     flush(&mut world);
-    assert!(is_hidden(&world, "post_shift_stars"));
+    assert!(is_hidden(&world, "post_shift_list"));
     assert!(!is_hidden(&world, "post_reset_confirm"));
-    assert_text(&world, "post_modal_title", "重来这一班？");
-    assert_text(&world, "post_reset_progress", "晨班 · 已送 0 / 6 件 · 0 分");
+    assert_text(&world, "post_modal_title", "Restart this shift?");
+    assert_text(&world, "post_reset_progress", "Dawn · sent 0/6 · 0 pts");
     assert_bounded_text_valid(&world);
 }
 
@@ -224,32 +261,56 @@ fn observed_state_updates_bounded_text_and_visibility() {
 fn finishing_a_shift_offers_the_next_one() {
     let mut world = fixture(VIEWPORT.0, VIEWPORT.1);
     let model = model_handle(&world);
-    model.toggle_running();
-    for _ in 0..2_000 {
-        model.advance_ms(120);
-        if model.finished() {
-            break;
-        }
-    }
-    assert!(model.finished());
+    finish_the_shift(&model);
     flush(&mut world);
     assert!(!is_hidden(&world, "post_summary_next"));
-    assert_text(&world, "post_modal_title", "晨班 完成");
-    assert_text(&world, "post_modal_subtitle", "错投 4 件。全部送对才得 ★。");
-    assert_text(&world, "post_summary_best", "最高 0220");
-    assert_text(&world, "post_summary_next", "下一班 · 上午班 →");
-    assert_text(&world, "post_status", "这一班送完了");
+    assert_text(&world, "post_modal_title", "Dawn done");
+    assert_text(
+        &world,
+        "post_modal_subtitle",
+        "4 sent astray. Sort all right for ★.",
+    );
+    assert_text(&world, "post_summary_best", "New best 0220");
+    assert_text(&world, "post_summary_correct", "Right 2");
+    assert_text(&world, "post_summary_missed", "Astray 4");
+    assert_text(&world, "post_summary_next", "Next: Morning →");
+    assert_text(&world, "post_status", "Shift done · missed 4");
     assert_bounded_text_valid(&world);
 
     model.next_shift();
     flush(&mut world);
     assert!(is_hidden(&world, "post_modal"));
-    assert_text(&world, "post_shift", "02 上午班");
-    assert_text(&world, "post_status", "按 ▶ 开始，点 S1 S2 拨道岔");
+    assert_text(&world, "post_shift", "02 Morning");
+    assert_text(&world, "post_status", "▶ to start · tap S1 S2 to switch");
 
     model.load_shift(5);
     model.open_shifts();
     model.close_modal();
     flush(&mut world);
-    assert_text(&world, "post_summary_next", "选班次");
+    assert_text(&world, "post_summary_next", "☰ Shifts");
+}
+
+#[test]
+fn every_word_follows_the_page_language() {
+    let mut world = fixture(VIEWPORT.0, VIEWPORT.1);
+    let model = model_handle(&world);
+    world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
+    flush(&mut world);
+    assert_text(&world, "post_title", "口袋邮局");
+    assert_text(&world, "post_shift", "01 晨班");
+    assert_text(&world, "post_sorted", "送对 0/6");
+    assert_text(&world, "post_status", "按 ▶ 开始 · 点 S1 S2 拨道岔");
+    assert!(has_text(&world, "薄荷港") && has_text(&world, "入口") && has_text(&world, "待发"));
+
+    finish_the_shift(&model);
+    flush(&mut world);
+    assert_text(&world, "post_modal_title", "晨班 完成");
+    assert_text(&world, "post_modal_subtitle", "错投 4 件。全部送对才得 ★。");
+    assert_text(&world, "post_summary_best", "新纪录 0220");
+    assert_text(&world, "post_summary_next", "下一班 · 上午班 →");
+
+    world.resource::<I18n>().unwrap().set_locale(Locale::EnUs);
+    flush(&mut world);
+    assert_text(&world, "post_modal_title", "Dawn done");
+    assert_text(&world, "post_title", "POCKET POST");
 }

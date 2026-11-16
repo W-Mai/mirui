@@ -1,12 +1,37 @@
 use super::data::{SHIFT_COUNT, SHIFTS, STATION_FLASH_TICKS, Shift};
+use super::motion::PostMotion;
 use super::route::PostRoute;
 use super::types::{DeliveryEvent, MAX_EVENTS, MAX_PARCELS, PostModal, PostParcel};
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::clock::BoundedClock;
+#[cfg(any(feature = "persistence", test))]
+use crate::gallery::play::expeditions::{ExpeditionSaveError, finish_packet, validate_packet};
 use crate::types::Fixed;
 
-#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
-#[derive(Clone, Copy, Debug)]
+#[cfg(any(feature = "persistence", test))]
+const SAVE_MAGIC: [u8; 4] = *b"PST1";
+#[cfg(any(feature = "persistence", test))]
+const SAVE_VERSION: u8 = 1;
+#[cfg(any(feature = "persistence", test))]
+const SAVE_PAYLOAD: usize = 7 + 2 * SHIFT_COUNT;
+#[cfg(any(feature = "persistence", test))]
+pub(crate) const SAVE_LEN: usize = SAVE_PAYLOAD + 4;
+
+/// What a restart keeps: the shift in play, its stars and best scores.
+#[cfg(any(feature = "persistence", test))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PostProgress {
+    shift: u8,
+    starred: u8,
+    best: [u16; SHIFT_COUNT],
+}
+
+#[crate::model(
+    change = ChangeSet,
+    watch(visual = ChangeSet::VISUAL),
+    persistence(key = "pocket_post/progress")
+)]
+#[derive(Clone, Copy)]
 pub(crate) struct PostModel {
     pub(super) parcels: [PostParcel; MAX_PARCELS],
     pub(super) events: [DeliveryEvent; MAX_EVENTS],
@@ -25,6 +50,8 @@ pub(crate) struct PostModel {
     pub(super) running: bool,
     pub(super) started: bool,
     pub(super) finished: bool,
+    /// The finished shift beat its best score.
+    pub(super) new_best: bool,
     pub(super) modal: PostModal,
     pub(super) spawn_clock_half_ticks: u16,
     pub(super) score: u16,
@@ -32,6 +59,7 @@ pub(crate) struct PostModel {
     pub(super) best: [u16; SHIFT_COUNT],
     /// Shifts finished without a single wrong delivery.
     pub(super) starred: u8,
+    pub(super) motion: PostMotion,
 }
 
 impl Default for PostModel {
@@ -54,11 +82,13 @@ impl Default for PostModel {
             running: false,
             started: false,
             finished: false,
+            new_best: false,
             modal: PostModal::None,
             spawn_clock_half_ticks: 0,
             score: 0,
             best: [0; SHIFT_COUNT],
             starred: 0,
+            motion: PostMotion::new(),
         }
     }
 }
@@ -83,6 +113,10 @@ impl PostModel {
         self.switches[index]
     }
 
+    pub(crate) const fn motion(&self) -> &PostMotion {
+        &self.motion
+    }
+
     #[cfg(test)]
     pub(crate) const fn cursor(&self) -> u8 {
         self.cursor
@@ -100,6 +134,66 @@ impl PostModel {
     #[cfg(test)]
     pub(crate) fn event(&self, index: usize) -> Option<DeliveryEvent> {
         (index < usize::from(self.event_len)).then_some(self.events[index])
+    }
+
+    #[cfg(any(feature = "persistence", test))]
+    pub(crate) fn encode_into(&self, output: &mut [u8]) -> Result<usize, ExpeditionSaveError> {
+        if output.len() < SAVE_LEN {
+            return Err(ExpeditionSaveError::BufferTooSmall);
+        }
+        output[..4].copy_from_slice(&SAVE_MAGIC);
+        output[4] = SAVE_VERSION;
+        output[5] = self.shift;
+        output[6] = self.starred;
+        for (index, best) in self.best.iter().enumerate() {
+            output[7 + index * 2..9 + index * 2].copy_from_slice(&best.to_le_bytes());
+        }
+        finish_packet(output, SAVE_PAYLOAD);
+        Ok(SAVE_LEN)
+    }
+
+    #[cfg(any(feature = "persistence", test))]
+    pub(crate) fn decode_progress(input: &[u8]) -> Result<PostProgress, ExpeditionSaveError> {
+        validate_packet(input, SAVE_PAYLOAD)?;
+        if input[..4] != SAVE_MAGIC {
+            return Err(ExpeditionSaveError::InvalidMagic);
+        }
+        if input[4] != SAVE_VERSION {
+            return Err(ExpeditionSaveError::UnsupportedVersion);
+        }
+        let shift = input[5];
+        if usize::from(shift) >= SHIFT_COUNT {
+            return Err(ExpeditionSaveError::InvalidLevel);
+        }
+        let starred = input[6];
+        let mut best = [0; SHIFT_COUNT];
+        for (index, slot) in best.iter_mut().enumerate() {
+            *slot = u16::from_le_bytes([input[7 + index * 2], input[8 + index * 2]]);
+        }
+        // A star belongs to a finished shift, and a finished shift has a score.
+        let finished =
+            (0..SHIFT_COUNT).all(|index| starred & (1 << index) == 0 || best[index] != 0);
+        if u16::from(starred) >> SHIFT_COUNT != 0 || !finished {
+            return Err(ExpeditionSaveError::InvalidRecord);
+        }
+        Ok(PostProgress {
+            shift,
+            starred,
+            best,
+        })
+    }
+
+    /// Takes back saved stars and best scores, and opens the shift that was
+    /// in play from its first parcel.
+    #[cfg(any(feature = "persistence", test))]
+    pub(crate) fn restore(&mut self, progress: PostProgress) {
+        *self = Self {
+            shift: progress.shift,
+            starred: progress.starred,
+            best: progress.best,
+            speed_index: self.speed_index,
+            ..Self::default()
+        };
     }
 }
 
@@ -158,6 +252,11 @@ impl PostModel {
     }
 
     #[observe]
+    pub(crate) fn new_best(&self) -> bool {
+        self.new_best
+    }
+
+    #[observe]
     pub(crate) fn starred(&self) -> u8 {
         self.starred
     }
@@ -167,19 +266,10 @@ impl PostModel {
         usize::from(self.shift) + 1 < SHIFT_COUNT
     }
 
+    /// Parcels each station has taken this shift, A to C.
     #[observe]
-    pub(crate) fn station_a_count(&self) -> u8 {
-        self.arrivals[0]
-    }
-
-    #[observe]
-    pub(crate) fn station_b_count(&self) -> u8 {
-        self.arrivals[1]
-    }
-
-    #[observe]
-    pub(crate) fn station_c_count(&self) -> u8 {
-        self.arrivals[2]
+    pub(crate) fn arrivals(&self) -> [u8; 3] {
+        self.arrivals
     }
 
     #[observe]
@@ -225,6 +315,7 @@ impl PostModel {
             return ChangeSet::NONE;
         }
         self.switches[index] ^= 1;
+        self.motion.swing(index, self.switches[index]);
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
@@ -269,6 +360,9 @@ impl PostModel {
     }
 
     pub(crate) fn open_reset(&mut self) -> ChangeSet {
+        if self.modal != PostModal::None {
+            return ChangeSet::NONE;
+        }
         self.running = false;
         self.clock.reset();
         self.modal = PostModal::Reset;
@@ -281,6 +375,26 @@ impl PostModel {
         }
         self.modal = PostModal::None;
         ChangeSet::MODEL | ChangeSet::VISUAL
+    }
+
+    /// Enter: moves on from the summary, confirms a restart, or starts and
+    /// pauses the shift.
+    pub(crate) fn confirm(&mut self) -> ChangeSet {
+        match self.modal {
+            PostModal::Summary => self.next_shift(),
+            PostModal::Reset => self.restart(),
+            PostModal::None => self.toggle_running(),
+            PostModal::Shifts => ChangeSet::NONE,
+        }
+    }
+
+    /// Esc: closes a panel, or opens the shift list.
+    pub(crate) fn back(&mut self) -> ChangeSet {
+        if self.modal == PostModal::None {
+            self.open_shifts()
+        } else {
+            self.close_modal()
+        }
     }
 
     /// Starts `shift` from its first parcel. Best scores, stars and the
@@ -313,6 +427,8 @@ impl PostModel {
         }
     }
 
+    /// Runs the rails on in fixed steps, and the levers, rings and star at
+    /// the frame's own pace.
     pub(crate) fn advance_ms(&mut self, elapsed_ms: u16) -> ChangeSet {
         let steps = self.clock.steps(
             elapsed_ms,
@@ -321,6 +437,9 @@ impl PostModel {
         let mut changes = ChangeSet::NONE;
         for _ in 0..steps {
             changes = changes | self.step_fixed();
+        }
+        if self.motion.advance(elapsed_ms) {
+            changes = changes | ChangeSet::VISUAL;
         }
         changes
     }
@@ -402,7 +521,7 @@ impl PostModel {
                 index += 1;
             }
         }
-        if self.cursor == self.parcel_count() && self.parcel_len == 0 {
+        if !self.finished && self.cursor == self.parcel_count() && self.parcel_len == 0 {
             self.finish();
             model_changed = true;
         }
@@ -421,9 +540,11 @@ impl PostModel {
         self.modal = PostModal::Summary;
         self.clock.reset();
         let shift = usize::from(self.shift);
+        self.new_best = self.score > self.best[shift];
         self.best[shift] = self.best[shift].max(self.score);
         if self.missed == 0 {
             self.starred |= 1 << shift;
+            self.motion.pop_star();
         }
     }
 
@@ -434,6 +555,7 @@ impl PostModel {
         let correct = parcel.target == station;
         self.arrivals[usize::from(station)] = self.arrivals[usize::from(station)].saturating_add(1);
         self.flashes[usize::from(station)] = STATION_FLASH_TICKS;
+        self.motion.deliver(usize::from(station), correct);
         if correct {
             self.delivered = self.delivered.saturating_add(1);
             self.streak = self.streak.saturating_add(1);
