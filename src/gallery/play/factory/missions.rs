@@ -2,6 +2,7 @@ use super::types::{
     CELL_COUNT, FactoryCell, FactoryLayout, FactoryMission, GRID_HEIGHT, GRID_WIDTH, MISSION_COUNT,
     MaterialStage, ModuleKind,
 };
+use crate::tr;
 
 /// Reads a floor plan written as rows of two-letter cells: `..` empty,
 /// `##` wall, `S` source, `D` dock, `B` belt, `F` furnace, `A` assembler and
@@ -50,8 +51,11 @@ const fn at(x: usize, y: usize) -> u8 {
 
 pub(crate) static MISSIONS: [FactoryMission; MISSION_COUNT] = [
     FactoryMission {
-        name: "试产零件",
-        description: "C6 缺一段传送带。\n补上它，然后试产。",
+        name: tr!(en: "Trial Run", zh: "试产零件"),
+        description: tr!(
+            en: "C6 is missing a belt. Add it, then run a trial.",
+            zh: "C6 缺一段传送带。\n补上它，然后试产。"
+        ),
         target: MaterialStage::Gear,
         goal: 6,
         limit: 120,
@@ -76,8 +80,11 @@ pub(crate) static MISSIONS: [FactoryMission; MISSION_COUNT] = [
         ]),
     },
     FactoryMission {
-        name: "转角产线",
-        description: "转角的传送带朝向不对，\n下面还缺一格。",
+        name: tr!(en: "Corner Line", zh: "转角产线"),
+        description: tr!(
+            en: "The corner belt points the wrong way, and one cell below is missing.",
+            zh: "转角的传送带朝向不对，\n下面还缺一格。"
+        ),
         target: MaterialStage::Gear,
         goal: 8,
         limit: 150,
@@ -102,8 +109,11 @@ pub(crate) static MISSIONS: [FactoryMission; MISSION_COUNT] = [
         ]),
     },
     FactoryMission {
-        name: "自建机器",
-        description: "两处空位：前面放熔炼炉，\n后面放装配机。",
+        name: tr!(en: "Own Machines", zh: "自建机器"),
+        description: tr!(
+            en: "Fill the two gaps: a furnace first, then an assembler.",
+            zh: "两处空位：前面放熔炼炉，\n后面放装配机。"
+        ),
         target: MaterialStage::Gear,
         goal: 8,
         limit: 150,
@@ -128,8 +138,11 @@ pub(crate) static MISSIONS: [FactoryMission; MISSION_COUNT] = [
         ]),
     },
     FactoryMission {
-        name: "质检上线",
-        description: "零件过了质检台才算合格品。\n把 C7 换成质检台。",
+        name: tr!(en: "Inspection", zh: "质检上线"),
+        description: tr!(
+            en: "Gears count only once inspected. Make C7 an inspector.",
+            zh: "零件过了质检台才算合格品。\n把 C7 换成质检台。"
+        ),
         target: MaterialStage::Certified,
         goal: 8,
         limit: 150,
@@ -154,8 +167,11 @@ pub(crate) static MISSIONS: [FactoryMission; MISSION_COUNT] = [
         ]),
     },
     FactoryMission {
-        name: "隔墙绕行",
-        description: "隔墙挡在中间，\n从上面或下面绕过去。",
+        name: tr!(en: "Wall Detour", zh: "隔墙绕行"),
+        description: tr!(
+            en: "A wall stands in the way. Go around it, above or below.",
+            zh: "隔墙挡在中间，\n从上面或下面绕过去。"
+        ),
         target: MaterialStage::Gear,
         goal: 8,
         limit: 180,
@@ -180,8 +196,11 @@ pub(crate) static MISSIONS: [FactoryMission; MISSION_COUNT] = [
         ]),
     },
     FactoryMission {
-        name: "最短路线",
-        description: "信用按最短路线给，\n多一格都不行。",
+        name: tr!(en: "Shortest Path", zh: "最短路线"),
+        description: tr!(
+            en: "The credits pay for the shortest route and not one cell more.",
+            zh: "信用按最短路线给，\n多一格都不行。"
+        ),
         target: MaterialStage::Gear,
         goal: 8,
         limit: 180,
@@ -206,8 +225,11 @@ pub(crate) static MISSIONS: [FactoryMission; MISSION_COUNT] = [
         ]),
     },
     FactoryMission {
-        name: "双线并行",
-        description: "一条线交不完，\n在下面再搭一条。",
+        name: tr!(en: "Twin Lines", zh: "双线并行"),
+        description: tr!(
+            en: "One line cannot ship enough in time. Build a second one below.",
+            zh: "一条线交不完，\n在下面再搭一条。"
+        ),
         target: MaterialStage::Gear,
         goal: 16,
         limit: 60,
@@ -232,8 +254,11 @@ pub(crate) static MISSIONS: [FactoryMission; MISSION_COUNT] = [
         ]),
     },
     FactoryMission {
-        name: "两线合流",
-        description: "功率只能带一台质检台，\n两条线要先合流。",
+        name: tr!(en: "Merge", zh: "两线合流"),
+        description: tr!(
+            en: "The power runs one inspector only, so merge the two lines first.",
+            zh: "功率只能带一台质检台，\n两条线要先合流。"
+        ),
         target: MaterialStage::Certified,
         goal: 20,
         limit: 90,

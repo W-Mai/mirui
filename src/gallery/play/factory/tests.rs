@@ -1,10 +1,12 @@
 use super::missions::MISSIONS;
-use super::model::{FactoryModel, neighbor};
+use super::model::{FactoryModel, SAVE_LEN, neighbor};
 use super::types::{
     CELL_COUNT, FactoryError, FactoryLayout, FactoryModal, FactoryPage, FactoryStatus, FactoryTool,
     GRID_WIDTH, MAX_TELEMETRY, MAX_UNDO, MISSION_COUNT, ModuleKind,
 };
 use crate::gallery::play::change::ChangeSet;
+use crate::gallery::play::expeditions::ExpeditionSaveError;
+use crate::types::Fixed;
 
 fn assert_conserved(model: &FactoryModel) {
     assert_eq!(
@@ -194,7 +196,7 @@ fn shortest_route(cells: &FactoryLayout) -> usize {
 fn shortest_route_order_has_no_spare_credit() {
     let order = MISSIONS
         .iter()
-        .find(|order| order.name == "最短路线")
+        .find(|order| order.name.zh == "最短路线")
         .unwrap();
     let machines = ModuleKind::Furnace.cost() + ModuleKind::Assembler.cost();
     let cheapest = shortest_route(order.start) as u8 - 2 + machines;
@@ -531,4 +533,135 @@ fn wrong_stage_at_dock_is_rejected() {
     assert_eq!(model.delivered, 0);
     assert!(model.rejected > 0);
     assert_conserved(&model);
+}
+
+#[test]
+fn every_example_line_earns_three_stars() {
+    for mission in 0..MISSION_COUNT as u8 {
+        let mut model = FactoryModel::default();
+        model.load_mission_state(mission, true);
+        run_to_end(&mut model);
+        assert_eq!(model.stars_earned(), 3, "{}", model.mission().name);
+        assert_eq!(model.modal(), FactoryModal::Result);
+    }
+}
+
+#[test]
+fn spare_modules_cost_stars_and_the_best_result_is_kept() {
+    let mut model = FactoryModel::default();
+    model.load_mission_state(0, true);
+    run_to_end(&mut model);
+    assert_eq!(model.stars()[0], 3);
+
+    model.load_mission_state(0, true);
+    for x in 0..3 {
+        model.edit(at(x, 0), Some(ModuleKind::Belt), 0).unwrap();
+    }
+    run_to_end(&mut model);
+    assert_eq!(model.status, FactoryStatus::Won);
+    assert_eq!(model.stars_earned(), 1);
+    assert_eq!(model.stars()[0], 3);
+}
+
+#[test]
+fn items_remember_the_cell_they_left_and_glide_over() {
+    let mut model = FactoryModel::default();
+    model.load_mission_state(0, true);
+    let source = at(0, 2);
+    model.step_once().unwrap();
+    assert_eq!(usize::from(model.item(source).unwrap().from), source);
+    model.step_once().unwrap();
+    assert_eq!(usize::from(model.item(at(1, 2)).unwrap().from), source);
+    assert_eq!(model.glide(), Fixed::ZERO);
+    model.advance_ms(100);
+    assert!(model.glide() > Fixed::ZERO && model.glide() < Fixed::ONE);
+    model.advance_ms(200);
+    assert_eq!(model.glide(), Fixed::ONE);
+    assert_eq!(model.advance_ms(16), ChangeSet::NONE);
+}
+
+#[test]
+fn a_running_line_glides_for_the_whole_tick() {
+    let mut model = FactoryModel::default();
+    model.load_mission_state(0, true);
+    model.toggle_run().unwrap();
+    model.advance_ms(500);
+    assert_eq!(model.tick, 1);
+    model.advance_ms(250);
+    assert!(model.glide() > Fixed::ZERO && model.glide() < Fixed::ONE);
+    model.advance_ms(250);
+    assert_eq!(model.tick, 2);
+    assert_eq!(model.glide(), Fixed::ZERO);
+}
+
+#[test]
+fn docks_take_items_in_sliding() {
+    let mut model = FactoryModel::default();
+    model.load_mission_state(0, true);
+    while model.delivered == 0 {
+        assert!(model.step_model());
+    }
+    let arrival = model.arrival(0).unwrap();
+    assert_eq!(usize::from(arrival.dock), at(8, 2));
+    assert_eq!(usize::from(arrival.from), at(7, 2));
+    assert!(arrival.accepted);
+    assert!(model.arrival(1).is_none());
+}
+
+#[test]
+fn the_result_card_pops_its_stars_and_leads_on() {
+    let mut model = FactoryModel::default();
+    model.load_mission_state(0, true);
+    run_to_end(&mut model);
+    assert_eq!(model.star_scale(0), Fixed::ZERO);
+    let mut frames = 0;
+    while model.advance_ms(16).contains(ChangeSet::VISUAL) {
+        frames += 1;
+        assert!(frames < 120, "the stars keep moving");
+    }
+    assert_eq!(model.star_scale(2), Fixed::ONE);
+    assert!(model.select_modal_option(0).contains(ChangeSet::MODEL));
+    assert_eq!(model.mission_index(), 1);
+    assert_eq!(model.modal(), FactoryModal::None);
+
+    model.load_mission_state(MISSION_COUNT as u8 - 1, true);
+    run_to_end(&mut model);
+    model.select_modal_option(0);
+    assert_eq!(model.modal(), FactoryModal::None);
+    assert_eq!(model.page(), FactoryPage::Orders);
+}
+
+#[test]
+fn progress_round_trips_and_reopens_the_saved_order() {
+    let mut source = FactoryModel::default();
+    source.load_mission_state(3, true);
+    run_to_end(&mut source);
+    source.load_mission_state(5, false);
+    let mut bytes = [0; SAVE_LEN];
+    assert_eq!(source.encode_progress(&mut bytes), Ok(SAVE_LEN));
+    assert_eq!(&bytes[..4], b"MFC1");
+    let mut restored = FactoryModel::default();
+    restored.apply_progress(FactoryModel::decode_progress(&bytes).unwrap());
+    assert_eq!(restored.mission_index(), 5);
+    assert_eq!(restored.stars(), source.stars());
+    assert_eq!(restored.completed(), 1 << 3);
+    assert_eq!(restored.modal(), FactoryModal::None);
+
+    let mut broken = bytes;
+    broken[6] ^= 1;
+    assert_eq!(
+        FactoryModel::decode_progress(&broken),
+        Err(ExpeditionSaveError::InvalidChecksum)
+    );
+}
+
+#[test]
+fn arrows_move_the_highlight_within_the_grid() {
+    let mut model = FactoryModel::default();
+    model.selection = 0;
+    assert_eq!(model.move_selection(2), ChangeSet::NONE);
+    assert_eq!(model.move_selection(3), ChangeSet::NONE);
+    model.move_selection(0);
+    model.move_selection(1);
+    assert_eq!(model.selected(), at(1, 1));
 }

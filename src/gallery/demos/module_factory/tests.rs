@@ -1,16 +1,19 @@
 use super::input::{factory_tick_system, local_cell};
 use super::setup_app;
 use super::state::FactorySurface;
+use crate::core::i18n::{I18n, Locale};
 use crate::core::model::ModelHandle;
 use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::gallery::play::factory::{
-    FactoryError, FactoryModel, FactoryModelHandle, FactoryTool, ModuleKind,
+    FactoryError, FactoryModal, FactoryModel, FactoryModelHandle, FactoryPage, FactoryStatus,
+    FactoryTool, MISSION_COUNT, MISSIONS, ModuleKind,
 };
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::ComputedRect;
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::ViewRegistry;
+use crate::ui::widgets::Text;
 
 fn fixture() -> World {
     let mut app = App::headless(480, 320);
@@ -29,6 +32,14 @@ fn model_handle(world: &World) -> FactoryModelHandle {
 
 fn with_model<R>(world: &World, inspect: impl FnOnce(&FactoryModel) -> R) -> R {
     ModelHandle::read(&model_handle(world), inspect)
+}
+
+fn label(world: &World, id: &'static str) -> String {
+    world
+        .get::<Text>(world.find_by_id(id).unwrap())
+        .unwrap()
+        .resolve(world.resource())
+        .into_owned()
 }
 
 #[test]
@@ -53,9 +64,15 @@ fn bound_tick_uses_delta_time_and_zero_elapsed_is_idle() {
 #[test]
 fn composition_uses_one_dense_surface_and_semantic_controls() {
     let world = fixture();
-    assert!(world.find_by_id("factory_surface").is_some());
-    assert!(world.find_by_id("factory_footer_4").is_some());
-    assert!(world.find_by_id("factory_reference").is_some());
+    for id in [
+        "factory_surface",
+        "factory_run",
+        "factory_tool",
+        "factory_reference",
+        "factory_result_next",
+    ] {
+        assert!(world.find_by_id(id).is_some(), "{id}");
+    }
     assert_eq!(world.query::<FactorySurface>().collect().len(), 1);
 }
 
@@ -69,7 +86,7 @@ fn surface_places_selected_tool_through_the_bound_model() {
     model.set_tool(FactoryTool::Build(ModuleKind::Belt));
     assert_eq!(
         with_model(&world, |model| {
-            local_cell(model.page(), model.modal(), Point::new(183, 142))
+            local_cell(model.page(), model.modal(), Point::new(225, 146))
         }),
         Some(23)
     );
@@ -77,8 +94,8 @@ fn surface_places_selected_tool_through_the_bound_model() {
         let decision = crate::__macro_support::dispatch_entity_gesture(
             &mut world,
             &GestureEvent::Tap {
-                x: Fixed::from_int(183),
-                y: Fixed::from_int(142),
+                x: Fixed::from_int(225),
+                y: Fixed::from_int(146),
                 target: surface,
             },
             0,
@@ -116,6 +133,33 @@ fn fallible_commands_publish_only_after_success() {
     crate::core::reactive::flush_signal_dirty(&mut world);
     assert!(world.has::<VisualDirty>(surface));
     assert_eq!(with_model(&world, FactoryModel::tool_direction), 1);
+}
+
+#[test]
+fn labels_follow_the_page_language() {
+    let mut world = fixture();
+    assert_eq!(label(&world, "factory_tab_line"), "Line");
+    assert_eq!(label(&world, "factory_order_meta"), "01 · Trial Run");
+    assert_eq!(label(&world, "factory_run"), "▶ Run");
+
+    world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(label(&world, "factory_tab_line"), "产线");
+    assert_eq!(label(&world, "factory_order_meta"), "01 · 试产零件");
+    assert_eq!(label(&world, "factory_run"), "▶ 运行");
+    assert_eq!(label(&world, "factory_target"), "零件");
+    assert_eq!(
+        label(&world, "factory_status"),
+        "C6 缺一段传送带。补上它，然后试产。"
+    );
+
+    world.resource::<I18n>().unwrap().set_locale(Locale::EnUs);
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(label(&world, "factory_target"), "Gear");
+    assert_eq!(
+        label(&world, "factory_status"),
+        "C6 is missing a belt. Add it, then run a trial."
+    );
 }
 
 /// Every visible text fits its box; without a dialog over the page, no two
@@ -156,55 +200,71 @@ fn settle<B: Surface, F: RendererFactory<B>>(app: &mut App<B, F>, modal_open: bo
 }
 
 #[test]
-fn every_page_order_and_dialog_reads_cleanly() {
-    use crate::gallery::play::factory::{FactoryModal, FactoryPage, FactoryStatus, MISSION_COUNT};
-
-    let mut app = App::headless(480, 320);
-    app.with_default_widgets().with_default_systems();
-    let root = app.spawn_root().id();
-    setup_app(&mut app, root);
-    app.render().unwrap();
-    let model = model_handle(&app.world);
-    for mission in 0..MISSION_COUNT as u8 {
-        model.request_mission(mission, true);
-        for page in [
-            FactoryPage::Line,
-            FactoryPage::Orders,
-            FactoryPage::Telemetry,
-        ] {
-            model.set_page(page);
+fn every_page_order_and_dialog_reads_cleanly_in_both_languages() {
+    for locale in [Locale::EnUs, Locale::ZhCn] {
+        let mut app = App::headless(480, 320);
+        app.with_default_widgets().with_default_systems();
+        app.world.resource::<I18n>().unwrap().set_locale(locale);
+        let root = app.spawn_root().id();
+        setup_app(&mut app, root);
+        app.render().unwrap();
+        let model = model_handle(&app.world);
+        for mission in 0..MISSION_COUNT as u8 {
+            model.request_mission(mission, true);
+            for page in [
+                FactoryPage::Line,
+                FactoryPage::Orders,
+                FactoryPage::Telemetry,
+            ] {
+                model.set_page(page);
+                settle(&mut app, false);
+            }
+            model.set_page(FactoryPage::Line);
+            loop {
+                model.step_once().unwrap();
+                if matches!(model.status(), FactoryStatus::Won | FactoryStatus::Timeout) {
+                    break;
+                }
+                if model.tick() % 16 == 0 {
+                    settle(&mut app, false);
+                }
+            }
+            assert_eq!(model.modal(), FactoryModal::Result);
+            settle(&mut app, true);
+            model.close_modal();
+            settle(&mut app, false);
+            model.set_page(FactoryPage::Telemetry);
+            settle(&mut app, false);
+            model.set_page(FactoryPage::Orders);
+            settle(&mut app, false);
+            model.request_mission(mission, false);
+            model.set_page(FactoryPage::Line);
+            for cell in [0, 13, 40] {
+                model.tap_cell(cell);
+                settle(&mut app, false);
+            }
+            for _ in 0..12 {
+                model.step_once().unwrap();
+            }
             settle(&mut app, false);
         }
         model.set_page(FactoryPage::Line);
-        loop {
-            model.step_once().unwrap();
-            if matches!(model.status(), FactoryStatus::Won | FactoryStatus::Timeout) {
-                break;
-            }
-            if model.tick() % 16 == 0 {
-                settle(&mut app, false);
-            }
+        model.set_tool(FactoryTool::Build(ModuleKind::Belt));
+        model.tap_cell(0);
+        settle(&mut app, false);
+        model.set_tool(FactoryTool::Build(ModuleKind::Assembler));
+        settle(&mut app, false);
+        for modal in [FactoryModal::Tools, FactoryModal::Help] {
+            model.open_modal(modal);
+            settle(&mut app, true);
+            model.close_modal();
         }
-        settle(&mut app, false);
-        model.set_page(FactoryPage::Telemetry);
-        settle(&mut app, false);
-        model.set_page(FactoryPage::Orders);
-        settle(&mut app, false);
-    }
-    model.set_page(FactoryPage::Line);
-    model.set_tool(FactoryTool::Build(ModuleKind::Belt));
-    model.tap_cell(0);
-    settle(&mut app, false);
-    for modal in [FactoryModal::Tools, FactoryModal::Help] {
-        model.open_modal(modal);
+        model.request_mission(0, false);
         settle(&mut app, true);
         model.close_modal();
+        model.request_mission(3, true);
+        settle(&mut app, true);
     }
-    model.request_mission(0, false);
-    settle(&mut app, true);
-    model.close_modal();
-    model.request_mission(0, true);
-    settle(&mut app, true);
 }
 
 /// Taps whatever control sits at `(x, y)` on the rendered screen.
@@ -223,20 +283,18 @@ fn tap_at<B: Surface, F: RendererFactory<B>>(app: &mut App<B, F>, root: Entity, 
 
 #[test]
 fn order_tiles_browse_and_the_start_button_loads() {
-    use crate::gallery::play::factory::{FactoryPage, MISSIONS};
-
     let mut app = App::headless(480, 320);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
     setup_app(&mut app, root);
     app.render().unwrap();
     let model = model_handle(&app.world);
-    tap_at(&mut app, root, 148, 45);
+    tap_at(&mut app, root, 163, 13);
     assert_eq!(model.page(), FactoryPage::Orders);
-    tap_at(&mut app, root, 227, 136);
+    tap_at(&mut app, root, 275, 129);
     assert_eq!(model.browse(), 3);
     assert_eq!(model.mission_index(), 0);
-    tap_at(&mut app, root, 353, 230);
+    tap_at(&mut app, root, 400, 276);
     assert_eq!(model.mission_index(), 3);
     assert_eq!(model.page(), FactoryPage::Line);
     assert_eq!(model.selected(), usize::from(MISSIONS[3].focus));
@@ -244,4 +302,25 @@ fn order_tiles_browse_and_the_start_button_loads() {
         (0..crate::gallery::play::factory::CELL_COUNT)
             .all(|index| model.cell(index) == MISSIONS[3].start[index])
     }));
+}
+
+#[test]
+fn a_finished_order_shows_its_stars_and_the_next_one_is_one_tap() {
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    app.render().unwrap();
+    let model = model_handle(&app.world);
+    model.request_mission(0, true);
+    while model.modal() != FactoryModal::Result {
+        model.step_once().unwrap();
+    }
+    app.render_dirty().unwrap();
+    assert_eq!(model.stars()[0], 3);
+    assert_eq!(label(&app.world, "factory_result_title"), "Order 01 done");
+    assert_eq!(label(&app.world, "factory_result_next"), "Next order ▶");
+    tap_at(&mut app, root, 276, 209);
+    assert_eq!(model.mission_index(), 1);
+    assert_eq!(model.modal(), FactoryModal::None);
 }

@@ -1,15 +1,36 @@
 use super::missions::MISSIONS;
 use super::types::{
-    CELL_COUNT, FactoryCell, FactoryError, FactoryItem, FactoryLayout, FactoryMission,
+    Arrival, CELL_COUNT, FactoryCell, FactoryError, FactoryItem, FactoryLayout, FactoryMission,
     FactoryModal, FactoryPage, FactoryStatus, FactoryTelemetry, FactoryTool, GRID_HEIGHT,
-    GRID_WIDTH, MAX_TELEMETRY, MAX_UNDO, MISSION_COUNT, MaterialStage, ModuleKind,
+    GRID_WIDTH, MAX_ARRIVALS, MAX_TELEMETRY, MAX_UNDO, MISSION_COUNT, MaterialStage, ModuleKind,
+    stars_for,
 };
+use crate::anim::{Easing, Motion, PlayMode, SNAPPY, Spring, Transition, Tween, ease};
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::clock::BoundedClock;
+#[cfg(any(feature = "persistence", test))]
+use crate::gallery::play::expeditions::{ExpeditionSaveError, finish_packet, validate_packet};
+use crate::types::Fixed;
 
 /// Two ticks a second, or eight at ×4.
 const NORMAL_CLOCK: BoundedClock = BoundedClock::new(2, 1_000, 4);
 const FAST_CLOCK: BoundedClock = BoundedClock::new(8, 1_000, 8);
+/// How long items take to slide one cell: a whole tick while the line runs,
+/// a short glide for a single step.
+const NORMAL_TICK_MS: u16 = 500;
+const FAST_TICK_MS: u16 = 125;
+const STEP_GLIDE_MS: u16 = 200;
+/// The stars of the result card pop in this far apart.
+const POP_STAGGER_MS: u16 = 90;
+
+#[cfg(any(feature = "persistence", test))]
+const SAVE_MAGIC: [u8; 4] = *b"MFC1";
+#[cfg(any(feature = "persistence", test))]
+const SAVE_VERSION: u8 = 1;
+#[cfg(any(feature = "persistence", test))]
+const SAVE_PAYLOAD: usize = 6 + MISSION_COUNT;
+#[cfg(any(feature = "persistence", test))]
+pub(crate) const SAVE_LEN: usize = SAVE_PAYLOAD + 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct FactorySnapshot {
@@ -20,6 +41,14 @@ impl FactorySnapshot {
     const EMPTY: Self = Self {
         cells: [None; CELL_COUNT],
     };
+}
+
+/// The stars and the open order, kept between sessions.
+#[cfg(any(feature = "persistence", test))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct FactoryProgress {
+    mission: u8,
+    stars: [u8; MISSION_COUNT],
 }
 
 /// The cell one step from `index` in `direction`, if it is on the grid.
@@ -79,13 +108,36 @@ fn layout_cost(cells: &FactoryLayout) -> u8 {
     cells.iter().flatten().map(|cell| cell.kind.cost()).sum()
 }
 
-#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+/// Motion that has already arrived.
+fn settled_glide() -> Tween {
+    Tween::new(Fixed::ONE, Fixed::ONE, 0, &ease::LINEAR, PlayMode::Once)
+}
+
+fn resting_star() -> Motion {
+    Spring::preset(Fixed::ZERO, Fixed::ZERO, SNAPPY).into()
+}
+
+#[crate::model(
+    change = ChangeSet,
+    watch(visual = ChangeSet::VISUAL),
+    persistence(key = "module_factory/progress")
+)]
 pub(crate) struct FactoryModel {
     pub(super) cells: FactoryLayout,
     pub(super) items: [Option<FactoryItem>; CELL_COUNT],
     history: [FactorySnapshot; MAX_UNDO],
     telemetry: [FactoryTelemetry; MAX_TELEMETRY],
     clock: BoundedClock,
+    /// How far the items of the last tick have slid toward their new cells.
+    glide: Tween,
+    /// Items the docks took in on the last tick.
+    arrivals: [Option<Arrival>; MAX_ARRIVALS],
+    /// The result card's stars, each a spring from 0 to full size.
+    pop: [Motion; 3],
+    pop_ms: u16,
+    popped: u8,
+    /// The best stars each order has earned; 0 until it is finished.
+    stars: [u8; MISSION_COUNT],
     page: FactoryPage,
     tool: FactoryTool,
     modal: FactoryModal,
@@ -93,7 +145,6 @@ pub(crate) struct FactoryModel {
     pub(super) status: FactoryStatus,
     mission: u8,
     browse: u8,
-    completed: u8,
     pub(super) selection: u8,
     pub(super) tool_direction: u8,
     pub(super) history_len: u8,
@@ -117,6 +168,12 @@ impl Default for FactoryModel {
             history: [FactorySnapshot::EMPTY; MAX_UNDO],
             telemetry: [FactoryTelemetry::default(); MAX_TELEMETRY],
             clock: NORMAL_CLOCK,
+            glide: settled_glide(),
+            arrivals: [None; MAX_ARRIVALS],
+            pop: [resting_star(); 3],
+            pop_ms: 0,
+            popped: 0,
+            stars: [0; MISSION_COUNT],
             page: FactoryPage::Line,
             tool: FactoryTool::Select,
             modal: FactoryModal::None,
@@ -124,7 +181,6 @@ impl Default for FactoryModel {
             status: FactoryStatus::Ready,
             mission: 0,
             browse: 0,
-            completed: 0,
             selection: 0,
             tool_direction: 0,
             history_len: 0,
@@ -196,7 +252,21 @@ impl FactoryModel {
     /// One bit per finished order.
     #[observe]
     pub(crate) fn completed(&self) -> u8 {
-        self.completed
+        (0..MISSION_COUNT)
+            .filter(|mission| self.stars[*mission] != 0)
+            .fold(0, |mask, mission| mask | 1 << mission)
+    }
+
+    /// The best stars of every order.
+    #[observe]
+    pub(crate) fn stars(&self) -> [u8; MISSION_COUNT] {
+        self.stars
+    }
+
+    /// The credits the example line spends: three stars at or under it.
+    #[observe]
+    pub(crate) fn par_cost(&self) -> u8 {
+        layout_cost(self.mission().reference)
     }
 
     /// The order just won has a next one to offer.
@@ -350,6 +420,11 @@ impl FactoryModel {
         }
         self.modal = modal;
         self.clock.reset();
+        if modal == FactoryModal::Result {
+            self.pop = [resting_star(); 3];
+            self.pop_ms = 0;
+            self.popped = 0;
+        }
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
@@ -379,6 +454,16 @@ impl FactoryModel {
     pub(crate) fn toggle_speed(&mut self) -> ChangeSet {
         self.fast = !self.fast;
         self.clock = if self.fast { FAST_CLOCK } else { NORMAL_CLOCK };
+        ChangeSet::MODEL | ChangeSet::VISUAL
+    }
+
+    /// Moves the highlight one cell, staying on the grid.
+    pub(crate) fn move_selection(&mut self, direction: u8) -> ChangeSet {
+        let Some(next) = neighbor(self.selected(), direction) else {
+            return ChangeSet::NONE;
+        };
+        self.selection = next as u8;
+        self.page = FactoryPage::Line;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
@@ -533,21 +618,48 @@ impl FactoryModel {
         self.running = false;
         self.notice = None;
         self.step_model();
+        self.start_glide(STEP_GLIDE_MS, &ease::OUT_QUAD);
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
     }
 
+    /// The frame clock: slides the items of the last tick, runs the line
+    /// and pops the stars of the result card.
     pub(crate) fn advance_ms(&mut self, elapsed_ms: u16) -> ChangeSet {
+        let mut changes = ChangeSet::NONE;
+        if elapsed_ms > 0 && !self.glide.is_finished() {
+            self.glide.tick(elapsed_ms);
+            changes = changes | ChangeSet::VISUAL;
+        }
         let active = self.running && self.modal == FactoryModal::None;
         let steps = self.clock.steps(elapsed_ms, active);
-        if steps == 0 {
-            return ChangeSet::NONE;
-        }
-        for _ in 0..steps {
-            if !self.step_model() {
-                break;
+        if steps > 0 {
+            for _ in 0..steps {
+                if !self.step_model() {
+                    break;
+                }
             }
+            let tick_ms = if self.fast {
+                FAST_TICK_MS
+            } else {
+                NORMAL_TICK_MS
+            };
+            self.start_glide(tick_ms, &ease::LINEAR);
+            changes = changes | ChangeSet::MODEL | ChangeSet::VISUAL;
         }
-        ChangeSet::MODEL | ChangeSet::VISUAL
+        if elapsed_ms > 0 && self.modal == FactoryModal::Result && self.popping() {
+            self.pop_ms = self.pop_ms.saturating_add(elapsed_ms);
+            let earned = self.stars_earned();
+            while self.popped < earned && self.pop_ms >= u16::from(self.popped) * POP_STAGGER_MS {
+                Transition::from(SNAPPY)
+                    .retarget(&mut self.pop[usize::from(self.popped)], Fixed::ONE);
+                self.popped += 1;
+            }
+            for star in &mut self.pop {
+                star.tick(elapsed_ms);
+            }
+            changes = changes | ChangeSet::VISUAL;
+        }
+        changes
     }
 
     /// Loads an order, asking first only when that would throw away edits.
@@ -575,6 +687,15 @@ impl FactoryModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
+    /// The way on from the result card: the next order, or the order page
+    /// after the last one.
+    pub(crate) fn next_or_orders(&mut self) -> ChangeSet {
+        if self.has_next() {
+            return self.next_mission();
+        }
+        self.close_modal() | self.set_page(FactoryPage::Orders)
+    }
+
     pub(crate) fn confirm_mission(&mut self) -> ChangeSet {
         let FactoryModal::Confirm { mission, reference } = self.modal else {
             return ChangeSet::NONE;
@@ -600,6 +721,8 @@ impl FactoryModel {
             FactoryModal::Confirm { .. } if index == 0 => self.close_modal(),
             FactoryModal::Confirm { .. } if index == 1 => self.confirm_mission(),
             FactoryModal::Help if index == 0 => self.close_modal(),
+            FactoryModal::Result if index == 0 => self.next_or_orders(),
+            FactoryModal::Result if index == 1 => self.close_modal(),
             _ => ChangeSet::NONE,
         }
     }
@@ -623,6 +746,38 @@ impl FactoryModel {
         self.modal = FactoryModal::None;
         self.notice = None;
         self.reset_run();
+    }
+
+    /// How far the items of the last tick have slid, from 0 to 1.
+    pub(crate) fn glide(&self) -> Fixed {
+        self.glide.value()
+    }
+
+    /// Item `index` a dock took in on the last tick.
+    pub(crate) fn arrival(&self, index: usize) -> Option<Arrival> {
+        self.arrivals.get(index).copied().flatten()
+    }
+
+    /// The size of result star `index`, from 0 to 1 with a little bounce.
+    pub(crate) fn star_scale(&self, index: usize) -> Fixed {
+        self.pop.get(index).map_or(Fixed::ZERO, Motion::value)
+    }
+
+    /// Stars the finished run earned, 0 before it is won.
+    pub(crate) fn stars_earned(&self) -> u8 {
+        if self.status == FactoryStatus::Won {
+            stars_for(self.cost(), self.par_cost())
+        } else {
+            0
+        }
+    }
+
+    fn popping(&self) -> bool {
+        self.popped < self.stars_earned() || self.pop.iter().any(|star| !star.is_done())
+    }
+
+    fn start_glide(&mut self, duration_ms: u16, curve: &'static Easing) {
+        self.glide = Tween::new(Fixed::ZERO, Fixed::ONE, duration_ms, curve, PlayMode::Once);
     }
 
     fn select(&mut self, index: usize) -> ChangeSet {
@@ -677,6 +832,8 @@ impl FactoryModel {
 
     fn reset_run(&mut self) {
         self.items = [None; CELL_COUNT];
+        self.arrivals = [None; MAX_ARRIVALS];
+        self.glide = settled_glide();
         self.telemetry = [FactoryTelemetry::default(); MAX_TELEMETRY];
         self.telemetry_start = 0;
         self.telemetry_len = 0;
@@ -691,6 +848,9 @@ impl FactoryModel {
         self.clock.reset();
     }
 
+    /// One tick of the line. Each item remembers the cell it left, so the
+    /// view can slide it; a finished order keeps its stars and opens the
+    /// result card.
     pub(super) fn step_model(&mut self) -> bool {
         let order = self.mission();
         if self.power() > order.power || self.finished() {
@@ -703,6 +863,7 @@ impl FactoryModel {
                 continue;
             };
             item.age = item.age.saturating_add(1);
+            item.from = index as u8;
             if let Some((input, output, ticks)) = cell.kind.process()
                 && item.stage == input
                 && item.age >= ticks
@@ -716,6 +877,8 @@ impl FactoryModel {
         let current = self.items;
         let mut next = current;
         let mut claimed = [false; CELL_COUNT];
+        let mut arrivals = [None; MAX_ARRIVALS];
+        let mut arrived = 0;
         for index in 0..CELL_COUNT {
             let (Some(cell), Some(item)) = (self.cells[index], current[index]) else {
                 continue;
@@ -743,16 +906,31 @@ impl FactoryModel {
             claimed[target] = true;
             next[index] = None;
             if target_cell.kind == ModuleKind::Dock {
-                if item.stage == order.target {
+                let accepted = item.stage == order.target;
+                if accepted {
                     self.delivered = self.delivered.saturating_add(1);
                 } else {
                     self.rejected = self.rejected.saturating_add(1);
                 }
+                if let Some(slot) = arrivals.get_mut(arrived) {
+                    *slot = Some(Arrival {
+                        from: index as u8,
+                        dock: target as u8,
+                        stage: item.stage,
+                        accepted,
+                    });
+                    arrived += 1;
+                }
             } else {
-                next[target] = Some(FactoryItem { age: 0, ..item });
+                next[target] = Some(FactoryItem {
+                    age: 0,
+                    from: index as u8,
+                    ..item
+                });
             }
         }
         self.items = next;
+        self.arrivals = arrivals;
 
         if self.tick % 3 == 1 {
             for index in 0..CELL_COUNT {
@@ -763,6 +941,7 @@ impl FactoryModel {
                         id: self.next_item_id,
                         stage: MaterialStage::Ore,
                         age: 0,
+                        from: index as u8,
                     });
                     self.next_item_id = self.next_item_id.saturating_add(1);
                     self.produced = self.produced.saturating_add(1);
@@ -773,7 +952,9 @@ impl FactoryModel {
         if self.delivered >= order.goal {
             self.status = FactoryStatus::Won;
             self.running = false;
-            self.completed |= 1 << self.mission;
+            let mission = usize::from(self.mission);
+            self.stars[mission] = self.stars[mission].max(self.stars_earned());
+            self.open_modal(FactoryModal::Result);
         } else if self.tick >= order.limit {
             self.status = FactoryStatus::Timeout;
             self.running = false;
@@ -801,5 +982,48 @@ impl FactoryModel {
             self.telemetry[usize::from(self.telemetry_start)] = value;
             self.telemetry_start = (self.telemetry_start + 1) % MAX_TELEMETRY as u8;
         }
+    }
+
+    /// Writes the stars and the open order into `output`.
+    #[cfg(any(feature = "persistence", test))]
+    pub(crate) fn encode_progress(&self, output: &mut [u8]) -> Result<usize, ExpeditionSaveError> {
+        if output.len() < SAVE_LEN {
+            return Err(ExpeditionSaveError::BufferTooSmall);
+        }
+        output[..4].copy_from_slice(&SAVE_MAGIC);
+        output[4] = SAVE_VERSION;
+        output[5] = self.mission;
+        output[6..SAVE_PAYLOAD].copy_from_slice(&self.stars);
+        finish_packet(output, SAVE_PAYLOAD);
+        Ok(SAVE_LEN)
+    }
+
+    /// Reads a record written by `encode_progress`, checking every field.
+    #[cfg(any(feature = "persistence", test))]
+    pub(crate) fn decode_progress(input: &[u8]) -> Result<FactoryProgress, ExpeditionSaveError> {
+        validate_packet(input, SAVE_PAYLOAD)?;
+        if input[..4] != SAVE_MAGIC {
+            return Err(ExpeditionSaveError::InvalidMagic);
+        }
+        if input[4] != SAVE_VERSION {
+            return Err(ExpeditionSaveError::UnsupportedVersion);
+        }
+        let mission = input[5];
+        if usize::from(mission) >= MISSION_COUNT {
+            return Err(ExpeditionSaveError::InvalidLevel);
+        }
+        let mut stars = [0; MISSION_COUNT];
+        stars.copy_from_slice(&input[6..SAVE_PAYLOAD]);
+        if stars.iter().any(|stars| *stars > 3) {
+            return Err(ExpeditionSaveError::InvalidRecord);
+        }
+        Ok(FactoryProgress { mission, stars })
+    }
+
+    /// Takes back the saved stars and opens the saved order on its start.
+    #[cfg(any(feature = "persistence", test))]
+    pub(crate) fn apply_progress(&mut self, progress: FactoryProgress) {
+        self.stars = progress.stars;
+        self.load_mission_state(progress.mission, false);
     }
 }

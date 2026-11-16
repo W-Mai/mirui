@@ -1,9 +1,26 @@
+use crate::core::i18n::Phrase;
+use crate::tr;
+
 pub(crate) const CELL_COUNT: usize = 54;
 pub(crate) const GRID_WIDTH: usize = 9;
 pub(crate) const GRID_HEIGHT: usize = 6;
 pub(crate) const MAX_UNDO: usize = 32;
 pub(crate) const MAX_TELEMETRY: usize = 80;
 pub(crate) const MISSION_COUNT: usize = 8;
+/// Items a single tick can hand to docks and still be drawn sliding in.
+pub(crate) const MAX_ARRIVALS: usize = 4;
+
+/// Stars for a finished order that spent `cost` credits where the example
+/// line spends `par`.
+pub(crate) const fn stars_for(cost: u8, par: u8) -> u8 {
+    if cost <= par {
+        3
+    } else if cost <= par + 2 {
+        2
+    } else {
+        1
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ModuleKind {
@@ -20,15 +37,15 @@ impl ModuleKind {
     pub(crate) const BUILDABLE: [Self; 4] =
         [Self::Belt, Self::Furnace, Self::Assembler, Self::Inspector];
 
-    pub(crate) const fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> Phrase {
         match self {
-            Self::Source => "进料口",
-            Self::Dock => "交付口",
-            Self::Belt => "传送带",
-            Self::Furnace => "熔炼炉",
-            Self::Assembler => "装配机",
-            Self::Inspector => "质检台",
-            Self::Wall => "隔墙",
+            Self::Source => tr!(en: "Inlet", zh: "进料口"),
+            Self::Dock => tr!(en: "Dock", zh: "交付口"),
+            Self::Belt => tr!(en: "Belt", zh: "传送带"),
+            Self::Furnace => tr!(en: "Furnace", zh: "熔炼炉"),
+            Self::Assembler => tr!(en: "Assembler", zh: "装配机"),
+            Self::Inspector => tr!(en: "Inspector", zh: "质检台"),
+            Self::Wall => tr!(en: "Wall", zh: "隔墙"),
         }
     }
 
@@ -97,12 +114,22 @@ pub(crate) enum MaterialStage {
 }
 
 impl MaterialStage {
-    pub(crate) const fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> Phrase {
         match self {
-            Self::Ore => "矿石",
-            Self::Plate => "板材",
-            Self::Gear => "零件",
-            Self::Certified => "合格品",
+            Self::Ore => tr!(en: "Ore", zh: "矿石"),
+            Self::Plate => tr!(en: "Plate", zh: "板材"),
+            Self::Gear => tr!(en: "Gear", zh: "零件"),
+            Self::Certified => tr!(en: "Certified", zh: "合格品"),
+        }
+    }
+
+    /// The stage as a counted noun: `6 gears`.
+    pub(crate) const fn plural(self) -> Phrase {
+        match self {
+            Self::Ore => tr!(en: "ore", zh: "矿石"),
+            Self::Plate => tr!(en: "plates", zh: "板材"),
+            Self::Gear => tr!(en: "gears", zh: "零件"),
+            Self::Certified => tr!(en: "certified", zh: "合格品"),
         }
     }
 }
@@ -112,6 +139,18 @@ pub(crate) struct FactoryItem {
     pub(crate) id: u16,
     pub(crate) stage: MaterialStage,
     pub(crate) age: u8,
+    /// The cell the item stood on before the last tick moved it.
+    pub(crate) from: u8,
+}
+
+/// An item a dock took in on the last tick, still sliding in.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Arrival {
+    pub(crate) from: u8,
+    pub(crate) dock: u8,
+    pub(crate) stage: MaterialStage,
+    /// The dock wanted this stage; otherwise it was sent back.
+    pub(crate) accepted: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -140,8 +179,13 @@ pub(crate) enum FactoryTool {
 pub(crate) enum FactoryModal {
     None,
     Tools,
-    Confirm { mission: u8, reference: bool },
+    Confirm {
+        mission: u8,
+        reference: bool,
+    },
     Help,
+    /// The card after a finished order: its stars and the way on.
+    Result,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -166,8 +210,8 @@ pub(crate) enum FactoryError {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct FactoryMission {
-    pub(crate) name: &'static str,
-    pub(crate) description: &'static str,
+    pub(crate) name: Phrase,
+    pub(crate) description: Phrase,
     pub(crate) target: MaterialStage,
     pub(crate) goal: u16,
     /// Ticks the trial run may take.
