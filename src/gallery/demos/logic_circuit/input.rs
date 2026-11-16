@@ -1,10 +1,17 @@
-use super::render::{gate_input_position, signal_position};
+use super::render::{gate_input_position, input_pin, output_pin, signal_position};
 use super::state::CircuitSurface;
+use super::style::{OUTPUT_PAD, PAD_HEIGHT, PAD_LEFT, PAD_WIDTH};
 use crate::ecs::DeltaTimeMs;
 use crate::gallery::play::circuit::{
-    CircuitGate, CircuitModal, CircuitModel, CircuitPage, GateKind, SignalSource,
+    CircuitGate, CircuitModal, CircuitModel, CircuitPage, GATE_HALF_HEIGHT, GATE_HALF_WIDTH,
+    SignalSource,
 };
-use crate::prelude::{Fixed, Point, Rect};
+use crate::prelude::*;
+
+/// Pins take taps this far from their centre. The two inputs of a gate sit
+/// 20 px apart, so theirs reach less far.
+const SOURCE_REACH: i32 = 11;
+const INPUT_REACH: i32 = 9;
 
 fn local_point(rect: Rect, x: Fixed, y: Fixed) -> Option<Point> {
     if rect.w.is_zero() || rect.h.is_zero() {
@@ -22,6 +29,13 @@ fn within(point: Point, center: Point, radius: i32) -> bool {
     dx * dx + dy * dy <= Fixed::from_int(radius * radius)
 }
 
+fn inside(point: Point, (x, y, w, h): (i32, i32, i32, i32)) -> bool {
+    point.x >= Fixed::from_int(x)
+        && point.x <= Fixed::from_int(x + w)
+        && point.y >= Fixed::from_int(y)
+        && point.y <= Fixed::from_int(y + h)
+}
+
 fn hit_gate(
     gates: &[Option<CircuitGate>],
     positions: &[Option<(i16, i16)>],
@@ -30,8 +44,17 @@ fn hit_gate(
     gates.iter().zip(positions).find_map(|(gate, position)| {
         let gate = (*gate)?;
         let (x, y) = (*position)?;
-        ((point.x - Fixed::from_int(i32::from(x))).abs() <= Fixed::from_int(30)
-            && (point.y - Fixed::from_int(i32::from(y))).abs() <= Fixed::from_int(18))
+        let left = i32::from(x - GATE_HALF_WIDTH);
+        let top = i32::from(y - GATE_HALF_HEIGHT);
+        inside(
+            point,
+            (
+                left,
+                top,
+                2 * i32::from(GATE_HALF_WIDTH),
+                2 * i32::from(GATE_HALF_HEIGHT),
+            ),
+        )
         .then_some(gate.id)
     })
 }
@@ -41,7 +64,7 @@ enum SurfaceAction {
     ToggleInput(u8),
     SelectSource(SignalSource),
     Connect { gate: Option<u8>, pin: u8 },
-    SelectGate(u8),
+    TapGate(u8),
     ClearPending,
 }
 
@@ -53,28 +76,25 @@ fn tap_action(surface: &CircuitSurface, point: Point) -> Option<SurfaceAction> {
     let gates = surface.model.gates();
     let positions = surface.model.gate_positions();
     for index in 0..input_count {
-        let y = 100 + i32::from(index) * 54;
-        if point.x >= Fixed::from_int(17)
-            && point.x <= Fixed::from_int(47)
-            && point.y >= Fixed::from_int(y - 13)
-            && point.y <= Fixed::from_int(y + 13)
-        {
+        let pin = input_pin(index, input_count);
+        let top = pin.y.to_int() - PAD_HEIGHT / 2;
+        if inside(point, (PAD_LEFT, top, PAD_WIDTH, PAD_HEIGHT)) {
             return Some(SurfaceAction::ToggleInput(index));
         }
-        if within(point, Point::new(54, y), 9) {
+        if within(point, pin, SOURCE_REACH) {
             return Some(SurfaceAction::SelectSource(SignalSource::input(index)));
         }
     }
     for gate in gates.iter().flatten().copied() {
         if let Some(output) =
             signal_position(input_count, &gates, &positions, SignalSource::gate(gate.id))
-            && within(point, output, 9)
+            && within(point, output, SOURCE_REACH)
         {
             return Some(SurfaceAction::SelectSource(SignalSource::gate(gate.id)));
         }
-        for pin in 0..if gate.kind == GateKind::Not { 1 } else { 2 } {
+        for pin in 0..gate.kind.inputs() {
             if let Some(input) = gate_input_position(&gates, &positions, gate.id, pin)
-                && within(point, input, 9)
+                && within(point, input, INPUT_REACH)
             {
                 return Some(SurfaceAction::Connect {
                     gate: Some(gate.id),
@@ -83,12 +103,12 @@ fn tap_action(surface: &CircuitSurface, point: Point) -> Option<SurfaceAction> {
             }
         }
     }
-    if within(point, Point::new(288, 153), 12) {
+    if within(point, output_pin(), SOURCE_REACH) || inside(point, OUTPUT_PAD) {
         return Some(SurfaceAction::Connect { gate: None, pin: 0 });
     }
     Some(
         hit_gate(&gates, &positions, point)
-            .map_or(SurfaceAction::ClearPending, SurfaceAction::SelectGate),
+            .map_or(SurfaceAction::ClearPending, SurfaceAction::TapGate),
     )
 }
 
@@ -103,8 +123,8 @@ fn apply_tap(surface: &CircuitSurface, action: SurfaceAction) {
         SurfaceAction::Connect { gate, pin } => {
             surface.model.connect_from_tap(gate, pin);
         }
-        SurfaceAction::SelectGate(id) => {
-            surface.model.select_gate(id);
+        SurfaceAction::TapGate(id) => {
+            surface.model.tap_gate(id);
         }
         SurfaceAction::ClearPending => {
             surface.model.clear_pending();
@@ -126,6 +146,9 @@ pub(super) fn surface_drag_start(surface: &CircuitSurface, rect: Rect, x: Fixed,
     let Some(point) = local_point(rect, x, y) else {
         return false;
     };
+    if surface.model.page() != CircuitPage::Wire || surface.model.modal() != CircuitModal::None {
+        return true;
+    }
     let gates = surface.model.gates();
     let positions = surface.model.gate_positions();
     if let Some(gate) = hit_gate(&gates, &positions, point) {
@@ -158,6 +181,53 @@ pub(super) fn surface_drag_end(
     }
     if cancelled || surface.model.end_drag().is_err() {
         surface.model.cancel_drag();
+    }
+    true
+}
+
+/// Desktop keys: 1 2 3 flip the inputs, Z undoes, Delete removes the
+/// selected gate, Enter checks or moves on, Esc closes a dialog or drops
+/// a picked output.
+#[event]
+pub(super) fn keyboard(input: event!(Key), model: model!(CircuitModel)) -> bool {
+    if !input.pressed
+        || input
+            .modifiers
+            .is_some_and(|m| m.control || m.meta || m.alt)
+    {
+        return false;
+    }
+    let modal = model.modal();
+    match input.physical {
+        Some(PhysicalKey::Escape) if modal != CircuitModal::None => {
+            model.close_modal();
+        }
+        Some(PhysicalKey::Escape) => {
+            model.clear_pending();
+        }
+        Some(PhysicalKey::Enter | PhysicalKey::NumpadEnter) if modal == CircuitModal::Result => {
+            model.choose_modal_option(0);
+        }
+        _ if modal != CircuitModal::None => return false,
+        Some(PhysicalKey::Digit1) => {
+            model.toggle_input(0);
+        }
+        Some(PhysicalKey::Digit2) => {
+            model.toggle_input(1);
+        }
+        Some(PhysicalKey::Digit3) => {
+            model.toggle_input(2);
+        }
+        Some(PhysicalKey::KeyZ) => {
+            model.undo();
+        }
+        Some(PhysicalKey::Delete | PhysicalKey::Backspace) => {
+            model.remove_from_tap();
+        }
+        Some(PhysicalKey::Enter | PhysicalKey::NumpadEnter) => {
+            model.verify_or_next();
+        }
+        _ => return false,
     }
     true
 }

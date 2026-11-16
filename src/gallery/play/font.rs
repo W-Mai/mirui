@@ -169,6 +169,7 @@ mod tests {
         include_str!("../demos/logic_circuit/render.rs"),
         include_str!("../demos/logic_circuit/shell.rs"),
         include_str!("circuit/tasks.rs"),
+        include_str!("circuit/types.rs"),
         include_str!("../demos/module_factory/render.rs"),
         include_str!("../demos/module_factory/shell.rs"),
         include_str!("../demos/module_factory/text.rs"),

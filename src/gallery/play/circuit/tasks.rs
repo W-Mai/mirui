@@ -1,4 +1,6 @@
 use super::types::{GateKind, GateSet, SignalSource};
+use crate::core::i18n::Phrase;
+use crate::tr;
 
 pub(crate) const TASK_COUNT: usize = 12;
 /// Tasks per row of the picker. Each row is one set: the board, then NAND
@@ -23,13 +25,16 @@ pub(crate) struct Board {
 }
 
 pub(crate) struct Task {
-    pub(crate) name: &'static str,
-    pub(crate) code: &'static str,
-    pub(crate) goal: &'static str,
+    pub(crate) name: Phrase,
+    /// The rule as a formula, over the truth table.
+    pub(crate) code: Phrase,
+    pub(crate) goal: Phrase,
     /// Shown on the status line while the player has nothing else to read.
-    pub(crate) hint: &'static str,
+    pub(crate) hint: Phrase,
     pub(crate) inputs: u8,
     pub(crate) gates: GateSet,
+    /// The fewest gates that pass: three stars at this count.
+    pub(crate) par: u8,
     /// Y for inputs A, B and C. Inputs the task does not have read 0.
     pub(crate) rule: fn(bool, bool, bool) -> bool,
     pub(crate) starter: Board,
@@ -74,229 +79,297 @@ const EMPTY: Board = Board {
     output: OPEN,
 };
 
+const NOT_A: Phrase = tr!(en: "Y = NOT A", zh: "Y = 非 A");
+const NOT_A_GOAL: Phrase = tr!(en: "Y is always the opposite of A.", zh: "Y 总是和 A 相反。");
+const A_AND_B: Phrase = tr!(en: "Y = A AND B", zh: "Y = A 与 B");
+const A_AND_B_GOAL: Phrase = tr!(
+    en: "Y is 1 only when A and B are both 1.",
+    zh: "A 和 B 都为 1 时，Y 才为 1。"
+);
+
 pub(crate) static TASKS: [Task; TASK_COUNT] = [
     Task {
-        name: "取反",
-        code: "Y = NOT A",
-        goal: "Y 总是和 A 相反。",
-        hint: "点 A 右侧的圆点，再点 NOT 左侧的圆点。NOT 也要接到 Y",
+        name: tr!(en: "Invert", zh: "取反"),
+        code: NOT_A,
+        goal: NOT_A_GOAL,
+        hint: tr!(
+            en: "Tap the dot right of A, then the left dot of NOT. Then wire NOT to Y.",
+            zh: "点 A 右侧的圆点，再点非门左侧的圆点。非门也要接到 Y"
+        ),
         inputs: 1,
         gates: GateSet::ALL,
+        par: 1,
         rule: |a, _, _| !a,
         starter: Board {
-            gates: &[not(170, 127, OPEN)],
+            gates: &[not(188, 162, OPEN)],
             output: OPEN,
         },
         reference: Board {
-            gates: &[not(170, 127, A)],
+            gates: &[not(188, 162, A)],
             output: g(1),
         },
     },
     Task {
-        name: "都亮才亮",
-        code: "Y = A AND B",
-        goal: "A 和 B 都为 1 时，Y 才为 1。",
-        hint: "门的类型不对：点 类型 / 删除，换成 AND",
+        name: tr!(en: "Both On", zh: "都亮才亮"),
+        code: A_AND_B,
+        goal: A_AND_B_GOAL,
+        hint: tr!(
+            en: "Wrong gate kind: tap the gate and pick AND.",
+            zh: "门的类型不对：点这个门，换成与门"
+        ),
         inputs: 2,
         gates: GateSet::ALL,
+        par: 1,
         rule: |a, b, _| a && b,
         starter: Board {
-            gates: &[or(170, 127, A, B)],
+            gates: &[or(188, 162, A, B)],
             output: g(1),
         },
         reference: Board {
-            gates: &[and(170, 127, A, B)],
+            gates: &[and(188, 162, A, B)],
             output: g(1),
         },
     },
     Task {
-        name: "A 开 B 关",
-        code: "Y = A AND NOT B",
-        goal: "A 为 1、B 为 0 时，Y 才为 1。",
-        hint: "加一个 NOT，接在 B 和 AND 之间",
+        name: tr!(en: "A Not B", zh: "A 开 B 关"),
+        code: tr!(en: "Y = A AND NOT B", zh: "Y = A 与 非 B"),
+        goal: tr!(
+            en: "Y is 1 only when A is 1 and B is 0.",
+            zh: "A 为 1、B 为 0 时，Y 才为 1。"
+        ),
+        hint: tr!(
+            en: "Add a NOT between B and the AND.",
+            zh: "加一个非门，接在 B 和与门之间"
+        ),
         inputs: 2,
         gates: GateSet::ALL,
+        par: 2,
         rule: |a, b, _| a && !b,
         starter: Board {
-            gates: &[and(215, 127, A, B)],
+            gates: &[and(240, 162, A, B)],
             output: g(1),
         },
         reference: Board {
-            gates: &[and(215, 127, A, g(2)), not(110, 154, B)],
+            gates: &[and(240, 162, A, g(2)), not(132, 199, B)],
             output: g(1),
         },
     },
     Task {
-        name: "相同才亮",
-        code: "Y = A XNOR B",
-        goal: "A 与 B 相同时，Y 为 1。",
-        hint: "XNOR 和 XOR 正好相反",
+        name: tr!(en: "Same", zh: "相同才亮"),
+        code: tr!(en: "Y = A XNOR B", zh: "Y = A 同或 B"),
+        goal: tr!(en: "Y is 1 when A equals B.", zh: "A 与 B 相同时，Y 为 1。"),
+        hint: tr!(en: "XNOR is XOR turned over.", zh: "同或正好是异或取反"),
         inputs: 2,
         gates: GateSet::ALL,
+        par: 2,
         rule: |a, b, _| a == b,
         starter: EMPTY,
         reference: Board {
-            gates: &[xor(110, 127, A, B), not(215, 127, g(1))],
+            gates: &[xor(132, 162, A, B), not(240, 162, g(1))],
             output: g(2),
         },
     },
     Task {
-        name: "NAND → NOT",
-        code: "Y = NOT A",
-        goal: "Y 总是和 A 相反。",
-        hint: "一个输出端可以接多个输入端",
+        name: tr!(en: "NAND → NOT", zh: "与非 → 非"),
+        code: NOT_A,
+        goal: NOT_A_GOAL,
+        hint: tr!(
+            en: "One output can feed several inputs.",
+            zh: "一个输出端可以接多个输入端"
+        ),
         inputs: 1,
         gates: GateSet::only(GateKind::Nand),
+        par: 1,
         rule: |a, _, _| !a,
         starter: Board {
-            gates: &[nand(170, 127, A, OPEN)],
+            gates: &[nand(188, 162, A, OPEN)],
             output: g(1),
         },
         reference: Board {
-            gates: &[nand(170, 127, A, A)],
+            gates: &[nand(188, 162, A, A)],
             output: g(1),
         },
     },
     Task {
-        name: "NAND → AND",
-        code: "Y = A AND B",
-        goal: "A 和 B 都为 1 时，Y 才为 1。",
-        hint: "上一题的取反，这里还能用",
+        name: tr!(en: "NAND → AND", zh: "与非 → 与"),
+        code: A_AND_B,
+        goal: A_AND_B_GOAL,
+        hint: tr!(
+            en: "The inverter from the last task still works.",
+            zh: "上一题的取反，这里还能用"
+        ),
         inputs: 2,
         gates: GateSet::only(GateKind::Nand),
+        par: 2,
         rule: |a, b, _| a && b,
         starter: Board {
-            gates: &[nand(110, 127, A, B)],
+            gates: &[nand(132, 162, A, B)],
             output: g(1),
         },
         reference: Board {
-            gates: &[nand(110, 127, A, B), nand(215, 127, g(1), g(1))],
+            gates: &[nand(132, 162, A, B), nand(240, 162, g(1), g(1))],
             output: g(2),
         },
     },
     Task {
-        name: "NAND → OR",
-        code: "Y = A OR B",
-        goal: "A 或 B 有一个为 1，Y 就为 1。",
-        hint: "先把 A 和 B 各自取反",
+        name: tr!(en: "NAND → OR", zh: "与非 → 或"),
+        code: tr!(en: "Y = A OR B", zh: "Y = A 或 B"),
+        goal: tr!(
+            en: "Y is 1 when A or B is 1.",
+            zh: "A 或 B 有一个为 1，Y 就为 1。"
+        ),
+        hint: tr!(en: "Invert A and B first.", zh: "先把 A 和 B 各自取反"),
         inputs: 2,
         gates: GateSet::only(GateKind::Nand),
+        par: 3,
         rule: |a, b, _| a || b,
         starter: Board {
-            gates: &[nand(215, 127, A, B)],
+            gates: &[nand(240, 162, A, B)],
             output: g(1),
         },
         reference: Board {
             gates: &[
-                nand(215, 127, g(2), g(3)),
-                nand(110, 100, A, A),
-                nand(110, 154, B, B),
+                nand(240, 162, g(2), g(3)),
+                nand(132, 125, A, A),
+                nand(132, 199, B, B),
             ],
             output: g(1),
         },
     },
     Task {
-        name: "NAND → XOR",
-        code: "Y = A XOR B",
-        goal: "A 与 B 不同时，Y 为 1。",
-        hint: "4 个 NAND 可以完成，第一个已经放好",
+        name: tr!(en: "NAND → XOR", zh: "与非 → 异或"),
+        code: tr!(en: "Y = A XOR B", zh: "Y = A 异或 B"),
+        goal: tr!(en: "Y is 1 when A and B differ.", zh: "A 与 B 不同时，Y 为 1。"),
+        hint: tr!(
+            en: "Four NANDs do it. The first one is in place.",
+            zh: "4 个与非门可以完成，第一个已经放好"
+        ),
         inputs: 2,
         gates: GateSet::only(GateKind::Nand),
+        par: 4,
         rule: |a, b, _| a != b,
         starter: Board {
-            gates: &[nand(100, 127, A, B)],
+            gates: &[nand(108, 162, A, B)],
             output: g(1),
         },
         reference: Board {
             gates: &[
-                nand(100, 127, A, B),
-                nand(172, 94, A, g(1)),
-                nand(172, 160, g(1), B),
-                nand(243, 127, g(2), g(3)),
+                nand(108, 162, A, B),
+                nand(188, 112, A, g(1)),
+                nand(188, 212, g(1), B),
+                nand(268, 162, g(2), g(3)),
             ],
             output: g(4),
         },
     },
     Task {
-        name: "奇数个 1",
-        code: "Y = A XOR B XOR C",
-        goal: "A B C 中有奇数个 1 时，Y 为 1。",
-        hint: "XOR 的输出还能再接 XOR",
+        name: tr!(en: "Odd Ones", zh: "奇数个 1"),
+        code: tr!(en: "Y = A XOR B XOR C", zh: "Y = A 异或 B 异或 C"),
+        goal: tr!(
+            en: "Y is 1 when an odd number of A B C are 1.",
+            zh: "A B C 中有奇数个 1 时，Y 为 1。"
+        ),
+        hint: tr!(
+            en: "An XOR output can feed another XOR.",
+            zh: "异或门的输出还能再接异或门"
+        ),
         inputs: 3,
         gates: GateSet::ALL,
+        par: 2,
         rule: |a, b, c| a ^ b ^ c,
         starter: Board {
-            gates: &[xor(110, 127, A, B)],
+            gates: &[xor(132, 125, A, B)],
             output: g(1),
         },
         reference: Board {
-            gates: &[xor(110, 127, A, B), xor(215, 153, g(1), C)],
+            gates: &[xor(132, 125, A, B), xor(240, 162, g(1), C)],
             output: g(2),
         },
     },
     Task {
-        name: "二选一",
-        code: "Y = A ? C : B",
-        goal: "A 为 0 选 B，A 为 1 选 C。",
-        hint: "A 为 1 选 C 已经接好，再接 A 为 0 选 B",
+        name: tr!(en: "Pick One", zh: "二选一"),
+        code: tr!(en: "Y = A ? C : B", zh: "Y = A ? C : B"),
+        goal: tr!(
+            en: "A = 0 picks B, A = 1 picks C.",
+            zh: "A 为 0 选 B，A 为 1 选 C。"
+        ),
+        hint: tr!(
+            en: "A = 1 picking C is wired. Now wire A = 0 picking B.",
+            zh: "A 为 1 选 C 已经接好，再接 A 为 0 选 B"
+        ),
         inputs: 3,
         gates: GateSet::ALL,
+        par: 3,
         rule: |a, b, c| if a { c } else { b },
         starter: Board {
-            gates: &[and(100, 199, A, C)],
+            gates: &[and(108, 236, A, C)],
             output: g(1),
         },
         reference: Board {
             gates: &[
-                and(100, 199, A, C),
-                not(100, 100, A),
-                and(172, 118, g(2), B),
-                or(243, 153, g(3), g(1)),
+                and(108, 236, A, C),
+                not(108, 88, A),
+                and(188, 125, g(2), B),
+                or(268, 162, g(3), g(1)),
             ],
             output: g(4),
         },
     },
     Task {
-        name: "多数表决",
-        code: "Y = AB + AC + BC",
-        goal: "至少两个为 1 时，Y 为 1。",
-        hint: "5 个门可以完成，4 个也行",
+        name: tr!(en: "Majority", zh: "多数表决"),
+        code: tr!(en: "Y = AB + AC + BC", zh: "Y = AB + AC + BC"),
+        goal: tr!(
+            en: "Y is 1 when at least two are 1.",
+            zh: "至少两个为 1 时，Y 为 1。"
+        ),
+        hint: tr!(
+            en: "Five gates do it. Four also work.",
+            zh: "5 个门可以完成，4 个也行"
+        ),
         inputs: 3,
         gates: GateSet::ALL,
+        par: 4,
         rule: |a, b, c| u8::from(a) + u8::from(b) + u8::from(c) >= 2,
         starter: Board {
-            gates: &[and(105, 94, A, B)],
+            gates: &[and(108, 88, A, B)],
             output: g(1),
         },
         reference: Board {
             gates: &[
-                and(105, 94, A, B),
-                and(105, 151, A, C),
-                and(105, 208, B, C),
-                or(215, 122, g(1), g(2)),
-                or(215, 180, g(4), g(3)),
+                and(108, 88, A, B),
+                and(108, 162, A, C),
+                and(108, 236, B, C),
+                or(188, 125, g(1), g(2)),
+                or(268, 162, g(4), g(3)),
             ],
             output: g(5),
         },
     },
     Task {
-        name: "只亮一个",
-        code: "Y = ONE-HOT(A,B,C)",
-        goal: "A B C 中只有一个为 1 时，Y 为 1。",
-        hint: "现在的电路只错一行",
+        name: tr!(en: "Only One", zh: "只亮一个"),
+        code: tr!(en: "Y = ONE-HOT(A,B,C)", zh: "Y = 独热(A,B,C)"),
+        goal: tr!(
+            en: "Y is 1 when exactly one of A B C is 1.",
+            zh: "A B C 中只有一个为 1 时，Y 为 1。"
+        ),
+        hint: tr!(
+            en: "The circuit here is wrong in one row only.",
+            zh: "现在的电路只错一行"
+        ),
         inputs: 3,
         gates: GateSet::ALL,
+        par: 4,
         rule: |a, b, c| u8::from(a) + u8::from(b) + u8::from(c) == 1,
         starter: Board {
-            gates: &[xor(100, 150, A, B), xor(172, 190, g(1), C)],
+            gates: &[xor(108, 125, A, B), xor(188, 199, g(1), C)],
             output: g(2),
         },
         reference: Board {
             gates: &[
-                xor(100, 150, A, B),
-                xor(172, 190, g(1), C),
-                nand(100, 94, A, B),
-                and(243, 137, g(3), g(2)),
+                xor(108, 125, A, B),
+                xor(188, 199, g(1), C),
+                nand(188, 88, A, B),
+                and(268, 162, g(3), g(2)),
             ],
             output: g(4),
         },

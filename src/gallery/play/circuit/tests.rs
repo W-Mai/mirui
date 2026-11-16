@@ -1,10 +1,12 @@
-use super::model::CircuitModel;
-use super::tasks::{Board, SET_SIZE, TASK_COUNT, TASKS};
+use super::model::{CircuitModel, SAVE_LEN};
+use super::tasks::{Board, GateSpec, SET_SIZE, TASK_COUNT, TASKS};
 use super::types::{
-    CircuitError, CircuitModal, CircuitPage, GateKind, MAX_DRIVEN_INPUTS, MAX_GATES, MAX_TRACE,
-    MAX_UNDO, SignalSource,
+    CircuitError, CircuitModal, CircuitPage, GATE_GAP_X, GATE_GAP_Y, GATE_X, GATE_Y, GateKind,
+    MAX_DRIVEN_INPUTS, MAX_GATES, MAX_TRACE, MAX_UNDO, SignalSource,
 };
 use crate::gallery::play::change::ChangeSet;
+use crate::gallery::play::expeditions::ExpeditionSaveError;
+use crate::types::Fixed;
 
 /// Y for every row in table order (A is the leftmost column), written out
 /// by hand so a typo in a task rule shows up here.
@@ -34,20 +36,20 @@ fn assert_board_fits(task: usize, board: Board) {
     for (index, gate) in board.gates.iter().enumerate() {
         assert!(spec.gates.contains(gate.kind), "{}", spec.name);
         assert!(
-            (100..=243).contains(&gate.x),
+            (GATE_X.0..=GATE_X.1).contains(&gate.x),
             "{} gate {}",
             spec.name,
             index + 1
         );
         assert!(
-            (84..=230).contains(&gate.y),
+            (GATE_Y.0..=GATE_Y.1).contains(&gate.y),
             "{} gate {}",
             spec.name,
             index + 1
         );
         for other in &board.gates[index + 1..] {
             assert!(
-                (gate.x - other.x).abs() >= 62 || (gate.y - other.y).abs() >= 38,
+                (gate.x - other.x).abs() >= GATE_GAP_X || (gate.y - other.y).abs() >= GATE_GAP_Y,
                 "{} gates overlap",
                 spec.name
             );
@@ -67,12 +69,16 @@ fn assert_board_fits(task: usize, board: Board) {
 /// Clears the starter and rebuilds the reference with the player's tools:
 /// add each gate, then wire every pin and Y.
 fn build_reference(model: &mut CircuitModel) {
+    build_board(model, TASKS[usize::from(model.task())].reference);
+}
+
+/// Clears the board and builds `reference` with the player's tools.
+fn build_board(model: &mut CircuitModel, reference: Board) {
     while model.gate_len() > 0 {
         let first = model.gate(0).unwrap().id;
         model.select_gate(first);
         model.remove_selected().unwrap();
     }
-    let reference = TASKS[usize::from(model.task())].reference;
     let mut ids = [0_u8; MAX_GATES];
     for (slot, spec) in ids.iter_mut().zip(reference.gates) {
         model.add_gate(spec.kind).unwrap();
@@ -154,11 +160,209 @@ fn the_whole_course_can_be_built_by_hand() {
         build_reference(&mut model);
         assert!(solve(&mut model), "{}", TASKS[usize::from(task)].name);
         assert!(model.controls().won);
+        assert_eq!(model.modal(), CircuitModal::Result);
+        assert!(model.stars()[usize::from(task)] >= 2);
         model.verify_or_next();
     }
     assert_eq!(model.solved_mask().count_ones(), TASK_COUNT as u32);
     assert_eq!(model.modal(), CircuitModal::Tasks);
     assert_eq!(model.task(), TASK_COUNT as u8 - 1);
+}
+
+const fn spec(kind: GateKind, a: SignalSource, b: SignalSource) -> GateSpec {
+    GateSpec {
+        kind,
+        x: 0,
+        y: 0,
+        a,
+        b,
+    }
+}
+
+const A: SignalSource = SignalSource::Input(0);
+const B: SignalSource = SignalSource::Input(1);
+const C: SignalSource = SignalSource::Input(2);
+
+/// Boards with the fewest gates, for the tasks whose reference uses more.
+const PAR_BOARDS: [(usize, Board); 2] = [
+    (
+        9,
+        Board {
+            gates: &[
+                spec(GateKind::Xor, B, C),
+                spec(GateKind::And, A, SignalSource::Gate(1)),
+                spec(GateKind::Xor, B, SignalSource::Gate(2)),
+            ],
+            output: SignalSource::Gate(3),
+        },
+    ),
+    (
+        10,
+        Board {
+            gates: &[
+                spec(GateKind::And, A, B),
+                spec(GateKind::Or, A, B),
+                spec(GateKind::And, C, SignalSource::Gate(2)),
+                spec(GateKind::Or, SignalSource::Gate(1), SignalSource::Gate(3)),
+            ],
+            output: SignalSource::Gate(4),
+        },
+    ),
+];
+
+#[test]
+fn every_task_can_earn_three_stars() {
+    for (task, spec) in TASKS.iter().enumerate() {
+        let board = PAR_BOARDS
+            .iter()
+            .find(|(index, _)| *index == task)
+            .map_or(spec.reference, |(_, board)| *board);
+        assert_eq!(board.gates.len(), usize::from(spec.par), "{}", spec.name);
+        let mut model = CircuitModel::default();
+        model.load_task(task as u8, false);
+        build_board(&mut model, board);
+        assert!(solve(&mut model), "{}", spec.name);
+        assert_eq!(model.verify_result().unwrap().stars, 3, "{}", spec.name);
+    }
+}
+
+#[test]
+fn extra_gates_cost_stars_and_the_best_result_is_kept() {
+    let mut model = CircuitModel::default();
+    model.load_task(10, true);
+    model.verify();
+    assert_eq!(model.verify_result().unwrap().stars, 2);
+    assert_eq!(model.stars()[10], 2);
+    model.add_gate(GateKind::And).unwrap();
+    model.verify();
+    assert_eq!(model.verify_result().unwrap().stars, 1);
+    assert_eq!(model.stars()[10], 2);
+    model.load_task(10, false);
+    model.verify();
+    assert_eq!(model.stars()[10], 2);
+}
+
+#[test]
+fn a_flipped_input_reaches_y_one_wire_at_a_time() {
+    let mut model = CircuitModel::default();
+    model.load_task(3, true);
+    model.inputs = 0b11;
+    let xor = SignalSource::gate(1);
+    let not = SignalSource::gate(2);
+    assert!(model.shown_output().value);
+    model.toggle_input(0);
+    assert!(!model.evaluation().value);
+    assert!(!model.shown_value(A));
+    assert!(!model.shown_value(xor));
+    assert!(model.shown_output().value);
+    assert!(model.wire_front(A).is_none());
+    model.advance_ms(40);
+    assert!(model.wire_front(A).is_some());
+    assert!(!model.shown_value(xor));
+    model.advance_ms(80);
+    assert!(model.shown_value(xor));
+    assert!(model.wire_front(xor).is_some());
+    assert!(model.shown_output().value);
+    model.advance_ms(200);
+    assert!(model.wave_at().is_none());
+    assert!(!model.shown_value(not));
+    assert!(!model.shown_output().value);
+    assert_eq!(model.advance_ms(16), ChangeSet::NONE);
+}
+
+#[test]
+fn an_edit_or_a_new_flip_settles_the_wave_in_flight() {
+    let mut model = CircuitModel::default();
+    model.load_task(1, true);
+    model.toggle_input(0);
+    assert!(model.wave_at().is_some());
+    model.toggle_input(1);
+    assert!(model.shown_value(B));
+    model.select_source(A);
+    model.connect_pending_to(Some(1), 1).unwrap();
+    assert!(model.wave_at().is_none());
+}
+
+#[test]
+fn tapping_a_wired_input_takes_its_wire_off() {
+    let mut model = CircuitModel::default();
+    model.load_task(1, false);
+    model.connect_from_tap(Some(1), 1);
+    assert_eq!(model.gate_by_id(1).unwrap().b, SignalSource::None);
+    assert_eq!(model.history_len(), 1);
+    model.connect_from_tap(Some(1), 1);
+    assert_eq!(model.notice(), Some(CircuitError::InvalidSource));
+    model.connect_from_tap(None, 0);
+    assert_eq!(model.output_source(), SignalSource::None);
+    model.undo();
+    model.undo();
+    assert_eq!(model.gate_by_id(1).unwrap().b, B);
+}
+
+#[test]
+fn tapping_the_selected_gate_opens_its_picker() {
+    let mut model = CircuitModel::default();
+    model.load_task(1, false);
+    assert_eq!(model.selected(), 1);
+    model.tap_gate(1);
+    assert_eq!(model.modal(), CircuitModal::GateTypes { adding: false });
+    model.close_modal();
+    model.load_task(5, true);
+    model.tap_gate(2);
+    assert_eq!(model.selected(), 2);
+    model.tap_gate(2);
+    assert_eq!(model.modal(), CircuitModal::None);
+    assert_eq!(model.notice(), Some(CircuitError::NotAllowed));
+    assert_eq!(model.gate_len(), 2);
+}
+
+#[test]
+fn the_result_card_pops_its_stars_and_leads_on() {
+    let mut model = CircuitModel::default();
+    model.load_task(0, true);
+    model.verify();
+    assert_eq!(model.modal(), CircuitModal::Result);
+    assert_eq!(model.star_scale(0), Fixed::ZERO);
+    let mut frames = 0;
+    while model.advance_ms(16).contains(ChangeSet::VISUAL) {
+        frames += 1;
+        assert!(frames < 120, "the stars keep moving");
+    }
+    for star in 0..3 {
+        assert_eq!(model.star_scale(star), Fixed::ONE);
+    }
+    model.select_modal_option(0).unwrap();
+    assert_eq!(model.task(), 1);
+    assert_eq!(model.modal(), CircuitModal::None);
+}
+
+#[test]
+fn progress_round_trips_and_reopens_the_saved_task() {
+    let mut source = CircuitModel::default();
+    source.load_task(10, true);
+    source.verify();
+    source.choose_task(6);
+    let mut bytes = [0; SAVE_LEN];
+    assert_eq!(source.encode_progress(&mut bytes), Ok(SAVE_LEN));
+    assert_eq!(&bytes[..4], b"LGC1");
+    let progress = CircuitModel::decode_progress(&bytes).unwrap();
+    let mut restored = CircuitModel::default();
+    restored.apply_progress(progress);
+    assert_eq!(restored.task(), 6);
+    assert_eq!(restored.stars(), source.stars());
+    assert_eq!(restored.modal(), CircuitModal::None);
+    assert_eq!(restored.history_len(), 0);
+
+    let mut broken = bytes;
+    broken[6] ^= 1;
+    assert_eq!(
+        CircuitModel::decode_progress(&broken),
+        Err(ExpeditionSaveError::InvalidChecksum)
+    );
+    assert_eq!(
+        CircuitModel::decode_progress(&bytes[..SAVE_LEN - 1]),
+        Err(ExpeditionSaveError::InvalidLength)
+    );
 }
 
 #[test]
@@ -189,7 +393,11 @@ fn single_kind_tasks_add_and_delete_without_the_picker() {
     assert_eq!(model.gate_len(), 2);
     assert_eq!(model.gate(1).unwrap().kind, GateKind::Nand);
     model.start_edit_gate();
+    assert_eq!(model.modal(), CircuitModal::None);
+    assert_eq!(model.notice(), Some(CircuitError::NotAllowed));
+    model.remove_from_tap();
     assert_eq!(model.gate_len(), 1);
+    assert_eq!(model.notice(), None);
 
     model.load_task(0, false);
     model.start_add_gate();
@@ -546,7 +754,7 @@ fn refused_taps_leave_a_notice_until_the_player_acts_again() {
 }
 
 #[test]
-fn a_crowded_board_explains_why_no_gate_was_added() {
+fn a_gate_finds_room_when_the_home_slots_are_taken() {
     let mut model = CircuitModel::default();
     model.load_task(3, false);
     for _ in 0..5 {
@@ -557,9 +765,13 @@ fn a_crowded_board_explains_why_no_gate_was_added() {
         model.move_drag(215, y);
         model.end_drag().unwrap();
     }
-    assert!(model.gate_len() < MAX_GATES as u8);
     model.open_modal(CircuitModal::GateTypes { adding: true });
     model.choose_modal_option(0);
-    assert_eq!(model.notice(), Some(CircuitError::Overlap));
-    assert_eq!(model.modal(), CircuitModal::None);
+    assert_eq!(model.notice(), None);
+    assert_eq!(model.gate_len(), MAX_GATES as u8);
+    let added = model.gate(MAX_GATES - 1).unwrap();
+    for index in 0..MAX_GATES - 1 {
+        let other = model.gate(index).unwrap();
+        assert!((other.x - added.x).abs() >= GATE_GAP_X || (other.y - added.y).abs() >= GATE_GAP_Y);
+    }
 }
