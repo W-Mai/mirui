@@ -557,6 +557,11 @@ impl EchoModel {
         self.state.pos
     }
 
+    /// Whether the board is moving and needs another frame.
+    pub(crate) fn animating(&self) -> bool {
+        self.motion.busy() || (self.peek_ghost.is_some() && self.modal == EchoModal::None)
+    }
+
     /// The columns and rows that hold floor, `(min_x, max_x, min_y, max_y)`.
     /// The room's outer wall is drawn as a frame around them.
     pub(crate) fn room_span(&self) -> (usize, usize, usize, usize) {
@@ -821,12 +826,11 @@ impl EchoModel {
 
     /// Advances the board's motion; repaints while anything moves.
     pub(crate) fn advance_ms(&mut self, elapsed_ms: u16) -> ChangeSet {
-        let replaying = self.peek_ghost.is_some() && self.modal == EchoModal::None;
-        if elapsed_ms == 0 || !(self.motion.busy() || replaying) {
+        if elapsed_ms == 0 || !self.animating() {
             return ChangeSet::NONE;
         }
         self.motion.tick(elapsed_ms);
-        if replaying {
+        if self.peek_ghost.is_some() && self.modal == EchoModal::None {
             self.motion.replay.tick(elapsed_ms);
         }
         ChangeSet::VISUAL

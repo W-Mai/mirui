@@ -46,9 +46,13 @@ pub(super) fn surface_drag_move(surface: &EchoSurface, rect: Rect, dx: Fixed, dy
     true
 }
 
+/// Moves the board while it animates. An idle board is only read, so it
+/// neither repaints nor asks for a save.
 #[mirui_macros::system(order = Animation)]
 pub(super) fn echo_tick_system(model: model!(EchoModel), delta: res!(DeltaTimeMs)) {
-    model.advance_ms(delta.0);
+    if model.animating() {
+        model.advance_ms(delta.0);
+    }
 }
 
 #[event]

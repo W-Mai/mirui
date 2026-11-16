@@ -93,6 +93,30 @@ mod tests {
     }
 
     #[test]
+    fn an_idle_board_does_not_ask_for_a_save() {
+        use crate::ecs::{DeltaTimeMs, SystemScheduler};
+
+        let mut app = App::headless(16, 16);
+        app.add_plugin(PersistencePlugin::new(MemoryStorage::new()).codec(EchoArchive));
+        let model = app.add_model(EchoModel::default()).finish();
+        let mut scheduler = SystemScheduler::new();
+        scheduler.add(super::super::input::echo_tick_system::system(model.clone()));
+        app.world.insert_resource(DeltaTimeMs(16));
+        // The first room eases in, then the board rests.
+        for _ in 0..40 {
+            scheduler.run_all(&mut app.world).unwrap();
+        }
+        app.persistence().save_all().unwrap();
+        assert_eq!(app.persistence().status(&model), PersistenceStatus::Clean);
+        for _ in 0..40 {
+            scheduler.run_all(&mut app.world).unwrap();
+        }
+        assert_eq!(app.persistence().status(&model), PersistenceStatus::Clean);
+        model.step(Direction::Wait);
+        assert_eq!(app.persistence().status(&model), PersistenceStatus::Pending);
+    }
+
+    #[test]
     fn invalid_replay_protects_the_archive_without_mutating_the_initial_game() {
         let mut storage = MemoryStorage::new();
         storage.write("echo_walker/replay", b"broken").unwrap();
