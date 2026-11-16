@@ -1,5 +1,7 @@
 //! A pixel flight scene with a wrapped height field and layered aircraft.
 
+pub mod cockpit;
+pub mod flame;
 pub mod flight;
 pub mod jet;
 pub mod raster;
