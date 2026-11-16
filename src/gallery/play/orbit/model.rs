@@ -2,12 +2,13 @@ use super::missions::{MISSION_COUNT, MISSIONS, OrbitGoal, OrbitMission};
 use super::physics::{CRASH_RADIUS, ESCAPE_RADIUS, MU, START_RADIUS, STEP, impulse, integrate};
 use super::types::{
     LOG_LINES, MAX_EVENTS, MAX_NODES, MAX_PREVIEW, MAX_TELEMETRY, MAX_TRAIL, ManeuverNode,
-    OrbitBody, OrbitError, OrbitEvent, OrbitEventKind, OrbitModal, OrbitPage, OrbitPoint,
+    OrbitBody, OrbitCue, OrbitError, OrbitEvent, OrbitEventKind, OrbitModal, OrbitPage, OrbitPoint,
     OrbitSample, OrbitStatus, TrackPoint,
 };
+use crate::anim::{Tween, TweenConfig, ease};
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::clock::BoundedClock;
-use crate::types::Fixed64;
+use crate::types::{Fixed, Fixed64};
 
 const RECORD_INTERVAL: Fixed64 = Fixed64::from_ratio(4, 25);
 /// The charts keep every second record, so they span the trail's 30 s.
@@ -23,6 +24,15 @@ const START_DV_TENTHS: u8 = 38;
 const START_DELAY_SECONDS: u8 = 3;
 /// No node fires inside the forecast.
 const UNMARKED: u8 = u8::MAX;
+/// A burn, arrival, sample or crash flash on the map.
+const CUE: TweenConfig = TweenConfig::new(380, &ease::OUT_CUBIC);
+/// How long a refused command keeps its reason on the map.
+const REFUSAL_MS: u16 = 2_000;
+
+/// A flash that has already played out.
+fn still() -> Tween {
+    Tween::preset(Fixed::ONE, Fixed::ONE, CUE)
+}
 
 /// What a forecast starts from.
 #[derive(Clone, Copy)]
@@ -181,6 +191,14 @@ pub(crate) struct OrbitModel {
     coast_at: Fixed64,
     coast_marks: [u8; MAX_NODES],
     coast_stale: bool,
+    /// The last flash on the map, where it happened and how far it has played.
+    cue: OrbitCue,
+    cue_at: TrackPoint,
+    cue_motion: Tween,
+    /// Why the last command from a button or key was refused.
+    #[observe]
+    pub(crate) refusal: Option<OrbitError>,
+    refusal_ms: u16,
 }
 
 impl Default for OrbitModel {
@@ -229,6 +247,11 @@ impl Default for OrbitModel {
             coast_at: Fixed64::ZERO,
             coast_marks: [UNMARKED; MAX_NODES],
             coast_stale: true,
+            cue: OrbitCue::Burn,
+            cue_at: TrackPoint::default(),
+            cue_motion: still(),
+            refusal: None,
+            refusal_ms: 0,
         };
         model.load_mission_raw(0);
         model
@@ -272,6 +295,9 @@ impl OrbitModel {
         self.telemetry_len = 0;
         self.event_start = 0;
         self.event_len = 0;
+        self.cue_motion = still();
+        self.refusal = None;
+        self.refusal_ms = 0;
         self.push_event(OrbitEventKind::Loaded);
         self.refresh_forecasts(true);
         ChangeSet::MODEL | ChangeSet::VISUAL
@@ -285,10 +311,11 @@ impl OrbitModel {
     }
 
     fn update_raw(&mut self, elapsed_ms: u16) -> ChangeSet {
+        let feedback = self.play_feedback(elapsed_ms);
         let active = self.status == OrbitStatus::Running && self.modal == OrbitModal::None;
         let steps = self.clock.steps(elapsed_ms, active);
         if steps == 0 {
-            return ChangeSet::NONE;
+            return feedback;
         }
         let display_tenth = (self.time * 10).to_int();
         let fuel = self.fuel;
@@ -301,6 +328,7 @@ impl OrbitModel {
             }
             if self.arrived() {
                 self.status = OrbitStatus::Paused;
+                self.flash(OrbitCue::Arrive);
                 break;
             }
         }
@@ -312,7 +340,50 @@ impl OrbitModel {
         {
             ChangeSet::MODEL | ChangeSet::VISUAL
         } else {
-            ChangeSet::VISUAL
+            ChangeSet::VISUAL | feedback
+        }
+    }
+
+    /// Plays the map flash and lets a refusal run out.
+    fn play_feedback(&mut self, elapsed_ms: u16) -> ChangeSet {
+        let mut changes = ChangeSet::NONE;
+        if elapsed_ms > 0 && !self.cue_motion.is_finished() {
+            self.cue_motion.tick(elapsed_ms);
+            changes = ChangeSet::VISUAL;
+        }
+        if self.refusal_ms > 0 {
+            self.refusal_ms = self.refusal_ms.saturating_sub(elapsed_ms);
+            if self.refusal_ms == 0 {
+                self.refusal = None;
+                changes = changes | ChangeSet::MODEL;
+            }
+        }
+        changes
+    }
+
+    /// Starts the flash for `cue` where the craft is now.
+    fn flash(&mut self, cue: OrbitCue) {
+        self.cue = cue;
+        self.cue_at = TrackPoint::from_point(self.body.position);
+        self.cue_motion = Tween::preset(Fixed::ZERO, Fixed::ONE, CUE);
+    }
+
+    /// Shows why a command from a button or key did nothing.
+    fn refuse(&mut self, error: OrbitError) -> ChangeSet {
+        self.refusal = Some(error);
+        self.refusal_ms = REFUSAL_MS;
+        ChangeSet::MODEL
+    }
+
+    /// Clears the reason of an earlier refusal once a command goes through.
+    fn accept(&mut self, result: Result<ChangeSet, OrbitError>) -> ChangeSet {
+        match result {
+            Ok(changes) => {
+                self.refusal = None;
+                self.refusal_ms = 0;
+                changes
+            }
+            Err(error) => self.refuse(error),
         }
     }
 
@@ -374,6 +445,7 @@ impl OrbitModel {
         let mut flight = self.flight();
         flight.burn(self.dv_tenths, self.angle_degrees)?;
         self.apply_flight(flight);
+        self.flash(OrbitCue::Burn);
         self.push_event(OrbitEventKind::Burn(self.dv_tenths));
         self.refresh_forecasts(true);
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
@@ -453,6 +525,7 @@ impl OrbitModel {
         }
         self.completed += 1;
         self.zone_latch = false;
+        self.flash(OrbitCue::Sample);
         self.push_event(OrbitEventKind::Goal(self.completed));
         if self.goal().is_none() {
             self.status = OrbitStatus::Won;
@@ -480,6 +553,7 @@ impl OrbitModel {
             match flight.burn(node.dv_tenths, node.angle_degrees) {
                 Ok(()) => {
                     self.apply_flight(flight);
+                    self.flash(OrbitCue::Burn);
                     self.push_event(OrbitEventKind::NodeBurn(node.dv_tenths));
                 }
                 Err(error) => self.push_event(OrbitEventKind::NodeSkipped(error)),
@@ -507,6 +581,9 @@ impl OrbitModel {
         self.aim_len = 0;
         self.coast_len = 0;
         self.modal = OrbitModal::Result;
+        if status == OrbitStatus::Crashed {
+            self.flash(OrbitCue::Crash);
+        }
         self.push_event(kind);
     }
 
@@ -785,6 +862,39 @@ impl OrbitModel {
         (mark >= self.coast_passed() && mark < usize::from(self.coast_len))
             .then(|| self.coast[mark])
     }
+
+    /// The flash playing on the map: what, where, and how far it has played
+    /// from 0 to 1.
+    pub(crate) fn cue_flash(&self) -> Option<(OrbitCue, TrackPoint, Fixed)> {
+        (!self.cue_motion.is_finished()).then(|| (self.cue, self.cue_at, self.cue_motion.value()))
+    }
+
+    fn confirm_raw(&mut self) -> ChangeSet {
+        match self.modal {
+            OrbitModal::Confirm(mission) if mission == self.mission => {
+                self.load_mission_raw(mission)
+            }
+            OrbitModal::Confirm(mission) => self.switch_raw(mission),
+            _ => ChangeSet::NONE,
+        }
+    }
+
+    fn has_next_raw(&self) -> bool {
+        usize::from(self.mission) + 1 < MISSION_COUNT
+    }
+
+    fn next_mission_raw(&mut self) -> ChangeSet {
+        if self.status == OrbitStatus::Won && self.has_next_raw() {
+            self.switch_raw(self.mission + 1)
+        } else {
+            ChangeSet::NONE
+        }
+    }
+
+    fn toggle_hint_raw(&mut self) -> ChangeSet {
+        self.hint_shown = !self.hint_shown;
+        ChangeSet::MODEL | ChangeSet::VISUAL
+    }
 }
 
 #[crate::model]
@@ -793,14 +903,17 @@ impl OrbitModel {
         self.update_raw(elapsed_ms)
     }
 
+    #[cfg(test)]
     pub(crate) fn toggle_running(&mut self) -> ChangeSet {
         self.toggle_running_raw()
     }
 
+    #[cfg(test)]
     pub(crate) fn burn(&mut self) -> Result<ChangeSet, OrbitError> {
         self.burn_raw()
     }
 
+    #[cfg(test)]
     pub(crate) fn schedule(&mut self) -> Result<ChangeSet, OrbitError> {
         self.schedule_raw()
     }
@@ -812,8 +925,63 @@ impl OrbitModel {
         self.cancel_raw(node.id)
     }
 
+    #[cfg(test)]
     pub(crate) fn scan(&mut self) -> Result<ChangeSet, OrbitError> {
         self.scan_raw()
+    }
+
+    /// Burns with the dial now, or shows why it cannot.
+    pub(crate) fn press_burn(&mut self) -> ChangeSet {
+        let result = self.burn_raw();
+        self.accept(result)
+    }
+
+    /// Samples the current goal, or shows why it cannot.
+    pub(crate) fn press_scan(&mut self) -> ChangeSet {
+        let result = self.scan_raw();
+        self.accept(result)
+    }
+
+    /// Plans a node from the dial and the delay, or shows why it cannot.
+    pub(crate) fn press_schedule(&mut self) -> ChangeSet {
+        let result = self.schedule_raw();
+        self.accept(result)
+    }
+
+    /// The first footer button: coast or pause, or the next mission once won.
+    pub(crate) fn press_run(&mut self) -> ChangeSet {
+        if self.status == OrbitStatus::Won {
+            self.next_mission_raw()
+        } else {
+            self.toggle_running_raw()
+        }
+    }
+
+    /// The main button of the open dialog.
+    pub(crate) fn modal_primary(&mut self) -> ChangeSet {
+        match self.modal {
+            OrbitModal::Confirm(_) => self.confirm_raw(),
+            OrbitModal::Result if self.status == OrbitStatus::Won && self.has_next_raw() => {
+                self.next_mission_raw()
+            }
+            OrbitModal::Result if self.status == OrbitStatus::Won => {
+                self.set_modal_raw(OrbitModal::Missions)
+            }
+            OrbitModal::Result => self.load_mission_raw(self.mission),
+            _ => self.set_modal_raw(OrbitModal::None),
+        }
+    }
+
+    /// The second button of the open dialog.
+    pub(crate) fn modal_secondary(&mut self) -> ChangeSet {
+        match self.modal {
+            OrbitModal::Brief => self.toggle_hint_raw(),
+            OrbitModal::Result if self.status == OrbitStatus::Won => {
+                self.load_mission_raw(self.mission)
+            }
+            OrbitModal::Result => self.set_modal_raw(OrbitModal::Missions),
+            _ => self.set_modal_raw(OrbitModal::None),
+        }
     }
 
     pub(crate) fn set_page(&mut self, page: OrbitPage) -> ChangeSet {
@@ -836,14 +1004,9 @@ impl OrbitModel {
     }
 
     /// Accepts the pending confirmation.
+    #[cfg(test)]
     pub(crate) fn confirm(&mut self) -> ChangeSet {
-        match self.modal {
-            OrbitModal::Confirm(mission) if mission == self.mission => {
-                self.load_mission_raw(mission)
-            }
-            OrbitModal::Confirm(mission) => self.switch_raw(mission),
-            _ => ChangeSet::NONE,
-        }
+        self.confirm_raw()
     }
 
     /// Starts the mission over; a flight in progress asks first.
@@ -857,17 +1020,14 @@ impl OrbitModel {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn next_mission(&mut self) -> ChangeSet {
-        if self.status == OrbitStatus::Won && usize::from(self.mission) + 1 < MISSION_COUNT {
-            self.switch_raw(self.mission + 1)
-        } else {
-            ChangeSet::NONE
-        }
+        self.next_mission_raw()
     }
 
+    #[cfg(test)]
     pub(crate) fn toggle_hint(&mut self) -> ChangeSet {
-        self.hint_shown = !self.hint_shown;
-        ChangeSet::MODEL | ChangeSet::VISUAL
+        self.toggle_hint_raw()
     }
 
     pub(crate) fn adjust_dv(&mut self, delta_tenths: i8) -> ChangeSet {
@@ -953,7 +1113,7 @@ impl OrbitModel {
 
     #[observe]
     pub(crate) fn has_next(&self) -> bool {
-        usize::from(self.mission) + 1 < MISSION_COUNT
+        self.has_next_raw()
     }
 
     /// Tenths of a second of contact left, when the mission has a limit.

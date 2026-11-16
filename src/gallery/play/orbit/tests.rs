@@ -171,18 +171,76 @@ fn documented_maneuvers_complete_all_missions() {
 fn hints_name_every_value_of_the_reference() {
     for (mission, steps) in REFERENCE.iter().enumerate() {
         let hint = MISSIONS[mission].hint;
-        for step in *steps {
-            let (dv, angle) = match *step {
-                Burn { dv, angle, .. } => (dv, angle),
-                Node { delay, dv, angle } => {
-                    assert!(hint.contains(&format!("{delay} s")), "{hint}");
-                    (dv, angle)
-                }
-            };
-            assert!(hint.contains(&format!("Δv {}", decimal(dv))), "{hint}");
-            assert!(hint.contains(&format!("{angle}°")) || angle == 0, "{hint}");
+        for words in [hint.en, hint.zh] {
+            for step in *steps {
+                let (dv, angle) = match *step {
+                    Burn { dv, angle, .. } => (dv, angle),
+                    Node { delay, dv, angle } => {
+                        assert!(words.contains(&format!("{delay} s")), "{words}");
+                        (dv, angle)
+                    }
+                };
+                assert!(words.contains(&format!("Δv {}", decimal(dv))), "{words}");
+                assert!(
+                    words.contains(&format!("{angle}°")) || angle == 0,
+                    "{words}"
+                );
+            }
         }
     }
+}
+
+#[test]
+fn burns_arrivals_and_samples_flash_once_and_refusals_run_out() {
+    use super::types::OrbitCue;
+    use crate::gallery::play::change::ChangeSet;
+
+    let mut model = OrbitModel::default();
+    assert!(model.cue_flash().is_none());
+    assert_eq!(model.advance_ms(16), ChangeSet::NONE);
+    model.press_burn();
+    assert!(matches!(model.cue_flash(), Some((OrbitCue::Burn, _, _))));
+    // The flash plays while the flight waits to coast.
+    assert!(model.advance_ms(200).contains(ChangeSet::VISUAL));
+    model.advance_ms(200);
+    assert!(model.cue_flash().is_none());
+    assert_eq!(model.advance_ms(16), ChangeSet::NONE);
+
+    model.toggle_running();
+    while model.status() == OrbitStatus::Running {
+        model.advance_ms(16);
+    }
+    assert!(matches!(model.cue_flash(), Some((OrbitCue::Arrive, _, _))));
+    model.press_scan();
+    assert!(matches!(model.cue_flash(), Some((OrbitCue::Sample, _, _))));
+    assert_eq!(model.status(), OrbitStatus::Won);
+
+    let mut empty = OrbitModel::default();
+    empty.fuel = Fixed64::ONE;
+    assert!(empty.press_burn().contains(ChangeSet::MODEL));
+    assert_eq!(empty.refusal, Some(OrbitError::Fuel));
+    assert!(empty.cue_flash().is_none());
+    empty.press_scan();
+    assert_eq!(empty.refusal, Some(OrbitError::OutsideWindow));
+    empty.advance_ms(1_000);
+    assert!(empty.refusal.is_some());
+    assert!(empty.advance_ms(1_000).contains(ChangeSet::MODEL));
+    assert_eq!(empty.refusal, None);
+}
+
+#[test]
+fn the_run_button_coasts_pauses_and_moves_on_after_a_win() {
+    let mut model = fly(0, REFERENCE[0]);
+    model.set_modal(OrbitModal::None);
+    model.press_run();
+    assert_eq!(model.mission_index(), 1);
+    assert_eq!(model.modal(), OrbitModal::Brief);
+    model.modal_primary();
+    assert_eq!(model.modal(), OrbitModal::None);
+    model.press_run();
+    assert_eq!(model.status(), OrbitStatus::Running);
+    model.press_run();
+    assert_eq!(model.status(), OrbitStatus::Paused);
 }
 
 #[test]

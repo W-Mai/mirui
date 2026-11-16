@@ -15,6 +15,6 @@ pub(crate) use physics::{CRASH_RADIUS, START_RADIUS};
 #[allow(unused_imports)]
 pub(crate) use types::{
     LOG_LINES, MAX_EVENTS, MAX_NODES, MAX_PREVIEW, MAX_TELEMETRY, MAX_TRAIL, ManeuverNode,
-    OrbitBody, OrbitError, OrbitEvent, OrbitEventKind, OrbitModal, OrbitPage, OrbitPoint,
+    OrbitBody, OrbitCue, OrbitError, OrbitEvent, OrbitEventKind, OrbitModal, OrbitPage, OrbitPoint,
     OrbitSample, OrbitStatus, TrackPoint,
 };

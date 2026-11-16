@@ -1,10 +1,11 @@
 use super::state::{OrbitModalSurface, OrbitSurface};
 use super::style::{
-    BACKGROUND, COAST, CYAN, DEEP, INK, LINE, ORANGE, PANEL, PLANET, SPACE, VIOLET,
+    ANGLE_BOX, BACKGROUND, COAST, CYAN, DEEP, DV_BOX, FOOTER_TOP, INK, LINE, ORANGE, PAGE_TOP,
+    PANEL, PLANET, RED, SPACE, VIOLET,
 };
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::orbit::{
-    CRASH_RADIUS, MAX_NODES, MAX_TELEMETRY, OrbitGoal, OrbitModal, OrbitModel, OrbitPage,
+    CRASH_RADIUS, MAX_NODES, MAX_TELEMETRY, OrbitCue, OrbitGoal, OrbitModal, OrbitModel, OrbitPage,
     START_RADIUS, TrackPoint,
 };
 use crate::gallery::play::paint::PlayPainter;
@@ -13,18 +14,21 @@ use crate::render::command::DrawCommand;
 use crate::types::Transform;
 use crate::ui::view::PaintCtx;
 
-/// The space window of the map page.
+/// The space window of the map page, between the header and the footer.
 const MAP: Rect = Rect {
-    x: Fixed::from_int(11),
-    y: Fixed::from_int(65),
-    w: Fixed::from_int(287),
-    h: Fixed::from_int(188),
+    x: Fixed::ZERO,
+    y: Fixed::from_int(PAGE_TOP),
+    w: Fixed::from_int(480),
+    h: Fixed::from_int(FOOTER_TOP - PAGE_TOP),
 };
 /// Map pixels per unit of distance.
-const MAP_SCALE: Fixed = Fixed::from_ratio(7, 10);
+const MAP_SCALE: Fixed = Fixed::from_ratio(9, 10);
+/// The readouts at the right edge of the map.
+const GAUGE_X: i32 = 386;
+const GAUGE_W: i32 = 88;
 
 fn map_center() -> Point {
-    Point::new(154, 159)
+    Point::new(226, 157)
 }
 
 fn map_length(units: i64) -> Fixed {
@@ -42,6 +46,13 @@ fn track_point(point: TrackPoint) -> Point {
 
 fn goal_point(x: i16, y: i16) -> Point {
     track_point(TrackPoint { x: x * 4, y: y * 4 })
+}
+
+fn faded(color: Color, alpha: i32) -> Color {
+    Color {
+        a: alpha.clamp(0, 255) as u8,
+        ..color
+    }
 }
 
 /// How a goal is drawn: done, the one to reach now, or still ahead.
@@ -66,13 +77,19 @@ fn goal_states(model: &OrbitModel) -> impl Iterator<Item = (OrbitGoal, GoalState
 
 fn paint_shell(painter: &mut PlayPainter<'_, '_>) {
     painter.fill(Rect::new(0, 0, 480, 320), BACKGROUND, Fixed::ZERO);
-    painter.fill(Rect::new(0, 0, 480, 31), INK, Fixed::ZERO);
+    painter.fill(Rect::new(0, 0, 480, PAGE_TOP), INK, Fixed::ZERO);
     painter.fill(
-        Rect::new(0, 31, 480, 28),
-        Color::rgb(226, 231, 228),
+        Rect::new(0, FOOTER_TOP, 480, 320 - FOOTER_TOP),
+        INK,
         Fixed::ZERO,
     );
-    painter.fill(Rect::new(0, 282, 480, 38), INK, Fixed::ZERO);
+    for (left, width) in [DV_BOX, ANGLE_BOX] {
+        painter.fill(
+            Rect::new(left, FOOTER_TOP + 4, width, 28),
+            DEEP,
+            Fixed::ZERO,
+        );
+    }
 }
 
 fn paint_goal(painter: &mut PlayPainter<'_, '_>, goal: OrbitGoal, state: GoalState) {
@@ -93,7 +110,7 @@ fn paint_goal(painter: &mut PlayPainter<'_, '_>, goal: OrbitGoal, state: GoalSta
                     (inner + outer) / 2,
                     Fixed::ZERO,
                     full,
-                    Color::rgba(244, 139, 54, fill),
+                    faded(ORANGE, fill),
                     outer - inner,
                 );
             }
@@ -104,7 +121,7 @@ fn paint_goal(painter: &mut PlayPainter<'_, '_>, goal: OrbitGoal, state: GoalSta
                         radius,
                         Fixed::ZERO,
                         full,
-                        Color::rgba(244, 139, 54, edge),
+                        faded(ORANGE, edge),
                         Fixed::ONE,
                     );
                 }
@@ -117,7 +134,7 @@ fn paint_goal(painter: &mut PlayPainter<'_, '_>, goal: OrbitGoal, state: GoalSta
                 GoalState::Done => (70, Fixed::ONE),
                 GoalState::Ahead => (110, Fixed::ONE),
             };
-            let color = Color::rgba(147, 112, 222, alpha);
+            let color = faded(VIOLET, alpha);
             painter.arc(
                 point,
                 map_length(i64::from(range)),
@@ -131,13 +148,18 @@ fn paint_goal(painter: &mut PlayPainter<'_, '_>, goal: OrbitGoal, state: GoalSta
     }
 }
 
+/// A gauge bar under a readout at the right edge of the map.
+fn paint_gauge(painter: &mut PlayPainter<'_, '_>, top: i32, value: i32, full: i32, color: Color) {
+    painter.fill(Rect::new(GAUGE_X, top, GAUGE_W, 3), DEEP, Fixed::ZERO);
+    let width = GAUGE_W * value.clamp(0, full) / full.max(1);
+    painter.fill(Rect::new(GAUGE_X, top, width, 3), color, Fixed::ZERO);
+}
+
 fn paint_map(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
     painter.fill(MAP, SPACE, Fixed::ZERO);
-    painter.fill(Rect::new(307, 65, 162, 188), PANEL, Fixed::ZERO);
-    painter.border(Rect::new(307, 65, 162, 188), LINE, Fixed::ONE, Fixed::ZERO);
     let center = map_center();
     for (radius, color) in [
-        (CRASH_RADIUS, Color::rgba(232, 92, 72, 90)),
+        (CRASH_RADIUS, faded(RED, 90)),
         (START_RADIUS, Color::rgb(41, 60, 77)),
     ] {
         painter.arc(
@@ -152,27 +174,12 @@ fn paint_map(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
     for (goal, state) in goal_states(model) {
         paint_goal(painter, goal, state);
     }
-    painter.circle(center, Fixed::from_int(17), Color::rgb(244, 173, 74));
-    painter.circle(center, Fixed::from_int(11), PLANET);
+    painter.circle(center, Fixed::from_int(20), Color::rgb(244, 173, 74));
+    painter.circle(center, Fixed::from_int(13), PLANET);
     let fuel = model.fuel().to_fixed().to_int();
-    let full = i32::from(model.mission().fuel).max(1);
-    painter.fill(Rect::new(322, 88, 132, 4), LINE, Fixed::ZERO);
-    painter.fill(
-        Rect::new(322, 88, 132 * fuel.clamp(0, full) / full, 4),
-        CYAN,
-        Fixed::ZERO,
-    );
-    painter.fill(Rect::new(322, 112, 132, 4), LINE, Fixed::ZERO);
-    painter.fill(
-        Rect::new(
-            322,
-            112,
-            132 * model.heat().to_fixed().to_int().min(100) / 100,
-            4,
-        ),
-        ORANGE,
-        Fixed::ZERO,
-    );
+    paint_gauge(painter, 50, fuel, model.mission().fuel.into(), CYAN);
+    let heat = model.heat().to_fixed().to_int();
+    paint_gauge(painter, 71, heat, 100, ORANGE);
 }
 
 /// Draws `points` as one line, starting from `from`, inside `clip`.
@@ -241,7 +248,7 @@ fn paint_craft(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
         let uy = (body.velocity.y / speed).to_fixed();
         let angle = Fixed::from_int(i32::from(model.angle_degrees()));
         let (cosine, sine) = (Fixed::cos_deg(angle), Fixed::sin_deg(angle));
-        let length = Fixed::from_int(7) + Fixed::from_int(i32::from(model.dv_tenths())) / 5;
+        let length = Fixed::from_int(8) + Fixed::from_int(i32::from(model.dv_tenths())) / 4;
         let tip = Point {
             x: craft.x + (ux * cosine - uy * sine) * length,
             y: craft.y + (ux * sine + uy * cosine) * length,
@@ -252,37 +259,104 @@ fn paint_craft(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
     painter.circle(craft, Fixed::from_int(2), PANEL);
 }
 
+/// A ring that grows from `from` by `grow` pixels as a flash plays and fades.
+fn flash_ring(
+    painter: &mut PlayPainter<'_, '_>,
+    center: Point,
+    played: Fixed,
+    (from, grow): (i32, i32),
+    color: Color,
+) {
+    let alpha = ((Fixed::ONE - played) * 255).to_int();
+    painter.arc(
+        center,
+        Fixed::from_int(from) + played * grow,
+        Fixed::ZERO,
+        Fixed::from_int(360),
+        faded(color, alpha),
+        Fixed::from_int(2),
+    );
+}
+
+/// The flash of the last burn, arrival, sample or crash.
+fn paint_cue(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
+    let Some((cue, at, played)) = model.cue_flash() else {
+        return;
+    };
+    let alpha = ((Fixed::ONE - played) * 255).to_int();
+    let craft = track_point(at);
+    match cue {
+        OrbitCue::Burn => {
+            painter.disc(
+                craft,
+                Fixed::from_int(4) + played * 4,
+                faded(ORANGE, alpha * 3 / 4),
+            );
+            flash_ring(painter, craft, played, (6, 18), ORANGE);
+        }
+        OrbitCue::Sample => {
+            flash_ring(painter, craft, played, (6, 22), VIOLET);
+            flash_ring(painter, craft, played, (3, 10), BACKGROUND);
+        }
+        OrbitCue::Crash => {
+            painter.disc(craft, Fixed::from_int(6) + played * 10, faded(RED, alpha));
+            flash_ring(painter, craft, played, (8, 24), RED);
+        }
+        OrbitCue::Arrive => {
+            flash_ring(painter, craft, played, (6, 16), CYAN);
+            match model.mission().goal(model.completed()) {
+                Some(OrbitGoal::Band { min, max }) => {
+                    for (radius, sign) in [(min, -1), (max, 1)] {
+                        let radius = map_length(i64::from(radius)) + played * 6 * sign;
+                        painter.arc(
+                            map_center(),
+                            radius,
+                            Fixed::ZERO,
+                            Fixed::from_int(360),
+                            faded(ORANGE, alpha),
+                            Fixed::from_int(2),
+                        );
+                    }
+                }
+                Some(OrbitGoal::Beacon { x, y, range, .. }) => {
+                    let reach = map_length(i64::from(range)).to_int();
+                    flash_ring(painter, goal_point(x, y), played, (reach, 12), VIOLET);
+                }
+                None => {}
+            }
+        }
+    }
+}
+
 fn paint_plan(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
-    painter.fill(Rect::new(11, 65, 292, 188), PANEL, Fixed::ZERO);
-    painter.border(Rect::new(11, 65, 292, 188), LINE, Fixed::ONE, Fixed::ZERO);
-    painter.fill(Rect::new(313, 65, 156, 188), SPACE, Fixed::ZERO);
+    painter.fill(Rect::new(316, PAGE_TOP, 164, 254), SPACE, Fixed::ZERO);
     for index in 0..MAX_NODES {
-        let y = 91 + index as i32 * 48;
+        let y = 54 + index as i32 * 44;
         let planned = model.queue(index).is_some();
         painter.fill(
-            Rect::new(24, y, 262, 38),
+            Rect::new(8, y, 300, 38),
             if planned {
                 Color::rgb(231, 233, 226)
             } else {
-                BACKGROUND
+                PANEL
             },
             Fixed::ZERO,
         );
-        painter.border(Rect::new(24, y, 262, 38), LINE, Fixed::ONE, Fixed::ZERO);
+        painter.border(Rect::new(8, y, 300, 38), LINE, Fixed::ONE, Fixed::ZERO);
         if planned {
-            painter.fill(Rect::new(24, y, 4, 38), ORANGE, Fixed::ZERO);
+            painter.fill(Rect::new(8, y, 4, 38), ORANGE, Fixed::ZERO);
         }
     }
     // Fuel now, with the part the planned nodes will burn in orange.
     let full = i32::from(model.mission().fuel).max(1);
-    let width = |fuel: crate::types::Fixed64| 132 * fuel.to_fixed().to_int().clamp(0, full) / full;
+    let width = |fuel: crate::types::Fixed64| 146 * fuel.to_fixed().to_int().clamp(0, full) / full;
     let now = width(model.fuel());
     let planned = crate::types::Fixed64::from_ratio(model.planned_fuel().into(), 10);
     let after = width(model.fuel() - planned);
-    painter.fill(Rect::new(325, 245, 132, 4), DEEP, Fixed::ZERO);
-    painter.fill(Rect::new(325, 245, after, 4), CYAN, Fixed::ZERO);
+    painter.fill(Rect::new(326, 146, 146, 4), DEEP, Fixed::ZERO);
+    painter.fill(Rect::new(326, 146, after, 4), CYAN, Fixed::ZERO);
     painter.fill(
-        Rect::new(325 + after, 245, now - after, 4),
+        Rect::new(326 + after, 146, now - after, 4),
         ORANGE,
         Fixed::ZERO,
     );
@@ -321,7 +395,7 @@ fn paint_chart(
                         w: rect.w,
                         h: bottom - top,
                     },
-                    Color::rgba(244, 139, 54, alpha),
+                    faded(ORANGE, alpha),
                     Fixed::ZERO,
                 );
             }
@@ -331,11 +405,11 @@ fn paint_chart(
                 )
                 .sqrt();
                 let tenths = (distance * 10).to_int() as i32;
-                rule(painter, tenths, Color::rgba(147, 112, 222, alpha * 3));
+                rule(painter, tenths, faded(VIOLET, alpha * 3));
             }
             OrbitGoal::Beacon { max_speed, .. } => {
                 let tenths = i32::from(max_speed) * 10;
-                rule(painter, tenths, Color::rgba(147, 112, 222, alpha * 3));
+                rule(painter, tenths, faded(VIOLET, alpha * 3));
             }
             OrbitGoal::Band { .. } => {}
         }
@@ -367,14 +441,21 @@ fn paint_record(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
     paint_chart(
         painter,
         model,
-        Rect::new(15, 88, 286, 74),
+        Rect::new(10, 52, 320, 96),
         true,
         ORANGE,
         160,
     );
-    paint_chart(painter, model, Rect::new(15, 190, 286, 58), false, CYAN, 60);
-    painter.fill(Rect::new(313, 65, 156, 188), PANEL, Fixed::ZERO);
-    painter.border(Rect::new(313, 65, 156, 188), LINE, Fixed::ONE, Fixed::ZERO);
+    paint_chart(
+        painter,
+        model,
+        Rect::new(10, 172, 320, 104),
+        false,
+        CYAN,
+        60,
+    );
+    painter.fill(Rect::new(340, 34, 134, 244), PANEL, Fixed::ZERO);
+    painter.border(Rect::new(340, 34, 134, 244), LINE, Fixed::ONE, Fixed::ZERO);
 }
 
 #[crate::view(component = OrbitSurface, name = "OrbitSurface", priority = 60)]
@@ -393,7 +474,9 @@ pub(super) fn surface_render(
     }
     if model.page() == OrbitPage::Map {
         paint_tracks(paint, transform, model);
-        paint_craft(&mut PlayPainter::new(paint, transform), model);
+        let mut painter = PlayPainter::new(paint, transform);
+        paint_craft(&mut painter, model);
+        paint_cue(&mut painter, model);
     }
 }
 
@@ -414,9 +497,9 @@ pub(super) fn modal_render(model: model!(component.model, watch(modal)), paint: 
         Color::rgba(12, 20, 30, 220),
         Fixed::ZERO,
     );
-    painter.fill(Rect::new(38, 69, 404, 190), PANEL, Fixed::ZERO);
+    painter.fill(Rect::new(38, 69, 404, 194), PANEL, Fixed::ZERO);
     painter.border(
-        Rect::new(38, 69, 404, 190),
+        Rect::new(38, 69, 404, 194),
         INK,
         Fixed::from_int(2),
         Fixed::ZERO,

@@ -100,6 +100,20 @@ pub(crate) enum OrbitError {
     NoContact,
 }
 
+/// A short flash on the map that marks what just happened.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum OrbitCue {
+    /// The engine fired, by hand or from a node.
+    #[default]
+    Burn,
+    /// The craft entered the current goal's zone.
+    Arrive,
+    /// A goal was sampled.
+    Sample,
+    /// The craft hit the planet.
+    Crash,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ManeuverNode {
     pub(crate) id: u8,
