@@ -3,9 +3,12 @@ use crate::app::{App, RendererFactory};
 use crate::render::font::{Font, FontManager, FontToken};
 use crate::surface::Surface;
 
-/// MiSans Normal, the gallery's UI face. Shared with demos that need full
+/// MiSans Normal, the gallery's CJK face. Shared with demos that need full
 /// ASCII punctuation, such as Iris readouts.
 pub(in crate::gallery) const FONT_BYTES: &[u8] = include_bytes!("../demos/assets/play_ui.mirx");
+/// Geist Regular (OFL, see `assets/licenses/UI-Geist-OFL.txt`), Latin only:
+/// the samples' face for words and figures, with MiSans behind it.
+pub(in crate::gallery) const GEIST_BYTES: &[u8] = include_bytes!("../demos/assets/ui_geist.mirx");
 /// Fusion Pixel 10 px (OFL, see `assets/licenses/Play-Fusion-Pixel-OFL.txt`),
 /// baked at 10, 20 and 30 px: the face of the gallery games.
 pub(in crate::gallery) const PIXEL_FONT_BYTES: &[u8] =
@@ -15,11 +18,13 @@ const GRID: u16 = 10;
 #[cfg(test)]
 const FONT_CHARSET: &str = include_str!("../demos/assets/play_charset.txt");
 
-/// Registers the gallery UI typeface (MiSans) for every semantic font role
-/// used by the gallery samples.
+/// Registers the gallery UI typeface for every semantic font role used by
+/// the gallery samples: Geist for Latin text and figures, backed by MiSans
+/// for Chinese and every other glyph Geist lacks.
 ///
 /// **Inserts**
-/// - resource: `FontManager` static entries for `Default`, `Heading`, and `Mono`
+/// - resource: `FontManager` static entries for `Default`, `Heading`, `Mono`
+///   and `FontToken::FALLBACK`
 #[derive(Default)]
 pub(in crate::gallery) struct PlayFontPlugin;
 
@@ -29,14 +34,15 @@ where
     F: RendererFactory<B>,
 {
     fn build(&mut self, app: &mut App<B, F>) {
-        let font = Font::from_mirx(
-            "MIRUI Play",
-            12,
-            FONT_BYTES,
-            &mirx::reader::PayloadLimits::HOST,
-        )
-        .expect("MIRUI Play font must decode");
-        register_every_role(app, font);
+        let limits = &mirx::reader::PayloadLimits::HOST;
+        let geist = Font::from_mirx("MIRUI Play", 12, GEIST_BYTES, limits)
+            .expect("MIRUI Play font must decode");
+        let misans = Font::from_mirx("MIRUI Play CJK", 12, FONT_BYTES, limits)
+            .expect("MIRUI Play CJK font must decode");
+        register_every_role(app, geist);
+        if let Some(manager) = app.world.resource::<FontManager>() {
+            manager.add_static(FontToken::FALLBACK.cache_key(), misans);
+        }
     }
 }
 
@@ -296,6 +302,11 @@ mod tests {
             assert_eq!(font.family, "MIRUI Pixel");
             assert_eq!(font.size, GRID);
         }
+        let backing = samples.resolve(FontToken::FALLBACK.cache_key());
+        assert_eq!(backing.family, "MIRUI Play CJK");
+        assert!(backing.map_char('光').is_some());
+        let geist = samples.resolve(FontToken::Default.cache_key());
+        assert!(geist.map_char('g').is_some() && geist.map_char('光').is_none());
     }
 
     #[test]

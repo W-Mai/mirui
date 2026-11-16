@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Keep the pixel face to the Gallery games. `PlayFontPlugin` registers the gallery UI face again for the samples, and the 13 games use the new `GameFontPlugin` with Fusion Pixel.
+- Keep the pixel face to the Gallery games. `PlayFontPlugin` now gives the samples Geist (OFL) for Latin text and figures with MiSans behind it for Chinese, and the 13 games use the new `GameFontPlugin` with Fusion Pixel.
+
+- Add `FontToken::FALLBACK`: a font registered under it backs every text stack, so a Latin face can lean on a CJK face without each style listing the fallback. An unregistered `FALLBACK` costs nothing and resolves no face.
 
 - Give the board of every Gallery game most of the screen, translate every game into English and Chinese, and make them feel like finished games. Controls shrink to one slim strip or column of symbol buttons, rules and level maps move behind header icons, and duplicated read-outs go. Boards grow, for example Twin Beacons from 124 to 213 px, Orbital Mission's map to 480×254, Lumen Lab to 378×272 and Echo Walker's cells to 50 px. Pieces slide, roll or swing to their new cells, refused moves nudge and say why, Lumen draws its beam along the path, Logic Circuit sends a flipped input wire by wire, Module Factory slides items along belts, Tidal Atlas drops tiles in and pops each harvest's points, and levels end on a card whose stars pop in one by one with a one-tap next level. Every game takes keyboard shortcuts, and with `persistence` Lumen Lab, Pocket Post, Moss Study, Logic Circuit, Module Factory, Pixel Loom, Marble Play and Tidal Atlas's best total are saved too. Twin Beacons and Folding Ark move by tap or swipe; Echo Walker moves by swipe or tap and replays a soloed tape on the board. The pixel game face adds ☰ ⓘ 苔 藓 袋 刻 独 非 力 珠 音 鼓 (920 characters).
 

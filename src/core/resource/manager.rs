@@ -122,6 +122,20 @@ impl<T: HasSize + 'static> ResourceManager<T> {
         self.inner.borrow().fallback_clone()
     }
 
+    /// Resolves `token` only when a value, static entry, factory or loader
+    /// is registered for it; an unknown token returns `None` without
+    /// recording a failed lookup.
+    pub(crate) fn resolve_registered(&self, token: &str) -> Option<Handle<T>> {
+        let registered = {
+            let mut inner = self.inner.borrow_mut();
+            if let Some(value) = inner.try_acquire_value_clone(token) {
+                return Some(value);
+            }
+            inner.peek_entry_kind(token).is_some()
+        };
+        registered.then(|| self.resolve(token))
+    }
+
     pub(crate) fn revision_cell(&self) -> Rc<core::cell::Cell<u64>> {
         self.inner.borrow().revision_cell()
     }

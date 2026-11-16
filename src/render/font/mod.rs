@@ -856,6 +856,11 @@ impl ResolvedFontStack {
         let Some(manager) = manager else {
             return Ok(None);
         };
+        // A registered FALLBACK face closes the stack unless it already
+        // names it or has no room left.
+        let backing = (len < limit && stack.iter().all(|token| *token != FontToken::FALLBACK))
+            .then(|| manager.resolve_registered(FontToken::FALLBACK.cache_key()))
+            .flatten();
         let primary = manager.resolve(stack.primary().cache_key());
         let ppem = primary.ppem_for(font_size);
         let mut fonts = core::array::from_fn(|_| None);
@@ -864,6 +869,14 @@ impl ResolvedFontStack {
             font.size = ppem;
             *slot = Some(font);
         }
+        let len = if let Some(backing) = backing {
+            let mut font = backing.as_ref().clone();
+            font.size = ppem;
+            fonts[len] = Some(font);
+            len + 1
+        } else {
+            len
+        };
         Ok(Some(Self { fonts, len, ppem }))
     }
 
@@ -1093,6 +1106,12 @@ impl From<FontToken> for FontStack {
 }
 
 impl FontToken {
+    /// The face that backs every text stack: when a [`FontManager`] has a
+    /// font registered under this token, each resolved stack draws glyphs
+    /// its own faces lack from it. A Latin UI face can lean on a CJK face
+    /// this way without every style listing the fallback.
+    pub const FALLBACK: FontToken = FontToken::Custom("\0mirui-font-fallback");
+
     pub const fn cache_key(&self) -> &'static str {
         match self {
             FontToken::Default => "\0mirui-font-default",
@@ -1390,6 +1409,40 @@ mod tests {
                 0
             );
         }
+    }
+
+    #[test]
+    fn registered_fallback_face_closes_every_stack() {
+        let manager = default_font_manager();
+        let plain = ResolvedFontStack::resolve(Some(&manager), &FontStack::default(), None, 4)
+            .unwrap()
+            .unwrap();
+        assert_eq!(plain.len, 1);
+
+        manager.add_static(
+            FontToken::FALLBACK.cache_key(),
+            Font {
+                family: "backing",
+                size: 20,
+                provider: Font::default().provider,
+            },
+        );
+        let backed = ResolvedFontStack::resolve(Some(&manager), &FontStack::default(), Some(14), 4)
+            .unwrap()
+            .unwrap();
+        assert_eq!(backed.len, 2);
+        let last = backed.fonts[1].as_ref().unwrap();
+        assert_eq!((last.family, last.size), ("backing", 14));
+
+        let named = FontStack::default().with_fallbacks(&[FontToken::FALLBACK][..]);
+        let named = ResolvedFontStack::resolve(Some(&manager), &named, None, 4)
+            .unwrap()
+            .unwrap();
+        assert_eq!(named.len, 2);
+        let full = ResolvedFontStack::resolve(Some(&manager), &FontStack::default(), None, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(full.len, 1);
     }
 
     #[test]
