@@ -154,6 +154,7 @@ mod tests {
         include_str!("marble/physics.rs"),
         include_str!("marble/presets.rs"),
         include_str!("marble/transport.rs"),
+        include_str!("marble/types.rs"),
         include_str!("../demos/lumen_lab.rs"),
         include_str!("../demos/lumen_lab/shell.rs"),
         include_str!("lumen/types.rs"),

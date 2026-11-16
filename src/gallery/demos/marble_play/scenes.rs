@@ -1,16 +1,22 @@
-use super::style::{BOARD_HEIGHT, BOARD_WIDTH, MUTED, color, mix};
+use super::style::{BOARD_HEIGHT, BOARD_WIDTH, MUTED, TEXT, color, mix};
 use crate::gallery::fit_logical_canvas;
-use crate::gallery::play::marble::{MarbleModel, THEMES};
+use crate::gallery::play::marble::{MarbleModel, PALETTE, THEMES};
 use crate::gallery::play::paint::PlayPainter;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
 const SCENE_CARD_LEFT: i32 = 18;
-const SCENE_CARD_TOP: i32 = 18;
+const SCENE_CARD_TOP: i32 = 24;
 const SCENE_CARD_STRIDE: i32 = 151;
 const SCENE_CARD_WIDTH: i32 = 140;
-const SCENE_CARD_HEIGHT: i32 = 163;
+const SCENE_CARD_HEIGHT: i32 = 216;
+/// The small board drawn at the top of each card.
+const PREVIEW_INSET: i32 = 10;
+const PREVIEW_HEIGHT: i32 = 128;
+/// Card-relative top of the scene's name and of its gravity line.
+const NAME_TOP: i32 = 148;
+const SUBTITLE_TOP: i32 = 176;
 
 const fn scene_card_x(index: usize) -> i32 {
     SCENE_CARD_LEFT + index as i32 * SCENE_CARD_STRIDE
@@ -32,7 +38,7 @@ struct MarbleSceneBoard {
 
 fn paint_scene_cards(painter: &mut PlayPainter<'_, '_>, selected: usize) {
     painter.fill(
-        Rect::new(10, 0, 460, 199),
+        Rect::new(10, 0, 460, BOARD_HEIGHT),
         color(THEMES[selected].bg),
         Fixed::from_int(10),
     );
@@ -50,26 +56,33 @@ fn paint_scene_cards(painter: &mut PlayPainter<'_, '_>, selected: usize) {
             Fixed::ONE,
             Fixed::from_int(8),
         );
+        let top = SCENE_CARD_TOP + PREVIEW_INSET;
         painter.fill(
-            Rect::new(x + 10, 29, 120, 72),
+            Rect::new(
+                x + PREVIEW_INSET,
+                top,
+                SCENE_CARD_WIDTH - 2 * PREVIEW_INSET,
+                PREVIEW_HEIGHT,
+            ),
             color(theme.bg),
             Fixed::from_int(6),
         );
         for dot in 0..3 {
             painter.circle(
-                Point::new(x + 37 + dot * 29, 57 + (dot % 2) * 17),
-                Fixed::from_int(7),
-                color(crate::gallery::play::marble::PALETTE[(index + dot as usize) % 5]),
+                Point::new(x + 37 + dot * 33, top + 42 + (dot % 2) * 34),
+                Fixed::from_int(10),
+                color(PALETTE[(index + dot as usize) % 5]),
             );
         }
-        painter.fill(
-            Rect::new(x + 14, 108, 18 + theme.name.len() as i32 * 4, 2),
-            color(theme.accent),
-            Fixed::ONE,
+        painter.line(
+            Point::new(x + 22, top + PREVIEW_HEIGHT - 12),
+            Point::new(x + SCENE_CARD_WIDTH - 22, top + PREVIEW_HEIGHT - 12),
+            mix(theme.bg, theme.accent, Fixed::from_ratio(30, 100)),
+            Fixed::from_int(2),
         );
         painter.fill(
-            Rect::new(x + 14, 160, 12 + theme.subtitle.len() as i32 * 3, 2),
-            MUTED,
+            Rect::new(x + 14, SCENE_CARD_TOP + NAME_TOP + 18, 24, 2),
+            color(theme.accent),
             Fixed::ONE,
         );
     }
@@ -111,26 +124,26 @@ pub(super) fn marble_scenes_page(model: model!(MarbleModel)) -> Entity {
                 TouchAction::None,
             ] {
                 Text (
-                    "DAYDREAM",
+                    THEMES[0].name,
                     id: "marble_scene_0_name",
                     position: Position::Absolute,
                     left: 14,
-                    top: 100,
+                    top: NAME_TOP,
                     width: 112,
-                    height: 18,
-                    font_size: 8,
-                    text_color: Color::rgb(225, 233, 214),
+                    height: 14,
+                    font_size: 10,
+                    text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "SOFT GREEN",
+                    THEMES[0].subtitle,
                     id: "marble_scene_0_sub",
                     position: Position::Absolute,
                     left: 14,
-                    top: 121,
+                    top: SUBTITLE_TOP,
                     width: 112,
-                    height: 16,
-                    font_size: 7,
+                    height: 13,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
@@ -146,26 +159,26 @@ pub(super) fn marble_scenes_page(model: model!(MarbleModel)) -> Entity {
                 TouchAction::None,
             ] {
                 Text (
-                    "AFTER HOURS",
+                    THEMES[1].name,
                     id: "marble_scene_1_name",
                     position: Position::Absolute,
                     left: 14,
-                    top: 100,
+                    top: NAME_TOP,
                     width: 112,
-                    height: 18,
-                    font_size: 8,
-                    text_color: Color::rgb(225, 233, 214),
+                    height: 14,
+                    font_size: 10,
+                    text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "BLUE GREY",
+                    THEMES[1].subtitle,
                     id: "marble_scene_1_sub",
                     position: Position::Absolute,
                     left: 14,
-                    top: 121,
+                    top: SUBTITLE_TOP,
                     width: 112,
-                    height: 16,
-                    font_size: 7,
+                    height: 13,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
@@ -181,26 +194,26 @@ pub(super) fn marble_scenes_page(model: model!(MarbleModel)) -> Entity {
                 TouchAction::None,
             ] {
                 Text (
-                    "ZERO GRAVITY",
+                    THEMES[2].name,
                     id: "marble_scene_2_name",
                     position: Position::Absolute,
                     left: 14,
-                    top: 100,
+                    top: NAME_TOP,
                     width: 112,
-                    height: 18,
-                    font_size: 8,
-                    text_color: Color::rgb(225, 233, 214),
+                    height: 14,
+                    font_size: 10,
+                    text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "COOL BLUE",
+                    THEMES[2].subtitle,
                     id: "marble_scene_2_sub",
                     position: Position::Absolute,
                     left: 14,
-                    top: 121,
+                    top: SUBTITLE_TOP,
                     width: 112,
-                    height: 16,
-                    font_size: 7,
+                    height: 13,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )

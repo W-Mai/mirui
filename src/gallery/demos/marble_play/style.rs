@@ -1,7 +1,8 @@
 use crate::prelude::{Color, Dimension, Fixed, Padding};
 
 pub(super) const BOARD_WIDTH: i32 = 480;
-pub(super) const BOARD_HEIGHT: i32 = 199;
+/// The page area between the top bar and the status line.
+pub(super) const BOARD_HEIGHT: i32 = 264;
 pub(super) const MUTED: Color = Color::rgb(137, 156, 123);
 pub(super) const TEXT: Color = Color::rgb(225, 233, 214);
 

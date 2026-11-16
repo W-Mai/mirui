@@ -1,5 +1,6 @@
 use super::model::MarbleModel;
 use super::types::{MarbleSound, PadTimbre};
+use crate::tr;
 use crate::types::Fixed64;
 
 pub(super) const MAX_SOUND_EVENTS: usize = 8;
@@ -135,7 +136,7 @@ impl MarbleModel {
         self.recording = false;
         if self.recorded_len == 0 {
             self.stop_recording();
-            self.notify("NO NOTES RECORDED");
+            self.notify(tr!(en: "NOTHING RECORDED", zh: "录制为空"));
             return;
         }
         self.loop_length_steps = if early {
@@ -146,7 +147,7 @@ impl MarbleModel {
         self.looping = true;
         self.loop_start_step = current.div_ceil(4) * 4;
         self.last_audio_step = current;
-        self.notify("LOOP PLAYING");
+        self.notify(tr!(en: "LOOP PLAYING", zh: "循环播放中"));
     }
 
     pub(super) fn stop_recording(&mut self) {

@@ -1,27 +1,30 @@
 #[cfg(feature = "audio")]
 use crate::audio::{AudioHandle, AudioOutputState, AudioStateSignal, AudioTone, Waveform};
+use crate::core::i18n::Phrase;
 #[cfg(feature = "audio")]
 use crate::gallery::play::audio::MARBLE_AUDIO_BANK;
 #[cfg(feature = "audio")]
 use crate::gallery::play::marble::{MarbleSound, PadTimbre};
 
+const SOUND_OFF: Phrase = crate::tr!(en: "♪ OFF", zh: "♪ 关");
+
 #[cfg(feature = "audio")]
-pub(super) fn audio_label(state: &Option<AudioStateSignal>) -> &'static str {
+pub(super) fn audio_label(state: &Option<AudioStateSignal>) -> Phrase {
     if let Some(state) = state.as_ref().map(AudioStateSignal::get) {
         return if state.muted {
-            "♪ OFF"
+            SOUND_OFF
         } else if state.output == AudioOutputState::Ready {
-            "♪ ON"
+            crate::tr!(en: "♪ ON", zh: "♪ 开")
         } else {
-            "♪ …"
+            crate::tr!(en: "♪ …", zh: "♪ …")
         };
     }
-    "♪ OFF"
+    SOUND_OFF
 }
 
 #[cfg(not(feature = "audio"))]
-pub(super) fn audio_label(_: &bool) -> &'static str {
-    "♪ OFF"
+pub(super) fn audio_label(_: &bool) -> Phrase {
+    SOUND_OFF
 }
 
 #[cfg(feature = "audio")]

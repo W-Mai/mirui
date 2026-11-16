@@ -2,6 +2,7 @@ use super::style::{MUTED, TEXT};
 use crate::gallery::play::marble::{MarbleModel, PAD_PITCHES, PALETTE};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::tr;
 use crate::types::Fixed64;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Slider, Text, TextAlign};
 
@@ -18,7 +19,7 @@ fn pitch_label(pitch: u8) -> &'static str {
         .iter()
         .position(|candidate| *candidate == pitch)
         .map(|index| LABELS[index])
-        .unwrap_or("NOTE")
+        .unwrap_or("—")
 }
 
 #[compose]
@@ -29,9 +30,9 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
             visible: ${ model.inspector() },
             position: Position::Absolute,
             left: 0,
-            top: 0,
+            top: 28,
             width: 480,
-            height: 286,
+            height: 264,
             bg_color: Color::rgba(6, 12, 8, 150)
         ) [
             TouchAction::None,
@@ -39,9 +40,9 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
             Column (
                 position: Position::Absolute,
                 left: 213,
-                top: 35,
+                top: 6,
                 width: 253,
-                height: 247,
+                height: 252,
                 padding: Padding::all(10),
                 row_gap: 4,
                 bg_color: Color::rgb(34, 47, 37),
@@ -51,10 +52,10 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
             ) {
                 Row (height: 22, align: AlignItems::Center) {
                     Text (
-                        "PAD PROPERTIES",
+                        tr!(en : "PAD SETTINGS", zh : "音盘设置"),
                         grow: 1.0,
                         height: 20,
-                        font_size: 9,
+                        font_size: 10,
                         text_color: TEXT,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
@@ -62,8 +63,8 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         "×",
                         id: "marble_inspector_close",
                         size: ButtonSize::Compact,
-                        width: 24,
-                        height: 22,
+                        width: 26,
+                        height: 24,
                         font_size: 10,
                         normal_color: Color::rgb(45, 61, 48),
                         pressed_color: Color::rgb(217, 248, 138),
@@ -73,9 +74,9 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                     ) on Tap { model.set_inspector(false); }
                 }
                 Text (
-                    "COLOR",
-                    height: 12,
-                    font_size: 8,
+                    tr!(en : "COLOR", zh : "颜色"),
+                    height: 13,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
@@ -138,15 +139,15 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                 }
                 Row (height: 24, align: AlignItems::Center, column_gap: 6) {
                     Text (
-                        "PITCH",
+                        tr!(en : "PITCH", zh : "音高"),
                         width: 50,
                         height: 18,
-                        font_size: 8,
+                        font_size: 10,
                         text_color: MUTED,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Button (
-                        "-",
+                        "－",
                         id: "marble_pitch_down",
                         size: ButtonSize::Compact,
                         width: 34,
@@ -164,12 +165,12 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         id: "marble_pitch",
                         grow: 1.0,
                         height: 18,
-                        font_size: 9,
+                        font_size: 10,
                         text_color: TEXT,
                         paragraph: ParagraphStyle::label()
                     )
                     Button (
-                        "+",
+                        "＋",
                         id: "marble_pitch_up",
                         size: ButtonSize::Compact,
                         width: 34,
@@ -184,10 +185,10 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                 }
                 Row (height: 24, align: AlignItems::Center, column_gap: 6) {
                     Text (
-                        "TIMBRE",
+                        tr!(en : "SOUND", zh : "音色"),
                         width: 50,
                         height: 18,
-                        font_size: 8,
+                        font_size: 10,
                         text_color: MUTED,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
@@ -198,7 +199,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                         size: ButtonSize::Compact,
                         grow: 1.0,
                         height: 22,
-                        font_size: 8,
+                        font_size: 10,
                         normal_color: Color::rgb(45, 61, 48),
                         pressed_color: Color::rgb(198, 176, 239),
                         pressed_text_color: Color::rgb(23, 34, 28),
@@ -207,9 +208,9 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                     ) on Tap { model.cycle_timbre(); }
                 }
                 Text (
-                    "BOUNCE",
-                    height: 12,
-                    font_size: 8,
+                    tr!(en : "BOUNCE", zh : "弹性"),
+                    height: 13,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
@@ -224,9 +225,9 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                     thumb_color: Color::rgb(225, 233, 214)
                 ) on ValueChanged { model.set_bounce(Fixed64::from_fixed(event.new)); }
                 Text (
-                    "RADIUS",
-                    height: 12,
-                    font_size: 8,
+                    tr!(en : "SIZE", zh : "大小"),
+                    height: 13,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )

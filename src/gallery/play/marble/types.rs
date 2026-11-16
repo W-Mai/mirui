@@ -1,3 +1,5 @@
+use crate::core::i18n::Phrase;
+use crate::tr;
 use crate::types::Fixed64;
 
 pub(crate) const MAX_BALLS: usize = 8;
@@ -5,6 +7,13 @@ pub(crate) const MAX_PADS: usize = 6;
 pub(crate) const MAX_PARTICLES: usize = 24;
 pub(crate) const MAX_RINGS: usize = 8;
 pub(crate) const TRAIL_LEN: usize = 6;
+
+/// The walls the marbles bounce off, in board units. The board view starts
+/// at y = 52, so the floor sits just above its bottom edge.
+pub(crate) const WORLD_LEFT: i64 = 19;
+pub(crate) const WORLD_RIGHT: i64 = 461;
+pub(crate) const WORLD_TOP: i64 = 59;
+pub(crate) const WORLD_BOTTOM: i64 = 309;
 
 pub(crate) const PALETTE: [u32; 6] = [0xb4eabd, 0xc6b0ef, 0xeed984, 0xeeac8b, 0xa0d2e8, 0xd5eba0];
 pub(crate) const PAD_PITCHES: [u8; 10] = [60, 62, 64, 67, 69, 72, 74, 76, 79, 81];
@@ -54,8 +63,8 @@ pub(crate) enum Page {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Theme {
-    pub(crate) name: &'static str,
-    pub(crate) subtitle: &'static str,
+    pub(crate) name: Phrase,
+    pub(crate) subtitle: Phrase,
     pub(crate) bg: u32,
     pub(crate) panel: u32,
     pub(crate) accent: u32,
@@ -64,24 +73,24 @@ pub(crate) struct Theme {
 
 pub(crate) const THEMES: [Theme; 3] = [
     Theme {
-        name: "DAYDREAM",
-        subtitle: "SOFT GREEN / NORMAL",
+        name: tr!(en: "DAYDREAM", zh: "午后"),
+        subtitle: tr!(en: "NORMAL GRAVITY", zh: "标准重力"),
         bg: 0x17221c,
         panel: 0x222f25,
         accent: 0xd9f88a,
         gravity: Fixed64::from_ratio(80, 100),
     },
     Theme {
-        name: "AFTER HOURS",
-        subtitle: "BLUE GREY / LIGHT",
+        name: tr!(en: "AFTER HOURS", zh: "入夜"),
+        subtitle: tr!(en: "LOW GRAVITY", zh: "低重力"),
         bg: 0x1b2029,
         panel: 0x29303b,
         accent: 0xcfbbee,
         gravity: Fixed64::from_ratio(45, 100),
     },
     Theme {
-        name: "ZERO GRAVITY",
-        subtitle: "COOL BLUE / FLOAT",
+        name: tr!(en: "ZERO GRAVITY", zh: "失重"),
+        subtitle: tr!(en: "NEARLY WEIGHTLESS", zh: "几近失重"),
         bg: 0x17242a,
         panel: 0x22343b,
         accent: 0xa9dfeb,
@@ -113,12 +122,12 @@ pub(crate) enum PadTimbre {
 }
 
 impl PadTimbre {
-    pub(crate) const fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> Phrase {
         match self {
-            Self::Mallet => "MALLET",
-            Self::Synth => "SYNTH",
-            Self::Bass => "BASS",
-            Self::Drum => "DRUM",
+            Self::Mallet => tr!(en: "MALLET", zh: "明亮"),
+            Self::Synth => tr!(en: "SYNTH", zh: "合成"),
+            Self::Bass => tr!(en: "BASS", zh: "低音"),
+            Self::Drum => tr!(en: "DRUM", zh: "鼓点"),
         }
     }
 

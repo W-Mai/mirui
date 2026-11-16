@@ -1,16 +1,19 @@
 use super::model::MarbleModel;
 use super::types::{
     Ball, MAX_BALLS, MAX_PADS, MAX_PARTICLES, MAX_RINGS, Particle, Ring, TRAIL_LEN, Vec2,
+    WORLD_BOTTOM, WORLD_LEFT, WORLD_RIGHT, WORLD_TOP,
 };
+use crate::tr;
 use crate::types::Fixed64;
 
 pub(super) const STEP: Fixed64 = Fixed64::from_ratio(1, 120);
 
-const RAILS: [(i64, i64, i64, i64); 4] = [
-    (36, 145, 78, 165),
-    (215, 80, 264, 70),
-    (269, 213, 308, 234),
-    (404, 144, 437, 122),
+/// The four fixed rails, as end points `(ax, ay, bx, by)`.
+pub(crate) const RAILS: [(i64, i64, i64, i64); 4] = [
+    (36, 175, 78, 202),
+    (215, 87, 264, 74),
+    (269, 267, 308, 295),
+    (404, 174, 437, 144),
 ];
 
 impl MarbleModel {
@@ -25,7 +28,7 @@ impl MarbleModel {
 
     pub(crate) fn spawn_at(&mut self, pos: Vec2, velocity: Vec2) -> bool {
         let Some(slot) = self.balls.iter().position(Option::is_none) else {
-            self.notify("MAXIMUM 8 MARBLES");
+            self.notify(tr!(en: "MAXIMUM 8 MARBLES", zh: "最多 8 颗弹珠"));
             return false;
         };
         self.balls[slot] = Some(Ball {
@@ -198,14 +201,14 @@ impl MarbleModel {
         }
         self.collide_balls();
         for ball in self.balls.iter_mut().flatten() {
-            ball.pos.x = ball
-                .pos
-                .x
-                .clamp(Fixed64::from_int(19), Fixed64::from_int(461));
-            ball.pos.y = ball
-                .pos
-                .y
-                .clamp(Fixed64::from_int(59), Fixed64::from_int(244));
+            ball.pos.x = ball.pos.x.clamp(
+                Fixed64::from_int(WORLD_LEFT),
+                Fixed64::from_int(WORLD_RIGHT),
+            );
+            ball.pos.y = ball.pos.y.clamp(
+                Fixed64::from_int(WORLD_TOP),
+                Fixed64::from_int(WORLD_BOTTOM),
+            );
         }
         for (slot, count) in collisions.into_iter().enumerate() {
             for _ in 0..count {
@@ -216,20 +219,20 @@ impl MarbleModel {
 
     fn collide_walls(ball: &mut Ball, gravity: Fixed64, flash: &mut Fixed64) {
         let restitution = Fixed64::from_ratio(96, 100);
-        if ball.pos.x < Fixed64::from_int(19) {
-            ball.pos.x = Fixed64::from_int(19);
+        if ball.pos.x < Fixed64::from_int(WORLD_LEFT) {
+            ball.pos.x = Fixed64::from_int(WORLD_LEFT);
             ball.velocity.x = ball.velocity.x.abs() * restitution;
         }
-        if ball.pos.x > Fixed64::from_int(461) {
-            ball.pos.x = Fixed64::from_int(461);
+        if ball.pos.x > Fixed64::from_int(WORLD_RIGHT) {
+            ball.pos.x = Fixed64::from_int(WORLD_RIGHT);
             ball.velocity.x = -ball.velocity.x.abs() * restitution;
         }
-        if ball.pos.y < Fixed64::from_int(59) {
-            ball.pos.y = Fixed64::from_int(59);
+        if ball.pos.y < Fixed64::from_int(WORLD_TOP) {
+            ball.pos.y = Fixed64::from_int(WORLD_TOP);
             ball.velocity.y = ball.velocity.y.abs() * restitution;
         }
-        if ball.pos.y > Fixed64::from_int(244) {
-            ball.pos.y = Fixed64::from_int(244);
+        if ball.pos.y > Fixed64::from_int(WORLD_BOTTOM) {
+            ball.pos.y = Fixed64::from_int(WORLD_BOTTOM);
             let boost = Fixed64::from_int(115) + gravity * Fixed64::from_int(26);
             ball.velocity.y = -(ball.velocity.y.abs() * restitution).max(boost);
             ball.velocity.x += (Fixed64::from_int(240) - ball.pos.x) * Fixed64::from_ratio(17, 100);

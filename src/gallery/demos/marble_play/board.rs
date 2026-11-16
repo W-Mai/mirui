@@ -1,6 +1,6 @@
 use super::style::{BOARD_HEIGHT, BOARD_WIDTH, color, mix};
 use crate::gallery::fit_logical_canvas;
-use crate::gallery::play::marble::{MarbleModel, Page, Theme, Vec2};
+use crate::gallery::play::marble::{MarbleModel, Page, RAILS, Theme, Vec2, WORLD_BOTTOM};
 use crate::gallery::play::paint::PlayPainter;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
@@ -26,7 +26,7 @@ pub(super) fn paint_play_board(
     model: &MarbleModel,
     theme: Theme,
 ) {
-    let board = Rect::new(10, 0, 460, 199);
+    let board = Rect::new(10, 0, 460, BOARD_HEIGHT);
     painter.fill(board, color(theme.bg), Fixed::from_int(10));
     painter.border(
         board,
@@ -42,7 +42,7 @@ pub(super) fn paint_play_board(
         );
     }
     for x in (23..463).step_by(16) {
-        for y in (62..247).step_by(16) {
+        for y in (62..WORLD_BOTTOM as i32 + 3).step_by(16) {
             painter.circle(
                 Point::new(x, y - BOARD_MODEL_Y_ORIGIN),
                 Fixed::from_ratio(1, 2),
@@ -60,12 +60,9 @@ pub(super) fn paint_play_board(
     }
     paint_gravity_direction(painter, model, theme);
     paint_transport(painter, model, theme);
-    for (ax, ay, bx, by) in [
-        (36, 145, 78, 165),
-        (215, 80, 264, 70),
-        (269, 213, 308, 234),
-        (404, 144, 437, 122),
-    ] {
+    for (ax, ay, bx, by) in
+        RAILS.map(|(ax, ay, bx, by)| (ax as i32, ay as i32, bx as i32, by as i32))
+    {
         painter.line(
             Point::new(ax, ay - BOARD_MODEL_Y_ORIGIN + 2),
             Point::new(bx, by - BOARD_MODEL_Y_ORIGIN + 2),
@@ -86,7 +83,7 @@ pub(super) fn paint_play_board(
         );
     }
     painter.fill(
-        Rect::new(30, 194, 420, 2),
+        Rect::new(30, WORLD_BOTTOM as i32 + 2 - BOARD_MODEL_Y_ORIGIN, 420, 2),
         mix(
             theme.bg,
             theme.accent,

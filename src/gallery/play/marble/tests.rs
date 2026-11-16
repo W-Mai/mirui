@@ -234,8 +234,12 @@ fn long_run_stays_inside_world_bounds() {
         let _ = model.advance_ms(8);
     }
     for ball in model.balls.iter().flatten() {
-        assert!((Fixed64::from_int(19)..=Fixed64::from_int(461)).contains(&ball.pos.x));
-        assert!((Fixed64::from_int(59)..=Fixed64::from_int(244)).contains(&ball.pos.y));
+        assert!(
+            (Fixed64::from_int(WORLD_LEFT)..=Fixed64::from_int(WORLD_RIGHT)).contains(&ball.pos.x)
+        );
+        assert!(
+            (Fixed64::from_int(WORLD_TOP)..=Fixed64::from_int(WORLD_BOTTOM)).contains(&ball.pos.y)
+        );
         assert!(ball.trail_len <= TRAIL_LEN);
     }
 }

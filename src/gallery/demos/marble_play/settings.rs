@@ -3,6 +3,7 @@ use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::marble::{MarbleModel, Theme};
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::*;
+use crate::tr;
 use crate::types::Fixed64;
 use crate::ui::widgets::{ParagraphStyle, Slider, Switch, Text, TextAlign};
 
@@ -13,16 +14,16 @@ struct MarbleSettingsPanel {
 
 fn paint_settings(painter: &mut PlayPainter<'_, '_>, theme: Theme) {
     painter.fill(
-        Rect::new(10, 0, 460, 199),
+        Rect::new(10, 0, 460, BOARD_HEIGHT),
         color(theme.bg),
         Fixed::from_int(10),
     );
     painter.fill(
-        Rect::new(24, 18, 432, 163),
+        Rect::new(24, 20, 432, 224),
         color(theme.panel),
         Fixed::from_int(9),
     );
-    for y in [63, 113, 151] {
+    for y in [88, 152, 196] {
         painter.line(
             Point::new(42, y),
             Point::new(422, y),
@@ -58,51 +59,57 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
             },
         ] {
             Text (
-                "GRAVITY",
+                text: ${
+                    format_args!(
+                        "{} · {:.2} g", tr!(en : "GRAVITY", zh : "重力"), model.gravity().to_fixed()
+                        .to_f32()
+                    )
+                },
+                capacity: 24,
                 id: "marble_setting_gravity",
                 position: Position::Absolute,
                 left: 42,
-                top: 15,
-                width: 100,
-                height: 16,
-                font_size: 8,
+                top: 34,
+                width: 200,
+                height: 14,
+                font_size: 10,
                 text_color: TEXT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                text: ${ format_args!("TEMPO · {} BPM", model.bpm()) },
-                capacity: 16,
+                text: ${ format_args!("{} · {} BPM", tr!(en : "TEMPO", zh : "速度"), model.bpm()) },
+                capacity: 24,
                 id: "marble_setting_bpm",
                 position: Position::Absolute,
                 left: 42,
-                top: 65,
-                width: 180,
-                height: 16,
-                font_size: 8,
+                top: 98,
+                width: 200,
+                height: 14,
+                font_size: 10,
                 text_color: TEXT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "TRAILS",
+                tr!(en : "TRAILS", zh : "轨迹"),
                 id: "marble_setting_trails",
                 position: Position::Absolute,
                 left: 42,
-                top: 122,
+                top: 167,
                 width: 260,
-                height: 18,
-                font_size: 8,
+                height: 14,
+                font_size: 10,
                 text_color: TEXT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "HIT EFFECTS",
+                tr!(en : "HIT EFFECTS", zh : "撞击效果"),
                 id: "marble_setting_feedback",
                 position: Position::Absolute,
                 left: 42,
-                top: 157,
+                top: 211,
                 width: 260,
-                height: 18,
-                font_size: 8,
+                height: 14,
+                font_size: 10,
                 text_color: TEXT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
@@ -110,7 +117,7 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
                 id: "marble_setting_gravity_control",
                 position: Position::Absolute,
                 left: 42,
-                top: 29,
+                top: 52,
                 width: 380,
                 height: 28,
                 min: Fixed::ZERO,
@@ -124,7 +131,7 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
                 id: "marble_setting_bpm_control",
                 position: Position::Absolute,
                 left: 42,
-                top: 79,
+                top: 116,
                 width: 380,
                 height: 28,
                 min: Fixed::from_int(55),
@@ -138,7 +145,7 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
                 id: "marble_setting_trails_control",
                 position: Position::Absolute,
                 left: 370,
-                top: 121,
+                top: 162,
                 width: 54,
                 height: 24,
                 on: ${ model.trails() },
@@ -154,7 +161,7 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
                 id: "marble_setting_feedback_control",
                 position: Position::Absolute,
                 left: 370,
-                top: 156,
+                top: 206,
                 width: 54,
                 height: 24,
                 on: ${ model.feedback() },

@@ -56,7 +56,7 @@ fn multi_source_board_render(
     paint: paint!(),
 ) {
     paint.set_background_handled(true);
-    let transform = fit_logical_canvas(paint.rect(), paint.transform(), 480, 199);
+    let transform = fit_logical_canvas(paint.rect(), paint.transform(), BOARD_WIDTH, BOARD_HEIGHT);
     let mut painter = PlayPainter::new(paint, transform);
     paint_play_board(&mut painter, game, game.theme());
     painter.fill(
@@ -134,12 +134,11 @@ fn composition_uses_real_text_and_button_widgets() {
     for (id, capacity) in [
         ("marble_pause", 4),
         ("marble_audio", 8),
-        ("marble_record", 4),
-        ("marble_status", 40),
-        ("marble_marble_count", 9),
-        ("marble_pad_count", 6),
-        ("marble_setting_bpm", 16),
-        ("marble_readout", 40),
+        ("marble_record", 12),
+        ("marble_status", 48),
+        ("marble_setting_gravity", 24),
+        ("marble_setting_bpm", 24),
+        ("marble_readout", 48),
         ("marble_pitch", 4),
         ("marble_timbre", 6),
     ] {
@@ -374,7 +373,7 @@ fn marble_boards_share_only_their_bound_model_instance() {
     let separate = app.add_model(MarbleModel::new()).finish();
     let board_layout = LayoutStyle {
         width: Dimension::px(150),
-        height: Dimension::px(199),
+        height: Dimension::px(BOARD_HEIGHT),
         ..LayoutStyle::default()
     };
     let host = app.spawn_root().id();
@@ -432,8 +431,8 @@ fn marble_board_pixels_follow_only_their_bound_model() {
 
     fn board_pixels(buf: &[u8], stride: usize) -> [Vec<u8>; 3] {
         core::array::from_fn(|board| {
-            let mut pixels = Vec::with_capacity(480 * 199 * 4);
-            for y in 0..199 {
+            let mut pixels = Vec::with_capacity(480 * BOARD_HEIGHT as usize * 4);
+            for y in 0..BOARD_HEIGHT as usize {
                 let start = y * stride + board * 480 * 4;
                 pixels.extend_from_slice(&buf[start..start + 480 * 4]);
             }
@@ -441,7 +440,8 @@ fn marble_board_pixels_follow_only_their_bound_model() {
         })
     }
 
-    let backend = FramebufSurface::with_format(1440, 199, ColorFormat::RGBA8888, |_, _| {});
+    let backend =
+        FramebufSurface::with_format(1440, BOARD_HEIGHT as _, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
     app.with_default_widgets();
     app.with_widget(board_render::view());
@@ -449,7 +449,7 @@ fn marble_board_pixels_follow_only_their_bound_model() {
     let separate = app.add_model(MarbleModel::new()).finish();
     let board_layout = LayoutStyle {
         width: Dimension::px(480),
-        height: Dimension::px(199),
+        height: Dimension::px(BOARD_HEIGHT),
         ..LayoutStyle::default()
     };
     let host = app.spawn_root().id();
@@ -459,7 +459,7 @@ fn marble_board_pixels_follow_only_their_bound_model() {
                 layout: LayoutStyle {
                     direction: FlexDirection::Row,
                     width: Dimension::px(1440),
-                    height: Dimension::px(199),
+                    height: Dimension::px(BOARD_HEIGHT),
                     ..LayoutStyle::default()
                 },
                 ..Style::default()
@@ -551,8 +551,8 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
 
     fn board_pixels(buf: &[u8], stride: usize) -> [Vec<u8>; 2] {
         core::array::from_fn(|board| {
-            let mut pixels = Vec::with_capacity(480 * 199 * 4);
-            for y in 0..199 {
+            let mut pixels = Vec::with_capacity(480 * BOARD_HEIGHT as usize * 4);
+            for y in 0..BOARD_HEIGHT as usize {
                 let start = y * stride + board * 480 * 4;
                 pixels.extend_from_slice(&buf[start..start + 480 * 4]);
             }
@@ -560,7 +560,8 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
         })
     }
 
-    let backend = FramebufSurface::with_format(960, 199, ColorFormat::RGBA8888, |_, _| {});
+    let backend =
+        FramebufSurface::with_format(960, BOARD_HEIGHT as _, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
     app.with_default_widgets();
     app.with_widget(multi_source_board_render::view());
@@ -569,7 +570,7 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
     let selection = app.add_model(BoardSelection { marker: 0 }).finish();
     let board_layout = LayoutStyle {
         width: Dimension::px(480),
-        height: Dimension::px(199),
+        height: Dimension::px(BOARD_HEIGHT),
         ..LayoutStyle::default()
     };
     let host = app.spawn_root().id();
@@ -579,7 +580,7 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
                 layout: LayoutStyle {
                     direction: FlexDirection::Row,
                     width: Dimension::px(960),
-                    height: Dimension::px(199),
+                    height: Dimension::px(BOARD_HEIGHT),
                     ..LayoutStyle::default()
                 },
                 ..Style::default()
@@ -836,13 +837,13 @@ fn nav_pointer_tap_reaches_edit_after_layout() {
         .unwrap();
 
     let edit = app.world.find_by_id("marble_nav_edit").unwrap();
-    assert_eq!(
-        hit_test(&app.world, root, 180.into(), 301.into(), 480, 320),
-        Some(edit)
-    );
+    let rect = app.world.get::<ComputedRect>(edit).unwrap().0;
+    let x = rect.x + rect.w / Fixed::from_int(2);
+    let y = rect.y + rect.h / Fixed::from_int(2);
+    // The tabs sit in the top bar, above the board.
+    assert!(rect.y + rect.h <= Fixed::from_int(28));
+    assert_eq!(hit_test(&app.world, root, x, y, 480, 320), Some(edit));
 
-    let x = Fixed::from_int(180);
-    let y = Fixed::from_int(301);
     for (event, now) in [
         (
             InputEvent::PointerDown {
@@ -971,7 +972,10 @@ fn drag_cancel_reaches_transactional_model_path() {
     let mut app = fixture();
     let world = &mut app.world;
     let board = world.find_by_id("marble_play_board").unwrap();
-    world.insert(board, ComputedRect(Rect::new(0, 52, 480, 199)));
+    world.insert(
+        board,
+        ComputedRect(Rect::new(0, 52, BOARD_WIDTH, BOARD_HEIGHT)),
+    );
     let original = crate::core::model::ModelHandle::read(
         world.resource::<MarbleModelHandle>().unwrap(),
         |model| model.selected_pad().pos,
@@ -1021,7 +1025,10 @@ fn drag_end_commits_after_layout_component_is_removed() {
     let mut app = fixture();
     let world = &mut app.world;
     let board = world.find_by_id("marble_play_board").unwrap();
-    world.insert(board, ComputedRect(Rect::new(0, 52, 480, 199)));
+    world.insert(
+        board,
+        ComputedRect(Rect::new(0, 52, BOARD_WIDTH, BOARD_HEIGHT)),
+    );
     let original = crate::core::model::ModelHandle::read(
         world.resource::<MarbleModelHandle>().unwrap(),
         |model| model.selected_pad().pos,
@@ -1084,7 +1091,10 @@ fn tap_selects_a_pad_without_crossing_drag_threshold() {
     let mut app = fixture();
     let world = &mut app.world;
     let board = world.find_by_id("marble_play_board").unwrap();
-    world.insert(board, ComputedRect(Rect::new(0, 52, 480, 199)));
+    world.insert(
+        board,
+        ComputedRect(Rect::new(0, 52, BOARD_WIDTH, BOARD_HEIGHT)),
+    );
     let target = crate::core::model::ModelHandle::read(
         world.resource::<MarbleModelHandle>().unwrap(),
         |model| model.pads[1].expect("second pad").pos,
@@ -1197,4 +1207,60 @@ fn toasts_replace_the_status_line_and_fit_the_embedded_layout() {
     }
     crate::core::reactive::flush_signal_dirty(&mut app.world);
     assert_eq!(status(&app), "TAP EMPTY SPACE TO PLACE A PAD");
+}
+
+#[test]
+fn the_board_takes_the_screen_between_two_slim_bars() {
+    use crate::types::Viewport;
+    use crate::ui::render_system;
+
+    let mut app = App::headless(480, 320);
+    app.world.insert_resource(IdMap::new());
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    render_system::try_update_layout(&mut app.world, root, &Viewport::new(480, 320, Fixed::ONE))
+        .unwrap();
+    let board = app.world.find_by_id("marble_play_board").unwrap();
+    let rect = app.world.get::<ComputedRect>(board).unwrap().0;
+    assert_eq!(rect, Rect::new(0, 28, 480, BOARD_HEIGHT));
+    for id in ["marble_status", "marble_readout"] {
+        let text = app.world.find_by_id(id).unwrap();
+        let area = app.world.get::<ComputedRect>(text).unwrap().0;
+        assert!(area.y >= Fixed::from_int(292), "{id} sits under the board");
+    }
+}
+
+#[test]
+fn chinese_mode_translates_the_bars_and_pages() {
+    use crate::core::i18n::{I18n, Locale};
+
+    let mut app = fixture();
+    let world = &mut app.world;
+    let text = |world: &World, id: &'static str| {
+        world
+            .get::<Text>(world.find_by_id(id).unwrap())
+            .unwrap()
+            .resolve(world.resource())
+            .into_owned()
+    };
+    assert_eq!(text(world, "marble_nav_scenes"), "SCENES");
+    world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
+    crate::core::reactive::flush_signal_dirty(world);
+    assert_eq!(text(world, "marble_nav_scenes"), "场景");
+    assert_eq!(text(world, "marble_status"), "拖动改变重力 · 点一下音盘");
+    assert_eq!(text(world, "marble_readout"), "音盘 A · 0.80 g · 0 次");
+    assert_eq!(text(world, "marble_drop"), "+ 弹珠");
+    let model = world.resource::<MarbleModelHandle>().unwrap().clone();
+    model.set_page(Page::Scenes);
+    crate::core::reactive::flush_signal_dirty(world);
+    assert_eq!(text(world, "marble_scene_2_name"), "失重");
+    assert_eq!(text(world, "marble_status"), "换场景会重置音盘和弹珠");
+    model.set_page(Page::Edit);
+    model.set_inspector(true);
+    crate::core::reactive::flush_signal_dirty(world);
+    assert_eq!(text(world, "marble_timbre"), "明亮");
+    assert_eq!(
+        text(world, "marble_readout"),
+        "音盘 A · 大小 18 · 弹性 1.10"
+    );
 }

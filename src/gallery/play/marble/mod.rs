@@ -11,8 +11,10 @@ mod tests;
 pub(crate) use model::MarbleModel;
 #[cfg(test)]
 pub(crate) use model::MarbleModelHandle;
+pub(crate) use physics::RAILS;
 #[allow(unused_imports)]
 pub(crate) use types::{
     Ball, MAX_BALLS, MAX_PADS, MAX_PARTICLES, MAX_RINGS, MarbleSound, PAD_PITCHES, PALETTE, Pad,
-    PadTimbre, Page, Particle, Ring, THEMES, TRAIL_LEN, Theme, Vec2,
+    PadTimbre, Page, Particle, Ring, THEMES, TRAIL_LEN, Theme, Vec2, WORLD_BOTTOM, WORLD_LEFT,
+    WORLD_RIGHT, WORLD_TOP,
 };

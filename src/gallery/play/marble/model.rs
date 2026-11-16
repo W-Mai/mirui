@@ -2,12 +2,18 @@ use super::presets;
 use super::transport::{MAX_RECORDED_NOTES, MAX_SOUND_EVENTS, RecordedNote};
 use super::types::{
     Ball, MAX_BALLS, MAX_PADS, MAX_PARTICLES, MAX_RINGS, MarbleSound, PAD_PITCHES, PALETTE, Pad,
-    PadTimbre, Page, Particle, Ring, THEMES, Theme, Vec2,
+    PadTimbre, Page, Particle, Ring, THEMES, Theme, Vec2, WORLD_BOTTOM, WORLD_LEFT, WORLD_RIGHT,
+    WORLD_TOP,
 };
+use crate::core::i18n::Phrase;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::clock::BoundedClock;
 use crate::gallery::play::input::DragTransaction;
+use crate::tr;
 use crate::types::Fixed64;
+
+/// No toast: the status line shows the page's own hint.
+const NO_TOAST: Phrase = tr!(en: "", zh: "");
 
 #[derive(Clone, Copy, Debug)]
 struct Drag {
@@ -54,7 +60,7 @@ pub(crate) struct MarbleModel {
     #[observe]
     pub(crate) bpm: u16,
     #[observe]
-    pub(crate) toast: &'static str,
+    pub(crate) toast: Phrase,
     pub(crate) toast_left: Fixed64,
     pub(super) sim_time: Fixed64,
     pub(super) next_id: u32,
@@ -104,7 +110,7 @@ impl MarbleModel {
             recording: false,
             looping: false,
             bpm: 96,
-            toast: "",
+            toast: NO_TOAST,
             toast_left: Fixed64::ZERO,
             sim_time: Fixed64::ZERO,
             next_id: 6,
@@ -125,7 +131,7 @@ impl MarbleModel {
             recorded_len: 0,
         };
         model.reset_scene(0);
-        model.toast = "";
+        model.toast = NO_TOAST;
         model.toast_left = Fixed64::ZERO;
         model
     }
@@ -160,7 +166,7 @@ impl MarbleModel {
             || self.particles.iter().any(Option::is_some)
     }
 
-    pub(super) fn notify(&mut self, message: &'static str) {
+    pub(super) fn notify(&mut self, message: Phrase) {
         self.toast = message;
         self.toast_left = Fixed64::from_ratio(17, 10);
     }
@@ -179,12 +185,12 @@ impl MarbleModel {
     fn bounded(pad: &Pad, position: Vec2) -> Vec2 {
         Vec2::fixed(
             position.x.clamp(
-                Fixed64::from_int(18) + pad.radius,
-                Fixed64::from_int(462) - pad.radius,
+                Fixed64::from_int(WORLD_LEFT - 1) + pad.radius,
+                Fixed64::from_int(WORLD_RIGHT + 1) - pad.radius,
             ),
             position.y.clamp(
-                Fixed64::from_int(58) + pad.radius,
-                Fixed64::from_int(245) - pad.radius,
+                Fixed64::from_int(WORLD_TOP - 1) + pad.radius,
+                Fixed64::from_int(WORLD_BOTTOM + 1) - pad.radius,
             ),
         )
     }
@@ -264,7 +270,7 @@ impl MarbleModel {
             self.finish_recording(true);
         } else if self.looping {
             self.stop_recording();
-            self.notify("LOOP STOPPED");
+            self.notify(tr!(en: "LOOP STOPPED", zh: "循环已停止"));
         } else {
             if self.page != Page::Play {
                 let _ = self.set_page(Page::Play);
@@ -275,7 +281,10 @@ impl MarbleModel {
             self.recording = true;
             self.looping = false;
             self.record_start_step = self.current_audio_step();
-            self.notify("RECORDING 4 BARS · TAP THE PADS");
+            self.notify(tr!(
+                en: "RECORDING 4 BARS · TAP THE PADS",
+                zh: "录制 4 小节 · 点击音盘"
+            ));
         }
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
@@ -299,7 +308,7 @@ impl MarbleModel {
     #[model(local)]
     pub(crate) fn add_pad(&mut self, position: Vec2) -> ChangeSet {
         let Some(slot) = self.pads.iter().position(Option::is_none) else {
-            self.notify("MAXIMUM 6 PADS");
+            self.notify(tr!(en: "MAXIMUM 6 PADS", zh: "最多 6 个音盘"));
             return ChangeSet::VISUAL;
         };
         let letter = (b'A'..=b'F')
@@ -322,7 +331,7 @@ impl MarbleModel {
             Vec2::fixed(other.pos.x - pad.pos.x, other.pos.y - pad.pos.y).length()
                 < other.radius + pad.radius + Fixed64::from_int(5)
         }) {
-            self.notify("TOO CLOSE TO ANOTHER PAD");
+            self.notify(tr!(en: "TOO CLOSE TO ANOTHER PAD", zh: "离其他音盘过近"));
             return ChangeSet::VISUAL;
         }
         self.next_id = self.next_id.saturating_add(1);
@@ -333,13 +342,13 @@ impl MarbleModel {
             ball.cooldown[slot] = Fixed64::from_int(-99);
         }
         self.pulse(slot, false);
-        self.notify("PAD ADDED");
+        self.notify(tr!(en: "PAD ADDED", zh: "已添加音盘"));
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
     pub(crate) fn remove_selected(&mut self) -> ChangeSet {
         if self.pad_count() <= 1 {
-            self.notify("KEEP AT LEAST ONE PAD");
+            self.notify(tr!(en: "KEEP AT LEAST ONE PAD", zh: "至少保留一个音盘"));
             return ChangeSet::VISUAL;
         }
         let slot = self.selected;
@@ -353,7 +362,7 @@ impl MarbleModel {
             .position(Option::is_some)
             .expect("removing a pad preserves at least one pad");
         self.inspector = false;
-        self.notify("PAD REMOVED");
+        self.notify(tr!(en: "PAD REMOVED", zh: "已移除音盘"));
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
@@ -362,7 +371,7 @@ impl MarbleModel {
             let _ = self.set_page(Page::Edit);
         }
         if self.pad_count() >= MAX_PADS {
-            self.notify("MAXIMUM 6 PADS");
+            self.notify(tr!(en: "MAXIMUM 6 PADS", zh: "最多 6 个音盘"));
             return ChangeSet::VISUAL;
         }
         self.add_mode = !self.add_mode;
@@ -490,7 +499,7 @@ impl MarbleModel {
         if self.inspector
             || !matches!(self.page, Page::Play | Page::Edit)
             || point.y < Fixed64::from_int(52)
-            || point.y > Fixed64::from_int(251)
+            || point.y > Fixed64::from_int(WORLD_BOTTOM + 7)
         {
             return ChangeSet::NONE;
         }
@@ -624,7 +633,7 @@ impl MarbleModel {
         self.flash = (self.flash - dt * Fixed64::from_int(2)).max(Fixed64::ZERO);
         self.toast_left = (self.toast_left - dt).max(Fixed64::ZERO);
         if self.toast_left.is_zero() {
-            self.toast = "";
+            self.toast = NO_TOAST;
         }
         let audio_model_changed = self.advance_audio();
         if audio_model_changed {

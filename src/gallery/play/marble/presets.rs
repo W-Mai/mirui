@@ -5,6 +5,7 @@ use super::types::{
     MAX_BALLS, MAX_PADS, MAX_PARTICLES, MAX_RINGS, PAD_PITCHES, PALETTE, Pad, PadTimbre, THEMES,
     Vec2,
 };
+use crate::tr;
 use crate::types::Fixed64;
 
 pub(super) fn reset_scene(model: &mut MarbleModel, index: usize) -> ChangeSet {
@@ -17,11 +18,11 @@ pub(super) fn reset_scene(model: &mut MarbleModel, index: usize) -> ChangeSet {
     model.rings = [None; MAX_RINGS];
     model.particles = [None; MAX_PARTICLES];
     let poses = [
-        (143, 108, 18),
-        (334, 106, 19),
-        (240, 161, 21),
-        (107, 211, 18),
-        (368, 205, 19),
+        (143, 125, 18),
+        (334, 123, 19),
+        (240, 197, 21),
+        (107, 264, 18),
+        (368, 256, 19),
     ];
     const PITCHES: [[u8; 5]; 3] = [
         [
@@ -105,17 +106,17 @@ pub(super) fn reset_scene(model: &mut MarbleModel, index: usize) -> ChangeSet {
     model.transport_steps = Fixed64::ZERO;
     model.last_audio_step = 0;
     for (x, y, vx, vy) in [
-        (74, 83, 82, 25),
-        (221, 115, 66, 21),
-        (406, 87, -83, 32),
-        (48, 196, 83, -60),
-        (300, 183, -60, -79),
+        (74, 91, 82, 25),
+        (221, 135, 66, 21),
+        (406, 97, -83, 32),
+        (48, 244, 83, -60),
+        (300, 227, -60, -79),
     ] {
         let _ = model.spawn_at(Vec2::new(x, y), Vec2::new(vx, vy));
     }
     model.page = super::types::Page::Play;
     model.inspector = false;
     model.add_mode = false;
-    model.notify("SCENE LOADED");
+    model.notify(tr!(en: "SCENE LOADED", zh: "场景已载入"));
     ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
 }
