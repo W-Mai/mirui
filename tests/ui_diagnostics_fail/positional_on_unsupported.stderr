@@ -7,20 +7,12 @@ error[E0277]: the trait bound `mirui::ui::widgets::TextContent: From<{integer}>`
 12 | |         }
    | |_________- required by a bound introduced by this call
    |
-help: `mirui::ui::widgets::TextContent` implements trait `From<T>`
-  --> src/ui/widgets/text.rs
-   |
-   | impl From<&'static str> for TextContent {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<&str>`
-...
-   | impl From<String> for TextContent {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<String>`
-...
-   | impl From<Cow<'static, str>> for TextContent {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<Cow<'_, str>>`
-...
-   | impl From<Localized> for TextContent {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<mirui::core::i18n::Localized>`
+   = help: `mirui::ui::widgets::TextContent` implements trait `From<T>`:
+             From<&str>
+             From<Cow<'_, str>>
+             From<String>
+             From<mirui::core::i18n::Localized>
+             From<mirui::core::i18n::Phrase>
    = note: required for `{integer}` to implement `Into<mirui::ui::widgets::TextContent>`
 note: required by a bound in `mirui::ui::widgets::Text::label`
   --> src/ui/widgets/text.rs
