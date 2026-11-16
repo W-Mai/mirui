@@ -324,7 +324,6 @@ pub struct Cockpit {
     lamps: [Box2; 5],
     panel_keys: Vec<Box2>,
     deck_keys: Vec<Box2>,
-    top_jet: [u8; jet::WIDTH * jet::LENGTH],
 }
 impl Cockpit {
     pub fn bytes(&self) -> usize {
@@ -371,16 +370,7 @@ impl Cockpit {
             lamps: [Box2::default(); 5],
             panel_keys: Vec::with_capacity(8),
             deck_keys: Vec::with_capacity(8),
-            top_jet: [0; jet::WIDTH * jet::LENGTH],
         };
-        for voxels in jet::slices().iter().rev() {
-            for voxel in *voxels {
-                let i = usize::from(voxel.y) * jet::WIDTH + usize::from(voxel.x);
-                if art.top_jet[i] == 0 {
-                    art.top_jet[i] = 1 + ((voxel.color - 1) >> 4).min(2);
-                }
-            }
-        }
         let inside = |dx: Fixed, dy: Fixed, ax: Fixed, ay: Fixed| {
             (dx.abs() / ax).pow_fraction(Fixed::from_ratio(25, 10))
                 + (dy.abs() / ay).pow_fraction(Fixed::from_ratio(25, 10))
@@ -1467,7 +1457,7 @@ impl Cockpit {
                 if xx < 0 || yy < 0 || xx >= jw || yy >= jh {
                     0
                 } else {
-                    self.top_jet[((Fixed::from_int(yy) / fit).trunc_to_int() as usize)
+                    jet::PROJECTIONS.top[((Fixed::from_int(yy) / fit).trunc_to_int() as usize)
                         .min(jet::LENGTH - 1)
                         * jet::WIDTH
                         + ((Fixed::from_int(xx) / fit).trunc_to_int() as usize).min(jet::WIDTH - 1)]

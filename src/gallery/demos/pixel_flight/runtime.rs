@@ -327,8 +327,8 @@ impl FlightModel {
         }
     }
     pub fn resident_bytes(&self) -> usize {
-        self.terrain.bytes()
-            + core::mem::size_of::<Self>()
+        self.terrain.bytes() + core::mem::size_of::<Self>() + self.flight.bytes()
+            - core::mem::size_of::<Flight>()
             + self
                 .raster
                 .as_ref()

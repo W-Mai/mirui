@@ -266,6 +266,30 @@ const STARTS: [usize; LAYERS + 1] = {
 pub fn slices() -> [&'static [Voxel]; LAYERS] {
     core::array::from_fn(|i| &VOXELS[STARTS[i]..STARTS[i + 1]])
 }
+
+pub(super) struct Projections {
+    pub shadow: [u8; WIDTH * LENGTH],
+    pub top: [u8; WIDTH * LENGTH],
+}
+
+pub(super) static PROJECTIONS: Projections = {
+    let mut out = Projections {
+        shadow: [0; WIDTH * LENGTH],
+        top: [0; WIDTH * LENGTH],
+    };
+    let mut i = VOXELS.len();
+    while i > 0 {
+        i -= 1;
+        let voxel = &VOXELS[i];
+        let at = voxel.y as usize * WIDTH + voxel.x as usize;
+        out.shadow[at] = 1;
+        if out.top[at] == 0 {
+            let color = (voxel.color - 1) >> 4;
+            out.top[at] = 1 + if color > 2 { 2 } else { color };
+        }
+    }
+    out
+};
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,6 +297,17 @@ mod tests {
     fn slices_have_complete_valid_palette_coverage() {
         let mut cells = [0; WIDTH * LENGTH * LAYERS];
         decode(&mut cells);
+        for i in 0..WIDTH * LENGTH {
+            let top = (0..LAYERS)
+                .rev()
+                .map(|layer| cells[layer * WIDTH * LENGTH + i])
+                .find(|value| *value != 0);
+            assert_eq!(PROJECTIONS.shadow[i], u8::from(top.is_some()));
+            assert_eq!(
+                PROJECTIONS.top[i],
+                top.map_or(0, |c| 1 + ((c - 1) >> 4).min(2))
+            );
+        }
         let allocated = crate::test_support::tracked_allocations(|| {
             for (layer, voxels) in slices().iter().enumerate() {
                 for voxel in *voxels {

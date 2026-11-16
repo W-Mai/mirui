@@ -21,7 +21,6 @@ impl Raster {
             flames,
             flame_count,
             slices,
-            shadow,
             seen,
         } = self;
         let width = frame.width;
@@ -32,7 +31,6 @@ impl Raster {
             flight,
             palette,
             slices,
-            shadow,
             frame_height: height,
         };
         let order = scene.order(mapping.projection);
@@ -125,7 +123,7 @@ impl Raster {
                 .map(|p| p.resolved.count_ones())
                 .sum();
             workspace.with_region(sheet, mapping.size, origin, mapping.bounds, |canvas| {
-                draw_world(canvas, world, flight, &mapping.projection, palette, shadow);
+                draw_world(canvas, world, flight, &mapping.projection, palette);
                 for query in &mut pending[..count] {
                     query.resolve(canvas);
                 }

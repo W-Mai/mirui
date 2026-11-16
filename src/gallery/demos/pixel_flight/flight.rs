@@ -9,6 +9,7 @@ use crate::{
     anim::Spring,
     types::{Fixed, Fixed64},
 };
+use alloc::{boxed::Box, vec::Vec};
 pub const TRAIL_CAPACITY: usize = 160;
 pub const SMOKE_CAPACITY: usize = 96;
 pub type V3 = [Fixed; 3];
@@ -251,7 +252,7 @@ impl Controls {
 }
 pub struct Flight {
     pub settings: Settings,
-    pub jets: [Aircraft; 3],
+    pub jets: Box<[Aircraft; 3]>,
     pub count: usize,
     pub controls: Controls,
     pub view: View,
@@ -284,9 +285,17 @@ pub struct Flight {
 impl Flight {
     pub fn new(world: &World, settings: Settings) -> Self {
         let position = [world.spawn[0], world.spawn[1], settings.altitude];
+        // Keep fixed histories out of by-value Model construction temporaries.
+        let mut jets = Vec::with_capacity(3);
+        for _ in 0..3 {
+            jets.push(Aircraft::new(position, Fixed::from_ratio(9, 10)));
+        }
         Self {
             settings,
-            jets: core::array::from_fn(|_| Aircraft::new(position, Fixed::from_ratio(9, 10))),
+            jets: jets
+                .into_boxed_slice()
+                .try_into()
+                .unwrap_or_else(|_| unreachable!("exactly three aircraft")),
             count: 1,
             controls: Controls::default(),
             view: View::Overhead,
@@ -329,6 +338,9 @@ impl Flight {
             auto_stunt: Fixed::from_int(7),
             smoke_clock: Fixed::ZERO,
         }
+    }
+    pub fn bytes(&self) -> usize {
+        core::mem::size_of::<Self>() + core::mem::size_of_val(&*self.jets)
     }
     pub fn set_wingmen(&mut self, count: usize) {
         self.count = 1 + count.min(2);
@@ -977,6 +989,8 @@ mod tests {
     }
     #[test]
     fn controls_cancel_and_history_storage_remain_bounded() {
+        // Model moves must not carry the three fixed aircraft history buffers.
+        assert!(core::mem::size_of::<Flight>() < 8 * 1024);
         let world = World::new(7, Fixed::from_ratio(33, 100));
         let mut flight = Flight::new(&world, Settings::default());
         flight.set_wingmen(2);
@@ -999,7 +1013,7 @@ mod tests {
         });
         assert_eq!(allocations, 0);
         assert_eq!(flight.time, Fixed::from_int(32));
-        for jet in &flight.jets {
+        for jet in flight.jets.iter() {
             assert!(jet.trail_len <= TRAIL_CAPACITY);
             assert!(jet.trail_head < TRAIL_CAPACITY);
             assert!(

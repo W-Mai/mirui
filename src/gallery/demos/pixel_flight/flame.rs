@@ -683,7 +683,7 @@ mod tests {
         let mut flames = Flames::new().unwrap();
         let total = world.bytes()
             + core::mem::size_of::<World>()
-            + core::mem::size_of::<Flight>()
+            + flight.bytes()
             + raster.bytes()
             + cockpit.bytes()
             + flames.bytes();

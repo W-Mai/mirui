@@ -89,6 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep flight output revisions monotonic across palette and viewport rebuilds to avoid stale native texture uploads.
 - Render Pixel Flight Compact at native 128×128 in RGB565 using bounded inverse-roll tiles and direct flame composition without warm allocations.
 - Preserve the complete rotated flight viewport across all roll quadrants.
+- Keep fixed aircraft histories out of flight Model construction temporaries and share immutable aircraft projection maps to reduce initialization stack usage.
 
 ## [0.56.0] - 2026-11-12
 

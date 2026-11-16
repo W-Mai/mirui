@@ -477,7 +477,6 @@ pub struct Raster {
     pub flames: [Flame; 6],
     pub flame_count: usize,
     slices: [&'static [jet::Voxel]; jet::LAYERS],
-    shadow: [u8; jet::WIDTH * jet::LENGTH],
     pub(super) seen: [[Fixed; 3]; 6],
 }
 struct Scene<'a> {
@@ -485,7 +484,6 @@ struct Scene<'a> {
     flight: &'a Flight,
     palette: &'a Palette,
     slices: &'a [&'static [jet::Voxel]; jet::LAYERS],
-    shadow: &'a [u8],
     frame_height: usize,
 }
 impl Scene<'_> {
@@ -512,14 +510,7 @@ impl Scene<'_> {
         projection: Projection,
         order: &[usize; 3],
     ) {
-        draw_world(
-            canvas,
-            self.world,
-            self.flight,
-            &projection,
-            self.palette,
-            self.shadow,
-        );
+        draw_world(canvas, self.world, self.flight, &projection, self.palette);
         draw_sky(canvas, &projection, self.palette, self.frame_height);
         draw_trails(canvas, self.flight, &projection, self.palette);
         draw_smoke(canvas, self.flight, &projection, self.palette.day);
@@ -647,12 +638,6 @@ impl Raster {
             sheet_side(width, height)
         };
         let slices = jet::slices();
-        let mut shadow = [0; jet::WIDTH * jet::LENGTH];
-        for slice in &slices {
-            for voxel in *slice {
-                shadow[usize::from(voxel.y) * jet::WIDTH + usize::from(voxel.x)] = 1;
-            }
-        }
         Ok(Self {
             frame: Frame::with_format(
                 width,
@@ -674,7 +659,6 @@ impl Raster {
             flames: [Flame::default(); 6],
             flame_count: 0,
             slices,
-            shadow,
             seen: [[Fixed::ONE; 3]; 6],
         })
     }
@@ -700,7 +684,6 @@ impl Raster {
             flames,
             flame_count,
             slices,
-            shadow,
             seen,
             output_tile: _,
         } = self;
@@ -709,7 +692,6 @@ impl Raster {
             world,
             flight,
             palette,
-            shadow,
             slices,
             frame_height,
         };
@@ -765,7 +747,6 @@ fn draw_world(
     flight: &Flight,
     p: &Projection,
     pal: &Palette,
-    shadow: &[u8],
 ) {
     canvas.clear();
     let (sn, cs) = p.yaw.sin_cos();
@@ -938,7 +919,7 @@ fn draw_world(
                             ((jet::PIVOT[0] - b + Fixed::from_ratio(5, 10)).floor()).trunc_to_int();
                         if (0..jet::WIDTH as i32).contains(&i)
                             && (0..jet::LENGTH as i32).contains(&k)
-                            && shadow[k as usize * jet::WIDTH + i as usize] != 0
+                            && jet::PROJECTIONS.shadow[k as usize * jet::WIDTH + i as usize] != 0
                         {
                             shaded = true;
                             break;
@@ -1618,7 +1599,6 @@ mod tests {
                 flight: &flight,
                 palette: &raster.palette,
                 slices: &raster.slices,
-                shadow: &raster.shadow,
                 frame_height: 128,
             };
             let projection = flight.projection(128, 128);
