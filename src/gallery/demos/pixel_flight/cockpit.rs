@@ -230,16 +230,11 @@ impl Cockpit {
             deck_keys: Vec::with_capacity(8),
             top_jet: [0; jet::WIDTH * jet::LENGTH],
         };
-        let mut cells = [0; jet::WIDTH * jet::LENGTH * jet::LAYERS];
-        jet::decode(&mut cells);
-        for layer in (0..jet::LAYERS).rev() {
-            for (i, c) in cells
-                [layer * jet::WIDTH * jet::LENGTH..(layer + 1) * jet::WIDTH * jet::LENGTH]
-                .iter()
-                .enumerate()
-            {
-                if *c != 0 && art.top_jet[i] == 0 {
-                    art.top_jet[i] = 1 + ((*c - 1) >> 4).min(2);
+        for voxels in jet::slices().iter().rev() {
+            for voxel in *voxels {
+                let i = usize::from(voxel.y) * jet::WIDTH + usize::from(voxel.x);
+                if art.top_jet[i] == 0 {
+                    art.top_jet[i] = 1 + ((voxel.color - 1) >> 4).min(2);
                 }
             }
         }

@@ -184,6 +184,88 @@ pub fn decode(out: &mut [u8; WIDTH * LENGTH * LAYERS]) {
     }
     assert_eq!(offset, out.len());
 }
+
+#[derive(Clone, Copy)]
+pub struct Voxel {
+    pub x: u8,
+    pub y: u8,
+    pub color: u8,
+}
+
+impl Voxel {
+    pub fn a(self) -> Fixed {
+        Fixed::from_ratio(i32::from(self.x) * 2 - (WIDTH - 1) as i32, 2)
+    }
+    pub fn b(self) -> Fixed {
+        PIVOT[0] - Fixed::from_int(i32::from(self.y))
+    }
+}
+
+const fn voxel_count() -> usize {
+    let mut count = 0;
+    let mut i = 0;
+    while i < RUNS.len() {
+        if RUNS[i + 1] != 0 {
+            count += RUNS[i] as usize;
+        }
+        i += 2;
+    }
+    count
+}
+
+const COUNT: usize = voxel_count();
+static VOXELS: [Voxel; COUNT] = {
+    let mut out = [Voxel {
+        x: 0,
+        y: 0,
+        color: 0,
+    }; COUNT];
+    let mut cell = 0;
+    let mut used = 0;
+    let mut run = 0;
+    while run < RUNS.len() {
+        let end = cell + RUNS[run] as usize;
+        while cell < end {
+            if RUNS[run + 1] != 0 {
+                out[used] = Voxel {
+                    x: (cell % WIDTH) as u8,
+                    y: ((cell / WIDTH) % LENGTH) as u8,
+                    color: RUNS[run + 1],
+                };
+                used += 1;
+            }
+            cell += 1;
+        }
+        run += 2;
+    }
+    out
+};
+
+const STARTS: [usize; LAYERS + 1] = {
+    let mut out = [0; LAYERS + 1];
+    let mut cell = 0;
+    let mut run = 0;
+    while run < RUNS.len() {
+        let end = cell + RUNS[run] as usize;
+        while cell < end {
+            if RUNS[run + 1] != 0 {
+                out[cell / (WIDTH * LENGTH) + 1] += 1;
+            }
+            cell += 1;
+        }
+        run += 2;
+    }
+    let mut i = 1;
+    while i <= LAYERS {
+        out[i] += out[i - 1];
+        i += 1;
+    }
+    out
+};
+
+pub fn slices() -> [&'static [Voxel]; LAYERS] {
+    core::array::from_fn(|i| &VOXELS[STARTS[i]..STARTS[i + 1]])
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,6 +273,24 @@ mod tests {
     fn slices_have_complete_valid_palette_coverage() {
         let mut cells = [0; WIDTH * LENGTH * LAYERS];
         decode(&mut cells);
+        let allocated = crate::test_support::tracked_allocations(|| {
+            for (layer, voxels) in slices().iter().enumerate() {
+                for voxel in *voxels {
+                    let i = layer * WIDTH * LENGTH
+                        + usize::from(voxel.y) * WIDTH
+                        + usize::from(voxel.x);
+                    assert_eq!(voxel.color, cells[i]);
+                }
+                assert_eq!(
+                    voxels.len(),
+                    cells[layer * WIDTH * LENGTH..(layer + 1) * WIDTH * LENGTH]
+                        .iter()
+                        .filter(|c| **c != 0)
+                        .count()
+                );
+            }
+        });
+        assert_eq!(allocated, 0);
         assert!(
             cells
                 .iter()

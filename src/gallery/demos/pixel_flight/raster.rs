@@ -358,19 +358,13 @@ pub struct Flame {
     pub seed: Fixed,
     pub length: Fixed,
 }
-#[derive(Clone, Copy)]
-struct Voxel {
-    a: Fixed,
-    b: Fixed,
-    color: u8,
-}
 pub struct Raster {
     pub frame: Frame,
     pub sheet: Frame,
     pub palette: Palette,
     pub flames: [Flame; 6],
     pub flame_count: usize,
-    slices: [Vec<Voxel>; jet::LAYERS],
+    slices: [&'static [jet::Voxel]; jet::LAYERS],
     shadow: [u8; jet::WIDTH * jet::LENGTH],
     seen: [[Fixed; 3]; 6],
 }
@@ -397,28 +391,13 @@ impl Raster {
         .trunc_to_int() as usize
             + 2)
             * 2;
-        let mut cells = [0; jet::WIDTH * jet::LENGTH * jet::LAYERS];
-        jet::decode(&mut cells);
+        let slices = jet::slices();
         let mut shadow = [0; jet::WIDTH * jet::LENGTH];
-        let slices = core::array::from_fn(|layer| {
-            cells[layer * jet::WIDTH * jet::LENGTH..(layer + 1) * jet::WIDTH * jet::LENGTH]
-                .iter()
-                .enumerate()
-                .filter_map(|(i, c)| {
-                    if *c == 0 {
-                        None
-                    } else {
-                        shadow[i] = 1;
-                        Some(Voxel {
-                            a: Fixed::from_int((i % jet::WIDTH) as i32)
-                                - Fixed::from_int((jet::WIDTH - 1) as i32) / Fixed::from_int(2),
-                            b: jet::PIVOT[0] - Fixed::from_int((i / jet::WIDTH) as i32),
-                            color: *c,
-                        })
-                    }
-                })
-                .collect()
-        });
+        for slice in &slices {
+            for voxel in *slice {
+                shadow[usize::from(voxel.y) * jet::WIDTH + usize::from(voxel.x)] = 1;
+            }
+        }
         Ok(Self {
             frame: Frame::new(width, height)?,
             sheet: Frame::new(side, side)?,
@@ -431,14 +410,7 @@ impl Raster {
         })
     }
     pub fn bytes(&self) -> usize {
-        self.frame.bytes()
-            + self.sheet.bytes()
-            + self
-                .slices
-                .iter()
-                .map(|v| v.capacity() * core::mem::size_of::<Voxel>())
-                .sum::<usize>()
-            + core::mem::size_of::<Self>()
+        self.frame.bytes() + self.sheet.bytes() + core::mem::size_of::<Self>()
     }
     pub fn render(&mut self, world: &World, flight: &Flight) {
         let p = flight.projection(self.frame.width, self.frame.height);
@@ -1007,7 +979,7 @@ fn draw_jet(
     index: usize,
     p: &Projection,
     pal: &Palette,
-    slices: &[Vec<Voxel>; jet::LAYERS],
+    slices: &[&[jet::Voxel]; jet::LAYERS],
 ) {
     let jet = &flight.jets[index];
     let fade = if index == 0 { p.jet_alpha } else { Fixed::ONE };
@@ -1142,19 +1114,18 @@ fn draw_jet(
         let bu = cu + height * up[0];
         let bv = cv + height * up[1];
         let bw = cw + height * up[2];
-        for voxel in &slices[layer] {
-            let depth = bv + voxel.a * right[1] + voxel.b * forward[1];
+        for voxel in slices[layer] {
+            let a = voxel.a();
+            let b = voxel.b();
+            let depth = bv + a * right[1] + b * forward[1];
             let den = Fixed::ONE + p.apply_perspective(depth);
             if den < Fixed::from_ratio(2, 10) {
                 continue;
             }
             let m = p.scale / den;
-            let color =
-                pal.jets[lights[usize::from(voxel.a >= Fixed::ZERO)]][usize::from(voxel.color)];
-            let x = p.center[0] + m * (bu + voxel.a * right[0] + voxel.b * forward[0]);
-            let y = p.center[1]
-                - m * (bw + voxel.a * right[2] + voxel.b * forward[2] + p.slope * depth)
-                + drop;
+            let color = pal.jets[lights[usize::from(a >= Fixed::ZERO)]][usize::from(voxel.color)];
+            let x = p.center[0] + m * (bu + a * right[0] + b * forward[0]);
+            let y = p.center[1] - m * (bw + a * right[2] + b * forward[2] + p.slope * depth) + drop;
             for offset in &offsets[..samples * samples] {
                 let xx = ((x + offset[0] * m / center[2]).round()).trunc_to_int();
                 let yy = ((y + offset[1] * m / center[2]).round()).trunc_to_int();
