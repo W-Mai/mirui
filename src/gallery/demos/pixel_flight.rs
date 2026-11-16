@@ -2,6 +2,7 @@
 
 pub mod flight;
 pub mod jet;
+pub mod raster;
 pub mod world;
 
 pub const VIEWPORT: (u16, u16) = (1280, 720);
