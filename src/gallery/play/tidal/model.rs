@@ -3,9 +3,23 @@ use super::types::{
     BOARD_SIZE, Forecast, Goal, HISTORY_CAPACITY, ISLAND_COUNT, IslandResult, Perk, TideCommand,
     TideLevel, TideMessage, TideModal, Tile, Weather,
 };
+use crate::anim::{Motion, SMOOTH, SNAPPY, Spring, Transition};
 use crate::gallery::play::change::ChangeSet;
 #[cfg(feature = "persistence")]
 use crate::gallery::play::storage::{ReplayKind, TidalReplayLog};
+use crate::types::Fixed;
+
+/// How long the harvest scores stay up before they fade.
+const GAIN_HOLD_MS: u16 = 800;
+/// How far the harvest scores rise over their tiles, in pixels.
+const GAIN_LIFT: i32 = 10;
+/// No tile is dropping in.
+const NO_CELL: u8 = u8::MAX;
+
+/// A motion already resting at `value`.
+fn resting(value: Fixed) -> Motion {
+    Spring::preset(value, value, SMOOTH).into()
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Rng(u32);
@@ -152,6 +166,14 @@ pub(crate) struct TideModel {
     message: TideMessage,
     #[cfg(feature = "persistence")]
     replay: TidalReplayLog,
+    /// The tile placed last drops in from above.
+    drop_cell: u8,
+    drop: Motion,
+    /// What each tile scored at the last harvest, shown as it pops up.
+    gains: [u8; BOARD_SIZE],
+    gain_motion: Motion,
+    gain_hold: u16,
+    gain_fading: bool,
 }
 
 impl Default for TideModel {
@@ -174,6 +196,12 @@ impl TideModel {
             message: TideMessage::Ready,
             #[cfg(feature = "persistence")]
             replay: TidalReplayLog::new(ReplayKind::Tidal, seed.max(1)),
+            drop_cell: NO_CELL,
+            drop: resting(Fixed::ONE),
+            gains: [0; BOARD_SIZE],
+            gain_motion: resting(Fixed::ZERO),
+            gain_hold: 0,
+            gain_fading: false,
         };
         model.make_island();
         model
@@ -229,6 +257,151 @@ impl TideModel {
         self.preview = None;
         self.modal = TideModal::None;
         self.message = TideMessage::Ready;
+        self.rest();
+    }
+
+    /// Ends the drop and the harvest scores at once.
+    pub(crate) fn rest(&mut self) {
+        self.drop_cell = NO_CELL;
+        self.drop = resting(Fixed::ONE);
+        self.clear_gains();
+    }
+
+    fn clear_gains(&mut self) {
+        self.gains = [0; BOARD_SIZE];
+        self.gain_motion = resting(Fixed::ZERO);
+        self.gain_hold = 0;
+        self.gain_fading = false;
+    }
+
+    fn animating_raw(&self) -> bool {
+        self.drop_cell != NO_CELL || self.gain_hold > 0 || self.gain_fading
+    }
+
+    fn gain_lift_raw(&self) -> u8 {
+        if self.gain_hold == 0 && !self.gain_fading {
+            0
+        } else if self.gain_fading {
+            GAIN_LIFT as u8
+        } else {
+            (self.gain_motion.value() * GAIN_LIFT)
+                .to_int()
+                .clamp(0, GAIN_LIFT + 3) as u8
+        }
+    }
+
+    fn gain_alpha_raw(&self) -> u8 {
+        if self.gain_hold == 0 && !self.gain_fading {
+            return 0;
+        }
+        let shown = self.gain_motion.value().clamp(Fixed::ZERO, Fixed::ONE);
+        (shown * 8).to_int().clamp(0, 8) as u8
+    }
+
+    fn advance_raw(&mut self, elapsed_ms: u16) -> ChangeSet {
+        if elapsed_ms == 0 || !self.animating_raw() {
+            return ChangeSet::NONE;
+        }
+        let shown = (self.gain_lift_raw(), self.gain_alpha_raw());
+        if self.drop_cell != NO_CELL {
+            self.drop.tick(elapsed_ms);
+            if self.drop.is_done() {
+                self.drop_cell = NO_CELL;
+            }
+        }
+        if self.gain_hold > 0 && self.gain_motion.is_done() {
+            self.gain_hold = self.gain_hold.saturating_sub(elapsed_ms);
+            if self.gain_hold == 0 {
+                self.gain_fading = true;
+                Transition::from(SMOOTH).retarget(&mut self.gain_motion, Fixed::ZERO);
+            }
+        }
+        self.gain_motion.tick(elapsed_ms);
+        if self.gain_fading && self.gain_motion.is_done() {
+            self.clear_gains();
+        }
+        if (self.gain_lift_raw(), self.gain_alpha_raw()) == shown {
+            ChangeSet::VISUAL
+        } else {
+            ChangeSet::MODEL | ChangeSet::VISUAL
+        }
+    }
+
+    /// The tile placed last while it drops in: its cell and how far it has
+    /// come down, from 0 to 1.
+    pub(crate) fn dropping(&self) -> Option<(usize, Fixed)> {
+        (self.drop_cell != NO_CELL).then(|| (usize::from(self.drop_cell), self.drop.value()))
+    }
+
+    /// What the tile at `index` scored at the harvest now on show.
+    pub(crate) fn gain(&self, index: usize) -> u8 {
+        self.gains[index]
+    }
+
+    /// How strongly the harvest scores show, from 0 to 1.
+    pub(crate) fn gain_glow(&self) -> Fixed {
+        if self.gain_hold == 0 && !self.gain_fading {
+            Fixed::ZERO
+        } else {
+            self.gain_motion.value().clamp(Fixed::ZERO, Fixed::ONE)
+        }
+    }
+
+    /// Moves the spot to place on to the nearest legal cell in a direction.
+    fn step_pending_raw(&mut self, dx: i8, dy: i8) -> ChangeSet {
+        if self.state.settled || self.state.complete {
+            return ChangeSet::NONE;
+        }
+        let Some(from) = self.pending.or(self.selected) else {
+            return match (0..BOARD_SIZE).find(|index| self.valid(*index)) {
+                Some(first) => self.select_cell_raw(first as u8),
+                None => ChangeSet::NONE,
+            };
+        };
+        let (x, y) = (i16::from(from % 6), i16::from(from / 6));
+        let (dx, dy) = (i16::from(dx), i16::from(dy));
+        let mut best: Option<(i16, u8)> = None;
+        for index in (0..BOARD_SIZE).filter(|index| self.valid(*index)) {
+            let (cx, cy) = ((index % 6) as i16 - x, (index / 6) as i16 - y);
+            let ahead = cx * dx + cy * dy;
+            if ahead <= 0 {
+                continue;
+            }
+            let aside = (cx * dy).abs() + (cy * dx).abs();
+            let cost = ahead + aside * 3;
+            if best.is_none_or(|(least, _)| cost < least) {
+                best = Some((cost, index as u8));
+            }
+        }
+        best.map_or(ChangeSet::NONE, |(_, index)| self.select_cell_raw(index))
+    }
+
+    fn place_pending_raw(&mut self) -> ChangeSet {
+        match self.pending {
+            Some(index) => self.apply_command(TideCommand::Place {
+                index,
+                choice: self.choice,
+            }),
+            None if self.state.settled
+                || self.state.complete
+                || self.message == TideMessage::Spot =>
+            {
+                ChangeSet::NONE
+            }
+            None => {
+                self.message = TideMessage::Spot;
+                ChangeSet::MODEL
+            }
+        }
+    }
+
+    /// Starts a new voyage once this one is complete.
+    fn new_voyage_raw(&mut self) -> ChangeSet {
+        if !self.state.complete {
+            return ChangeSet::NONE;
+        }
+        *self = Self::new(self.seed.wrapping_add(1));
+        ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
     fn refill(&mut self) {
@@ -449,15 +622,11 @@ impl TideModel {
         if self.choice == choice && self.selected.is_none() && self.pending.is_none() {
             return ChangeSet::NONE;
         }
-        let visual = self.selected.is_some() || self.pending.is_some();
+        // The hand is painted with the board, so a new choice repaints it.
         self.choice = choice;
         self.selected = None;
         self.refresh_preview();
-        if visual {
-            ChangeSet::MODEL | ChangeSet::VISUAL
-        } else {
-            ChangeSet::MODEL
-        }
+        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
     fn select_cell_raw(&mut self, index: u8) -> ChangeSet {
@@ -477,8 +646,11 @@ impl TideModel {
             }
             self.pending = Some(index);
             self.selected = None;
-        } else {
+        } else if self.state.settled || self.state.complete || self.message == TideMessage::Shore {
             return ChangeSet::NONE;
+        } else {
+            self.message = TideMessage::Shore;
+            return ChangeSet::MODEL;
         }
         self.refresh_preview();
         ChangeSet::MODEL | ChangeSet::VISUAL
@@ -504,12 +676,20 @@ impl TideModel {
         self.state.turn += 1;
         self.refresh_scores();
         self.message = TideMessage::Placed(tile);
+        self.clear_gains();
+        self.drop_cell = index;
+        self.drop = Transition::from(SNAPPY).motion(Fixed::ZERO, Fixed::ONE);
         if self.state.turn % 6 == 0 {
             let season = usize::from(self.state.turn / 6 - 1);
             let forecast = self.state.forecasts[season];
-            let gained: u16 = (0..BOARD_SIZE)
-                .map(|cell| self.tile_score(cell, forecast))
-                .sum();
+            let mut gained = 0_u16;
+            for cell in 0..BOARD_SIZE {
+                let score = self.tile_score(cell, forecast);
+                self.gains[cell] = score.min(u16::from(u8::MAX)) as u8;
+                gained = gained.saturating_add(score);
+            }
+            Transition::from(SNAPPY).retarget(&mut self.gain_motion, Fixed::ONE);
+            self.gain_hold = GAIN_HOLD_MS;
             self.state.score = self.state.score.saturating_add(gained);
             self.state.harvests[season] = gained;
             self.state.harvest_len = self.state.harvest_len.max(season as u8 + 1);
@@ -550,20 +730,15 @@ impl TideModel {
         if self.state.settled || self.state.complete || self.state.rerolls == 0 {
             return ChangeSet::NONE;
         }
-        let visual = self.pending.is_some() || self.selected.is_some();
         self.history.push(self.state);
         self.state.rerolls -= 1;
         self.refill();
+        self.clear_gains();
         self.pending = None;
         self.preview = None;
         self.selected = None;
         self.message = TideMessage::Rerolled;
-        let changes = ChangeSet::MODEL | ChangeSet::PERSISTENCE;
-        if visual {
-            changes | ChangeSet::VISUAL
-        } else {
-            changes
-        }
+        ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
     fn undo_raw(&mut self) -> ChangeSet {
@@ -574,6 +749,7 @@ impl TideModel {
             return ChangeSet::NONE;
         };
         self.state = state;
+        self.rest();
         self.pending = None;
         self.preview = None;
         self.selected = None;
@@ -607,6 +783,7 @@ impl TideModel {
             return ChangeSet::NONE;
         }
         let index = usize::from(self.state.result_len);
+        self.clear_gains();
         self.state.results[index] = IslandResult {
             score: self.state.score,
             target: self.state.target,
@@ -795,10 +972,60 @@ impl TideModel {
         !self.state.complete && self.history.len != 0
     }
 
+    /// The tile drops in or the harvest scores show.
+    #[observe]
+    pub(crate) fn animating(&self) -> bool {
+        self.animating_raw()
+    }
+
+    /// How far the harvest scores have risen, in pixels; zero hides them.
+    #[observe]
+    pub(crate) fn gain_lift(&self) -> u8 {
+        self.gain_lift_raw()
+    }
+
+    /// How opaque the harvest scores are, in eighths.
+    #[observe]
+    pub(crate) fn gain_alpha(&self) -> u8 {
+        self.gain_alpha_raw()
+    }
+
+    #[observe]
+    pub(crate) fn gains(&self) -> [u8; BOARD_SIZE] {
+        self.gains
+    }
+
+    pub(crate) fn advance_ms(&mut self, elapsed_ms: u16) -> ChangeSet {
+        self.advance_raw(elapsed_ms)
+    }
+
+    /// A tap on the board: the first tap on sea previews, a second places.
+    pub(crate) fn tap_cell(&mut self, index: u8) -> ChangeSet {
+        if self.pending == Some(index) {
+            self.place_pending_raw()
+        } else {
+            self.select_cell_raw(index)
+        }
+    }
+
+    /// Places the chosen tile on the previewed spot.
+    pub(crate) fn place_pending(&mut self) -> ChangeSet {
+        self.place_pending_raw()
+    }
+
+    pub(crate) fn step_pending(&mut self, dx: i8, dy: i8) -> ChangeSet {
+        self.step_pending_raw(dx, dy)
+    }
+
+    pub(crate) fn new_voyage(&mut self) -> ChangeSet {
+        self.new_voyage_raw()
+    }
+
     pub(crate) fn select_offer(&mut self, choice: u8) -> ChangeSet {
         self.select_offer_raw(choice)
     }
 
+    #[cfg(test)]
     pub(crate) fn select_cell(&mut self, index: u8) -> ChangeSet {
         self.select_cell_raw(index)
     }
@@ -807,6 +1034,7 @@ impl TideModel {
         self.cancel_preview_raw()
     }
 
+    #[cfg(test)]
     pub(crate) fn place(&mut self, index: u8, choice: u8) -> ChangeSet {
         self.apply_command(TideCommand::Place { index, choice })
     }
@@ -837,4 +1065,32 @@ fn adjacent(index: usize) -> [Option<usize>; 4] {
         (y > 0).then(|| index - 6),
         (y < 5).then(|| index + 6),
     ]
+}
+
+/// The best voyage total, kept between sessions.
+#[crate::model(persistence(key = "tidal_atlas/best"))]
+#[derive(Default)]
+pub(crate) struct TideRecord {
+    #[persist]
+    #[observe]
+    pub(crate) best: u16,
+    /// The voyage just finished beat the best before it.
+    #[observe]
+    pub(crate) fresh: bool,
+}
+
+#[crate::model]
+impl TideRecord {
+    /// Keeps a finished voyage's total when it beats the best.
+    pub(crate) fn note(&mut self, total: u16) {
+        self.fresh = total > self.best;
+        if self.fresh {
+            self.best = total;
+        }
+    }
+
+    /// A new voyage has no record to show yet.
+    pub(crate) fn clear_fresh(&mut self) {
+        self.fresh = false;
+    }
 }

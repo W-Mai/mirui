@@ -19,7 +19,10 @@ impl ModelCodec for TideArchive {
     fn prepare(&self, _: &TideModel, bytes: &[u8]) -> Result<TideModel, PersistenceError> {
         let log = TidalReplayLog::decode(bytes, ReplayKind::Tidal)
             .map_err(|_| PersistenceError::InvalidArchive)?;
-        replay_tide(&log).map_err(|_| PersistenceError::InvalidArchive)
+        let mut model = replay_tide(&log).map_err(|_| PersistenceError::InvalidArchive)?;
+        // The game reopens still: the last drop and harvest have played.
+        model.rest();
+        Ok(model)
     }
     fn apply(&self, model: &mut TideModel, prepared: TideModel) {
         *model = prepared;
@@ -90,6 +93,29 @@ mod tests {
         app.persistence().save_all().unwrap();
         app.persistence().restore(&model).unwrap();
         assert_eq!(model.turn(), 0);
+    }
+
+    #[test]
+    fn the_best_voyage_total_is_kept_under_its_own_key() {
+        use crate::core::persistence::FieldCodec;
+        use crate::gallery::play::tidal::TideRecord;
+
+        let mut best = TideRecord::default();
+        best.note(1_234);
+        let mut bytes = Vec::new();
+        FieldCodec::default().encode(&best, &mut bytes).unwrap();
+        let mut storage = MemoryStorage::new();
+        storage.write("tidal_atlas/best", &bytes).unwrap();
+        let mut app = App::headless(16, 16);
+        app.add_plugin(PersistencePlugin::new(storage).codec(TideArchive));
+        let model = app.add_model(TideModel::default()).finish();
+        let record = app.add_model(TideRecord::default()).finish();
+        assert_eq!(record.best(), 1_234);
+        assert!(!record.fresh());
+        assert_eq!(model.turn(), 0);
+        record.note(900);
+        assert_eq!(record.best(), 1_234);
+        assert!(!record.fresh());
     }
 
     #[test]
