@@ -82,6 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Count in one bar before prompter playback, step the tempo with buttons, and apply valid song-sheet edits to the browser preview as you type from the same place in the song.
 - Add Pixel Flight with three camera views, layered aircraft, procedural terrain, cockpit instruments and flight controls.
 - Add a bounded Pixel Flight Compact profile for small screens, preserving the three camera views and flight effects across viewport changes.
+- Add automatic flight presentation with timed camera changes, pause/resume handling and a parameter-controlled embedded entry.
 
 ## [0.56.0] - 2026-11-12
 

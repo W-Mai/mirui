@@ -31,6 +31,8 @@ pub struct FlightModel {
     hint_time: Fixed,
     focused: bool,
     visible: bool,
+    autoplay: bool,
+    view_elapsed_ms: u16,
 }
 impl FlightModel {
     fn new(width: u16, height: u16) -> Self {
@@ -59,6 +61,8 @@ impl FlightModel {
             hint_time: Fixed::ZERO,
             focused: true,
             visible: true,
+            autoplay: false,
+            view_elapsed_ms: 0,
         };
         state.prepare(width, height);
         state.render_frame();
@@ -110,6 +114,23 @@ impl FlightModel {
 }
 #[crate::model]
 impl FlightModel {
+    /// Enable unattended flight and cycle the camera every twelve simulation seconds.
+    ///
+    /// Manual input is ignored while enabled. Hidden or unfocused scenes pause.
+    ///
+    /// Changing the mode releases held controls without resetting flight or camera state.
+    pub fn set_autoplay(&mut self, enabled: bool) {
+        if self.autoplay == enabled {
+            return;
+        }
+        self.autoplay = enabled;
+        self.view_elapsed_ms = 0;
+        self.flight.controls.release_all();
+    }
+    #[observe]
+    pub fn autoplay(&self) -> bool {
+        self.autoplay
+    }
     #[observe]
     pub fn revision(&self) -> u32 {
         self.revision
@@ -139,7 +160,9 @@ impl FlightModel {
         self.hint_time = Fixed::ZERO;
     }
     pub fn press(&mut self) {
-        self.flight.controls.press();
+        if !self.autoplay {
+            self.flight.controls.press();
+        }
     }
     pub fn release(&mut self, cancelled: bool) {
         self.flight.release_pointer(cancelled);
@@ -157,6 +180,9 @@ impl FlightModel {
         }
     }
     pub fn key(&mut self, physical: PhysicalKey, pressed: bool, repeat: bool) {
+        if self.autoplay {
+            return;
+        }
         let bit = match physical {
             PhysicalKey::ArrowLeft => Some(0),
             PhysicalKey::KeyA => Some(1),
@@ -222,7 +248,14 @@ impl FlightModel {
         }
         self.prepare(width, height);
         let (scene_width, scene_height, scale) = self.profile.scene_size(width, height);
-        if let Some(point) = pointer {
+        let milliseconds = milliseconds.min(50) as u16;
+        if self.autoplay {
+            self.view_elapsed_ms += milliseconds;
+            if self.view_elapsed_ms >= 12_000 {
+                self.view_elapsed_ms -= 12_000;
+                self.cycle_view();
+            }
+        } else if let Some(point) = pointer {
             self.flight.controls.point([
                 (point[0]
                     - ((Fixed::from_int((width) as i32)
@@ -246,11 +279,11 @@ impl FlightModel {
         let raster = self.raster.as_ref().expect("prepared flight raster");
         self.flight.step(
             &self.terrain,
-            milliseconds.min(50) as u16,
+            milliseconds,
             raster.frame.width,
             raster.frame.height,
         );
-        self.hint_time += Fixed::from_int((milliseconds.min(50)) as i32) / Fixed::from_int(1000);
+        self.hint_time += Fixed::from_int(milliseconds.into()) / Fixed::from_int(1000);
         self.render_frame();
     }
     pub fn paint(&self, paint: &mut PaintCtx<'_>) {
@@ -388,7 +421,7 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
             crate::input::event::scroll::TouchAction::None,
         ] {
             Text (
-                ${ hint(model.view(), profile) },
+                ${ hint(model.view(), profile, model.autoplay()) },
                 width: Dimension::percent(100),
                 font_size: if profile == Profile::Compact { 8 } else { 12 },
                 text_color: ${ model.hint_color() },
@@ -399,7 +432,17 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
         } on Pressed(press::callback(model.clone())) on Released(release::callback(model.clone())) on PressCancelled(cancel::callback(model))
     };
 }
-fn hint(view: CameraView, profile: Profile) -> &'static str {
+fn hint(view: CameraView, profile: Profile, autoplay: bool) -> &'static str {
+    if autoplay {
+        return match (view, profile) {
+            (CameraView::Overhead, Profile::Compact) => "AUTO / TOP",
+            (CameraView::Chase, Profile::Compact) => "AUTO / CHASE",
+            (CameraView::Cockpit, Profile::Compact) => "AUTO / COCKPIT",
+            (CameraView::Overhead, Profile::Desktop) => "AUTO FLIGHT / OVERHEAD / CAMERA EVERY 12S",
+            (CameraView::Chase, Profile::Desktop) => "AUTO FLIGHT / CHASE / CAMERA EVERY 12S",
+            (CameraView::Cockpit, Profile::Desktop) => "AUTO FLIGHT / COCKPIT / CAMERA EVERY 12S",
+        };
+    }
     if profile == Profile::Compact {
         return match view {
             CameraView::Overhead => "TOP / SPACE",
@@ -472,6 +515,73 @@ fn setup_profile<B: Surface, F: RendererFactory<B>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn autoplay_reuses_flight_and_camera_without_allocating() {
+        let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
+        let position = scene.flight.jets[0].position;
+        scene.press();
+        scene.key(PhysicalKey::ShiftLeft, true, false);
+        scene.set_autoplay(true);
+        assert!(!scene.flight.controls.holding);
+        assert_eq!(scene.flight.controls.keys, 0);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for expected in [CameraView::Chase, CameraView::Cockpit, CameraView::Overhead] {
+                let before = scene.view();
+                for _ in 0..239 {
+                    scene.advance(50, 128, 128, Some([Fixed::ONE; 2]));
+                }
+                assert_eq!(scene.view(), before);
+                scene.set_autoplay(true);
+                scene.key(PhysicalKey::Space, true, false);
+                scene.key(PhysicalKey::ShiftLeft, true, false);
+                scene.press();
+                scene.advance(50, 128, 128, Some([Fixed::ONE; 2]));
+                assert_eq!(scene.view(), expected);
+                assert_eq!(scene.view_elapsed_ms, 0);
+                assert_eq!(scene.flight.controls.keys, 0);
+                assert!(!scene.flight.controls.holding);
+                assert!(scene.flight.controls.pointer.is_none());
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_ne!(scene.flight.jets[0].position, position);
+        scene.set_autoplay(false);
+        scene.key(PhysicalKey::Space, true, false);
+        assert_eq!(scene.view(), CameraView::Chase);
+        scene.key(PhysicalKey::ShiftLeft, true, false);
+        assert_ne!(scene.flight.controls.keys, 0);
+    }
+    #[test]
+    fn autoplay_pauses_and_uses_the_same_clamped_simulation_time() {
+        let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
+        scene.set_autoplay(true);
+        for _ in 0..239 {
+            scene.advance(50, 128, 128, None);
+        }
+        let time = scene.flight.time;
+        let revision = scene.revision;
+        scene.set_focus(false);
+        scene.advance(u32::MAX, 128, 128, None);
+        scene.set_focus(true);
+        scene.set_visible(false);
+        scene.advance(u32::MAX, 128, 128, None);
+        scene.set_visible(true);
+        scene.advance(u32::MAX, 0, 128, None);
+        assert_eq!(scene.flight.time, time);
+        assert_eq!(scene.revision, revision);
+        assert_eq!(scene.view(), CameraView::Overhead);
+        scene.advance(u32::MAX, 128, 128, None);
+        assert_eq!(scene.view(), CameraView::Chase);
+        assert_eq!(scene.view_elapsed_ms, 0);
+        assert_eq!(scene.flight.time, Fixed::from_int(12));
+        let position = scene.flight.jets[0].position;
+        scene.set_autoplay(false);
+        assert_eq!(scene.view(), CameraView::Chase);
+        assert_eq!(scene.flight.jets[0].position, position);
+        scene.set_autoplay(true);
+        scene.advance(0, 128, 128, None);
+        assert_eq!(scene.view_elapsed_ms, 0);
+    }
     #[test]
     fn compact_keeps_all_views_and_bounds_workspaces_across_resizes() {
         let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);

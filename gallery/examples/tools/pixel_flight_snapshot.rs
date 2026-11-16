@@ -82,6 +82,21 @@ fn capture<B: Surface, F: RendererFactory<B>>(
         }
     }
     let mut times = Vec::with_capacity(2000);
+    if env::args().any(|arg| arg == "--auto") {
+        model.set_autoplay(true);
+        for (name, frames, view) in [
+            ("auto-overhead", 500, View::Overhead),
+            ("auto-chase", 750, View::Chase),
+            ("auto-cockpit", 750, View::Cockpit),
+            ("auto-loop", 750, View::Overhead),
+        ] {
+            advance(&mut app, &model, frames, size, &mut times);
+            assert_eq!(model.view(), view, "automatic camera schedule");
+            save(&mut app, &output.join(format!("{name}.png")));
+        }
+        println!("automatic flight completed all views and returned to overhead");
+        return;
+    }
     for (name, view) in [
         ("overhead", View::Overhead),
         ("chase", View::Chase),

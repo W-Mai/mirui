@@ -19,6 +19,8 @@ Pixel Flight has overhead, chase and cockpit views, procedural islands, layered 
 
 Pixel Flight Compact starts at 128×128 with bounded terrain, flame and scene buffers. Run `cargo run -p gallery --example pixel_flight_compact_demo --profile release-opt --no-default-features --features sdl-gpu`. Both flight demos support window resizing and the same controls.
 
+Append `-- --auto` to either flight example for unattended flight with automatic camera changes every twelve simulation seconds. Embedded applications enable the same mode through the returned Model: `let flight = pixel_flight::setup_compact_app(&mut app, parent); flight.set_autoplay(true);`. Passing `false` restores manual control without restarting the flight.
+
 ## Features
 
 - **ECS architecture** — entities, components, systems, resources, queries; system scheduler with named priority slots
