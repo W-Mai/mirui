@@ -1,7 +1,8 @@
+use crate::core::i18n::Phrase;
 use crate::prelude::Color;
+use crate::tr;
 
 pub(super) const BACKGROUND: Color = Color::rgb(36, 36, 46);
-pub(super) const HEADER: Color = Color::rgb(38, 38, 49);
 pub(super) const BOARD: Color = Color::rgb(18, 26, 32);
 pub(super) const PANEL: Color = Color::rgb(40, 41, 54);
 pub(super) const CONTROL: Color = Color::rgb(45, 60, 53);
@@ -17,4 +18,8 @@ pub(super) const PALETTE: [Color; 7] = [
     Color::rgb(167, 212, 236),
     Color::rgb(242, 238, 224),
 ];
-pub(super) const TEMPLATE_NAMES: [&str; 3] = ["小外星人", "风中绿芽", "会飞的信"];
+pub(super) const TEMPLATE_NAMES: [Phrase; 3] = [
+    tr!(en: "ALIEN", zh: "小外星人"),
+    tr!(en: "SPROUT", zh: "风中绿芽"),
+    tr!(en: "WINGED NOTE", zh: "会飞的信"),
+];

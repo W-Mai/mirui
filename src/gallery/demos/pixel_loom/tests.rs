@@ -74,7 +74,6 @@ fn composition_uses_one_dense_surface_and_semantic_controls() {
     assert_eq!(world.query::<PixelSurface>().collect().len(), 1);
     for id in [
         "pixel_frame_status",
-        "pixel_mode_status",
         "pixel_template_name",
         "pixel_fps",
         "pixel_play",
@@ -115,9 +114,16 @@ fn stroke_completion_does_not_depend_on_layout_components() {
     let surface = world.find_by_id("pixel_surface").unwrap();
     let rect = Rect::new(0, 0, 480, 320);
     world.insert(surface, ComputedRect(rect));
+    for (x, y) in [(15, 59), (304, 59), (100, 15), (100, 304)] {
+        assert_eq!(
+            local_cell(rect, Fixed::from_int(x), Fixed::from_int(y)),
+            None,
+            "({x}, {y}) is outside the grid"
+        );
+    }
     assert_eq!(
-        local_cell(rect, Fixed::from_int(16), Fixed::from_int(59)),
-        None
+        local_cell(rect, Fixed::from_int(303), Fixed::from_int(303)),
+        Some((11, 11))
     );
     let before = with_model(&world, |model| *model.frames());
     assert!(trigger(
@@ -289,28 +295,18 @@ fn text_of(world: &World, id: &'static str) -> alloc::string::String {
 
 #[test]
 fn template_cards_load_their_template_and_modals_say_what_happens() {
-    use crate::gallery::play::pixel::{PixelModal, PixelTool};
+    use crate::gallery::play::pixel::PixelModal;
 
     let mut world = fixture();
     let surface = world.find_by_id("pixel_surface").unwrap();
     let model = world.get::<PixelSurface>(surface).unwrap().model.clone();
-    assert_eq!(
-        text_of(&world, "pixel_mode_status"),
-        "点格子上色，拖动可连续画"
-    );
-    model.set_tool(PixelTool::Erase);
-    crate::core::reactive::flush_signal_dirty(&mut world);
-    assert_eq!(
-        text_of(&world, "pixel_mode_status"),
-        "点格子擦除，拖动可连续擦"
-    );
-
+    assert_eq!(text_of(&world, "pixel_frame_status"), "FRAME 1/4");
     model.open_templates();
     crate::core::reactive::flush_signal_dirty(&mut world);
-    assert_eq!(text_of(&world, "pixel_modal_title"), "选一个模板");
+    assert_eq!(text_of(&world, "pixel_modal_title"), "PICK A TEMPLATE");
     assert_eq!(
         text_of(&world, "pixel_modal_subtitle"),
-        "会替换现在的四帧，可以撤销。"
+        "Replaces all four frames. Undo brings them back."
     );
     let card = world.find_by_id("pixel_template_card_2").unwrap();
     assert!(trigger(
@@ -324,13 +320,58 @@ fn template_cards_load_their_template_and_modals_say_what_happens() {
     crate::core::reactive::flush_signal_dirty(&mut world);
     assert_eq!(with_model(&world, PixelModel::template_id), 2);
     assert_eq!(with_model(&world, PixelModel::modal), PixelModal::None);
-    assert_eq!(text_of(&world, "pixel_template_name"), "会飞的信");
+    assert_eq!(text_of(&world, "pixel_template_name"), "WINGED NOTE");
 
     model.open_clear();
     crate::core::reactive::flush_signal_dirty(&mut world);
-    assert_eq!(text_of(&world, "pixel_modal_title"), "清空这一帧？");
+    assert_eq!(text_of(&world, "pixel_modal_title"), "CLEAR THIS FRAME?");
     assert_eq!(
         text_of(&world, "pixel_modal_subtitle"),
-        "只清空这一帧，可以撤销。"
+        "Clears only this frame. Undo brings it back."
     );
+}
+
+#[test]
+fn chinese_mode_translates_the_editor() {
+    use crate::core::i18n::{I18n, Locale};
+    use crate::gallery::play::pixel::PixelClipboardStatus;
+
+    let mut world = fixture();
+    let surface = world.find_by_id("pixel_surface").unwrap();
+    let model = world.get::<PixelSurface>(surface).unwrap().model.clone();
+    assert_eq!(text_of(&world, "pixel_play"), "▶ PLAY");
+    world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(text_of(&world, "pixel_play"), "▶ 播放");
+    assert_eq!(text_of(&world, "pixel_frame_status"), "第 1/4 帧");
+    assert_eq!(text_of(&world, "pixel_fps"), "4 帧/秒 ↻");
+    assert_eq!(text_of(&world, "pixel_template_name"), "小外星人");
+    assert_eq!(text_of(&world, "pixel_tool_onion"), "叠帧");
+
+    model.set_clipboard_status(PixelClipboardStatus::Copied);
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(text_of(&world, "pixel_frame_status"), "已复制");
+    // The next edit clears the clipboard result.
+    model.select_frame(2);
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(text_of(&world, "pixel_frame_status"), "第 3/4 帧");
+}
+
+#[test]
+fn the_preview_loops_without_repainting_the_canvas() {
+    use crate::ui::dirty::VisualDirty;
+
+    let mut world = fixture();
+    let surface = world.find_by_id("pixel_surface").unwrap();
+    let preview = world.find_by_id("pixel_preview").unwrap();
+    let model = world.get::<PixelSurface>(surface).unwrap().model.clone();
+    ViewRegistry::reconcile_observations(&mut world);
+    world.remove::<VisualDirty>(surface);
+    world.remove::<VisualDirty>(preview);
+    model.advance_ms(250);
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    assert_eq!(model.preview_frame(), 1);
+    assert_eq!(model.visible_frame(), 0);
+    assert!(world.has::<VisualDirty>(preview));
+    assert!(!world.has::<VisualDirty>(surface));
 }

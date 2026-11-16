@@ -1,9 +1,12 @@
+use crate::core::i18n::Phrase;
+use crate::tr;
+
 pub(crate) const GRID_WIDTH: u8 = 12;
 pub(crate) const GRID_HEIGHT: u8 = 12;
 pub(crate) const FRAME_COUNT: u8 = 4;
 pub(crate) const COLOR_COUNT: u8 = 6;
 const PIXELS_PER_FRAME: usize = GRID_WIDTH as usize * GRID_HEIGHT as usize;
-const PACKED_BYTES: usize = PIXELS_PER_FRAME * FRAME_COUNT as usize / 2;
+pub(super) const PACKED_BYTES: usize = PIXELS_PER_FRAME * FRAME_COUNT as usize / 2;
 const HISTORY_CAPACITY: usize = 16;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,14 +20,15 @@ pub(crate) enum PixelClipboardStatus {
 }
 
 impl PixelClipboardStatus {
-    pub(crate) fn label(self) -> &'static str {
+    /// What the last clipboard action did; empty once something is edited.
+    pub(crate) const fn label(self) -> Phrase {
         match self {
-            Self::Ready => "",
-            Self::Copied => "已复制",
-            Self::Cut => "已剪切",
-            Self::Pasted => "已粘贴",
-            Self::Changed => "已复制，本帧未清空",
-            Self::Unavailable => "剪贴板不可用",
+            Self::Ready => tr!(en: "", zh: ""),
+            Self::Copied => tr!(en: "COPIED", zh: "已复制"),
+            Self::Cut => tr!(en: "CUT", zh: "已剪切"),
+            Self::Pasted => tr!(en: "PASTED", zh: "已粘贴"),
+            Self::Changed => tr!(en: "COPIED, NOT CUT", zh: "已复制，未剪切"),
+            Self::Unavailable => tr!(en: "NO CLIPBOARD", zh: "剪贴板不可用"),
         }
     }
 }
@@ -60,6 +64,25 @@ impl PixelFrames {
     pub(super) const EMPTY: Self = Self {
         bytes: [0; PACKED_BYTES],
     };
+
+    /// Frames read back from [`Self::bytes`], or `None` when a pixel names a
+    /// colour outside the palette.
+    #[cfg(any(feature = "persistence", test))]
+    pub(super) fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let bytes: [u8; PACKED_BYTES] = bytes.try_into().ok()?;
+        if bytes
+            .iter()
+            .any(|byte| byte & 0x0f > COLOR_COUNT || byte >> 4 > COLOR_COUNT)
+        {
+            return None;
+        }
+        Some(Self { bytes })
+    }
+
+    #[cfg(any(feature = "persistence", test))]
+    pub(super) const fn bytes(&self) -> &[u8; PACKED_BYTES] {
+        &self.bytes
+    }
 
     fn index(frame: u8, x: u8, y: u8) -> Option<usize> {
         if frame >= FRAME_COUNT || x >= GRID_WIDTH || y >= GRID_HEIGHT {

@@ -1,10 +1,30 @@
+#[cfg(any(feature = "persistence", test))]
+use super::types::PACKED_BYTES;
 use super::types::{
     COLOR_COUNT, FRAME_COUNT, GRID_HEIGHT, GRID_WIDTH, History, PaintTransaction,
     PixelClipboardStatus, PixelFrame, PixelFrames, PixelModal, PixelTool, Snapshot,
 };
 use crate::gallery::play::change::ChangeSet;
+#[cfg(any(feature = "persistence", test))]
+use crate::gallery::play::expeditions::{ExpeditionSaveError, finish_packet, validate_packet};
 
-#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+#[cfg(any(feature = "persistence", test))]
+const SAVE_MAGIC: [u8; 4] = *b"PXL1";
+#[cfg(any(feature = "persistence", test))]
+const SAVE_VERSION: u8 = 1;
+/// Magic, version, template, speed, frame, colour and flags, then the frames.
+#[cfg(any(feature = "persistence", test))]
+const SAVE_PAYLOAD: usize = 10 + PACKED_BYTES;
+#[cfg(any(feature = "persistence", test))]
+pub(crate) const SAVE_LEN: usize = SAVE_PAYLOAD + 4;
+/// Milliseconds per frame at 2, 4, 6 and 8 frames a second.
+const FRAME_PERIODS: [u16; 4] = [500, 250, 166, 125];
+
+#[crate::model(
+    change = ChangeSet,
+    watch(visual = ChangeSet::VISUAL),
+    persistence(key = "pixel_loom/frames")
+)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PixelModel {
     pub(super) frames: PixelFrames,
@@ -51,6 +71,8 @@ impl Default for PixelModel {
 impl PixelModel {
     fn edited(&mut self) {
         self.edit_revision = self.edit_revision.saturating_add(1);
+        // A clipboard result stays on screen until the next edit.
+        self.clipboard_status = PixelClipboardStatus::Ready;
     }
 
     pub(crate) const fn frames(&self) -> &PixelFrames {
@@ -68,6 +90,17 @@ impl PixelModel {
             frame: self.frame,
             template_id: self.template_id,
         }
+    }
+
+    /// Stops playback so an edit lands on the frame being edited.
+    fn stop_playback(&mut self) -> ChangeSet {
+        if !self.playing {
+            return ChangeSet::NONE;
+        }
+        self.playing = false;
+        self.playback_ms = 0;
+        self.display_frame = self.frame;
+        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
     fn push_current(&mut self) {
@@ -165,6 +198,13 @@ impl PixelModel {
         }
     }
 
+    /// The frame the small preview shows. It loops at the chosen speed
+    /// while you draw, and follows the canvas while it plays.
+    #[observe]
+    pub(crate) fn preview_frame(&self) -> u8 {
+        self.display_frame
+    }
+
     #[observe]
     pub(crate) fn color(&self) -> u8 {
         self.color
@@ -211,9 +251,10 @@ impl PixelModel {
     }
 
     pub(crate) fn begin_stroke(&mut self, x: u8, y: u8) -> ChangeSet {
-        if self.playing || self.modal != PixelModal::None || x >= GRID_WIDTH || y >= GRID_HEIGHT {
+        if self.modal != PixelModal::None || x >= GRID_WIDTH || y >= GRID_HEIGHT {
             return ChangeSet::NONE;
         }
+        let stopped = self.stop_playback();
         if self.transaction.is_none() {
             self.edited();
             self.transaction = Some(PaintTransaction {
@@ -222,7 +263,7 @@ impl PixelModel {
                 last_y: y,
             });
         }
-        self.paint_pixel(x, y)
+        stopped | self.paint_pixel(x, y)
     }
 
     pub(crate) fn continue_stroke(&mut self, x: u8, y: u8) -> ChangeSet {
@@ -293,12 +334,12 @@ impl PixelModel {
     }
 
     pub(crate) fn select_frame(&mut self, frame: u8) -> ChangeSet {
-        if self.playing
-            || self.modal != PixelModal::None
-            || frame >= FRAME_COUNT
-            || frame == self.frame
-        {
+        if self.modal != PixelModal::None || frame >= FRAME_COUNT {
             return ChangeSet::NONE;
+        }
+        let stopped = self.stop_playback();
+        if frame == self.frame {
+            return stopped;
         }
         self.end_stroke(true);
         self.frame = frame;
@@ -308,42 +349,41 @@ impl PixelModel {
     }
 
     pub(crate) fn select_color(&mut self, color: u8) -> ChangeSet {
-        if self.playing || !(1..=COLOR_COUNT).contains(&color) {
+        if !(1..=COLOR_COUNT).contains(&color) {
             return ChangeSet::NONE;
         }
+        let stopped = self.stop_playback();
         self.color = color;
         self.tool = PixelTool::Brush;
-        ChangeSet::MODEL
+        stopped | ChangeSet::MODEL
     }
 
     pub(crate) fn set_tool(&mut self, tool: PixelTool) -> ChangeSet {
-        if self.playing || self.tool == tool {
-            return ChangeSet::NONE;
+        let stopped = self.stop_playback();
+        if self.tool == tool {
+            return stopped;
         }
         self.tool = tool;
-        ChangeSet::MODEL
+        stopped | ChangeSet::MODEL
     }
 
     pub(crate) fn toggle_mirror(&mut self) -> ChangeSet {
-        if self.playing {
-            return ChangeSet::NONE;
-        }
+        let stopped = self.stop_playback();
         self.mirror = !self.mirror;
-        ChangeSet::MODEL
+        stopped | ChangeSet::MODEL
     }
 
     pub(crate) fn toggle_onion(&mut self) -> ChangeSet {
-        if self.playing {
-            return ChangeSet::NONE;
-        }
+        self.stop_playback();
         self.onion = !self.onion;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
     pub(crate) fn copy_previous(&mut self) -> ChangeSet {
-        if self.playing || self.modal != PixelModal::None {
+        if self.modal != PixelModal::None {
             return ChangeSet::NONE;
         }
+        self.stop_playback();
         self.end_stroke(true);
         self.push_current();
         self.frames
@@ -353,9 +393,10 @@ impl PixelModel {
     }
 
     pub(crate) fn open_clear(&mut self) -> ChangeSet {
-        if self.playing || self.modal != PixelModal::None {
+        if self.modal != PixelModal::None {
             return ChangeSet::NONE;
         }
+        self.stop_playback();
         self.end_stroke(true);
         self.modal = PixelModal::Clear;
         self.edited();
@@ -408,12 +449,13 @@ impl PixelModel {
     }
 
     pub(crate) fn undo(&mut self) -> ChangeSet {
-        if self.playing || self.modal != PixelModal::None {
+        if self.modal != PixelModal::None {
             return ChangeSet::NONE;
         }
+        let stopped = self.stop_playback();
         self.end_stroke(true);
         let Some(snapshot) = self.history.pop() else {
-            return ChangeSet::NONE;
+            return stopped;
         };
         self.frames = snapshot.frames;
         self.edited();
@@ -441,11 +483,11 @@ impl PixelModel {
     }
 
     pub(crate) fn advance_ms(&mut self, elapsed_ms: u16) -> ChangeSet {
-        if !self.playing || self.modal != PixelModal::None {
+        if self.modal != PixelModal::None {
             self.playback_ms = 0;
             return ChangeSet::NONE;
         }
-        let period = [500_u16, 250, 166, 125][self.fps_index as usize];
+        let period = FRAME_PERIODS[self.fps_index as usize];
         self.playback_ms = self.playback_ms.saturating_add(elapsed_ms.min(250));
         let mut advanced = false;
         for _ in 0..4 {
@@ -456,10 +498,97 @@ impl PixelModel {
             self.display_frame = (self.display_frame + 1) % FRAME_COUNT;
             advanced = true;
         }
-        if advanced {
-            ChangeSet::MODEL | ChangeSet::VISUAL
-        } else {
-            ChangeSet::NONE
+        match (advanced, self.playing) {
+            (false, _) => ChangeSet::NONE,
+            // The canvas plays the loop.
+            (true, true) => ChangeSet::MODEL | ChangeSet::VISUAL,
+            // Only the preview moves; the canvas keeps the frame you edit.
+            (true, false) => ChangeSet::MODEL,
         }
+    }
+}
+
+/// A drawing read back from a save: the four frames and how the editor was
+/// set when it was saved.
+#[cfg(any(feature = "persistence", test))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PixelSave {
+    frames: PixelFrames,
+    template_id: u8,
+    fps_index: u8,
+    frame: u8,
+    color: u8,
+    mirror: bool,
+    onion: bool,
+}
+
+#[cfg(any(feature = "persistence", test))]
+impl PixelSave {
+    pub(crate) fn decode(input: &[u8]) -> Result<Self, ExpeditionSaveError> {
+        validate_packet(input, SAVE_PAYLOAD)?;
+        if input[..4] != SAVE_MAGIC {
+            return Err(ExpeditionSaveError::InvalidMagic);
+        }
+        if input[4] != SAVE_VERSION {
+            return Err(ExpeditionSaveError::UnsupportedVersion);
+        }
+        let (template_id, fps_index, frame, color, flags) =
+            (input[5], input[6], input[7], input[8], input[9]);
+        if PixelFrames::template(template_id).is_none()
+            || usize::from(fps_index) >= FRAME_PERIODS.len()
+            || frame >= FRAME_COUNT
+            || !(1..=COLOR_COUNT).contains(&color)
+            || flags > 0b11
+        {
+            return Err(ExpeditionSaveError::InvalidState);
+        }
+        let frames = PixelFrames::from_bytes(&input[10..SAVE_PAYLOAD])
+            .ok_or(ExpeditionSaveError::InvalidState)?;
+        Ok(Self {
+            frames,
+            template_id,
+            fps_index,
+            frame,
+            color,
+            mirror: flags & 1 != 0,
+            onion: flags & 2 != 0,
+        })
+    }
+}
+
+#[cfg(any(feature = "persistence", test))]
+impl PixelModel {
+    pub(crate) fn encode_into(&self, output: &mut [u8]) -> Result<usize, ExpeditionSaveError> {
+        if output.len() < SAVE_LEN {
+            return Err(ExpeditionSaveError::BufferTooSmall);
+        }
+        output[..4].copy_from_slice(&SAVE_MAGIC);
+        output[4] = SAVE_VERSION;
+        output[5] = self.template_id;
+        output[6] = self.fps_index;
+        output[7] = self.frame;
+        output[8] = self.color;
+        output[9] = u8::from(self.mirror) | u8::from(self.onion) << 1;
+        output[10..SAVE_PAYLOAD].copy_from_slice(self.frames.bytes());
+        finish_packet(output, SAVE_PAYLOAD);
+        Ok(SAVE_LEN)
+    }
+
+    /// Opens a saved drawing. Undo starts empty and nothing plays.
+    pub(crate) fn restore(&mut self, save: PixelSave) {
+        *self = Self {
+            frames: save.frames,
+            frame: save.frame,
+            display_frame: save.frame,
+            color: save.color,
+            template_id: save.template_id,
+            fps_index: save.fps_index,
+            mirror: save.mirror,
+            onion: save.onion,
+            // Keep revisions rising so a clipboard reply sent before the
+            // restore cannot edit the restored drawing.
+            edit_revision: self.edit_revision.saturating_add(1),
+            ..Self::default()
+        };
     }
 }

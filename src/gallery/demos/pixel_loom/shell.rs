@@ -1,22 +1,33 @@
 use super::input::{
-    pixel_tick_system, surface_drag_end, surface_drag_move, surface_drag_start, surface_tap,
+    keyboard, pixel_tick_system, surface_drag_end, surface_drag_move, surface_drag_start,
+    surface_tap,
 };
-use super::render::{modal_render, surface_render};
-use super::state::{PixelModalSurface, PixelSurface};
+#[cfg(feature = "persistence")]
+use super::persistence::install_persistence;
+use super::render::{
+    COLUMN_LEFT, COLUMN_WIDTH, FRAMES_TOP, PREVIEW, THUMB_HEIGHT, THUMB_STEP, THUMB_WIDTH,
+    modal_render, preview_render, surface_render,
+};
+use super::state::{PixelModalSurface, PixelPreview, PixelSurface};
 use super::style::{ACTIVE, BACKGROUND, BOARD, CONTROL, MUTED, PALETTE, TEMPLATE_NAMES, TEXT};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
+use crate::core::i18n::{Locale, locale};
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::pixel::{PixelClipboardStatus, PixelModal, PixelModel, PixelTool};
 use crate::input::event::focus::Focusable;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::tr;
 use crate::ui::ComputedRect;
 use crate::ui::clipboard::{ClipboardFinished, ClipboardOutcome};
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 use core::fmt;
 
+/// The title row's right side: the last clipboard result until the next
+/// edit, otherwise the frame being edited or the playback speed.
 struct FrameStatus {
+    clipboard: PixelClipboardStatus,
     frame: u8,
     fps: u8,
     playing: bool,
@@ -24,28 +35,15 @@ struct FrameStatus {
 
 impl fmt::Display for FrameStatus {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.playing {
-            write!(out, "PLAY · {} FPS", self.fps)
-        } else {
-            write!(out, "FRAME {} / 4", self.frame + 1)
+        if self.clipboard != PixelClipboardStatus::Ready {
+            return out.write_str(self.clipboard.label().get());
         }
-    }
-}
-
-struct ModeStatus {
-    playing: bool,
-    tool: PixelTool,
-}
-
-impl fmt::Display for ModeStatus {
-    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        out.write_str(if self.playing {
-            "正在播放"
-        } else if self.tool == PixelTool::Erase {
-            "点格子擦除，拖动可连续擦"
-        } else {
-            "点格子上色，拖动可连续画"
-        })
+        match (self.playing, locale() == Locale::ZhCn) {
+            (true, true) => write!(out, "▶ {} 帧/秒", self.fps),
+            (true, false) => write!(out, "▶ {} FPS", self.fps),
+            (false, true) => write!(out, "第 {}/4 帧", self.frame + 1),
+            (false, false) => write!(out, "FRAME {}/4", self.frame + 1),
+        }
     }
 }
 
@@ -69,24 +67,6 @@ fn control_text_color(active: bool, enabled: bool) -> Color {
     }
 }
 
-fn frame_text_color(active: bool, enabled: bool) -> Color {
-    if active {
-        ACTIVE
-    } else if enabled {
-        MUTED
-    } else {
-        Color::rgb(105, 112, 107)
-    }
-}
-
-fn palette_color(index: usize, enabled: bool) -> Color {
-    if enabled {
-        PALETTE[index]
-    } else {
-        Color::rgb(61, 62, 64)
-    }
-}
-
 fn palette_border(active: bool) -> Color {
     if active {
         Color::rgb(255, 247, 220)
@@ -95,32 +75,21 @@ fn palette_border(active: bool) -> Color {
     }
 }
 
+fn frame_left(index: i32) -> i32 {
+    index * THUMB_STEP
+}
+
 #[compose]
 fn compose_header(model: model!(PixelModel)) -> Entity {
     ui! {
         Text (
-            text: ${ model.clipboard_status().label() },
-            capacity: 32,
-            id: "pixel_clipboard_status",
+            tr!(en : "PIXEL LOOM", zh : "像素织机"),
             position: Position::Absolute,
-            left: 150,
-            top: 7,
-            width: 190,
-            height: 22,
+            left: 12,
+            top: 6,
+            width: 64,
+            height: 14,
             font_size: 10,
-            text_color: ACTIVE,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-        )
-    };
-    ui! {
-        Text (
-            "PIXEL LOOM",
-            position: Position::Absolute,
-            left: 35,
-            top: 7,
-            width: 220,
-            height: 22,
-            font_size: 15,
             text_color: TEXT,
             paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
         )
@@ -129,114 +98,98 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
         Text (
             text: ${
                 FrameStatus {
+                    clipboard: model.clipboard_status(),
                     frame: model.frame(),
                     fps: model.fps(),
                     playing: model.playing(),
                 }
             },
-            capacity: 13,
+            capacity: 32,
             id: "pixel_frame_status",
             position: Position::Absolute,
-            left: 350,
-            top: 7,
-            width: 110,
-            height: 22,
-            font_size: 10,
-            text_color: MUTED,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-        )
-    };
-    ui! {
-        Text (
-            text: ${
-                ModeStatus {
-                    playing: model.playing(),
-                    tool: model.tool(),
-                }
-            },
-            capacity: 40,
-            id: "pixel_mode_status",
-            position: Position::Absolute,
-            left: 17,
-            top: 36,
-            width: 200,
-            height: 17,
-            font_size: 10,
-            text_color: ACTIVE,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-        )
-    };
-    ui! {
-        Text (
-            "12 × 12",
-            position: Position::Absolute,
-            left: 150,
-            top: 37,
-            width: 58,
-            height: 15,
-            font_size: 8,
-            text_color: MUTED,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-        )
-    };
-    ui! {
-        Text (
-            "LIVE PREVIEW",
-            position: Position::Absolute,
-            left: 243,
-            top: 55,
-            width: 120,
+            left: 76,
+            top: 6,
+            width: 80,
             height: 14,
-            font_size: 8,
-            text_color: Color::rgb(158, 153, 173),
-            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            font_size: 10,
+            text_color: ${ if model.clipboard_status() == PixelClipboardStatus::Ready { MUTED } else { ACTIVE } },
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
         )
+    }
+}
+
+#[compose]
+fn compose_preview(model: model!(PixelModel)) -> Entity {
+    ui! {
+        View (
+            id: "pixel_preview",
+            position: Position::Absolute,
+            left: PREVIEW.0,
+            top: PREVIEW.1,
+            width: PREVIEW.2,
+            height: PREVIEW.3
+        ) [
+            PixelPreview {
+                model: model.clone(),
+            },
+        ]
     };
     ui! {
         Text (
             text: ${ TEMPLATE_NAMES[model.template_id() as usize] },
-            capacity: 12,
+            capacity: 20,
             id: "pixel_template_name",
             position: Position::Absolute,
-            left: 327,
-            top: 72,
-            width: 127,
-            height: 21,
-            font_size: 12,
+            left: 74,
+            top: 30,
+            width: 78,
+            height: 13,
+            font_size: 10,
             text_color: TEXT,
             paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
         )
     };
     ui! {
-        Text (
-            "4 帧循环",
+        Button (
+            text: ${
+                if model.playing() {
+                    tr!(en : "Ⅱ PAUSE", zh : "Ⅱ 暂停")
+                } else {
+                    tr!(en : "▶ PLAY", zh : "▶ 播放")
+                }
+            },
+            capacity: 20,
+            id: "pixel_play",
             position: Position::Absolute,
-            left: 327,
-            top: 94,
-            width: 127,
-            height: 16,
-            font_size: 9,
-            text_color: MUTED,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-        )
+            left: 74,
+            top: 46,
+            width: 78,
+            height: 24,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(model.playing(), true) },
+            pressed_color: ACTIVE,
+            text_color: ${ control_text_color(model.playing(), true) },
+            border_radius: 6
+        ) on Tap { model.toggle_playback(); }
     };
     ui! {
         Button (
-            text: ${ format_args!("{} 帧/秒 ↻", model.fps()) },
-            capacity: 13,
+            text: ${ format_args!("{} {} ↻", model.fps(), tr!(en : "FPS", zh : "帧/秒")) },
+            capacity: 20,
             id: "pixel_fps",
             position: Position::Absolute,
-            left: 327,
-            top: 112,
-            width: 127,
-            height: 25,
+            left: 74,
+            top: 72,
+            width: 78,
+            height: 24,
             size: ButtonSize::Compact,
             font_size: 10,
             normal_color: Color::rgb(58, 52, 72),
             pressed_color: ACTIVE,
             pressed_text_color: BOARD,
             text_color: MUTED,
-            border_radius: 7
+            border_radius: 6
         ) on Tap { model.cycle_fps(); }
     }
 }
@@ -245,69 +198,61 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
 fn compose_frame_selector(model: model!(PixelModel)) -> Entity {
     ui! {
         Button (
-            "01",
+            "",
             id: "pixel_frame_0",
             position: Position::Absolute,
-            left: 230,
-            top: 162,
-            width: 55,
-            height: 50,
+            left: frame_left(0),
+            top: FRAMES_TOP,
+            width: THUMB_WIDTH,
+            height: THUMB_HEIGHT,
             size: ButtonSize::Custom,
-            font_size: 7,
             normal_color: Color::rgba(0, 0, 0, 0),
-            pressed_color: Color::rgba(0, 0, 0, 0),
-            text_color: ${ frame_text_color(model.visible_frame() == 0, !model.playing()) },
+            pressed_color: Color::rgba(203, 179, 240, 48),
             border_radius: 6
         ) on Tap { model.select_frame(0); }
     };
     ui! {
         Button (
-            "02",
+            "",
             id: "pixel_frame_1",
             position: Position::Absolute,
-            left: 290,
-            top: 162,
-            width: 55,
-            height: 50,
+            left: frame_left(1),
+            top: FRAMES_TOP,
+            width: THUMB_WIDTH,
+            height: THUMB_HEIGHT,
             size: ButtonSize::Custom,
-            font_size: 7,
             normal_color: Color::rgba(0, 0, 0, 0),
-            pressed_color: Color::rgba(0, 0, 0, 0),
-            text_color: ${ frame_text_color(model.visible_frame() == 1, !model.playing()) },
+            pressed_color: Color::rgba(203, 179, 240, 48),
             border_radius: 6
         ) on Tap { model.select_frame(1); }
     };
     ui! {
         Button (
-            "03",
+            "",
             id: "pixel_frame_2",
             position: Position::Absolute,
-            left: 350,
-            top: 162,
-            width: 55,
-            height: 50,
+            left: frame_left(2),
+            top: FRAMES_TOP,
+            width: THUMB_WIDTH,
+            height: THUMB_HEIGHT,
             size: ButtonSize::Custom,
-            font_size: 7,
             normal_color: Color::rgba(0, 0, 0, 0),
-            pressed_color: Color::rgba(0, 0, 0, 0),
-            text_color: ${ frame_text_color(model.visible_frame() == 2, !model.playing()) },
+            pressed_color: Color::rgba(203, 179, 240, 48),
             border_radius: 6
         ) on Tap { model.select_frame(2); }
     };
     ui! {
         Button (
-            "04",
+            "",
             id: "pixel_frame_3",
             position: Position::Absolute,
-            left: 410,
-            top: 162,
-            width: 55,
-            height: 50,
+            left: frame_left(3),
+            top: FRAMES_TOP,
+            width: THUMB_WIDTH,
+            height: THUMB_HEIGHT,
             size: ButtonSize::Custom,
-            font_size: 7,
             normal_color: Color::rgba(0, 0, 0, 0),
-            pressed_color: Color::rgba(0, 0, 0, 0),
-            text_color: ${ frame_text_color(model.visible_frame() == 3, !model.playing()) },
+            pressed_color: Color::rgba(203, 179, 240, 48),
             border_radius: 6
         ) on Tap { model.select_frame(3); }
     }
@@ -317,87 +262,87 @@ fn compose_frame_selector(model: model!(PixelModel)) -> Entity {
 fn compose_tool_controls(model: model!(PixelModel)) -> Entity {
     ui! {
         Button (
-            "画笔",
+            tr!(en : "BRUSH", zh : "画笔"),
             id: "pixel_tool_brush",
             position: Position::Absolute,
-            left: 230,
-            top: 220,
-            width: 55,
-            height: 28,
+            left: 0,
+            top: 144,
+            width: 76,
+            height: 24,
             size: ButtonSize::Compact,
             font_size: 10,
-            normal_color: ${ control_color(model.tool() == PixelTool::Brush, !model.playing()) },
+            normal_color: ${ control_color(model.tool() == PixelTool::Brush, true) },
             pressed_color: ACTIVE,
-            text_color: ${ control_text_color(model.tool() == PixelTool::Brush, !model.playing()) },
-            border_radius: 7
+            text_color: ${ control_text_color(model.tool() == PixelTool::Brush, true) },
+            border_radius: 6
         ) on Tap { model.set_tool(PixelTool::Brush); }
     };
     ui! {
         Button (
-            "擦除",
+            tr!(en : "ERASE", zh : "擦除"),
             id: "pixel_tool_erase",
             position: Position::Absolute,
-            left: 291,
-            top: 220,
-            width: 55,
-            height: 28,
+            left: 80,
+            top: 144,
+            width: 76,
+            height: 24,
             size: ButtonSize::Compact,
             font_size: 10,
-            normal_color: ${ control_color(model.tool() == PixelTool::Erase, !model.playing()) },
+            normal_color: ${ control_color(model.tool() == PixelTool::Erase, true) },
             pressed_color: ACTIVE,
-            text_color: ${ control_text_color(model.tool() == PixelTool::Erase, !model.playing()) },
-            border_radius: 7
+            text_color: ${ control_text_color(model.tool() == PixelTool::Erase, true) },
+            border_radius: 6
         ) on Tap { model.set_tool(PixelTool::Erase); }
     };
     ui! {
         Button (
-            "镜像",
+            tr!(en : "MIRROR", zh : "镜像"),
             id: "pixel_tool_mirror",
             position: Position::Absolute,
-            left: 352,
-            top: 220,
-            width: 55,
-            height: 28,
+            left: 0,
+            top: 172,
+            width: 76,
+            height: 24,
             size: ButtonSize::Compact,
             font_size: 10,
-            normal_color: ${ control_color(model.mirror(), !model.playing()) },
+            normal_color: ${ control_color(model.mirror(), true) },
             pressed_color: ACTIVE,
-            text_color: ${ control_text_color(model.mirror(), !model.playing()) },
-            border_radius: 7
+            text_color: ${ control_text_color(model.mirror(), true) },
+            border_radius: 6
         ) on Tap { model.toggle_mirror(); }
     };
     ui! {
         Button (
-            "叠帧",
+            tr!(en : "ONION", zh : "叠帧"),
             id: "pixel_tool_onion",
             position: Position::Absolute,
-            left: 413,
-            top: 220,
-            width: 55,
-            height: 28,
+            left: 80,
+            top: 172,
+            width: 76,
+            height: 24,
             size: ButtonSize::Compact,
             font_size: 10,
-            normal_color: ${ control_color(model.onion(), !model.playing()) },
+            normal_color: ${ control_color(model.onion(), true) },
             pressed_color: ACTIVE,
-            text_color: ${ control_text_color(model.onion(), !model.playing()) },
-            border_radius: 7
+            text_color: ${ control_text_color(model.onion(), true) },
+            border_radius: 6
         ) on Tap { model.toggle_onion(); }
     }
 }
 
 #[compose]
-fn compose_edit_actions(model: model!(PixelModel)) -> Entity {
+fn compose_palette(model: model!(PixelModel)) -> Entity {
     ui! {
         Button (
             "",
             id: "pixel_color_1",
             position: Position::Absolute,
-            left: 18,
-            top: 260,
-            width: 27,
-            height: 17,
+            left: 0,
+            top: 200,
+            width: 21,
+            height: 20,
             size: ButtonSize::Custom,
-            normal_color: ${ palette_color(1, !model.playing()) },
+            normal_color: PALETTE[1],
             pressed_color: PALETTE[1],
             border_color: ${ palette_border(model.color() == 1) },
             border_width: ${ if model.color() == 1 { 2 } else { 0 } },
@@ -409,12 +354,12 @@ fn compose_edit_actions(model: model!(PixelModel)) -> Entity {
             "",
             id: "pixel_color_2",
             position: Position::Absolute,
-            left: 51,
-            top: 260,
-            width: 27,
-            height: 17,
+            left: 27,
+            top: 200,
+            width: 21,
+            height: 20,
             size: ButtonSize::Custom,
-            normal_color: ${ palette_color(2, !model.playing()) },
+            normal_color: PALETTE[2],
             pressed_color: PALETTE[2],
             border_color: ${ palette_border(model.color() == 2) },
             border_width: ${ if model.color() == 2 { 2 } else { 0 } },
@@ -426,12 +371,12 @@ fn compose_edit_actions(model: model!(PixelModel)) -> Entity {
             "",
             id: "pixel_color_3",
             position: Position::Absolute,
-            left: 84,
-            top: 260,
-            width: 27,
-            height: 17,
+            left: 54,
+            top: 200,
+            width: 21,
+            height: 20,
             size: ButtonSize::Custom,
-            normal_color: ${ palette_color(3, !model.playing()) },
+            normal_color: PALETTE[3],
             pressed_color: PALETTE[3],
             border_color: ${ palette_border(model.color() == 3) },
             border_width: ${ if model.color() == 3 { 2 } else { 0 } },
@@ -443,12 +388,12 @@ fn compose_edit_actions(model: model!(PixelModel)) -> Entity {
             "",
             id: "pixel_color_4",
             position: Position::Absolute,
-            left: 117,
-            top: 260,
-            width: 27,
-            height: 17,
+            left: 81,
+            top: 200,
+            width: 21,
+            height: 20,
             size: ButtonSize::Custom,
-            normal_color: ${ palette_color(4, !model.playing()) },
+            normal_color: PALETTE[4],
             pressed_color: PALETTE[4],
             border_color: ${ palette_border(model.color() == 4) },
             border_width: ${ if model.color() == 4 { 2 } else { 0 } },
@@ -460,12 +405,12 @@ fn compose_edit_actions(model: model!(PixelModel)) -> Entity {
             "",
             id: "pixel_color_5",
             position: Position::Absolute,
-            left: 150,
-            top: 260,
-            width: 27,
-            height: 17,
+            left: 108,
+            top: 200,
+            width: 21,
+            height: 20,
             size: ButtonSize::Custom,
-            normal_color: ${ palette_color(5, !model.playing()) },
+            normal_color: PALETTE[5],
             pressed_color: PALETTE[5],
             border_color: ${ palette_border(model.color() == 5) },
             border_width: ${ if model.color() == 5 { 2 } else { 0 } },
@@ -477,28 +422,50 @@ fn compose_edit_actions(model: model!(PixelModel)) -> Entity {
             "",
             id: "pixel_color_6",
             position: Position::Absolute,
-            left: 183,
-            top: 260,
-            width: 27,
-            height: 17,
+            left: 135,
+            top: 200,
+            width: 21,
+            height: 20,
             size: ButtonSize::Custom,
-            normal_color: ${ palette_color(6, !model.playing()) },
+            normal_color: PALETTE[6],
             pressed_color: PALETTE[6],
             border_color: ${ palette_border(model.color() == 6) },
             border_width: ${ if model.color() == 6 { 2 } else { 0 } },
             border_radius: 4
         ) on Tap { model.select_color(6); }
+    }
+}
+
+#[compose]
+fn compose_edit_actions(model: model!(PixelModel), editor: Entity) -> Entity {
+    ui! {
+        Button (
+            "↺",
+            id: "pixel_undo",
+            position: Position::Absolute,
+            left: 0,
+            top: 224,
+            width: 36,
+            height: 24,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(false, model.can_undo()) },
+            pressed_color: ACTIVE,
+            text_color: ${ control_text_color(false, model.can_undo()) },
+            border_radius: 6
+        ) on Tap { model.undo(); }
     };
     ui! {
         Button (
-            "复制上一帧",
+            tr!(en : "COPY PREVIOUS", zh : "复制上一帧"),
+            id: "pixel_copy_previous",
             position: Position::Absolute,
-            left: 230,
-            top: 256,
-            width: 146,
-            height: 23,
+            left: 40,
+            top: 224,
+            width: 116,
+            height: 24,
             size: ButtonSize::Compact,
-            font_size: 9,
+            font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
             pressed_text_color: BOARD,
@@ -508,136 +475,99 @@ fn compose_edit_actions(model: model!(PixelModel)) -> Entity {
     };
     ui! {
         Button (
-            "清空本帧",
+            tr!(en : "CLEAR", zh : "清空"),
+            id: "pixel_clear",
             position: Position::Absolute,
-            left: 382,
-            top: 256,
-            width: 86,
-            height: 23,
+            left: 0,
+            top: 252,
+            width: 56,
+            height: 24,
             size: ButtonSize::Compact,
-            font_size: 9,
+            font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
             pressed_text_color: BOARD,
             text_color: TEXT,
             border_radius: 6
         ) on Tap { model.open_clear(); }
-    }
-}
-
-#[compose]
-fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
+    };
     ui! {
         Button (
-            "模板",
+            tr!(en : "TEMPLATES", zh : "模板"),
+            id: "pixel_templates",
             position: Position::Absolute,
-            left: 12,
-            top: 288,
-            width: 58,
-            height: 26,
+            left: 60,
+            top: 252,
+            width: 96,
+            height: 24,
             size: ButtonSize::Compact,
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
             pressed_text_color: BOARD,
             text_color: TEXT,
-            border_radius: 7
+            border_radius: 6
         ) on Tap { model.open_templates(); }
     };
     ui! {
         Button (
-            "↺ 撤销",
-            id: "pixel_undo",
-            position: Position::Absolute,
-            left: 77,
-            top: 288,
-            width: 58,
-            height: 26,
-            size: ButtonSize::Compact,
-            font_size: 10,
-            normal_color: ${ control_color(false, model.can_undo() && !model.playing()) },
-            pressed_color: ACTIVE,
-            text_color: ${ control_text_color(false, model.can_undo() && !model.playing()) },
-            border_radius: 7
-        ) on Tap { model.undo(); }
-    };
-    ui! {
-        Button (
-            "复制",
+            tr!(en : "COPY", zh : "复制"),
             id: "pixel_copy",
             position: Position::Absolute,
-            left: 142,
-            top: 288,
-            width: 58,
-            height: 26,
+            left: 0,
+            top: 280,
+            width: 49,
+            height: 24,
             size: ButtonSize::Compact,
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
             pressed_text_color: BOARD,
             text_color: TEXT,
-            border_radius: 7
+            border_radius: 6
         ) [
             PointerFocus::Preserve,
         ] on Tap { commands!().clipboard().copy(editor); }
     };
     ui! {
         Button (
-            "剪切",
+            tr!(en : "CUT", zh : "剪切"),
             id: "pixel_cut",
             position: Position::Absolute,
-            left: 207,
-            top: 288,
-            width: 58,
-            height: 26,
+            left: 53,
+            top: 280,
+            width: 50,
+            height: 24,
             size: ButtonSize::Compact,
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
             pressed_text_color: BOARD,
             text_color: TEXT,
-            border_radius: 7
+            border_radius: 6
         ) [
             PointerFocus::Preserve,
         ] on Tap { commands!().clipboard().cut(editor); }
     };
     ui! {
         Button (
-            "粘贴",
+            tr!(en : "PASTE", zh : "粘贴"),
             id: "pixel_paste",
             position: Position::Absolute,
-            left: 272,
-            top: 288,
-            width: 58,
-            height: 26,
+            left: 107,
+            top: 280,
+            width: 49,
+            height: 24,
             size: ButtonSize::Compact,
             font_size: 10,
             normal_color: CONTROL,
             pressed_color: ACTIVE,
             pressed_text_color: BOARD,
             text_color: TEXT,
-            border_radius: 7
+            border_radius: 6
         ) [
             PointerFocus::Preserve,
         ] on Tap { commands!().clipboard().paste(editor); }
-    };
-    ui! {
-        Button (
-            text: ${ if model.playing() { "Ⅱ 暂停" } else { "▶ 播放" } },
-            capacity: 20,
-            id: "pixel_play",
-            position: Position::Absolute,
-            left: 337,
-            top: 288,
-            width: 131,
-            height: 26,
-            size: ButtonSize::Compact,
-            font_size: 10,
-            normal_color: ${ control_color(model.playing(), true) },
-            pressed_color: ACTIVE,
-            text_color: ${ control_text_color(model.playing(), true) },
-            border_radius: 7
-        ) on Tap { model.toggle_playback(); }
     }
 }
 
@@ -662,50 +592,57 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
             Text (
                 text: ${
                     if model.modal() == PixelModal::Templates {
-                        "选一个模板"
+                        tr!(en : "PICK A TEMPLATE", zh : "选一个模板")
                     } else {
-                        "清空这一帧？"
+                        tr!(en : "CLEAR THIS FRAME?", zh : "清空这一帧？")
                     }
                 },
-                capacity: 18,
+                capacity: 32,
                 id: "pixel_modal_title",
                 position: Position::Absolute,
                 left: 29,
-                top: 75,
+                top: 71,
                 width: 390,
-                height: 22,
-                font_size: 13,
+                height: 24,
+                font_size: 20,
                 text_color: ACTIVE,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
                 text: ${
                     if model.modal() == PixelModal::Templates {
-                        "会替换现在的四帧，可以撤销。"
+                        tr!(
+                            en : "Replaces all four frames. Undo brings them back.", zh :
+                            "会替换现在的四帧，可以撤销。"
+                        )
                     } else {
-                        "只清空这一帧，可以撤销。"
+                        tr!(
+                            en : "Clears only this frame. Undo brings it back.", zh :
+                            "只清空这一帧，可以撤销。"
+                        )
                     }
                 },
-                capacity: 66,
+                capacity: 64,
                 id: "pixel_modal_subtitle",
                 position: Position::Absolute,
                 left: 29,
-                top: 94,
+                top: 97,
                 width: 410,
-                height: 15,
-                font_size: 8,
+                height: 13,
+                font_size: 10,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Button (
                 "×",
+                id: "pixel_modal_close",
                 position: Position::Absolute,
                 left: 428,
-                top: 73,
-                width: 24,
-                height: 22,
+                top: 72,
+                width: 26,
+                height: 24,
                 size: ButtonSize::Compact,
-                font_size: 12,
+                font_size: 10,
                 normal_color: CONTROL,
                 pressed_color: ACTIVE,
                 pressed_text_color: BOARD,
@@ -755,7 +692,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 border_radius: 7
             ) on Tap { model.load_template(2); }
             Button (
-                "小外星人",
+                TEMPLATE_NAMES[0],
                 id: "pixel_template_0",
                 visible: ${ model.modal() == PixelModal::Templates },
                 position: Position::Absolute,
@@ -772,7 +709,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 border_radius: 7
             ) on Tap { model.load_template(0); }
             Button (
-                "风中绿芽",
+                TEMPLATE_NAMES[1],
                 id: "pixel_template_1",
                 visible: ${ model.modal() == PixelModal::Templates },
                 position: Position::Absolute,
@@ -789,7 +726,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 border_radius: 7
             ) on Tap { model.load_template(1); }
             Button (
-                "会飞的信",
+                TEMPLATE_NAMES[2],
                 id: "pixel_template_2",
                 visible: ${ model.modal() == PixelModal::Templates },
                 position: Position::Absolute,
@@ -806,20 +743,20 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 border_radius: 7
             ) on Tap { model.load_template(2); }
             Text (
-                "当前帧",
+                tr!(en : "THIS FRAME", zh : "当前帧"),
                 id: "pixel_clear_preview",
                 visible: ${ model.modal() == PixelModal::Clear },
                 position: Position::Absolute,
                 left: 57,
-                top: 211,
+                top: 212,
                 width: 96,
-                height: 16,
-                font_size: 8,
+                height: 13,
+                font_size: 10,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label()
             )
             Button (
-                "清空",
+                tr!(en : "CLEAR", zh : "清空"),
                 id: "pixel_clear_confirm",
                 visible: ${ model.modal() == PixelModal::Clear },
                 position: Position::Absolute,
@@ -828,21 +765,21 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 width: 211,
                 height: 32,
                 size: ButtonSize::Compact,
-                font_size: 11,
+                font_size: 10,
                 normal_color: ACTIVE,
                 pressed_color: ACTIVE,
                 text_color: BACKGROUND,
                 border_radius: 7
             ) on Tap { model.confirm_clear(); }
             Button (
-                "取消",
+                tr!(en : "CANCEL", zh : "取消"),
                 id: "pixel_clear_cancel",
                 visible: ${ model.modal() == PixelModal::Clear },
                 position: Position::Absolute,
                 left: 219,
                 top: 214,
                 width: 211,
-                height: 27,
+                height: 28,
                 size: ButtonSize::Compact,
                 font_size: 10,
                 normal_color: CONTROL,
@@ -870,11 +807,22 @@ pub(super) fn build_widgets(model: model!(PixelModel)) {
             Focusable,
             TouchAction::None,
         ] {
-            compose_header (model)
-            compose_frame_selector (model)
-            compose_tool_controls (model)
-            compose_edit_actions (model)
-            compose_footer (model, id("pixel_surface"))
+            View (
+                id: "pixel_controls",
+                position: Position::Absolute,
+                left: COLUMN_LEFT,
+                top: 0,
+                width: COLUMN_WIDTH,
+                height: 320,
+                visible: ${ model.modal() == PixelModal::None }
+            ) {
+                compose_header (model)
+                compose_preview (model)
+                compose_frame_selector (model)
+                compose_tool_controls (model)
+                compose_palette (model)
+                compose_edit_actions (model, id("pixel_surface"))
+            }
             compose_modal (model)
         } on ClipboardFinished(|event: event!(ClipboardFinished)| {
             model
@@ -929,10 +877,14 @@ where
 {
     app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_render::view())
+        .with_widget(preview_render::view())
         .with_widget(modal_render::view());
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
+    #[cfg(feature = "persistence")]
+    install_persistence(app);
     let model = app.add_model(PixelModel::default()).finish();
+    app.on_event(Key::EVENT, keyboard::callback(model.clone()));
     app.add_system(pixel_tick_system::system(model.clone()));
     app.compose(parent, build_widgets(model));
 }

@@ -1,11 +1,41 @@
-use super::state::{PixelModalSurface, PixelSurface};
-use super::style::{ACTIVE, BACKGROUND, BOARD, HEADER, PALETTE, PANEL};
+use super::state::{PixelModalSurface, PixelPreview, PixelSurface};
+use super::style::{ACTIVE, BACKGROUND, BOARD, PALETTE, PANEL};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::pixel::{
     FRAME_COUNT, GRID_HEIGHT, GRID_WIDTH, PixelFrames, PixelModal, PixelModel,
 };
 use crate::prelude::{Color, Fixed, Point, Rect};
+
+/// Top-left corner of the drawing grid and the size of one of its cells.
+pub(super) const GRID_LEFT: i32 = 16;
+pub(super) const GRID_TOP: i32 = 16;
+pub(super) const CELL: i32 = 24;
+/// The control column beside the canvas: its left edge and width. The
+/// controls inside it are placed relative to that edge.
+pub(super) const COLUMN_LEFT: i32 = 316;
+pub(super) const COLUMN_WIDTH: i32 = 156;
+/// The looping preview panel in the column: left, top, width and height.
+pub(super) const PREVIEW: (i32, i32, i32, i32) = (0, 26, COLUMN_WIDTH, 72);
+/// The four frame thumbnails under the preview.
+pub(super) const FRAMES_TOP: i32 = 102;
+pub(super) const THUMB_WIDTH: i32 = 36;
+pub(super) const THUMB_HEIGHT: i32 = 38;
+pub(super) const THUMB_STEP: i32 = 40;
+const BOARD_RECT: Rect = Rect {
+    x: Fixed::from_int(8),
+    y: Fixed::from_int(8),
+    w: Fixed::from_int(304),
+    h: Fixed::from_int(304),
+};
+
+fn checker(x: u8, y: u8) -> Color {
+    if (x + y) & 1 == 0 {
+        Color::rgb(35, 40, 51)
+    } else {
+        Color::rgb(40, 44, 53)
+    }
+}
 
 fn paint_sprite(
     painter: &mut PlayPainter<'_, '_>,
@@ -44,70 +74,62 @@ fn paint_sprite(
     }
 }
 
+/// One canvas cell. With onion skin on, an empty cell shows the frame
+/// before it as a faded fill and the frame after it as a small outline.
+fn paint_cell(painter: &mut PlayPainter<'_, '_>, model: &PixelModel, frame: u8, x: u8, y: u8) {
+    let left = GRID_LEFT + i32::from(x) * CELL;
+    let top = GRID_TOP + i32::from(y) * CELL;
+    let area = Rect::new(left, top, CELL - 1, CELL - 1);
+    let frames = model.frames();
+    let color = frames.get(frame, x, y);
+    if color != 0 {
+        painter.fill(area, PALETTE[color as usize], Fixed::ONE);
+        return;
+    }
+    painter.fill(area, checker(x, y), Fixed::ONE);
+    if model.playing() || !model.onion() {
+        return;
+    }
+    let before = frames.get((frame + FRAME_COUNT - 1) % FRAME_COUNT, x, y);
+    if before != 0 {
+        painter.fill(area, PALETTE[before as usize].scale_alpha(80), Fixed::ONE);
+    }
+    let after = frames.get((frame + 1) % FRAME_COUNT, x, y);
+    if after != 0 {
+        painter.border(
+            Rect::new(left + 7, top + 7, CELL - 15, CELL - 15),
+            PALETTE[after as usize].scale_alpha(160),
+            Fixed::ONE,
+            Fixed::ONE,
+        );
+    }
+}
+
 fn paint_pixel_surface(painter: &mut PlayPainter<'_, '_>, model: &PixelModel) {
     painter.fill(Rect::new(0, 0, 480, 320), BACKGROUND, Fixed::ZERO);
-    painter.fill(Rect::new(0, 0, 480, 35), HEADER, Fixed::ZERO);
-    painter.line(
-        Point::new(12, 34),
-        Point::new(468, 34),
-        Color::rgb(55, 58, 65),
-        Fixed::ONE,
-    );
-    for (x, y) in [(15, 12), (22, 12), (15, 19), (22, 19)] {
-        painter.fill(Rect::new(x, y, 4, 4), ACTIVE, Fixed::ONE);
+    for (x, y) in [(316, 11), (320, 11), (316, 15), (320, 15)] {
+        painter.fill(Rect::new(x, y, 3, 3), ACTIVE, Fixed::ZERO);
     }
-    painter.fill(Rect::new(12, 54, 202, 202), BOARD, Fixed::from_int(6));
+    painter.fill(BOARD_RECT, BOARD, Fixed::from_int(6));
     painter.border(
-        Rect::new(12, 54, 202, 202),
+        BOARD_RECT,
         Color::rgb(76, 70, 95),
         Fixed::ONE,
         Fixed::from_int(6),
     );
     let frame = model.visible_frame();
-    let previous = (model.frame() + FRAME_COUNT - 1) % FRAME_COUNT;
     for y in 0..GRID_HEIGHT {
         for x in 0..GRID_WIDTH {
-            let color = model.frames().get(frame, x, y);
-            let ghost = !model.playing()
-                && model.onion()
-                && color == 0
-                && model.frames().get(previous, x, y) != 0;
-            let fill = if color != 0 {
-                PALETTE[color as usize]
-            } else if ghost {
-                Color::rgb(76, 66, 92)
-            } else if (x + y) & 1 == 0 {
-                Color::rgb(35, 40, 51)
-            } else {
-                Color::rgb(40, 44, 53)
-            };
-            painter.fill(
-                Rect::new(17 + i32::from(x) * 16, 59 + i32::from(y) * 16, 15, 15),
-                fill,
-                Fixed::ONE,
-            );
+            paint_cell(painter, model, frame, x, y);
         }
     }
-    painter.fill(Rect::new(229, 45, 239, 104), PANEL, Fixed::from_int(8));
-    painter.border(
-        Rect::new(229, 45, 239, 104),
-        Color::rgb(69, 67, 83),
-        Fixed::ONE,
-        Fixed::from_int(8),
-    );
-    paint_sprite(
-        painter,
-        model.frames(),
-        frame,
-        Point::new(245, 71),
-        Fixed::from_ratio(11, 2),
-        true,
-    );
-    for index in 0..4_u8 {
-        let x = 230 + i32::from(index) * 60;
+    for index in 0..FRAME_COUNT {
+        let x = COLUMN_LEFT + i32::from(index) * THUMB_STEP;
+        let area = Rect::new(x, FRAMES_TOP, THUMB_WIDTH, THUMB_HEIGHT);
+        let selected = frame == index;
         painter.fill(
-            Rect::new(x, 162, 55, 50),
-            if frame == index {
+            area,
+            if selected {
                 Color::rgb(67, 55, 79)
             } else {
                 Color::rgb(41, 45, 54)
@@ -115,8 +137,8 @@ fn paint_pixel_surface(painter: &mut PlayPainter<'_, '_>, model: &PixelModel) {
             Fixed::from_int(6),
         );
         painter.border(
-            Rect::new(x, 162, 55, 50),
-            if frame == index {
+            area,
+            if selected {
                 ACTIVE
             } else {
                 Color::rgb(72, 80, 90)
@@ -128,16 +150,11 @@ fn paint_pixel_surface(painter: &mut PlayPainter<'_, '_>, model: &PixelModel) {
             painter,
             model.frames(),
             index,
-            Point::new(x + 13, 166),
+            Point::new(x + 3, FRAMES_TOP + 4),
             Fixed::from_ratio(5, 2),
             false,
         );
     }
-    painter.fill(
-        Rect::new(0, 282, 480, 38),
-        Color::rgb(24, 34, 31),
-        Fixed::ZERO,
-    );
 }
 
 #[crate::view(
@@ -160,6 +177,29 @@ pub(super) fn surface_render(
     let transform = fit_logical_canvas(paint.rect(), paint.transform(), 480, 320);
     let mut painter = PlayPainter::new(paint, transform);
     paint_pixel_surface(&mut painter, model);
+}
+
+#[crate::view(component = PixelPreview, name = "PixelPreview", priority = 60)]
+pub(super) fn preview_render(
+    model: model!(component.model, watch(visual_revision, preview_frame)),
+    paint: paint!(),
+) {
+    paint.set_background_handled(true);
+    let (_, _, width, height) = PREVIEW;
+    let transform = fit_logical_canvas(paint.rect(), paint.transform(), width, height);
+    let mut painter = PlayPainter::new(paint, transform);
+    let area = Rect::new(0, 0, width, height);
+    painter.fill(area, BACKGROUND, Fixed::ZERO);
+    painter.fill(area, PANEL, Fixed::from_int(8));
+    painter.border(area, Color::rgb(69, 67, 83), Fixed::ONE, Fixed::from_int(8));
+    paint_sprite(
+        &mut painter,
+        model.frames(),
+        model.preview_frame(),
+        Point::new(8, 6),
+        Fixed::from_int(5),
+        true,
+    );
 }
 
 #[crate::view(

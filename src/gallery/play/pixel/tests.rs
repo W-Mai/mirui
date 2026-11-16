@@ -130,7 +130,46 @@ fn playback_advances_preview_without_mutating_pixels() {
     assert_eq!(model.visible_frame(), 1);
     assert_eq!(model.frames, frames);
     model.toggle_playback();
+    // Stopped, only the preview keeps looping; the canvas shows the frame
+    // being edited and does not repaint.
+    let changes = model.advance_ms(250);
+    assert_eq!(changes, ChangeSet::MODEL);
+    assert_eq!(model.visible_frame(), model.frame());
+    assert_eq!(model.preview_frame(), (model.frame() + 1) % FRAME_COUNT);
+    model.open_templates();
     assert_eq!(model.advance_ms(500), ChangeSet::NONE);
+}
+
+#[test]
+fn a_saved_drawing_reopens_with_its_frames_and_settings() {
+    use super::model::{PixelSave, SAVE_LEN};
+
+    let mut model = PixelModel::default();
+    model.select_frame(2);
+    model.select_color(4);
+    model.toggle_mirror();
+    model.cycle_fps();
+    model.paint_cell(0, 0);
+    let mut bytes = [0_u8; SAVE_LEN];
+    assert_eq!(model.encode_into(&mut bytes), Ok(SAVE_LEN));
+    let mut restored = PixelModel::default();
+    restored.restore(PixelSave::decode(&bytes).unwrap());
+    assert_eq!(restored.frames, model.frames);
+    assert_eq!(restored.frame(), 2);
+    assert_eq!(restored.color(), 4);
+    assert!(restored.mirror());
+    assert_eq!(restored.fps(), model.fps());
+    assert_eq!(restored.history_len(), 0);
+    assert!(!restored.playing());
+
+    let mut broken = bytes;
+    broken[10] = 0x0f;
+    crate::gallery::play::expeditions::finish_packet(&mut broken, SAVE_LEN - 4);
+    assert!(
+        PixelSave::decode(&broken).is_err(),
+        "a colour outside the palette"
+    );
+    assert!(PixelSave::decode(&bytes[..SAVE_LEN - 1]).is_err());
 }
 
 #[test]
@@ -183,4 +222,24 @@ fn selection_and_edit_transactions_invalidate_pending_import_even_after_restorat
     assert_eq!(model.selection_revision(), None);
     model.close_modal();
     assert_ne!(model.selection_revision(), revision);
+}
+
+#[test]
+fn an_edit_during_playback_stops_it_and_lands_on_the_edited_frame() {
+    let mut model = PixelModel::default();
+    model.toggle_playback();
+    model.advance_ms(250);
+    assert_ne!(model.visible_frame(), model.frame());
+    let changes = model.set_tool(PixelTool::Erase);
+    assert!(changes.contains(ChangeSet::VISUAL));
+    assert!(!model.playing());
+    assert_eq!(model.visible_frame(), model.frame());
+
+    model.toggle_playback();
+    model.advance_ms(250);
+    model.frames.clear_frame(0);
+    model.select_color(2);
+    model.paint_cell(1, 1);
+    assert!(!model.playing());
+    assert_eq!(model.frames.get(0, 1, 1), 2);
 }
