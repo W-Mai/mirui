@@ -1,6 +1,6 @@
 use super::rules::{initial, moved, won};
 use super::solver::solve;
-use super::types::{TwinMessage, TwinState};
+use super::types::{TwinBoard, TwinMessage, TwinState};
 use crate::gallery::play::change::ChangeSet;
 #[cfg(any(feature = "persistence", test))]
 use crate::gallery::play::expeditions::{
@@ -8,8 +8,9 @@ use crate::gallery::play::expeditions::{
     write_records,
 };
 use crate::gallery::play::expeditions::{
-    Direction4, EXPEDITION_LEVELS, ExpeditionHintWorkspace, ExpeditionModal, LevelRecord,
-    PackedDirections, TwinLevelRef, accepted_change, movement_stars, twin_level, unlocked_level,
+    BoardShot, Direction4, EXPEDITION_LEVELS, ExpeditionHintWorkspace, ExpeditionModal,
+    ExpeditionProgress, LevelRecord, PackedDirections, TwinLevelRef, accepted_change,
+    movement_stars, twin_level, unlocked_level,
 };
 
 #[cfg(any(feature = "persistence", test))]
@@ -36,25 +37,9 @@ pub(crate) struct TwinModel {
     pub(super) last_hint: Option<(u8, u16, bool)>,
     pub(super) modal: ExpeditionModal,
     pub(super) message: TwinMessage,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct TwinProgress {
-    stars: [u8; EXPEDITION_LEVELS],
-}
-
-impl TwinProgress {
-    pub(crate) const fn stars(self, level: u8) -> u8 {
-        self.stars[level as usize]
-    }
-
-    pub(crate) const fn completed(self, level: u8) -> bool {
-        self.stars(level) != 0
-    }
-
-    pub(crate) fn completed_count(self) -> u8 {
-        self.stars.iter().filter(|stars| **stars != 0).count() as u8
-    }
+    /// Refused moves so far, wrapping, and the direction of the last one.
+    pub(super) bumps: u8,
+    pub(super) bump: Direction4,
 }
 
 impl Default for TwinModel {
@@ -69,6 +54,8 @@ impl Default for TwinModel {
             last_hint: None,
             modal: ExpeditionModal::None,
             message: TwinMessage::Ready,
+            bumps: 0,
+            bump: Direction4::Up,
         }
     }
 }
@@ -125,9 +112,23 @@ impl TwinModel {
     }
 
     #[observe]
-    pub(crate) fn progress(&self) -> TwinProgress {
-        TwinProgress {
-            stars: core::array::from_fn(|index| self.records[index].stars()),
+    pub(crate) fn progress(&self) -> ExpeditionProgress {
+        ExpeditionProgress::of(&self.records)
+    }
+
+    /// What the boards show, for the director that animates them.
+    #[observe]
+    pub(crate) fn board(&self) -> TwinBoard {
+        TwinBoard {
+            shot: BoardShot {
+                level: self.level,
+                steps: self.actions.len(),
+                bumps: self.bumps,
+                modal: self.modal,
+                stars: self.records[usize::from(self.level)].stars(),
+            },
+            cells: [self.state.a, self.state.b],
+            bump: self.bump,
         }
     }
 
@@ -147,9 +148,8 @@ impl TwinModel {
         }
         let level = self.level();
         let Some(next) = moved(level, self.state, direction) else {
-            if self.message == TwinMessage::Blocked {
-                return ChangeSet::NONE;
-            }
+            self.bumps = self.bumps.wrapping_add(1);
+            self.bump = direction;
             self.message = TwinMessage::Blocked;
             return ChangeSet::MODEL;
         };
@@ -311,6 +311,8 @@ impl TwinModel {
             } else {
                 TwinMessage::Complete
             },
+            bumps: 0,
+            bump: Direction4::Up,
         })
     }
 }

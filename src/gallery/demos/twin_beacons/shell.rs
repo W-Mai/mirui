@@ -1,21 +1,35 @@
-use super::input::keyboard;
+use super::geometry::target_box;
+use super::input::{board_tap, keyboard, swipe_cancel, swipe_end, swipe_start};
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
 use super::render::surface_render;
-use super::state::{TwinHintService, TwinSurface, next, select_map_level};
+use super::state::{
+    StationTarget, SwipeStart, TwinHintService, TwinSurface, TwinTrack, direct_twin, next,
+    select_map_level,
+};
 use super::style::{APRICOT, BG, FLOOR, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT, WALL};
+use crate::core::i18n::Phrase;
 use crate::gallery::play::expeditions::{
-    Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, twin_level,
+    BoardMotion, ChapterLine, ChapterTitle, Direction4, ExpeditionModal, ExpeditionPanel,
+    ExpeditionUiModel, HintText, LevelNumber, LevelTile, MAP_FOOTER, MAP_TITLE, MapSummary,
+    ResultStars, START_CHAPTER, StepLine, chinese, install_expedition_motion, result_next,
+    result_title, twin_level,
 };
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::twin::{
-    CHAPTER_MECHANICS, CHAPTER_NAMES, CHAPTER_TIPS, TwinMessage, TwinModel, TwinProgress, mapped,
+    CHAPTER_MECHANICS, CHAPTER_NAMES, CHAPTER_TIPS, TwinMessage, TwinModel, mapped,
 };
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::tr;
 use crate::ui::IgnoreHitTest;
-use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign, TextVerticalAlign};
 use core::fmt;
+
+const STATION: Phrase = tr!(en: "STATION", zh: "站");
+const CLEARED: Phrase = tr!(en: "STATION CLEAR", zh: "本站完成");
+const NEXT: Phrase = tr!(en: "Next →", zh: "下一站 →");
+const OVERLAY: Color = Color::rgba(5, 12, 20, 244);
 
 fn level_par(level: u8) -> u8 {
     twin_level(level).map_or(0, |level| level.par())
@@ -25,33 +39,16 @@ fn level_mode(level: u8) -> u8 {
     twin_level(level).map_or(0, |level| level.mode())
 }
 
-fn next_label(modal: ExpeditionModal, level: u8, unlocked: u8) -> &'static str {
-    match modal {
-        ExpeditionModal::Result => "下一站",
-        ExpeditionModal::Final => "再航行",
-        ExpeditionModal::None if level >= unlocked && level > 0 => "回第一站",
-        ExpeditionModal::None => "下一站",
-    }
+fn chapter_name(level: u8) -> Phrase {
+    CHAPTER_NAMES[usize::from(level / 6).min(5)]
 }
 
-/// Whether the next button has somewhere to go: a result to leave, or
-/// another unlocked level to switch to.
-fn next_acts(modal: ExpeditionModal, level: u8, unlocked: u8) -> bool {
-    modal != ExpeditionModal::None || level < unlocked || level > 0
+fn chapter_of(level: u8) -> usize {
+    usize::from(level / 6).min(5)
 }
 
-fn result_title(modal: ExpeditionModal, level: u8) -> &'static str {
-    if modal == ExpeditionModal::Final {
-        "远征完成"
-    } else if level % 6 == 5 {
-        "章节完成"
-    } else {
-        "本站完成"
-    }
-}
-
-/// Where station B goes for ↑ → ↓ ← under the level's rule, lined up
-/// under the fixed row for A.
+/// Where B goes for the keys ↑ → ↓ ← under the level's rule, lined up with
+/// the row for A.
 struct BRoute(u8);
 
 impl fmt::Display for BRoute {
@@ -64,145 +61,66 @@ impl fmt::Display for BRoute {
     }
 }
 
-fn chapter_color(active: bool) -> Color {
-    if active { MINT } else { FLOOR }
-}
-
-fn chapter_text_color(active: bool) -> Color {
-    if active { BG } else { TEXT }
-}
-
-fn level_color(active: bool) -> Color {
-    if active { MINT } else { FLOOR }
-}
-
-fn level_text_color(active: bool) -> Color {
-    if active { BG } else { TEXT }
-}
-
 struct StatusText(TwinMessage);
 
 impl fmt::Display for StatusText {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            TwinMessage::Ready => output.write_str("让 A 和 B 同时停在各自的圆环上"),
-            TwinMessage::Blocked => output.write_str("两边都被挡住了"),
-            TwinMessage::KeyCollected => output.write_str("A 取到钥片，闸门打开了"),
-            TwinMessage::Undone => output.write_str("已撤回一步"),
-            TwinMessage::Hint(direction, remaining) => write!(
-                output,
-                "提示 {} · 最少还需 {remaining} 步",
-                direction.arrow()
+        let phrase = match self.0 {
+            TwinMessage::Ready => tr!(
+                en: "Park A and B on their rings at once",
+                zh: "让 A 和 B 同时停在各自的圆环上"
             ),
-            TwinMessage::Complete => output.write_str("A 和 B 同时到站"),
-        }
-    }
-}
-
-struct StepText {
-    steps: u16,
-    par: u8,
-    hints: u16,
-}
-
-impl fmt::Display for StepText {
-    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            output,
-            "STEP {:02}   PAR {:02}   HINT {}",
-            self.steps, self.par, self.hints
-        )
-    }
-}
-
-struct MapSummary {
-    progress: TwinProgress,
-    chapter: u8,
-}
-
-impl fmt::Display for MapSummary {
-    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            output,
-            "COMPLETE {:02} / 36   CHAPTER {:02} / 06",
-            self.progress.completed_count(),
-            self.chapter + 1
-        )
-    }
-}
-
-struct MapLevelLabel {
-    progress: TwinProgress,
-    current: u8,
-    level: u8,
-}
-
-impl fmt::Display for MapLevelLabel {
-    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.progress.completed(self.level) {
-            writeln!(output, "{:02}", self.level + 1)?;
-            write_stars(output, self.progress.stars(self.level))
-        } else if self.level == self.current {
-            write!(output, "{:02}\nPLAY", self.level + 1)
-        } else {
-            write!(output, "{:02}\nOPEN", self.level + 1)
-        }
-    }
-}
-
-/// Three stars, the earned ones filled.
-fn write_stars(output: &mut fmt::Formatter<'_>, stars: u8) -> fmt::Result {
-    for slot in 0..3 {
-        output.write_str(if slot < stars { "★" } else { "☆" })?;
-    }
-    Ok(())
-}
-
-struct LockedLevelLabel(u8);
-
-impl fmt::Display for LockedLevelLabel {
-    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(output, "{:02}\nLOCK", self.0 + 1)
+            TwinMessage::Blocked => tr!(en: "Both beacons are blocked", zh: "两边都被挡住了"),
+            TwinMessage::KeyCollected => tr!(
+                en: "A has the key: the gates are open",
+                zh: "A 取到钥片，闸门打开了"
+            ),
+            TwinMessage::Undone => tr!(en: "Move undone", zh: "已撤回一步"),
+            TwinMessage::Hint(direction, remaining) => {
+                return write!(
+                    output,
+                    "{}",
+                    HintText {
+                        direction,
+                        remaining
+                    }
+                );
+            }
+            TwinMessage::Complete => tr!(en: "Both beacons are home", zh: "A 和 B 同时到站"),
+        };
+        output.write_str(phrase.get())
     }
 }
 
 struct ResultStats {
-    stars: u8,
     steps: u16,
     par: u8,
 }
 
 impl fmt::Display for ResultStats {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_stars(output, self.stars)?;
-        write!(output, "   {:02} 步 · 最少 {:02} 步", self.steps, self.par)
-    }
-}
-
-struct SummaryLine {
-    progress: TwinProgress,
-    chapter: u8,
-}
-
-impl fmt::Display for SummaryLine {
-    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut completed = 0;
-        let mut stars = 0;
-        for slot in 0..6 {
-            let level = self.chapter * 6 + slot;
-            let level_stars = self.progress.stars(level);
-            if level_stars != 0 {
-                completed += 1;
-                stars += level_stars;
-            }
+        if chinese() {
+            write!(output, "{} 步 · 最少 {} 步", self.steps, self.par)
+        } else {
+            write!(output, "{} moves · par {}", self.steps, self.par)
         }
-        write!(
-            output,
-            "0{}  {}   {completed}/6   {stars}/18 ★",
-            self.chapter + 1,
-            CHAPTER_NAMES[usize::from(self.chapter)]
-        )
     }
+}
+
+/// The pad key a hint points to lights up.
+fn pad_color(message: TwinMessage, direction: Direction4) -> Color {
+    match message {
+        TwinMessage::Hint(hinted, _) if hinted == direction => APRICOT,
+        _ => FLOOR,
+    }
+}
+
+fn tab_color(active: bool) -> Color {
+    if active { MINT } else { FLOOR }
+}
+
+fn tab_text_color(active: bool) -> Color {
+    if active { BG } else { TEXT }
 }
 
 #[compose]
@@ -226,8 +144,15 @@ fn map_level_button(
                     IgnoreHitTest,
                 ] {
                     Text (
-                        text: ${ LockedLevelLabel(expedition.chapter() * 6 + slot) },
-                        capacity: 8,
+                        text: ${
+                            LevelTile {
+                                level: expedition.chapter() * 6 + slot,
+                                stars: 0,
+                                current: false,
+                                locked: true,
+                            }
+                        },
+                        capacity: 16,
                         grow: 1.0,
                         height: 49,
                         font_size: 10,
@@ -238,10 +163,11 @@ fn map_level_button(
             } else {
                 Button (
                     text: ${
-                        MapLevelLabel {
-                            progress: game.progress(),
-                            current: game.level_index(),
+                        LevelTile {
                             level: expedition.chapter() * 6 + slot,
+                            stars: game.progress().stars(expedition.chapter() * 6 + slot),
+                            current: expedition.chapter() * 6 + slot == game.level_index(),
+                            locked: false,
                         }
                     },
                     capacity: 16,
@@ -249,9 +175,9 @@ fn map_level_button(
                     height: 57,
                     size: ButtonSize::Compact,
                     font_size: 10,
-                    normal_color: ${ level_color(expedition.chapter() * 6 + slot == game.level_index()) },
+                    normal_color: ${ tab_color(expedition.chapter() * 6 + slot == game.level_index()) },
                     pressed_color: MINT,
-                    text_color: ${ level_text_color(expedition.chapter() * 6 + slot == game.level_index()) },
+                    text_color: ${ tab_text_color(expedition.chapter() * 6 + slot == game.level_index()) },
                     border_radius: 7
                 ) on Tap { select_map_level(&game, &expedition, slot); }
             }
@@ -260,99 +186,140 @@ fn map_level_button(
 }
 
 #[compose]
-fn compose_hud(game: model!(TwinModel)) -> Entity {
+fn chapter_tab(expedition: model!(ExpeditionUiModel), chapter: u8) -> Entity {
+    ui! {
+        Button (
+            text: ${ format_args!("0{}", chapter + 1) },
+            capacity: 4,
+            size: ButtonSize::Compact,
+            grow: 1.0,
+            height: 25,
+            font_size: 10,
+            normal_color: ${ tab_color(expedition.chapter() == chapter) },
+            pressed_color: MINT,
+            text_color: ${ tab_text_color(expedition.chapter() == chapter) },
+            border_radius: 6
+        ) on Tap { expedition.select_chapter(chapter); }
+    }
+}
+
+#[compose]
+fn compose_header(game: model!(TwinModel), expedition: model!(ExpeditionUiModel)) -> Entity {
     ui! {
         Text (
-            "TWIN BEACONS",
+            text: tr!(en : "TWIN BEACONS", zh : "双子信标"),
+            id: "twin_title",
             position: Position::Absolute,
-            left: 15,
+            left: 12,
             top: 7,
-            width: 220,
-            height: 22,
-            font_size: 15,
+            width: 84,
+            height: 14,
+            font_size: 10,
             text_color: TEXT,
             paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
         )
     };
     ui! {
         Text (
-            text: ${ CHAPTER_NAMES[usize::from(game.level_index() / 6)] },
+            text: ${ format_args!("T{:02}", game.level_index() + 1) },
+            capacity: 4,
+            id: "twin_level",
+            position: Position::Absolute,
+            left: 98,
+            top: 7,
+            width: 28,
+            height: 14,
+            font_size: 10,
+            text_color: MINT,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ chapter_name(game.level_index()) },
             capacity: 24,
             id: "twin_chapter",
             position: Position::Absolute,
-            left: 238,
-            top: 10,
-            width: 136,
-            height: 16,
-            font_size: 8,
+            left: 128,
+            top: 7,
+            width: 100,
+            height: 14,
+            font_size: 10,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${
+                StepLine {
+                    steps: game.steps(),
+                    par: level_par(game.level_index()),
+                    hints: game.hints(),
+                }
+            },
+            capacity: 48,
+            id: "twin_steps",
+            position: Position::Absolute,
+            left: 230,
+            top: 7,
+            width: 176,
+            height: 14,
+            font_size: 10,
             text_color: MUTED,
             paragraph: ParagraphStyle::label().with_align(TextAlign::End)
         )
     };
     ui! {
-        Text (
-            text: ${ format_args!("T{:02} / 36", game.level_index() + 1) },
-            capacity: 8,
-            id: "twin_level",
+        Button (
+            "ⓘ",
+            id: "twin_rules_button",
             position: Position::Absolute,
-            left: 383,
-            top: 9,
-            width: 81,
-            height: 17,
-            font_size: 9,
-            text_color: MINT,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-        )
-    };
-    ui! {
-        Text (
-            "BEACON A",
-            position: Position::Absolute,
-            left: 18,
-            top: 44,
-            width: 128,
-            height: 13,
-            font_size: 7,
-            text_color: MINT,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-        )
-    };
-    ui! {
-        Text (
-            "BEACON B",
-            position: Position::Absolute,
-            left: 165,
-            top: 44,
-            width: 128,
-            height: 13,
-            font_size: 7,
-            text_color: LAVENDER,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-        )
-    };
-    ui! {
-        Text (
-            "SYNC ROUTE",
-            position: Position::Absolute,
-            left: 331,
-            top: 62,
-            width: 118,
-            height: 14,
-            font_size: 8,
+            left: 414,
+            top: 3,
+            width: 28,
+            height: 22,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: FLOOR,
+            pressed_color: APRICOT,
+            pressed_text_color: WALL,
             text_color: TEXT,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-        )
+            border_radius: 6
+        ) on Tap { expedition.open_rules(); }
     };
+    ui! {
+        Button (
+            "☰",
+            id: "twin_map_button",
+            position: Position::Absolute,
+            left: 446,
+            top: 3,
+            width: 28,
+            height: 22,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: FLOOR,
+            pressed_color: APRICOT,
+            pressed_text_color: WALL,
+            text_color: TEXT,
+            border_radius: 6
+        ) on Tap { expedition.open(game.level_index()); }
+    }
+}
+
+#[compose]
+fn compose_routes(game: model!(TwinModel)) -> Entity {
     ui! {
         Text (
             "A  ↑  →  ↓  ←",
             id: "twin_route_a",
             position: Position::Absolute,
-            left: 329,
-            top: 95,
-            width: 124,
+            left: 14,
+            top: 31,
+            width: 110,
             height: 13,
-            font_size: 7,
+            font_size: 10,
             text_color: MINT,
             paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
         )
@@ -363,11 +330,11 @@ fn compose_hud(game: model!(TwinModel)) -> Entity {
             capacity: 24,
             id: "twin_route_b",
             position: Position::Absolute,
-            left: 329,
-            top: 110,
-            width: 124,
+            left: 253,
+            top: 31,
+            width: 110,
             height: 13,
-            font_size: 7,
+            font_size: 10,
             text_color: LAVENDER,
             paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
         )
@@ -375,159 +342,57 @@ fn compose_hud(game: model!(TwinModel)) -> Entity {
 }
 
 #[compose]
-fn compose_controls(game: model!(TwinModel), hints: TwinHintService) -> Entity {
+fn pad_key(game: model!(TwinModel), direction: Direction4, left: i32) -> Entity {
     ui! {
         Button (
-            "↑",
+            text: direction.arrow(),
             position: Position::Absolute,
-            left: 366,
-            top: 132,
-            width: 40,
-            height: 32,
+            left: left,
+            top: 279,
+            width: 32,
+            height: 30,
             size: ButtonSize::Compact,
-            font_size: 13,
-            normal_color: FLOOR,
+            font_size: 20,
+            normal_color: ${ pad_color(game.message(), direction) },
             pressed_color: MINT,
             pressed_text_color: WALL,
             text_color: TEXT,
             border_radius: 7
-        ) on Tap { game.move_direction(Direction4::Up); }
-    };
-    ui! {
-        Button (
-            "←",
-            position: Position::Absolute,
-            left: 324,
-            top: 168,
-            width: 40,
-            height: 32,
-            size: ButtonSize::Compact,
-            font_size: 13,
-            normal_color: FLOOR,
-            pressed_color: MINT,
-            pressed_text_color: WALL,
-            text_color: TEXT,
-            border_radius: 7
-        ) on Tap { game.move_direction(Direction4::Left); }
-    };
-    ui! {
-        Button (
-            "↓",
-            position: Position::Absolute,
-            left: 366,
-            top: 168,
-            width: 40,
-            height: 32,
-            size: ButtonSize::Compact,
-            font_size: 13,
-            normal_color: FLOOR,
-            pressed_color: MINT,
-            pressed_text_color: WALL,
-            text_color: TEXT,
-            border_radius: 7
-        ) on Tap { game.move_direction(Direction4::Down); }
-    };
-    ui! {
-        Button (
-            "→",
-            position: Position::Absolute,
-            left: 408,
-            top: 168,
-            width: 40,
-            height: 32,
-            size: ButtonSize::Compact,
-            font_size: 13,
-            normal_color: FLOOR,
-            pressed_color: MINT,
-            pressed_text_color: WALL,
-            text_color: TEXT,
-            border_radius: 7
-        ) on Tap { game.move_direction(Direction4::Right); }
-    };
-    ui! {
-        Button (
-            "↺ UNDO",
-            position: Position::Absolute,
-            left: 327,
-            top: 214,
-            width: 58,
-            height: 27,
-            size: ButtonSize::Compact,
-            font_size: 8,
-            normal_color: FLOOR,
-            pressed_color: LAVENDER,
-            pressed_text_color: WALL,
-            text_color: ${ if game.steps() > 0 { TEXT } else { MUTED } },
-            border_radius: 6
-        ) on Tap { game.undo(); }
-    };
-    ui! {
-        Button (
-            "HINT",
-            position: Position::Absolute,
-            left: 391,
-            top: 214,
-            width: 62,
-            height: 27,
-            size: ButtonSize::Compact,
-            font_size: 8,
-            normal_color: FLOOR,
-            pressed_color: APRICOT,
-            pressed_text_color: WALL,
-            text_color: TEXT,
-            border_radius: 6
-        ) on Tap { hints.request(&game); }
+        ) on Tap { game.move_direction(direction); }
     }
 }
 
 #[compose]
-fn compose_footer(game: model!(TwinModel), expedition: model!(ExpeditionUiModel)) -> Entity {
+fn compose_controls(game: model!(TwinModel), hints: TwinHintService) -> Entity {
     ui! {
-        Text (
-            text: ${ StatusText(game.message()) },
-            capacity: 48,
-            id: "twin_status",
+        Button (
+            "↺",
+            id: "twin_undo",
             position: Position::Absolute,
-            left: 16,
-            top: 216,
-            width: 282,
-            height: 21,
-            font_size: 8,
-            text_color: TEXT,
-            paragraph: ParagraphStyle::default().with_align(TextAlign::Start)
-        )
-    };
-    ui! {
-        Text (
-            text: ${
-                StepText {
-                    steps: game.steps(),
-                    par: level_par(game.level_index()),
-                    hints: game.hints(),
-                }
-            },
-            capacity: 40,
-            id: "twin_steps",
-            position: Position::Absolute,
-            left: 16,
-            top: 245,
-            width: 282,
-            height: 14,
-            font_size: 7,
-            text_color: MUTED,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-        )
+            left: 10,
+            top: 279,
+            width: 34,
+            height: 30,
+            size: ButtonSize::Compact,
+            font_size: 20,
+            normal_color: FLOOR,
+            pressed_color: LAVENDER,
+            pressed_text_color: WALL,
+            text_color: ${ if game.steps() > 0 { TEXT } else { MUTED } },
+            border_radius: 7
+        ) on Tap { game.undo(); }
     };
     ui! {
         Button (
-            "↻ RESTART",
+            "↻",
+            id: "twin_restart",
             position: Position::Absolute,
-            left: 16,
-            top: 276,
-            width: 66,
-            height: 29,
+            left: 48,
+            top: 279,
+            width: 34,
+            height: 30,
             size: ButtonSize::Compact,
-            font_size: 8,
+            font_size: 20,
             normal_color: FLOOR,
             pressed_color: APRICOT,
             pressed_text_color: WALL,
@@ -537,74 +402,91 @@ fn compose_footer(game: model!(TwinModel), expedition: model!(ExpeditionUiModel)
     };
     ui! {
         Button (
-            "CHAPTERS",
+            "?",
+            id: "twin_hint",
             position: Position::Absolute,
-            left: 88,
-            top: 276,
-            width: 73,
-            height: 29,
+            left: 86,
+            top: 279,
+            width: 34,
+            height: 30,
             size: ButtonSize::Compact,
-            font_size: 7,
+            font_size: 20,
             normal_color: FLOOR,
             pressed_color: APRICOT,
             pressed_text_color: WALL,
-            text_color: TEXT,
+            text_color: APRICOT,
             border_radius: 7
-        ) on Tap { expedition.open(game.level_index()); }
-    };
-    ui! {
-        Button (
-            "RULES",
-            position: Position::Absolute,
-            left: 167,
-            top: 276,
-            width: 55,
-            height: 29,
-            size: ButtonSize::Compact,
-            font_size: 7,
-            normal_color: FLOOR,
-            pressed_color: APRICOT,
-            pressed_text_color: WALL,
-            text_color: TEXT,
-            border_radius: 7
-        ) on Tap { expedition.open_rules(); }
-    };
-    ui! {
-        Button (
-            text: ${ next_label(game.modal(), game.level_index(), game.unlocked()) },
-            capacity: 16,
-            id: "twin_next",
-            position: Position::Absolute,
-            left: 228,
-            top: 276,
-            width: 70,
-            height: 29,
-            size: ButtonSize::Compact,
-            font_size: 8,
-            normal_color: ${
-                if next_acts(game.modal(), game.level_index(), game.unlocked()) {
-                    MINT
-                } else {
-                    FLOOR
-                }
-            },
-            pressed_color: LAVENDER,
-            text_color: ${ if next_acts(game.modal(), game.level_index(), game.unlocked()) { BG } else { MUTED } },
-            border_radius: 7
-        ) on Tap { next(&game, &expedition); }
+        ) on Tap { hints.request(&game); }
     };
     ui! {
         Text (
-            "WASD · Z UNDO · H HINT",
+            text: ${ StatusText(game.message()) },
+            capacity: 64,
+            id: "twin_status",
             position: Position::Absolute,
-            left: 318,
-            top: 278,
-            width: 146,
-            height: 21,
-            font_size: 7,
-            text_color: MUTED,
-            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            left: 128,
+            top: 276,
+            width: 196,
+            height: 36,
+            font_size: 10,
+            text_color: TEXT,
+            paragraph: ParagraphStyle::default()
+                .with_align(TextAlign::Start)
+                .with_vertical_align(TextVerticalAlign::Center)
         )
+    };
+    ui!(pad_key(game, Direction4::Left, 330));
+    ui!(pad_key(game, Direction4::Up, 366));
+    ui!(pad_key(game, Direction4::Down, 402));
+    ui!(pad_key(game, Direction4::Right, 438))
+}
+
+#[compose]
+fn compose_banner(game: model!(TwinModel), expedition: model!(ExpeditionUiModel)) -> Entity {
+    ui! {
+        Column (
+            id: "twin_banner",
+            visible: ${
+                expedition.banner() && expedition.panel() == ExpeditionPanel::None
+                    && game.modal() == ExpeditionModal::None
+            },
+            position: Position::Absolute,
+            left: 140,
+            top: 118,
+            width: 200,
+            height: 60,
+            padding: Padding::all(8),
+            row_gap: 2,
+            bg_color: PANEL,
+            border_color: MINT,
+            border_width: 1,
+            border_radius: 9
+        ) [
+            IgnoreHitTest,
+        ] {
+            Text (
+                text: ${
+                    LevelNumber {
+                        level: game.level_index(),
+                        unit: STATION,
+                    }
+                },
+                capacity: 16,
+                id: "twin_banner_title",
+                height: 26,
+                font_size: 20,
+                text_color: MINT,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                text: ${ chapter_name(game.level_index()) },
+                capacity: 24,
+                height: 14,
+                font_size: 10,
+                text_color: TEXT,
+                paragraph: ParagraphStyle::label()
+            )
+        }
     }
 }
 
@@ -622,61 +504,70 @@ fn compose_result_overlay(
             top: 0,
             width: 480,
             height: 320,
-            bg_color: Color::rgba(5, 12, 20, 244)
+            bg_color: Color::rgba(5, 12, 20, 210)
         ) [
             TouchAction::None,
         ] {
             Column (
                 position: Position::Absolute,
-                left: 48,
-                top: 66,
-                width: 384,
-                height: 188,
-                padding: Padding::all(18),
-                row_gap: 13,
+                left: 86,
+                top: 62,
+                width: 308,
+                height: 196,
+                padding: Padding::all(14),
+                row_gap: 6,
+                align: AlignItems::Center,
                 bg_color: PANEL,
                 border_color: MINT,
                 border_width: 1,
-                border_radius: 9
+                border_radius: 10
             ) {
                 Text (
-                    text: ${ result_title(game.modal(), game.level_index()) },
+                    text: ${ result_title(game.modal(), game.level_index(), CLEARED) },
                     capacity: 24,
                     id: "twin_result_title",
-                    height: 28,
-                    font_size: 15,
+                    width: 280,
+                    height: 26,
+                    font_size: 20,
                     text_color: MINT,
                     paragraph: ParagraphStyle::label()
                 )
+                View (id: "twin_result_stars", width: 108, height: 34) [
+                    ResultStars::new(APRICOT, FLOOR),
+                ]
                 Text (
                     text: ${
                         ResultStats {
-                            stars: game.progress().stars(game.level_index()),
                             steps: game.steps(),
                             par: level_par(game.level_index()),
                         }
                     },
-                    capacity: 48,
+                    capacity: 32,
                     id: "twin_result_stats",
-                    height: 22,
+                    width: 280,
+                    height: 14,
                     font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "不用提示、按最少步数到站得 ★★★",
-                    height: 18,
-                    font_size: 9,
+                    text: tr!(
+                        en : "Par with no hints earns ★★★", zh :
+                        "不用提示、按最少步数到站得 ★★★"
+                    ),
+                    width: 280,
+                    height: 14,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label()
                 )
-                Row (height: 34, column_gap: 8) {
+                Row (width: 280, height: 32, column_gap: 8) {
                     Button (
-                        "重新挑战",
+                        text: tr!(en : "↻ Retry", zh : "↻ 重来"),
                         size: ButtonSize::Compact,
                         grow: 1.0,
-                        height: 33,
-                        font_size: 9,
+                        height: 32,
+                        font_size: 10,
                         normal_color: FLOOR,
                         pressed_color: APRICOT,
                         pressed_text_color: WALL,
@@ -684,11 +575,11 @@ fn compose_result_overlay(
                         border_radius: 7
                     ) on Tap { game.restart(); }
                     Button (
-                        "查看航图",
+                        text: tr!(en : "☰ Map", zh : "☰ 航图"),
                         size: ButtonSize::Compact,
                         grow: 1.0,
-                        height: 33,
-                        font_size: 9,
+                        height: 32,
+                        font_size: 10,
                         normal_color: FLOOR,
                         pressed_color: MINT,
                         pressed_text_color: WALL,
@@ -696,18 +587,13 @@ fn compose_result_overlay(
                         border_radius: 7
                     ) on Tap { expedition.open(game.level_index()); }
                     Button (
-                        text: ${
-                            if game.modal() == ExpeditionModal::Final {
-                                "查看档案 →"
-                            } else {
-                                "继续远征 →"
-                            }
-                        },
+                        text: ${ result_next(game.modal(), NEXT) },
                         capacity: 20,
+                        id: "twin_next",
                         size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 33,
-                        font_size: 9,
+                        grow: 1.3,
+                        height: 32,
+                        font_size: 10,
                         normal_color: MINT,
                         pressed_color: LAVENDER,
                         text_color: BG,
@@ -730,7 +616,7 @@ fn compose_map_overlay(game: model!(TwinModel), expedition: model!(ExpeditionUiM
             top: 0,
             width: 480,
             height: 320,
-            bg_color: Color::rgba(5, 12, 20, 244)
+            bg_color: OVERLAY
         ) [
             TouchAction::None,
         ] {
@@ -739,9 +625,9 @@ fn compose_map_overlay(game: model!(TwinModel), expedition: model!(ExpeditionUiM
                 left: 5,
                 top: 36,
                 width: 470,
-                height: 239,
+                height: 248,
                 padding: Padding::all(12),
-                row_gap: 5,
+                row_gap: 6,
                 bg_color: PANEL,
                 border_color: GRID,
                 border_width: 1,
@@ -749,10 +635,10 @@ fn compose_map_overlay(game: model!(TwinModel), expedition: model!(ExpeditionUiM
             ) {
                 Row (height: 26, align: AlignItems::Center) {
                     Text (
-                        "EXPEDITION MAP",
+                        text: MAP_TITLE,
                         grow: 1.0,
                         height: 22,
-                        font_size: 13,
+                        font_size: 10,
                         text_color: TEXT,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
@@ -761,7 +647,7 @@ fn compose_map_overlay(game: model!(TwinModel), expedition: model!(ExpeditionUiM
                         size: ButtonSize::Compact,
                         width: 28,
                         height: 25,
-                        font_size: 12,
+                        font_size: 10,
                         normal_color: FLOOR,
                         pressed_color: APRICOT,
                         pressed_text_color: WALL,
@@ -772,106 +658,52 @@ fn compose_map_overlay(game: model!(TwinModel), expedition: model!(ExpeditionUiM
                 Text (
                     text: ${
                         MapSummary {
-                            progress: game.progress(),
+                            cleared: game.progress().completed_count(),
                             chapter: expedition.chapter(),
                         }
                     },
-                    capacity: 40,
+                    capacity: 48,
                     id: "twin_map_summary",
                     height: 14,
-                    font_size: 8,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Row (height: 26, column_gap: 7) {
-                    Button (
-                        "01",
-                        id: "twin_map_chapter_0",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 25,
-                        font_size: 9,
-                        normal_color: ${ chapter_color(expedition.chapter() == 0) },
-                        pressed_color: MINT,
-                        text_color: ${ chapter_text_color(expedition.chapter() == 0) },
-                        border_radius: 6
-                    ) on Tap { expedition.select_chapter(0); }
-                    Button (
-                        "02",
-                        id: "twin_map_chapter_1",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 25,
-                        font_size: 9,
-                        normal_color: ${ chapter_color(expedition.chapter() == 1) },
-                        pressed_color: MINT,
-                        text_color: ${ chapter_text_color(expedition.chapter() == 1) },
-                        border_radius: 6
-                    ) on Tap { expedition.select_chapter(1); }
-                    Button (
-                        "03",
-                        id: "twin_map_chapter_2",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 25,
-                        font_size: 9,
-                        normal_color: ${ chapter_color(expedition.chapter() == 2) },
-                        pressed_color: MINT,
-                        text_color: ${ chapter_text_color(expedition.chapter() == 2) },
-                        border_radius: 6
-                    ) on Tap { expedition.select_chapter(2); }
-                    Button (
-                        "04",
-                        id: "twin_map_chapter_3",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 25,
-                        font_size: 9,
-                        normal_color: ${ chapter_color(expedition.chapter() == 3) },
-                        pressed_color: MINT,
-                        text_color: ${ chapter_text_color(expedition.chapter() == 3) },
-                        border_radius: 6
-                    ) on Tap { expedition.select_chapter(3); }
-                    Button (
-                        "05",
-                        id: "twin_map_chapter_4",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 25,
-                        font_size: 9,
-                        normal_color: ${ chapter_color(expedition.chapter() == 4) },
-                        pressed_color: MINT,
-                        text_color: ${ chapter_text_color(expedition.chapter() == 4) },
-                        border_radius: 6
-                    ) on Tap { expedition.select_chapter(4); }
-                    Button (
-                        "06",
-                        id: "twin_map_chapter_5",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 25,
-                        font_size: 9,
-                        normal_color: ${ chapter_color(expedition.chapter() == 5) },
-                        pressed_color: MINT,
-                        text_color: ${ chapter_text_color(expedition.chapter() == 5) },
-                        border_radius: 6
-                    ) on Tap { expedition.select_chapter(5); }
+                    View (id: "twin_map_chapter_0", grow: 1.0, height: 25) {
+                        chapter_tab (expedition, 0)
+                    }
+                    View (id: "twin_map_chapter_1", grow: 1.0, height: 25) {
+                        chapter_tab (expedition, 1)
+                    }
+                    View (id: "twin_map_chapter_2", grow: 1.0, height: 25) {
+                        chapter_tab (expedition, 2)
+                    }
+                    View (id: "twin_map_chapter_3", grow: 1.0, height: 25) {
+                        chapter_tab (expedition, 3)
+                    }
+                    View (id: "twin_map_chapter_4", grow: 1.0, height: 25) {
+                        chapter_tab (expedition, 4)
+                    }
+                    View (id: "twin_map_chapter_5", grow: 1.0, height: 25) {
+                        chapter_tab (expedition, 5)
+                    }
                 }
                 Text (
                     text: ${ CHAPTER_NAMES[usize::from(expedition.chapter())] },
                     capacity: 24,
                     id: "twin_map_chapter_name",
                     height: 16,
-                    font_size: 12,
+                    font_size: 10,
                     text_color: MINT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
                     text: ${ CHAPTER_MECHANICS[usize::from(expedition.chapter())] },
-                    capacity: 48,
+                    capacity: 64,
                     id: "twin_map_chapter_mechanic",
                     height: 14,
-                    font_size: 9,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
@@ -896,14 +728,27 @@ fn compose_map_overlay(game: model!(TwinModel), expedition: model!(ExpeditionUiM
                     }
                 }
                 Text (
-                    "CLEAR A LEVEL TO OPEN THE NEXT",
+                    text: MAP_FOOTER,
                     height: 16,
-                    font_size: 7,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
             }
         } on Tap { }
+    }
+}
+
+#[compose]
+fn rule_line(line: Phrase, color: Color) -> Entity {
+    ui! {
+        Text (
+            text: line,
+            height: 17,
+            font_size: 10,
+            text_color: color,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
     }
 }
 
@@ -918,18 +763,18 @@ fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
             top: 0,
             width: 480,
             height: 320,
-            bg_color: Color::rgba(5, 12, 20, 244)
+            bg_color: OVERLAY
         ) [
             TouchAction::None,
         ] {
             Column (
                 position: Position::Absolute,
-                left: 30,
-                top: 54,
-                width: 420,
-                height: 212,
-                padding: Padding::all(16),
-                row_gap: 9,
+                left: 12,
+                top: 44,
+                width: 456,
+                height: 232,
+                padding: Padding::all(14),
+                row_gap: 7,
                 bg_color: PANEL,
                 border_color: MINT,
                 border_width: 1,
@@ -937,10 +782,10 @@ fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
             ) {
                 Row (height: 26, align: AlignItems::Center) {
                     Text (
-                        "TWIN BEACONS · RULES",
+                        text: tr!(en : "TWIN BEACONS · RULES", zh : "双子信标 · 规则"),
                         grow: 1.0,
                         height: 22,
-                        font_size: 12,
+                        font_size: 10,
                         text_color: MINT,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
@@ -949,7 +794,7 @@ fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
                         size: ButtonSize::Compact,
                         width: 28,
                         height: 25,
-                        font_size: 12,
+                        font_size: 10,
                         normal_color: FLOOR,
                         pressed_color: APRICOT,
                         pressed_text_color: WALL,
@@ -957,40 +802,52 @@ fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
                         border_radius: 6
                     ) on Tap { expedition.close(); }
                 }
-                Text (
-                    "01  方向键同时移动两位探索者，撞墙的一位会停住。",
-                    height: 20,
-                    font_size: 10,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                rule_line (
+                    tr!(
+                        en : "01  Arrows or a swipe move A and B together; a blocked one stays put.", zh
+                        : "01  方向键或滑动同时移动 A 和 B；撞墙的一位会停住。"
+                    ),
+                    TEXT
                 )
-                Text (
-                    "02  A 和 B 要同时停在各自的圆环上；先到的一方还会继续走。",
-                    height: 20,
-                    font_size: 10,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                rule_line (
+                    tr!(
+                        en :
+                        "02  Both must rest on their rings at once; one that arrives early goes on.", zh
+                        :
+                        "02  A 和 B 要同时停在各自的圆环上；先到的一方还会继续走。"
+                    ),
+                    TEXT
                 )
-                Text (
-                    "03  后面的章节里 B 的方向会变，右侧面板会标出来。",
-                    height: 20,
-                    font_size: 10,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                rule_line (
+                    tr!(
+                        en : "03  Tap a board to move its beacon one cell toward the tap.", zh :
+                        "03  点格子也能走：信标朝点的方向移动一格。"
+                    ),
+                    TEXT
                 )
-                Text (
-                    "04  钥片只有 A 能取；取到后，下一步起两边闸门都能通过。",
-                    height: 20,
-                    font_size: 10,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                rule_line (
+                    tr!(
+                        en :
+                        "04  Later chapters change B's directions; the row above board B shows them.", zh
+                        :
+                        "04  后面的章节里 B 的方向会变，B 板上方的箭头会标出来。"
+                    ),
+                    TEXT
                 )
-                Text (
-                    "05  让一方撞墙停住，就能改变两人的相对位置。",
-                    height: 20,
-                    font_size: 10,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                rule_line (
+                    tr!(
+                        en : "05  Only A takes the key; from the next move on, both gates open.", zh :
+                        "05  钥片只有 A 能取；取到后，下一步起两边闸门都能通过。"
+                    ),
+                    TEXT
+                )
+                rule_line (
+                    tr!(
+                        en : "Keys  arrows/WASD move · Z undo · R restart · H hint · Enter next", zh
+                        :
+                        "键盘  方向键/WASD 移动 · Z 撤销 · R 重来 · H 提示 · Enter 继续"
+                    ),
+                    MUTED
                 )
             }
         } on Tap { }
@@ -1011,18 +868,19 @@ fn compose_briefing_overlay(
             top: 0,
             width: 480,
             height: 320,
-            bg_color: Color::rgba(5, 12, 20, 244)
+            bg_color: OVERLAY
         ) [
             TouchAction::None,
         ] {
             Column (
                 position: Position::Absolute,
-                left: 42,
+                left: 32,
                 top: 58,
-                width: 396,
+                width: 416,
                 height: 204,
-                padding: Padding::all(17),
+                padding: Padding::all(16),
                 row_gap: 10,
+                align: AlignItems::Center,
                 bg_color: PANEL,
                 border_color: MINT,
                 border_width: 1,
@@ -1030,51 +888,55 @@ fn compose_briefing_overlay(
             ) {
                 Text (
                     text: ${
-                        format_args!(
-                            "第 {} 章 · {}", game.level_index() / 6 + 1, CHAPTER_NAMES[usize::from(game
-                            .level_index() / 6)],
-                        )
+                        ChapterTitle {
+                            chapter: game.level_index() / 6,
+                            name: chapter_name(game.level_index()),
+                        }
                     },
-                    capacity: 32,
+                    capacity: 40,
                     id: "twin_briefing_title",
+                    width: 384,
                     height: 24,
-                    font_size: 13,
+                    font_size: 10,
                     text_color: MINT,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    text: ${ CHAPTER_MECHANICS[usize::from(game.level_index() / 6)] },
-                    capacity: 48,
+                    text: ${ CHAPTER_MECHANICS[chapter_of(game.level_index())] },
+                    capacity: 64,
                     id: "twin_briefing_mechanic",
+                    width: 384,
                     height: 20,
-                    font_size: 11,
+                    font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    text: ${ CHAPTER_TIPS[usize::from(game.level_index() / 6)][0] },
+                    text: ${ CHAPTER_TIPS[chapter_of(game.level_index())][0] },
                     capacity: 64,
                     id: "twin_briefing_tip_0",
+                    width: 384,
                     height: 17,
-                    font_size: 9,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    text: ${ CHAPTER_TIPS[usize::from(game.level_index() / 6)][1] },
+                    text: ${ CHAPTER_TIPS[chapter_of(game.level_index())][1] },
                     capacity: 64,
                     id: "twin_briefing_tip_1",
+                    width: 384,
                     height: 17,
-                    font_size: 9,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label()
                 )
                 Button (
-                    "开始这一章 →",
+                    text: START_CHAPTER,
                     size: ButtonSize::Compact,
                     width: 190,
                     height: 31,
-                    font_size: 9,
+                    font_size: 10,
                     normal_color: MINT,
                     pressed_color: LAVENDER,
                     text_color: BG,
@@ -1082,6 +944,25 @@ fn compose_briefing_overlay(
                 ) on Tap { expedition.close(); }
             }
         } on Tap { }
+    }
+}
+
+#[compose]
+fn summary_tab(expedition: model!(ExpeditionUiModel), chapter: u8) -> Entity {
+    ui! {
+        Button (
+            text: ${ format_args!("0{}", chapter + 1) },
+            capacity: 4,
+            size: ButtonSize::Compact,
+            grow: 1.0,
+            height: 26,
+            font_size: 10,
+            normal_color: FLOOR,
+            pressed_color: MINT,
+            pressed_text_color: WALL,
+            text_color: TEXT,
+            border_radius: 6
+        ) on Tap { expedition.open(chapter * 6); }
     }
 }
 
@@ -1117,179 +998,146 @@ fn compose_summary_overlay(
                 border_radius: 9
             ) {
                 Text (
-                    "远征档案 · 双子信标",
+                    text: tr!(en : "EXPEDITION LOG · TWIN BEACONS", zh : "远征档案 · 双子信标"),
                     height: 25,
-                    font_size: 13,
+                    font_size: 10,
                     text_color: MINT,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
-                    "36 站全部完成。点章节编号可以重新挑战。",
+                    text: tr!(
+                        en : "All 36 stations done. Tap a chapter to play it again.", zh :
+                        "36 站全部完成。点章节编号可以重新挑战。"
+                    ),
                     height: 16,
-                    font_size: 9,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
                     text: ${
-                        SummaryLine {
+                        ChapterLine {
                             progress: game.progress(),
                             chapter: 0,
+                            name: CHAPTER_NAMES[0],
                         }
                     },
                     capacity: 48,
                     id: "twin_summary_line_0",
                     height: 17,
-                    font_size: 9,
+                    font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
                     text: ${
-                        SummaryLine {
+                        ChapterLine {
                             progress: game.progress(),
                             chapter: 1,
+                            name: CHAPTER_NAMES[1],
                         }
                     },
                     capacity: 48,
                     id: "twin_summary_line_1",
                     height: 17,
-                    font_size: 9,
+                    font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
                     text: ${
-                        SummaryLine {
+                        ChapterLine {
                             progress: game.progress(),
                             chapter: 2,
+                            name: CHAPTER_NAMES[2],
                         }
                     },
                     capacity: 48,
                     id: "twin_summary_line_2",
                     height: 17,
-                    font_size: 9,
+                    font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
                     text: ${
-                        SummaryLine {
+                        ChapterLine {
                             progress: game.progress(),
                             chapter: 3,
+                            name: CHAPTER_NAMES[3],
                         }
                     },
                     capacity: 48,
                     id: "twin_summary_line_3",
                     height: 17,
-                    font_size: 9,
+                    font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
                     text: ${
-                        SummaryLine {
+                        ChapterLine {
                             progress: game.progress(),
                             chapter: 4,
+                            name: CHAPTER_NAMES[4],
                         }
                     },
                     capacity: 48,
                     id: "twin_summary_line_4",
                     height: 17,
-                    font_size: 9,
+                    font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
                     text: ${
-                        SummaryLine {
+                        ChapterLine {
                             progress: game.progress(),
                             chapter: 5,
+                            name: CHAPTER_NAMES[5],
                         }
                     },
                     capacity: 48,
                     id: "twin_summary_line_5",
                     height: 17,
-                    font_size: 9,
+                    font_size: 10,
                     text_color: TEXT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Row (height: 27, column_gap: 5) {
-                    Button (
-                        "01",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 26,
-                        font_size: 7,
-                        normal_color: FLOOR,
-                        pressed_color: MINT,
-                        pressed_text_color: WALL,
-                        text_color: TEXT,
-                        border_radius: 6
-                    ) on Tap { expedition.open(0); }
-                    Button (
-                        "02",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 26,
-                        font_size: 7,
-                        normal_color: FLOOR,
-                        pressed_color: MINT,
-                        pressed_text_color: WALL,
-                        text_color: TEXT,
-                        border_radius: 6
-                    ) on Tap { expedition.open(6); }
-                    Button (
-                        "03",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 26,
-                        font_size: 7,
-                        normal_color: FLOOR,
-                        pressed_color: MINT,
-                        pressed_text_color: WALL,
-                        text_color: TEXT,
-                        border_radius: 6
-                    ) on Tap { expedition.open(12); }
-                    Button (
-                        "04",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 26,
-                        font_size: 7,
-                        normal_color: FLOOR,
-                        pressed_color: MINT,
-                        pressed_text_color: WALL,
-                        text_color: TEXT,
-                        border_radius: 6
-                    ) on Tap { expedition.open(18); }
-                    Button (
-                        "05",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 26,
-                        font_size: 7,
-                        normal_color: FLOOR,
-                        pressed_color: MINT,
-                        pressed_text_color: WALL,
-                        text_color: TEXT,
-                        border_radius: 6
-                    ) on Tap { expedition.open(24); }
-                    Button (
-                        "06",
-                        size: ButtonSize::Compact,
-                        grow: 1.0,
-                        height: 26,
-                        font_size: 7,
-                        normal_color: FLOOR,
-                        pressed_color: MINT,
-                        pressed_text_color: WALL,
-                        text_color: TEXT,
-                        border_radius: 6
-                    ) on Tap { expedition.open(30); }
+                    summary_tab (expedition, 0)
+                    summary_tab (expedition, 1)
+                    summary_tab (expedition, 2)
+                    summary_tab (expedition, 3)
+                    summary_tab (expedition, 4)
+                    summary_tab (expedition, 5)
                 }
             }
         } on Tap { }
+    }
+}
+
+#[compose]
+fn board_target(
+    game: model!(TwinModel),
+    expedition: model!(ExpeditionUiModel),
+    station: u8,
+) -> Entity {
+    ui! {
+        View (
+            position: Position::Absolute,
+            left: target_box(usize::from(station)).0,
+            top: target_box(usize::from(station)).1,
+            width: target_box(usize::from(station)).2,
+            height: target_box(usize::from(station)).3
+        ) [
+            StationTarget {
+                game: game.clone(),
+                expedition: expedition.clone(),
+                station,
+            },
+            TouchAction::None,
+        ] on Tap(board_tap::callback())
     }
 }
 
@@ -1301,17 +1149,27 @@ fn build_widgets(
 ) {
     ui! {
         View (id: "twin_surface", width: 480, height: 320, clip_children: true) [
-            TwinSurface { game: game.clone() },
+            TwinSurface {
+                game: game.clone(),
+                expedition: expedition.clone(),
+            },
+            TwinTrack::default(),
+            BoardMotion::default(),
+            SwipeStart::default(),
+            TouchAction::None,
         ] {
-            compose_hud (game)
+            board_target (game, expedition, 0)
+            board_target (game, expedition, 1)
+            compose_header (game, expedition)
+            compose_routes (game)
             compose_controls (game, hints)
-            compose_footer (game, expedition)
+            compose_banner (game, expedition)
             compose_result_overlay (game, expedition)
             compose_map_overlay (game, expedition)
             compose_rules_overlay (expedition)
             compose_briefing_overlay (game, expedition)
             compose_summary_overlay (game, expedition)
-        }
+        } on DragStart(swipe_start::callback()) on DragEnd(swipe_end::callback()) on DragCancel(swipe_cancel::callback())
     };
 }
 
@@ -1331,6 +1189,8 @@ where
     let game = app.add_model(TwinModel::default()).finish();
     let expedition = app.add_model(ExpeditionUiModel::default()).finish();
     capture(&game, &expedition);
+    install_expedition_motion(app, &expedition);
+    app.add_system(direct_twin::system(game.clone(), expedition.clone()));
     let hints = TwinHintService::new();
     app.add_resource(hints.clone());
     app.on_event(

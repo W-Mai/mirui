@@ -143,6 +143,7 @@ mod tests {
     /// UI sources of the other games. Only their string literals are
     /// checked, so comments may use any character.
     const GAME_SOURCES: &[&str] = &[
+        include_str!("expeditions/words.rs"),
         include_str!("../demos/marble_play.rs"),
         include_str!("../demos/marble_play/inspector.rs"),
         include_str!("../demos/marble_play/scenes.rs"),

@@ -1,5 +1,5 @@
 use super::model::{SAVE_LEN, TwinModel};
-use super::rules::{initial, moved, won};
+use super::rules::{initial, mapped, moved, pressed_for, won};
 use super::solver::solve;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::expeditions::{
@@ -62,6 +62,19 @@ fn invalid_moves_only_change_observed_message() {
     assert!(changes.contains(ChangeSet::MODEL));
     assert!(!changes.contains(ChangeSet::VISUAL));
     assert!(!changes.contains(ChangeSet::PERSISTENCE));
+    // Every refusal counts, so the board bumps each time.
+    model.move_direction(direction);
+    assert_eq!(model.board().shot.bumps, 2);
+    assert_eq!(model.board().bump, direction);
+}
+
+#[test]
+fn tapping_board_b_presses_the_key_that_sends_b_there() {
+    for mode in 0..4 {
+        for direction in Direction4::ALL {
+            assert_eq!(mapped(pressed_for(direction, mode), mode), direction);
+        }
+    }
 }
 
 #[test]

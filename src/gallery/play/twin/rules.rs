@@ -34,6 +34,15 @@ pub(crate) const fn mapped(direction: Direction4, mode: u8) -> Direction4 {
     }
 }
 
+/// The key that sends station B toward `direction` in a level of `mode`:
+/// the inverse of [`mapped`], used when the player taps board B.
+pub(crate) fn pressed_for(direction: Direction4, mode: u8) -> Direction4 {
+    Direction4::ALL
+        .into_iter()
+        .find(|pressed| mapped(*pressed, mode) == direction)
+        .unwrap_or(direction)
+}
+
 fn moved_cell(
     level: TwinLevelRef,
     station: usize,

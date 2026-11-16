@@ -1,4 +1,14 @@
 use crate::gallery::play::change::ChangeSet;
+use crate::types::{Fixed, Rect};
+
+mod motion;
+mod words;
+
+pub(crate) use motion::{BoardMotion, ResultStars, install_expedition_motion, start_result_stars};
+pub(crate) use words::{
+    ChapterLine, ChapterTitle, HintText, LevelNumber, LevelTile, MAP_FOOTER, MAP_TITLE, MapSummary,
+    START_CHAPTER, StepLine, chinese, result_next, result_title,
+};
 
 pub(crate) const EXPEDITION_LEVELS: usize = 36;
 pub(crate) const MAX_EXPEDITION_ACTIONS: usize = 2048;
@@ -64,6 +74,43 @@ impl Direction4 {
             Self::Left => "←",
         }
     }
+
+    /// The direction of the longer axis of `(dx, dy)`, or none when the
+    /// vector is shorter than `reach` on both axes.
+    pub(crate) fn toward(dx: Fixed, dy: Fixed, reach: Fixed) -> Option<Self> {
+        if dx.abs() < reach && dy.abs() < reach {
+            None
+        } else if dx.abs() >= dy.abs() {
+            Some(if dx > Fixed::ZERO {
+                Self::Right
+            } else {
+                Self::Left
+            })
+        } else {
+            Some(if dy > Fixed::ZERO {
+                Self::Down
+            } else {
+                Self::Up
+            })
+        }
+    }
+}
+
+/// A point of `rect`, in the `width` x `height` logical space a board is
+/// drawn in by `fit_logical_canvas`.
+pub(crate) fn logical_point(
+    rect: Rect,
+    (x, y): (Fixed, Fixed),
+    (width, height): (i32, i32),
+) -> Option<(Fixed, Fixed)> {
+    let (width, height) = (Fixed::from_int(width), Fixed::from_int(height));
+    if rect.w <= Fixed::ZERO || rect.h <= Fixed::ZERO {
+        return None;
+    }
+    let scale = (rect.w / width).min(rect.h / height);
+    let left = rect.x + (rect.w - width * scale) / Fixed::from_int(2);
+    let top = rect.y + (rect.h - height * scale) / Fixed::from_int(2);
+    Some(((x - left) / scale, (y - top) / scale))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -286,6 +333,96 @@ pub(crate) const fn picture_stars(hints: u16) -> u8 {
     if hints == 0 { 3 } else { 1 }
 }
 
+/// Stars earned on each level of an expedition; zero means not cleared.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ExpeditionProgress {
+    stars: [u8; EXPEDITION_LEVELS],
+}
+
+impl ExpeditionProgress {
+    pub(crate) fn of(records: &[LevelRecord; EXPEDITION_LEVELS]) -> Self {
+        Self {
+            stars: records.map(LevelRecord::stars),
+        }
+    }
+
+    pub(crate) const fn stars(self, level: u8) -> u8 {
+        self.stars[level as usize]
+    }
+
+    pub(crate) const fn completed(self, level: u8) -> bool {
+        self.stars(level) != 0
+    }
+
+    pub(crate) fn completed_count(self) -> u8 {
+        self.stars.iter().filter(|stars| **stars != 0).count() as u8
+    }
+
+    /// Levels cleared and stars earned in one chapter of six.
+    pub(crate) fn chapter(self, chapter: u8) -> (u8, u8) {
+        let first = usize::from(chapter.min(5)) * 6;
+        self.stars[first..first + 6]
+            .iter()
+            .fold((0, 0), |(cleared, stars), level| {
+                (cleared + u8::from(*level != 0), stars + level)
+            })
+    }
+}
+
+/// What a board shows, compared frame to frame by each game's director to
+/// decide which motion to start.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct BoardShot {
+    pub(crate) level: u8,
+    /// Moves (or strokes) made on this level.
+    pub(crate) steps: u16,
+    /// Count of refused moves, wrapping.
+    pub(crate) bumps: u8,
+    pub(crate) modal: ExpeditionModal,
+    /// Stars of the current level, shown by the result card.
+    pub(crate) stars: u8,
+}
+
+impl BoardShot {
+    /// Nothing shown yet: the first frame treats every board as new.
+    pub(crate) const UNSEEN: Self = Self {
+        level: u8::MAX,
+        steps: 0,
+        bumps: 0,
+        modal: ExpeditionModal::None,
+        stars: 0,
+    };
+
+    /// Which motion moves the board from showing `self` to showing `now`.
+    pub(crate) fn cues(self, now: Self) -> BoardCues {
+        let same_level = self.level == now.level;
+        let stepped = same_level && self.steps.abs_diff(now.steps) == 1;
+        BoardCues {
+            new_level: !same_level,
+            travel: stepped,
+            settle: !same_level || (self.steps != now.steps && !stepped),
+            bump: same_level && self.bumps != now.bumps,
+            stars: (self.modal == ExpeditionModal::None && now.modal != ExpeditionModal::None)
+                .then_some(now.stars),
+        }
+    }
+}
+
+/// The motion a director starts for one change of its board.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct BoardCues {
+    /// Another level is on the board: show its banner, no travel.
+    pub(crate) new_level: bool,
+    /// One move was made or undone: the pieces travel to their new cells.
+    pub(crate) travel: bool,
+    /// The board jumped (restart, level, save): show it at rest.
+    pub(crate) settle: bool,
+    /// A move was refused: the pieces bump toward it.
+    pub(crate) bump: bool,
+    /// The result opened with this many stars earned.
+    pub(crate) stars: Option<u8>,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum ExpeditionModal {
     #[default]
@@ -309,6 +446,7 @@ pub(crate) enum ExpeditionPanel {
 pub(crate) struct ExpeditionUiModel {
     panel: ExpeditionPanel,
     chapter: u8,
+    banner: bool,
 }
 
 #[crate::model]
@@ -321,6 +459,24 @@ impl ExpeditionUiModel {
     #[observe]
     pub(crate) fn chapter(&self) -> u8 {
         self.chapter
+    }
+
+    /// Whether the banner naming the level just started is up.
+    #[observe]
+    pub(crate) fn banner(&self) -> bool {
+        self.banner
+    }
+
+    pub(crate) fn show_banner(&mut self) {
+        if !self.banner {
+            self.banner = true;
+        }
+    }
+
+    pub(crate) fn hide_banner(&mut self) {
+        if self.banner {
+            self.banner = false;
+        }
     }
 
     pub(crate) fn open(&mut self, level: u8) {
