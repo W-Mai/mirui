@@ -20,8 +20,7 @@ impl Profile {
     pub fn scene_size(self, width: u16, height: u16) -> (usize, usize, usize) {
         let (limit_w, limit_h, minimum_scale) = match self {
             Self::Desktop => (480, 300, 3),
-            // Keep scene storage below 128 KiB, including roll and cockpit buffers.
-            Self::Compact => (28, 28, 1),
+            Self::Compact => (128, 128, 1),
         };
         let scale = minimum_scale
             .max(usize::from(width).div_ceil(limit_w))

@@ -1,4 +1,5 @@
 #![doc = " Height-field scan conversion into reusable ordinary Texture storage."]
+mod compact;
 use super::math::FixedMath as _;
 use super::{
     flight::{Aircraft, Flight, Projection, TRAIL_CAPACITY},
@@ -276,9 +277,11 @@ struct SceneCanvas<'a, 'b> {
 }
 impl Frame {
     pub fn new(width: usize, height: usize) -> Result<Self, RenderError> {
+        Self::with_format(width, height, ColorFormat::RGBA8888)
+    }
+    fn with_format(width: usize, height: usize, format: ColorFormat) -> Result<Self, RenderError> {
         Ok(Self {
-            texture: Texture::owned(width as u16, height as u16, ColorFormat::RGBA8888)?
-                .with_cache_revision(0),
+            texture: Texture::owned(width as u16, height as u16, format)?.with_cache_revision(0),
             width,
             height,
         })
@@ -298,6 +301,7 @@ impl Frame {
         bounds: [i32; 4],
         f: impl FnOnce(&mut Canvas<'_>) -> R,
     ) -> R {
+        assert_eq!(self.texture.format, ColorFormat::RGBA8888);
         let mut pixels = self.texture.pixels_mut().expect("owned flight frame");
         let mut canvas = Canvas {
             bytes: pixels.bytes_mut(),
@@ -313,7 +317,7 @@ impl Frame {
         f(&mut canvas)
     }
     pub fn bytes(&self) -> usize {
-        self.width * self.height * 4
+        self.width * self.height * self.texture.format.bytes_per_pixel()
     }
 }
 impl Workspace {
@@ -409,10 +413,6 @@ impl SceneCanvas<'_, '_> {
     fn put(&mut self, index: usize, color: u32) {
         self.color.put(index, color);
     }
-    fn depth_at(&self, x: i32, y: i32) -> Fixed {
-        self.sample_depth(x, y)
-            .expect("depth query outside the rendered region")
-    }
     fn sample_depth(&self, x: i32, y: i32) -> Option<Fixed> {
         let [left, top, right, bottom] = self.color.bounds;
         if x < left || y < top || x >= right || y >= bottom {
@@ -472,6 +472,7 @@ pub struct Raster {
     pub frame: Frame,
     pub sheet: Frame,
     workspace: Workspace,
+    output_tile: Option<Frame>,
     pub palette: Palette,
     pub flames: [Flame; 6],
     pub flame_count: usize,
@@ -489,6 +490,28 @@ struct Scene<'a> {
 }
 impl Scene<'_> {
     fn draw(&self, canvas: &mut SceneCanvas<'_, '_>, projection: Projection) -> [usize; 3] {
+        let order = self.order(projection);
+        self.draw_ordered(canvas, projection, &order);
+        order
+    }
+    fn order(&self, projection: Projection) -> [usize; 3] {
+        let mut order = [0, 1, 2];
+        let (sn, cs) = projection.yaw.sin_cos();
+        order[..self.flight.count].sort_unstable_by(|a, b| {
+            let depth = |i: usize| {
+                (self.flight.jets[i].position[0] - projection.position[0]) * sn
+                    + (self.flight.jets[i].position[1] - projection.position[1]) * cs
+            };
+            depth(*a).cmp(&depth(*b))
+        });
+        order
+    }
+    fn draw_ordered(
+        &self,
+        canvas: &mut SceneCanvas<'_, '_>,
+        projection: Projection,
+        order: &[usize; 3],
+    ) {
         draw_world(
             canvas,
             self.world,
@@ -500,15 +523,6 @@ impl Scene<'_> {
         draw_sky(canvas, &projection, self.palette, self.frame_height);
         draw_trails(canvas, self.flight, &projection, self.palette);
         draw_smoke(canvas, self.flight, &projection, self.palette.day);
-        let mut order = [0, 1, 2];
-        let (sn, cs) = projection.yaw.sin_cos();
-        order[..self.flight.count].sort_unstable_by(|a, b| {
-            let depth = |i: usize| {
-                (self.flight.jets[i].position[0] - projection.position[0]) * sn
-                    + (self.flight.jets[i].position[1] - projection.position[1]) * cs
-            };
-            depth(*a).cmp(&depth(*b))
-        });
         for i in &order[..self.flight.count] {
             draw_jet(
                 canvas,
@@ -519,7 +533,97 @@ impl Scene<'_> {
                 self.slices,
             );
         }
-        order
+    }
+}
+fn sheet_side(width: usize, height: usize) -> usize {
+    let pivot = (Fixed::from_int(height as i32) * Fixed::from_ratio(34, 100)).round();
+    let tall = pivot.max(Fixed::from_int(height as i32) - pivot);
+    (((Fixed::from_int(width as i32) / 2).powi(2) + tall * tall)
+        .sqrt()
+        .ceil()
+        .to_int() as usize
+        + 2)
+        * 2
+}
+struct Mapping {
+    projection: Projection,
+    size: [usize; 2],
+    bounds: [i32; 4],
+    rolled: bool,
+    half: Fixed,
+    cx: Fixed,
+    pivot: Fixed,
+    sine: Fixed,
+    cosine: Fixed,
+}
+impl Mapping {
+    fn new(mut projection: Projection, width: usize, height: usize) -> Self {
+        let rolled = projection.cockpit > Fixed::ZERO || projection.roll != Fixed::ZERO;
+        let cx = Fixed::from_int(width as i32) / 2;
+        let pivot = (Fixed::from_int(height as i32) * Fixed::from_ratio(34, 100)).round();
+        let (sine, cosine) = projection.roll.sin_cos();
+        let mut mapping = Self {
+            projection,
+            size: [width, height],
+            bounds: [0, 0, width as i32, height as i32],
+            rolled,
+            half: Fixed::ZERO,
+            cx,
+            pivot,
+            sine,
+            cosine,
+        };
+        if rolled {
+            let side = sheet_side(width, height);
+            let half = Fixed::from_int((side / 2) as i32);
+            let tall = pivot.max(Fixed::from_int(height as i32) - pivot);
+            let x = (cosine.abs() * Fixed::from_int(width as i32) / 2 + sine.abs() * tall).ceil()
+                + Fixed::from_int(2);
+            let (above, below) = if cosine < Fixed::ZERO {
+                (Fixed::from_int(height as i32) - pivot, pivot)
+            } else {
+                (pivot, Fixed::from_int(height as i32) - pivot)
+            };
+            let top = (cosine.abs() * above + sine.abs() * Fixed::from_int(width as i32) / 2)
+                .ceil()
+                + Fixed::from_int(2);
+            let bottom = (cosine.abs() * below + sine.abs() * Fixed::from_int(width as i32) / 2)
+                .ceil()
+                + Fixed::from_int(2);
+            projection.center = [half, half + (projection.center[1] - pivot)];
+            mapping.projection = projection;
+            mapping.size = [side, side];
+            mapping.half = half;
+            mapping.bounds = [
+                (half - x).max(Fixed::ZERO).to_int(),
+                (half - top).max(Fixed::ZERO).to_int(),
+                (half + x).min(Fixed::from_int(side as i32)).to_int(),
+                (half + bottom).min(Fixed::from_int(side as i32)).to_int(),
+            ];
+        }
+        mapping
+    }
+    fn source_at(&self, x: i32, y: i32) -> [i32; 2] {
+        if !self.rolled {
+            return [x, y];
+        }
+        let dx = Fixed::from_int(x) - self.cx;
+        let dy = Fixed::from_int(y) - self.pivot;
+        [
+            (self.half + self.cosine * dx - self.sine * dy + Fixed::from_ratio(1, 2)).to_int(),
+            (self.half + self.sine * dx + self.cosine * dy + Fixed::from_ratio(1, 2)).to_int(),
+        ]
+    }
+    fn unroll(&self, point: [Fixed; 2]) -> [Fixed; 2] {
+        if !self.rolled {
+            return point;
+        }
+        let dx = point[0] - self.half;
+        let dy = point[1] - self.half;
+        [
+            self.cx + self.cosine * dx + self.sine * dy,
+            self.pivot - self.sine * dx + self.cosine * dy,
+        ]
     }
 }
 #[doc = " Integral scaling preserves hard scene pixels and caps CPU work independently of window size."]
@@ -528,16 +632,20 @@ pub fn scene_size(width: u16, height: u16) -> (usize, usize, usize) {
 }
 impl Raster {
     pub fn new(width: usize, height: usize) -> Result<Self, RenderError> {
+        Self::allocate(width, height, false)
+    }
+    pub(super) fn new_compact(width: usize, height: usize) -> Result<Self, RenderError> {
+        assert!(width <= 128 && height <= 128);
+        Self::allocate(width, height, true)
+    }
+    fn allocate(width: usize, height: usize, compact: bool) -> Result<Self, RenderError> {
         let width = width.clamp(8, MAX_WIDTH);
         let height = height.clamp(8, MAX_HEIGHT);
-        let pivot = (Fixed::from_int((height) as i32) * Fixed::from_ratio(34, 100)).round();
-        let tall = pivot.max(Fixed::from_int((height) as i32) - pivot);
-        let side = ((((Fixed::from_int((width) as i32) / Fixed::from_int(2)).powi(2) + tall * tall)
-            .sqrt()
-            .ceil())
-        .trunc_to_int() as usize
-            + 2)
-            * 2;
+        let side = if compact {
+            compact::SOURCE_SIDE
+        } else {
+            sheet_side(width, height)
+        };
         let slices = jet::slices();
         let mut shadow = [0; jet::WIDTH * jet::LENGTH];
         for slice in &slices {
@@ -546,9 +654,22 @@ impl Raster {
             }
         }
         Ok(Self {
-            frame: Frame::new(width, height)?,
+            frame: Frame::with_format(
+                width,
+                height,
+                if compact {
+                    ColorFormat::RGB565
+                } else {
+                    ColorFormat::RGBA8888
+                },
+            )?,
             sheet: Frame::new(side, side)?,
             workspace: Workspace::new(side, side),
+            output_tile: if compact {
+                Some(Frame::new(compact::TILE_SIDE, compact::TILE_SIDE)?)
+            } else {
+                None
+            },
             palette: Palette::new(Daylight::Day),
             flames: [Flame::default(); 6],
             flame_count: 0,
@@ -561,12 +682,16 @@ impl Raster {
         self.frame.bytes()
             + self.sheet.bytes()
             + self.workspace.bytes()
+            + self.output_tile.as_ref().map_or(0, Frame::bytes)
             + core::mem::size_of::<Self>()
     }
     pub fn render(&mut self, world: &World, flight: &Flight) {
+        assert!(
+            self.output_tile.is_none(),
+            "compact rendering requires its cockpit pass"
+        );
         let p = flight.projection(self.frame.width, self.frame.height);
         self.flame_count = 0;
-        let rolled = p.cockpit > Fixed::ZERO || p.roll != Fixed::ZERO;
         let Self {
             frame,
             sheet,
@@ -577,6 +702,7 @@ impl Raster {
             slices,
             shadow,
             seen,
+            output_tile: _,
         } = self;
         let frame_height = frame.height;
         let scene = Scene {
@@ -593,49 +719,17 @@ impl Raster {
                 record_flames(canvas, flight, *i, &projection, flames, flame_count, seen);
             }
         };
-        if rolled {
-            let mut projection = p;
-            let half = Fixed::from_int((sheet.width / 2) as i32);
-            let pivot =
-                (Fixed::from_int((frame.height) as i32) * Fixed::from_ratio(34, 100)).round();
-            projection.center = [half, half + (p.center[1] - pivot)];
-            workspace.with_canvas(sheet, |canvas| {
-                let c = p.roll.cos().abs();
-                let s = p.roll.sin().abs();
-                let tall = pivot.max(Fixed::from_int((frame.height) as i32) - pivot);
-                let x = (c * Fixed::from_int((frame.width) as i32) / Fixed::from_int(2) + s * tall)
-                    .ceil()
-                    + Fixed::from_int(2);
-                let top = (c * pivot
-                    + s * Fixed::from_int((frame.width) as i32) / Fixed::from_int(2))
-                .ceil()
-                    + Fixed::from_int(2);
-                let bottom = (c * (Fixed::from_int((frame.height) as i32) - pivot)
-                    + s * Fixed::from_int((frame.width) as i32) / Fixed::from_int(2))
-                .ceil()
-                    + Fixed::from_int(2);
-                canvas.color.set_bounds([
-                    ((half - x).max(Fixed::ZERO)).trunc_to_int(),
-                    ((half - top).max(Fixed::ZERO)).trunc_to_int(),
-                    ((half + x).min(Fixed::from_int((canvas.color.width) as i32))).trunc_to_int(),
-                    ((half + bottom).min(Fixed::from_int((canvas.color.height) as i32)))
-                        .trunc_to_int(),
-                ]);
-                draw(canvas, projection);
+        let mapping = Mapping::new(p, frame.width, frame.height);
+        if mapping.rolled {
+            workspace.with_region(sheet, mapping.size, [0, 0], mapping.bounds, |canvas| {
+                draw(canvas, mapping.projection)
             });
             let pixels = sheet.texture.read_pixels().expect("flight roll sheet");
             frame.with_canvas(|canvas| {
-                let (s, c) = p.roll.sin_cos();
-                let cx = Fixed::from_int((canvas.width) as i32) / Fixed::from_int(2);
                 for y in 0..canvas.height {
-                    let dy = Fixed::from_int((y) as i32) - pivot;
                     for x in 0..canvas.width {
-                        let dx = Fixed::from_int((x) as i32) - cx;
-                        let sx = (half + c * dx - s * dy + Fixed::from_ratio(5, 10)).trunc_to_int()
-                            as usize;
-                        let sy = (half + s * dx + c * dy + Fixed::from_ratio(5, 10)).trunc_to_int()
-                            as usize;
-                        let at = (sy * sheet.width + sx) * 4;
+                        let [sx, sy] = mapping.source_at(x as i32, y as i32);
+                        let at = (sy as usize * sheet.width + sx as usize) * 4;
                         canvas.bytes[(y * canvas.width + x) * 4..(y * canvas.width + x + 1) * 4]
                             .copy_from_slice(&pixels.bytes()[at..at + 4]);
                     }
@@ -643,19 +737,25 @@ impl Raster {
             });
             for flame in &mut flames[..*flame_count] {
                 for point in &mut flame.points {
-                    let (s, c) = p.roll.sin_cos();
-                    let dx = point[0] - half;
-                    let dy = point[1] - half;
-                    *point = [
-                        Fixed::from_int((frame.width) as i32) / Fixed::from_int(2)
-                            + c * dx
-                            + s * dy,
-                        pivot - s * dx + c * dy,
-                    ];
+                    *point = mapping.unroll(*point);
                 }
             }
         } else {
             workspace.with_canvas(frame, |canvas| draw(canvas, p));
+        }
+    }
+    pub(super) fn render_with_cockpit(
+        &mut self,
+        world: &World,
+        flight: &Flight,
+        cockpit: &super::cockpit::Cockpit,
+    ) {
+        if self.output_tile.is_some() {
+            self.render_compact(world, flight, cockpit);
+        } else {
+            self.render(world, flight);
+            self.frame
+                .with_canvas(|canvas| cockpit.draw(canvas, world, flight, &self.palette));
         }
     }
 }
@@ -1324,6 +1424,78 @@ fn draw_jet(
         }
     }
 }
+#[derive(Clone, Copy, Default)]
+struct PendingFlame {
+    flame: Flame,
+    projected: [[Fixed; 4]; 3],
+    slot: usize,
+    resolved: u16,
+    open: u16,
+}
+impl PendingFlame {
+    fn query(&self, index: usize) -> (i32, i32, Fixed) {
+        let n = index / 5;
+        let point = if n == 1 {
+            core::array::from_fn(|k| {
+                Fixed::from_ratio(25, 100) * self.projected[0][k]
+                    + Fixed::from_ratio(5, 10) * self.projected[1][k]
+                    + Fixed::from_ratio(25, 100) * self.projected[2][k]
+            })
+        } else {
+            self.projected[n]
+        };
+        let radius = self.flame.radius;
+        let (dx, dy) = [
+            (Fixed::ZERO, Fixed::ZERO),
+            (-radius, Fixed::ZERO),
+            (radius, Fixed::ZERO),
+            (Fixed::ZERO, -radius),
+            (Fixed::ZERO, radius),
+        ][index % 5];
+        (
+            (point[0] + dx).round().to_int(),
+            (point[1] + dy).round().to_int(),
+            point[3],
+        )
+    }
+    fn resolve(&mut self, canvas: &SceneCanvas<'_, '_>) {
+        for index in 0..15 {
+            let bit = 1 << index;
+            if self.resolved & bit != 0 {
+                continue;
+            }
+            let (x, y, depth) = self.query(index);
+            if let Some(value) = canvas.sample_depth(x, y) {
+                self.resolved |= bit;
+                if value >= depth - Fixed::ONE {
+                    self.open |= bit;
+                }
+            }
+        }
+    }
+    fn missing(&self) -> Option<[i32; 2]> {
+        (0..15)
+            .find(|index| self.resolved & (1 << index) == 0)
+            .map(|index| {
+                let (x, y, _) = self.query(index);
+                [x, y]
+            })
+    }
+    fn finish(mut self, seen: &mut [[Fixed; 3]; 6]) -> Flame {
+        assert_eq!(self.resolved, 0x7fff, "unresolved flame visibility");
+        for (n, (value, target)) in seen[self.slot]
+            .iter_mut()
+            .zip(self.flame.visibility.iter_mut())
+            .enumerate()
+        {
+            let open = ((self.open >> (n * 5)) & 31).count_ones() as i32;
+            *value +=
+                (Fixed::from_int(open) / Fixed::from_int(5) - *value) * Fixed::from_ratio(3, 10);
+            *target = *value;
+        }
+        self.flame
+    }
+}
 fn record_flames(
     canvas: &SceneCanvas<'_, '_>,
     flight: &Flight,
@@ -1332,6 +1504,23 @@ fn record_flames(
     out: &mut [Flame; 6],
     count: &mut usize,
     seen: &mut [[Fixed; 3]; 6],
+) {
+    let mut pending = [PendingFlame::default(); 2];
+    let mut length = 0;
+    project_flames(flight, index, p, &mut pending, &mut length);
+    for mut value in pending[..length].iter().copied() {
+        value.resolve(canvas);
+        assert!(value.missing().is_none());
+        out[*count] = value.finish(seen);
+        *count += 1;
+    }
+}
+fn project_flames(
+    flight: &Flight,
+    index: usize,
+    p: &Projection,
+    out: &mut [PendingFlame],
+    count: &mut usize,
 ) {
     let jet: &Aircraft = &flight.jets[index];
     let alpha = if index == 0 { p.jet_alpha } else { Fixed::ONE } * (Fixed::ONE - p.cockpit_in());
@@ -1383,44 +1572,21 @@ fn record_flames(
         }
         let radius = width * flight.settings.jet_scale * projected[0][2];
         let slot = index * 2 + usize::from(side > Fixed::ZERO);
-        let mut visibility = [Fixed::ZERO; 3];
-        for n in 0..3 {
-            let point = if n == 1 {
-                core::array::from_fn(|k| {
-                    Fixed::from_ratio(25, 100) * projected[0][k]
-                        + Fixed::from_ratio(5, 10) * projected[1][k]
-                        + Fixed::from_ratio(25, 100) * projected[2][k]
-                })
-            } else {
-                projected[n]
-            };
-            let mut open = 0;
-            for (dx, dy) in [
-                (Fixed::ZERO, Fixed::ZERO),
-                (-radius, Fixed::ZERO),
-                (radius, Fixed::ZERO),
-                (Fixed::ZERO, -radius),
-                (Fixed::ZERO, radius),
-            ] {
-                let x = ((point[0] + dx).round()).trunc_to_int() as i32;
-                let y = ((point[1] + dy).round()).trunc_to_int() as i32;
-                if canvas.depth_at(x, y) >= point[3] - Fixed::ONE {
-                    open += 1;
-                }
-            }
-            seen[slot][n] += (Fixed::from_int(open) / Fixed::from_int(5) - seen[slot][n])
-                * Fixed::from_ratio(3, 10);
-            visibility[n] = seen[slot][n];
-        }
-        out[*count] = Flame {
-            points: projected.map(|v| [v[0], v[1]]),
-            radius,
-            tip_scale: projected[2][2] / projected[0][2],
-            power: flight.boost,
-            alpha,
-            visibility,
-            seed: Fixed::from_int((slot) as i32),
-            length: length / width,
+        out[*count] = PendingFlame {
+            flame: Flame {
+                points: projected.map(|v| [v[0], v[1]]),
+                radius,
+                tip_scale: projected[2][2] / projected[0][2],
+                power: flight.boost,
+                alpha,
+                visibility: [Fixed::ZERO; 3],
+                seed: Fixed::from_int((slot) as i32),
+                length: length / width,
+            },
+            projected,
+            slot,
+            resolved: 0,
+            open: 0,
         };
         *count += 1;
     }
@@ -1555,9 +1721,9 @@ mod tests {
             );
             assert_eq!(canvas.depth[3 * 8 + 3], Fixed::from_ratio(1, 1));
             canvas.color.bounds = [0, 0, 2, 2];
-            assert_eq!(canvas.depth_at(3, 3), Fixed::MAX);
+            assert_eq!(canvas.sample_depth(3, 3), Some(Fixed::MAX));
             canvas.color.bounds = [0, 0, 8, 8];
-            assert_eq!(canvas.depth_at(3, 3), Fixed::ONE);
+            assert_eq!(canvas.sample_depth(3, 3), Some(Fixed::ONE));
         });
     }
 }

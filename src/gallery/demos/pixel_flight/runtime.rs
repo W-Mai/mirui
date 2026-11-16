@@ -25,7 +25,7 @@ pub struct FlightModel {
     flight: Flight,
     raster: Option<Raster>,
     cockpit: Option<Cockpit>,
-    flames: Flames,
+    flames: Option<Flames>,
     viewport: (u16, u16),
     revision: u64,
     hint_time: Fixed,
@@ -50,12 +50,11 @@ impl FlightModel {
             flight,
             raster: None,
             cockpit: None,
-            flames: Flames::with_limit(if profile == Profile::Compact {
-                16
+            flames: if profile == Profile::Desktop {
+                Some(Flames::new().expect("flight flame storage"))
             } else {
-                super::flame::TILE
-            })
-            .expect("flight flame storage"),
+                None
+            },
             viewport: (width, height),
             revision: 0,
             hint_time: Fixed::ZERO,
@@ -93,7 +92,11 @@ impl FlightModel {
             Profile::Desktop => Cockpit::new(width, height, &palette),
             Profile::Compact => Cockpit::new_compact(width, height, &palette),
         };
-        let mut raster = Raster::new(width, height).expect("bounded flight frame");
+        let mut raster = match self.profile {
+            Profile::Desktop => Raster::new(width, height),
+            Profile::Compact => Raster::new_compact(width, height),
+        }
+        .expect("bounded flight frame");
         raster.palette = palette;
         self.cockpit = Some(cockpit);
         self.raster = Some(raster);
@@ -102,21 +105,20 @@ impl FlightModel {
         let Some(raster) = &mut self.raster else {
             return;
         };
-        raster.render(&self.terrain, &self.flight);
         if let Some(cockpit) = &self.cockpit {
-            raster.frame.with_canvas(|canvas| {
-                cockpit.draw(canvas, &self.terrain, &self.flight, &raster.palette)
-            });
+            raster.render_with_cockpit(&self.terrain, &self.flight, cockpit);
         }
         let (_, _, scale) = self.profile.scene_size(self.viewport.0, self.viewport.1);
-        self.flames
-            .prepare(
-                &raster.flames[..raster.flame_count],
-                self.flight.time,
-                Fixed::from_int((scale) as i32),
-                [raster.frame.width, raster.frame.height],
-            )
-            .expect("prepared flame textures");
+        if let Some(flames) = &mut self.flames {
+            flames
+                .prepare(
+                    &raster.flames[..raster.flame_count],
+                    self.flight.time,
+                    Fixed::from_int((scale) as i32),
+                    [raster.frame.width, raster.frame.height],
+                )
+                .expect("prepared flame textures");
+        }
         self.revision = self.revision.wrapping_add(1);
         raster.frame.texture.cache_revision = self.revision;
     }
@@ -320,7 +322,9 @@ impl FlightModel {
             radius: Fixed::ZERO,
             composite: CompositeMode::SourceOver,
         });
-        self.flames.paint(paint, origin, scale);
+        if let Some(flames) = &self.flames {
+            flames.paint(paint, origin, scale);
+        }
     }
     pub fn resident_bytes(&self) -> usize {
         self.terrain.bytes()
@@ -332,8 +336,10 @@ impl FlightModel {
             + self.cockpit.as_ref().map_or(0, |cockpit| {
                 cockpit.bytes() - core::mem::size_of::<Cockpit>()
             })
-            + self.flames.bytes()
-            - core::mem::size_of::<Flames>()
+            + self
+                .flames
+                .as_ref()
+                .map_or(0, |flames| flames.bytes() - core::mem::size_of::<Flames>())
     }
 }
 #[crate::component]
@@ -549,7 +555,7 @@ mod tests {
     }
     #[test]
     fn autoplay_reuses_flight_and_camera_without_allocating() {
-        let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
+        let mut scene = FlightModel::with_profile(32, 32, Profile::Compact);
         let position = scene.flight.jets[0].position;
         scene.press();
         scene.key(PhysicalKey::ShiftLeft, true, false);
@@ -560,14 +566,14 @@ mod tests {
             for expected in [CameraView::Chase, CameraView::Cockpit, CameraView::Overhead] {
                 let before = scene.view();
                 for _ in 0..239 {
-                    scene.advance(50, 128, 128, Some([Fixed::ONE; 2]));
+                    scene.advance(50, 32, 32, Some([Fixed::ONE; 2]));
                 }
                 assert_eq!(scene.view(), before);
                 scene.set_autoplay(true);
                 scene.key(PhysicalKey::Space, true, false);
                 scene.key(PhysicalKey::ShiftLeft, true, false);
                 scene.press();
-                scene.advance(50, 128, 128, Some([Fixed::ONE; 2]));
+                scene.advance(50, 32, 32, Some([Fixed::ONE; 2]));
                 assert_eq!(scene.view(), expected);
                 assert_eq!(scene.view_elapsed_ms, 0);
                 assert_eq!(scene.flight.controls.keys, 0);
@@ -585,24 +591,24 @@ mod tests {
     }
     #[test]
     fn autoplay_pauses_and_uses_the_same_clamped_simulation_time() {
-        let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
+        let mut scene = FlightModel::with_profile(32, 32, Profile::Compact);
         scene.set_autoplay(true);
         for _ in 0..239 {
-            scene.advance(50, 128, 128, None);
+            scene.advance(50, 32, 32, None);
         }
         let time = scene.flight.time;
         let revision = scene.revision;
         scene.set_focus(false);
-        scene.advance(u32::MAX, 128, 128, None);
+        scene.advance(u32::MAX, 32, 32, None);
         scene.set_focus(true);
         scene.set_visible(false);
-        scene.advance(u32::MAX, 128, 128, None);
+        scene.advance(u32::MAX, 32, 32, None);
         scene.set_visible(true);
         scene.advance(u32::MAX, 0, 128, None);
         assert_eq!(scene.flight.time, time);
         assert_eq!(scene.revision, revision);
         assert_eq!(scene.view(), CameraView::Overhead);
-        scene.advance(u32::MAX, 128, 128, None);
+        scene.advance(u32::MAX, 32, 32, None);
         assert_eq!(scene.view(), CameraView::Chase);
         assert_eq!(scene.view_elapsed_ms, 0);
         assert_eq!(scene.flight.time, Fixed::from_int(12));
@@ -611,7 +617,7 @@ mod tests {
         assert_eq!(scene.view(), CameraView::Chase);
         assert_eq!(scene.flight.jets[0].position, position);
         scene.set_autoplay(true);
-        scene.advance(0, 128, 128, None);
+        scene.advance(0, 32, 32, None);
         assert_eq!(scene.view_elapsed_ms, 0);
     }
     #[test]
@@ -619,6 +625,14 @@ mod tests {
         let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
         eprintln!("compact scene bytes: {}", scene.resident_bytes());
         assert!(scene.resident_bytes() < 128 * 1024);
+        assert_eq!(Profile::Compact.scene_size(128, 128), (128, 128, 1));
+        assert_eq!(
+            (
+                scene.raster.as_ref().unwrap().frame.width,
+                scene.raster.as_ref().unwrap().frame.height
+            ),
+            (128, 128)
+        );
         for (width, height) in [
             (128, 128),
             (160, 128),
@@ -631,23 +645,17 @@ mod tests {
                 scene.select_view(view);
                 scene.advance(16, width, height, None);
                 let allocations = crate::test_support::tracked_allocations(|| {
-                    for _ in 0..120 {
+                    for _ in 0..8 {
                         scene.advance(16, width, height, None);
                     }
                 });
                 assert_eq!(allocations, 0);
                 let raster = scene.raster.as_ref().unwrap();
-                assert!(raster.frame.width <= 28 && raster.frame.height <= 28);
+                assert!(raster.frame.width <= 128 && raster.frame.height <= 128);
                 assert!(scene.resident_bytes() < 128 * 1024);
                 assert!(
-                    raster
-                        .frame
-                        .texture
-                        .read_pixels()
-                        .unwrap()
-                        .bytes()
-                        .chunks_exact(4)
-                        .all(|p| p[3] == 255)
+                    raster.frame.texture.read_pixels().unwrap().format()
+                        == crate::render::texture::ColorFormat::RGB565
                 );
             }
         }

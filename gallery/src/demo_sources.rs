@@ -42,7 +42,7 @@ split_demo_sources! {
     PIXEL_FLIGHT => {
         demo: "pixel_flight",
         marker: "fn flight_scene",
-        parts: ["world.rs", "jet.rs", "flight.rs", "raster.rs", "cockpit.rs", "flame.rs", "math.rs", "runtime.rs"]
+        parts: ["world.rs", "jet.rs", "flight.rs", "raster.rs", "raster/compact.rs", "cockpit.rs", "flame.rs", "math.rs", "runtime.rs"]
     },
     CHORD_PROMPTER => {
         demo: "chord_prompter",

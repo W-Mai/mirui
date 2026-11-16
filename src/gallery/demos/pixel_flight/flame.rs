@@ -5,9 +5,9 @@ use crate::{
     render::{
         command::{CompositeMode, DrawCommand},
         renderer::RenderError,
-        texture::{AlphaMode, ColorFormat, Texture},
+        texture::{AlphaMode, ColorFormat, Texture, TexturePixelsMut},
     },
-    types::{Fixed, Fixed64, Point, Rect},
+    types::{Color, Fixed, Fixed64, Point, Rect},
     ui::view::PaintCtx,
 };
 pub const TILE: usize = 256;
@@ -344,6 +344,85 @@ impl Prepared {
         ]
     }
 }
+fn encode_sample(value: [Fixed; 4]) -> (Color, Color) {
+    let alpha = value[3].clamp(Fixed::ZERO, Fixed::ONE);
+    let mut base = [0; 3];
+    let mut emission = [0; 3];
+    for (k, channel) in value[..3].iter().enumerate() {
+        let premul = (*channel).clamp(Fixed::ZERO, Fixed::ONE);
+        let straight = if alpha > Fixed::ZERO {
+            (premul / alpha).min(Fixed::ONE)
+        } else {
+            Fixed::ZERO
+        };
+        base[k] = (straight * Fixed::from_int(255)).round().to_int() as u8;
+        emission[k] = ((premul - straight * alpha).max(Fixed::ZERO) * Fixed::from_int(255))
+            .round()
+            .to_int() as u8;
+    }
+    (
+        Color::rgba(
+            base[0],
+            base[1],
+            base[2],
+            (alpha * Fixed::from_int(255)).round().to_int() as u8,
+        ),
+        Color::rgb(emission[0], emission[1], emission[2]),
+    )
+}
+pub(super) fn composite_native(pixels: &mut TexturePixelsMut<'_>, flames: &[Flame], time: Fixed) {
+    for mut flame in flames.iter().copied() {
+        if flame.radius <= Fixed::ZERO || flame.alpha <= Fixed::ZERO {
+            continue;
+        }
+        for point in &mut flame.points {
+            point[0] += Fixed::from_ratio(1, 2);
+            point[1] += Fixed::from_ratio(1, 2);
+        }
+        let margin = flame.radius * flame.tip_scale.max(Fixed::ONE) * Fixed::from_ratio(42, 10)
+            + Fixed::from_int(2);
+        let low: [i32; 2] = core::array::from_fn(|k| {
+            (flame
+                .points
+                .iter()
+                .map(|p| p[k])
+                .fold(Fixed::MAX, Fixed::min)
+                - margin)
+                .floor()
+                .to_int()
+                .max(0)
+        });
+        let high: [i32; 2] = core::array::from_fn(|k| {
+            (flame
+                .points
+                .iter()
+                .map(|p| p[k])
+                .fold(Fixed::MIN, Fixed::max)
+                + margin)
+                .ceil()
+                .to_int()
+                .min(if k == 0 {
+                    pixels.width().into()
+                } else {
+                    pixels.height().into()
+                })
+        });
+        let prepared = Prepared::new(flame, time);
+        for y in low[1]..high[1] {
+            for x in low[0]..high[0] {
+                let value = prepared.shade::<true>([
+                    Fixed::from_int(x) + Fixed::from_ratio(1, 2),
+                    Fixed::from_int(y) + Fixed::from_ratio(1, 2),
+                ]);
+                let (base, emission) = encode_sample(value);
+                pixels.composite_pixel_int(x, y, &base, base.a, CompositeMode::SourceOver);
+                if emission.r != 0 || emission.g != 0 || emission.b != 0 {
+                    pixels.composite_pixel_int(x, y, &emission, 255, CompositeMode::Add);
+                }
+            }
+        }
+    }
+}
 pub struct Tile {
     pub base: Texture<'static>,
     pub emission: Texture<'static>,
@@ -489,25 +568,20 @@ impl Flames {
                                 * tile.bounds[3],
                     ];
                     let value = prepared.shade::<true>(position);
-                    let alpha = value[3].clamp(Fixed::ZERO, Fixed::ONE);
+                    let (base_color, emission_color) = encode_sample(value);
                     let at = (y * width + x) * 4;
-                    for (k, channel) in value[..3].iter().enumerate() {
-                        let premul = (*channel).clamp(Fixed::ZERO, Fixed::ONE);
-                        let straight = if alpha > Fixed::from_ratio(1, 1000000) {
-                            (premul / alpha).min(Fixed::ONE)
-                        } else {
-                            Fixed::ZERO
-                        };
-                        base.bytes_mut()[at + k] =
-                            ((straight * Fixed::from_int(255)).round()).trunc_to_int() as u8;
-                        emission.bytes_mut()[at + k] =
-                            (((premul - straight * alpha).max(Fixed::ZERO) * Fixed::from_int(255))
-                                .round())
-                            .trunc_to_int() as u8;
-                    }
-                    base.bytes_mut()[at + 3] =
-                        ((alpha * Fixed::from_int(255)).round()).trunc_to_int() as u8;
-                    emission.bytes_mut()[at + 3] = 255;
+                    base.bytes_mut()[at..at + 4].copy_from_slice(&[
+                        base_color.r,
+                        base_color.g,
+                        base_color.b,
+                        base_color.a,
+                    ]);
+                    emission.bytes_mut()[at..at + 4].copy_from_slice(&[
+                        emission_color.r,
+                        emission_color.g,
+                        emission_color.b,
+                        emission_color.a,
+                    ]);
                 }
             }
             tile.active = true;

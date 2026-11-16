@@ -87,6 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Store Compact cockpit layers as lossless MIRX RLE rows while retaining procedural artwork and live instrument rendering.
 - Preserve flight projection, terrain samples and depth while drawing through bounded image regions.
 - Keep flight output revisions monotonic across palette and viewport rebuilds to avoid stale native texture uploads.
+- Render Pixel Flight Compact at native 128×128 in RGB565 using bounded inverse-roll tiles and direct flame composition without warm allocations.
+- Preserve the complete rotated flight viewport across all roll quadrants.
 
 ## [0.56.0] - 2026-11-12
 

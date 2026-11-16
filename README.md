@@ -17,7 +17,7 @@ The Glass Light Toggle demo supports clicking, dragging, Space/Enter and arrow k
 
 Pixel Flight has overhead, chase and cockpit views, procedural islands, layered aircraft and live instruments. Run `cargo run -p gallery --example pixel_flight_demo --profile release-opt --no-default-features --features sdl-gpu`. Space switches views; point to steer, click to roll, and hold or press Shift to boost.
 
-Pixel Flight Compact starts at 128×128 with bounded terrain, flame and scene buffers. Run `cargo run -p gallery --example pixel_flight_compact_demo --profile release-opt --no-default-features --features sdl-gpu`. Both flight demos support window resizing and the same controls.
+Pixel Flight Compact renders at native 128×128 into RGB565, using bounded scene tiles and lossless MIRX cockpit rows. Run `cargo run -p gallery --example pixel_flight_compact_demo --profile release-opt --no-default-features --features sdl-gpu`. Both flight demos support window resizing and the same controls.
 
 Append `-- --auto` to either flight example for unattended flight with automatic camera changes every twelve simulation seconds. Embedded applications enable the same mode through the returned Model: `let flight = pixel_flight::setup_compact_app(&mut app, parent); flight.set_autoplay(true);`. Passing `false` restores manual control without restarting the flight.
 

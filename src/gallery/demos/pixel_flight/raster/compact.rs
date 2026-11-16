@@ -1,0 +1,266 @@
+use super::*;
+use crate::types::Color;
+
+// A rotated 32-pixel core spans at most 45 samples; retain two halo pixels per side.
+pub(super) const TILE_SIDE: usize = 32;
+pub(super) const SOURCE_SIDE: usize = 50;
+
+impl Raster {
+    pub(super) fn render_compact(
+        &mut self,
+        world: &World,
+        flight: &Flight,
+        cockpit: &super::super::cockpit::Cockpit,
+    ) {
+        let Self {
+            frame,
+            sheet,
+            workspace,
+            output_tile,
+            palette,
+            flames,
+            flame_count,
+            slices,
+            shadow,
+            seen,
+        } = self;
+        let width = frame.width;
+        let height = frame.height;
+        let mapping = Mapping::new(flight.projection(width, height), width, height);
+        let scene = Scene {
+            world,
+            flight,
+            palette,
+            slices,
+            shadow,
+            frame_height: height,
+        };
+        let order = scene.order(mapping.projection);
+        let mut pending = [PendingFlame::default(); 6];
+        let mut count = 0;
+        for index in &order[..flight.count] {
+            project_flames(
+                flight,
+                *index,
+                &mapping.projection,
+                &mut pending,
+                &mut count,
+            );
+        }
+        let output_tile = output_tile.as_mut().expect("compact color workspace");
+        let mut target = frame.texture.pixels_mut().expect("owned compact frame");
+        for y in (0..height).step_by(TILE_SIDE) {
+            for x in (0..width).step_by(TILE_SIDE) {
+                let right = (x + TILE_SIDE).min(width) as i32;
+                let bottom = (y + TILE_SIDE).min(height) as i32;
+                let x = x as i32;
+                let y = y as i32;
+                let corners = [
+                    [x, y],
+                    [right - 1, y],
+                    [x, bottom - 1],
+                    [right - 1, bottom - 1],
+                ]
+                .map(|[x, y]| mapping.source_at(x, y));
+                let origin = [
+                    corners.iter().map(|p| p[0]).min().unwrap() - 2,
+                    corners.iter().map(|p| p[1]).min().unwrap() - 2,
+                ];
+                assert!(
+                    corners.iter().all(|p| p[0] > origin[0]
+                        && p[1] > origin[1]
+                        && p[0] < origin[0] + SOURCE_SIDE as i32 - 1
+                        && p[1] < origin[1] + SOURCE_SIDE as i32 - 1),
+                    "inverse roll exceeds source workspace"
+                );
+                workspace.with_region(sheet, mapping.size, origin, mapping.bounds, |canvas| {
+                    scene.draw_ordered(canvas, mapping.projection, &order);
+                    for query in &mut pending[..count] {
+                        query.resolve(canvas);
+                    }
+                });
+                let source = sheet.texture.read_pixels().expect("compact source pixels");
+                output_tile.with_region(
+                    [width, height],
+                    [x, y],
+                    [0, 0, width as i32, height as i32],
+                    |canvas| {
+                        for yy in y..bottom {
+                            for xx in x..right {
+                                let [sx, sy] = mapping.source_at(xx, yy);
+                                assert!(
+                                    sx >= mapping.bounds[0]
+                                        && sy >= mapping.bounds[1]
+                                        && sx < mapping.bounds[2]
+                                        && sy < mapping.bounds[3],
+                                "roll sample {sx},{sy} outside {:?}, virtual {:?}, output {width}x{height} at {xx},{yy}, roll {:?}", mapping.bounds, mapping.size, mapping.projection.roll
+                                );
+                                let at = (((sy - origin[1]) as usize) * SOURCE_SIDE
+                                    + (sx - origin[0]) as usize)
+                                    * 4;
+                                canvas.put(
+                                    canvas.index(xx, yy),
+                                    u32::from_le_bytes(
+                                        source.bytes()[at..at + 4]
+                                            .try_into()
+                                            .expect("RGBA source pixel"),
+                                    ),
+                                );
+                            }
+                        }
+                        cockpit.draw(canvas, world, flight, palette);
+                        for yy in y..bottom {
+                            for xx in x..right {
+                                let [r, g, b, a] = canvas.get(canvas.index(xx, yy)).to_le_bytes();
+                                target.set_pixel(xx, yy, &Color::rgba(r, g, b, a));
+                            }
+                        }
+                    },
+                );
+            }
+        }
+        while let Some(origin) = pending[..count].iter().find_map(PendingFlame::missing) {
+            let before: u32 = pending[..count]
+                .iter()
+                .map(|p| p.resolved.count_ones())
+                .sum();
+            workspace.with_region(sheet, mapping.size, origin, mapping.bounds, |canvas| {
+                draw_world(canvas, world, flight, &mapping.projection, palette, shadow);
+                for query in &mut pending[..count] {
+                    query.resolve(canvas);
+                }
+            });
+            let after: u32 = pending[..count]
+                .iter()
+                .map(|p| p.resolved.count_ones())
+                .sum();
+            assert!(after > before, "flame visibility region made no progress");
+        }
+        for (out, query) in flames.iter_mut().zip(pending[..count].iter().copied()) {
+            *out = query.finish(seen);
+            for point in &mut out.points {
+                *point = mapping.unroll(*point);
+            }
+        }
+        *flame_count = count;
+        super::super::flame::composite_native(&mut target, &flames[..count], flight.time);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gallery::demos::pixel_flight::{
+        cockpit::Cockpit,
+        flight::{Settings, View},
+    };
+
+    #[test]
+    fn roll_bounds_cover_every_output_corner_in_all_quadrants() {
+        let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
+        let flight = Flight::new(&world, Settings::default());
+        for (width, height) in [
+            (8, 8),
+            (32, 32),
+            (128, 128),
+            (128, 64),
+            (64, 128),
+            (127, 113),
+        ] {
+            for degrees in (-360..360).step_by(5) {
+                let mut p = flight.projection(width, height);
+                p.roll = Fixed::from_int(degrees) * super::super::super::math::PI / 180;
+                p.cockpit = Fixed::ONE;
+                let mapping = Mapping::new(p, width, height);
+                for y in (0..height).step_by(TILE_SIDE) {
+                    for x in (0..width).step_by(TILE_SIDE) {
+                        let right = (x + TILE_SIDE).min(width) - 1;
+                        let bottom = (y + TILE_SIDE).min(height) - 1;
+                        let corners = [[x, y], [right, y], [x, bottom], [right, bottom]]
+                            .map(|[x, y]| mapping.source_at(x as i32, y as i32));
+                        let low = [
+                            corners.iter().map(|p| p[0]).min().unwrap() - 2,
+                            corners.iter().map(|p| p[1]).min().unwrap() - 2,
+                        ];
+                        for point in corners {
+                            assert!(
+                                point[0] >= mapping.bounds[0]
+                                    && point[1] >= mapping.bounds[1]
+                                    && point[0] < mapping.bounds[2]
+                                    && point[1] < mapping.bounds[3],
+                                "{width}x{height} at {degrees}: {point:?} outside {:?}",
+                                mapping.bounds
+                            );
+                            assert!(
+                                point[0] > low[0]
+                                    && point[1] > low[1]
+                                    && point[0] < low[0] + SOURCE_SIDE as i32 - 1
+                                    && point[1] < low[1] + SOURCE_SIDE as i32 - 1
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_tiles_match_full_scene_and_keep_fixed_workspaces() {
+        let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
+        let mut flight = Flight::new(&world, Settings::default());
+        flight.set_wingmen(2);
+        flight.controls.key(0, true);
+        let mut full = Raster::new(128, 128).unwrap();
+        let mut native = Raster::new_compact(128, 128).unwrap();
+        let mut expected = Frame::with_format(128, 128, ColorFormat::RGB565).unwrap();
+        for day in [Daylight::Day, Daylight::Sunset, Daylight::Night] {
+            full.palette = Palette::new(day);
+            native.palette = Palette::new(day);
+            let cockpit = Cockpit::new_compact(128, 128, &full.palette);
+            for view in [View::Overhead, View::Chase, View::Cockpit] {
+                flight.view = view;
+                for (frames, degrees) in [(1, 0), (12, 60), (100, 150), (200, 240), (1, 315)] {
+                    for _ in 0..frames {
+                        flight.step(&world, 16, 128, 128);
+                    }
+                    flight.jets[0].roll =
+                        Fixed::from_int(degrees) * super::super::super::math::PI / 180;
+                    full.render_with_cockpit(&world, &flight, &cockpit);
+                    let rgba = full.frame.texture.read_pixels().unwrap();
+                    {
+                        let mut target = expected.texture.pixels_mut().unwrap();
+                        for y in 0..128 {
+                            for x in 0..128 {
+                                let at = ((y * 128 + x) * 4) as usize;
+                                let [r, g, b, a] = rgba.bytes()[at..at + 4].try_into().unwrap();
+                                target.set_pixel(x, y, &Color::rgba(r, g, b, a));
+                            }
+                        }
+                        super::super::super::flame::composite_native(
+                            &mut target,
+                            &full.flames[..full.flame_count],
+                            flight.time,
+                        );
+                    }
+                    let allocations = crate::test_support::tracked_allocations(|| {
+                        native.render_with_cockpit(&world, &flight, &cockpit)
+                    });
+                    assert_eq!(allocations, 0);
+                    let a = expected.texture.read_pixels().unwrap();
+                    let b = native.frame.texture.read_pixels().unwrap();
+                    let mismatch = a.bytes().iter().zip(b.bytes()).position(|(a, b)| a != b);
+                    assert!(
+                        mismatch.is_none(),
+                        "native {day:?} {view:?} after {frames} steps, roll {degrees}: first differing byte {mismatch:?}"
+                    );
+                    assert_eq!(full.seen, native.seen);
+                    assert!(native.bytes() < 86 * 1024);
+                    assert_eq!(
+                        (native.sheet.width, native.sheet.height),
+                        (SOURCE_SIDE, SOURCE_SIDE)
+                    );
+                }
+            }
+        }
+    }
+}
