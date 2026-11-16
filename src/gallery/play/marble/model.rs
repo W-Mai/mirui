@@ -13,7 +13,7 @@ use crate::tr;
 use crate::types::Fixed64;
 
 /// No toast: the status line shows the page's own hint.
-const NO_TOAST: Phrase = tr!(en: "", zh: "");
+pub(super) const NO_TOAST: Phrase = tr!(en: "", zh: "");
 
 #[derive(Clone, Copy, Debug)]
 struct Drag {
@@ -23,7 +23,11 @@ struct Drag {
     position: Option<DragTransaction<Vec2>>,
 }
 
-#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+#[crate::model(
+    change = ChangeSet,
+    watch(visual = ChangeSet::VISUAL),
+    persistence(key = "marble_play/layout")
+)]
 #[derive(Debug)]
 pub(crate) struct MarbleModel {
     #[observe]
@@ -182,7 +186,7 @@ impl MarbleModel {
         })
     }
 
-    fn bounded(pad: &Pad, position: Vec2) -> Vec2 {
+    pub(super) fn bounded(pad: &Pad, position: Vec2) -> Vec2 {
         Vec2::fixed(
             position.x.clamp(
                 Fixed64::from_int(WORLD_LEFT - 1) + pad.radius,

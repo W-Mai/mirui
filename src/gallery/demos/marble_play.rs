@@ -3,6 +3,8 @@ extern crate alloc;
 mod audio;
 mod board;
 mod inspector;
+#[cfg(feature = "persistence")]
+mod persistence;
 mod scenes;
 mod settings;
 mod shell;
@@ -62,6 +64,8 @@ where
     app.with_widget(board::board_render::view());
     app.with_widget(scenes::scene_board_render::view());
     app.with_widget(settings::settings_panel_render::view());
+    #[cfg(feature = "persistence")]
+    persistence::install_persistence(app);
     let model = app.add_model(MarbleModel::new()).finish();
     #[cfg(feature = "audio")]
     {

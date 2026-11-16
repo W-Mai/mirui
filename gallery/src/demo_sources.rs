@@ -492,6 +492,7 @@ split_demo_sources! {
             "scenes.rs",
             "settings.rs",
             "inspector.rs",
+            "persistence.rs",
             "shell.rs",
             "tests.rs",
         ]
