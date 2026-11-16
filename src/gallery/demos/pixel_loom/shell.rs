@@ -13,7 +13,7 @@ use super::style::{ACTIVE, BACKGROUND, BOARD, CONTROL, MUTED, PALETTE, TEMPLATE_
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::core::i18n::{Locale, locale};
-use crate::gallery::play::font::PlayFontPlugin;
+use crate::gallery::play::font::GameFontPlugin;
 use crate::gallery::play::pixel::{PixelClipboardStatus, PixelModal, PixelModel, PixelTool};
 use crate::input::event::focus::Focusable;
 use crate::input::event::scroll::TouchAction;
@@ -875,7 +875,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.add_plugin(PlayFontPlugin);
+    app.add_plugin(GameFontPlugin);
     app.with_widget(surface_render::view())
         .with_widget(preview_render::view())
         .with_widget(modal_render::view());

@@ -10,7 +10,7 @@ use super::style::{
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::core::i18n::{Locale, Phrase, locale};
-use crate::gallery::play::font::PlayFontPlugin;
+use crate::gallery::play::font::GameFontPlugin;
 use crate::gallery::play::tidal::{
     Goal, IslandResult, Perk, TideMessage, TideModal, TideModel, TidePreview, TideRecord, Tile,
 };
@@ -1187,7 +1187,7 @@ where
 {
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
-    app.add_plugin(PlayFontPlugin);
+    app.add_plugin(GameFontPlugin);
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
     #[cfg(feature = "persistence")]

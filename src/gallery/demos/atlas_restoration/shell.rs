@@ -13,7 +13,7 @@ use crate::gallery::play::expeditions::{
     LevelTile, MAP_FOOTER, MAP_TITLE, MapSummary, ResultStars, START_CHAPTER, chinese,
     install_expedition_motion, picture_level, result_next, result_title,
 };
-use crate::gallery::play::font::PlayFontPlugin;
+use crate::gallery::play::font::GameFontPlugin;
 use crate::gallery::play::picture::{
     CHAPTER_MECHANICS, CHAPTER_NAMES, PictureMessage, PictureModel, PictureTool,
 };
@@ -1743,7 +1743,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.add_plugin(PlayFontPlugin);
+    app.add_plugin(GameFontPlugin);
     #[cfg(feature = "persistence")]
     install_persistence(app);
     let model = app.add_model(PictureModel::default()).finish();

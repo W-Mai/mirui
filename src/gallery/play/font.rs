@@ -3,17 +3,20 @@ use crate::app::{App, RendererFactory};
 use crate::render::font::{Font, FontManager, FontToken};
 use crate::surface::Surface;
 
+/// MiSans Normal, the gallery's UI face. Shared with demos that need full
+/// ASCII punctuation, such as Iris readouts.
+pub(in crate::gallery) const FONT_BYTES: &[u8] = include_bytes!("../demos/assets/play_ui.mirx");
 /// Fusion Pixel 10 px (OFL, see `assets/licenses/Play-Fusion-Pixel-OFL.txt`),
-/// baked at 10, 20 and 30 px. Shared with demos that need full ASCII
-/// punctuation, such as Iris readouts.
-pub(in crate::gallery) const FONT_BYTES: &[u8] = include_bytes!("../demos/assets/play_pixel.mirx");
-/// The pixel grid of the face: it draws only at multiples of this size.
+/// baked at 10, 20 and 30 px: the face of the gallery games.
+pub(in crate::gallery) const PIXEL_FONT_BYTES: &[u8] =
+    include_bytes!("../demos/assets/play_pixel.mirx");
+/// The pixel grid of the game face: it draws only at multiples of this size.
 const GRID: u16 = 10;
 #[cfg(test)]
 const FONT_CHARSET: &str = include_str!("../demos/assets/play_charset.txt");
 
-/// Registers the bundled play typeface for every semantic font role used by
-/// the gallery games.
+/// Registers the gallery UI typeface (MiSans) for every semantic font role
+/// used by the gallery samples.
 ///
 /// **Inserts**
 /// - resource: `FontManager` static entries for `Default`, `Heading`, and `Mono`
@@ -26,21 +29,54 @@ where
     F: RendererFactory<B>,
 {
     fn build(&mut self, app: &mut App<B, F>) {
-        let Some(manager) = app.world.resource::<FontManager>() else {
-            return;
-        };
-        let base = Font::from_mirx(
+        let font = Font::from_mirx(
             "MIRUI Play",
-            GRID,
+            12,
             FONT_BYTES,
             &mirx::reader::PayloadLimits::HOST,
         )
-        .expect("MIRUI Play font must decode")
-        .with_pixel_grid(GRID);
-        manager.add_static(FontToken::Default.cache_key(), base.clone());
-        manager.add_static(FontToken::Heading.cache_key(), base.clone());
-        manager.add_static(FontToken::Mono.cache_key(), base);
+        .expect("MIRUI Play font must decode");
+        register_every_role(app, font);
     }
+}
+
+/// Registers the pixel game face for every semantic font role used by the
+/// gallery games.
+///
+/// **Inserts**
+/// - resource: `FontManager` static entries for `Default`, `Heading`, and `Mono`
+#[derive(Default)]
+pub(in crate::gallery) struct GameFontPlugin;
+
+impl<B, F> Plugin<B, F> for GameFontPlugin
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    fn build(&mut self, app: &mut App<B, F>) {
+        let font = Font::from_mirx(
+            "MIRUI Pixel",
+            GRID,
+            PIXEL_FONT_BYTES,
+            &mirx::reader::PayloadLimits::HOST,
+        )
+        .expect("MIRUI Pixel font must decode")
+        .with_pixel_grid(GRID);
+        register_every_role(app, font);
+    }
+}
+
+fn register_every_role<B, F>(app: &mut App<B, F>, font: Font)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    let Some(manager) = app.world.resource::<FontManager>() else {
+        return;
+    };
+    manager.add_static(FontToken::Default.cache_key(), font.clone());
+    manager.add_static(FontToken::Heading.cache_key(), font.clone());
+    manager.add_static(FontToken::Mono.cache_key(), font);
 }
 
 #[cfg(test)]
@@ -231,7 +267,8 @@ mod tests {
     #[test]
     fn play_font_draws_every_game_string() {
         let provider =
-            MirxFontProvider::from_mirx(FONT_BYTES, &mirx::reader::PayloadLimits::HOST).unwrap();
+            MirxFontProvider::from_mirx(PIXEL_FONT_BYTES, &mirx::reader::PayloadLimits::HOST)
+                .unwrap();
         for (index, source) in GAME_SOURCES.iter().enumerate() {
             for scalar in literal_chars(source).filter(|scalar| !scalar.is_whitespace()) {
                 assert!(
@@ -243,14 +280,20 @@ mod tests {
     }
 
     #[test]
-    fn plugin_registers_every_play_font_role() {
-        let mut app = App::headless(32, 32);
-        app.add_plugin(PlayFontPlugin);
+    fn plugins_register_every_font_role() {
+        let mut samples = App::headless(32, 32);
+        samples.add_plugin(PlayFontPlugin);
+        let mut games = App::headless(32, 32);
+        games.add_plugin(GameFontPlugin);
 
-        let manager = app.world.resource::<FontManager>().unwrap();
+        let samples = samples.world.resource::<FontManager>().unwrap();
+        let games = games.world.resource::<FontManager>().unwrap();
         for token in [FontToken::Default, FontToken::Heading, FontToken::Mono] {
-            let font = manager.resolve(token.cache_key());
+            let font = samples.resolve(token.cache_key());
             assert_eq!(font.family, "MIRUI Play");
+            assert_eq!(font.size, 12);
+            let font = games.resolve(token.cache_key());
+            assert_eq!(font.family, "MIRUI Pixel");
             assert_eq!(font.size, GRID);
         }
     }
@@ -258,7 +301,8 @@ mod tests {
     #[test]
     fn play_font_covers_declared_charset_and_small_sizes() {
         let provider =
-            MirxFontProvider::from_mirx(FONT_BYTES, &mirx::reader::PayloadLimits::HOST).unwrap();
+            MirxFontProvider::from_mirx(PIXEL_FONT_BYTES, &mirx::reader::PayloadLimits::HOST)
+                .unwrap();
         for scalar in FONT_CHARSET
             .chars()
             .filter(|scalar| !scalar.is_whitespace())
@@ -287,7 +331,7 @@ mod tests {
     #[test]
     fn play_font_draws_every_size_from_a_whole_strike() {
         let mut app = App::headless(32, 32);
-        app.add_plugin(PlayFontPlugin);
+        app.add_plugin(GameFontPlugin);
         let manager = app.world.resource::<FontManager>().unwrap();
         let font = manager.resolve(FontToken::Default.cache_key());
         let glyph = font.map_char('光').unwrap();

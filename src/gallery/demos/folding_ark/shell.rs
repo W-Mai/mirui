@@ -17,7 +17,7 @@ use crate::gallery::play::expeditions::{
 use crate::gallery::play::fold::{
     CHAPTER_MECHANICS, CHAPTER_NAMES, CHAPTER_TIPS, FoldMessage, FoldModel,
 };
-use crate::gallery::play::font::PlayFontPlugin;
+use crate::gallery::play::font::GameFontPlugin;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::tr;
@@ -1172,7 +1172,7 @@ where
         &<ExpeditionUiModel as crate::core::model::Model>::Handle,
     ),
 {
-    app.add_plugin(PlayFontPlugin);
+    app.add_plugin(GameFontPlugin);
     app.with_widget(surface_render::view());
     #[cfg(feature = "persistence")]
     install_persistence(app);

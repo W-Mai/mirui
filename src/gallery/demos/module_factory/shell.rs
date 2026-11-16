@@ -17,7 +17,7 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::factory::{
     FactoryModal, FactoryModel, FactoryPage, FactoryTool, GRID_WIDTH, ModuleKind,
 };
-use crate::gallery::play::font::PlayFontPlugin;
+use crate::gallery::play::font::GameFontPlugin;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::tr;
@@ -1138,7 +1138,7 @@ where
 {
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
-    app.add_plugin(PlayFontPlugin);
+    app.add_plugin(GameFontPlugin);
     #[cfg(feature = "persistence")]
     install_persistence(app);
     app.with_widget(surface_render::view())

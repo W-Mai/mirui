@@ -13,7 +13,7 @@ mod style;
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::ecs::DeltaTimeMs;
-use crate::gallery::play::font::PlayFontPlugin;
+use crate::gallery::play::font::GameFontPlugin;
 use crate::gallery::play::marble::MarbleModel;
 #[cfg(feature = "audio")]
 use crate::gallery::play::marble::MarbleSound;
@@ -60,7 +60,7 @@ where
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     // Status lines use "·", which the builtin ASCII face lacks.
-    app.add_plugin(PlayFontPlugin);
+    app.add_plugin(GameFontPlugin);
     app.with_widget(board::board_render::view());
     app.with_widget(scenes::scene_board_render::view());
     app.with_widget(settings::settings_panel_render::view());

@@ -8,7 +8,7 @@ use super::style::{ACCENT, BACKGROUND, ECHO_COLORS, HEADER, LINE, MUTED, PANEL, 
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::core::i18n::{Locale, Phrase, locale};
 use crate::gallery::play::echo::{Direction, EchoMessage, EchoModal, EchoModel};
-use crate::gallery::play::font::PlayFontPlugin;
+use crate::gallery::play::font::GameFontPlugin;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::tr;
@@ -860,7 +860,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.add_plugin(PlayFontPlugin);
+    app.add_plugin(GameFontPlugin);
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     #[cfg(feature = "persistence")]

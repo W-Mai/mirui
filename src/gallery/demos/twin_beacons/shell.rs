@@ -14,7 +14,7 @@ use crate::gallery::play::expeditions::{
     ResultStars, START_CHAPTER, StepLine, SwipeStart, chinese, install_expedition_motion,
     result_next, result_title, swipe_cancel, swipe_start, twin_level,
 };
-use crate::gallery::play::font::PlayFontPlugin;
+use crate::gallery::play::font::GameFontPlugin;
 use crate::gallery::play::twin::{
     CHAPTER_MECHANICS, CHAPTER_NAMES, CHAPTER_TIPS, TwinMessage, TwinModel, mapped,
 };
@@ -1182,7 +1182,7 @@ where
         &<ExpeditionUiModel as crate::core::model::Model>::Handle,
     ),
 {
-    app.add_plugin(PlayFontPlugin);
+    app.add_plugin(GameFontPlugin);
     app.with_widget(surface_render::view());
     #[cfg(feature = "persistence")]
     install_persistence(app);
