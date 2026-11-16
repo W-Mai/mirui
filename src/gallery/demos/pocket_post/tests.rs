@@ -5,9 +5,9 @@ use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::gallery::play::post::{PostModel, PostModelHandle};
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
+use crate::ui::Hidden;
 use crate::ui::view::ViewRegistry;
 use crate::ui::widgets::Text;
-use crate::ui::{ComputedRect, Hidden};
 
 fn fixture(width: u16, height: u16) -> World {
     let mut app = App::headless(width, height);
@@ -170,23 +170,27 @@ fn composition_uses_one_dense_route_surface_and_semantic_controls() {
 }
 
 #[test]
-fn switch_hit_targets_map_through_the_surface_geometry() {
-    let mut world = fixture(960, 640);
-    let surface = world.find_by_id("post_surface").unwrap();
-    world.insert(surface, ComputedRect(Rect::new(20, 30, 720, 480)));
-    let rect = world.get::<ComputedRect>(surface).unwrap().0;
-    let x = rect.x + rect.w * Fixed::from_int(151) / Fixed::from_int(480);
-    let y = rect.y + rect.h * Fixed::from_int(157) / Fixed::from_int(320);
-    assert_eq!(with_model(&world, |model| model.switch(0)), 0);
-    assert!(trigger(
-        &mut world,
-        &GestureEvent::Tap {
-            x,
-            y,
-            target: surface,
-        }
+fn switch_buttons_sit_on_their_discs_and_flip_their_switch() {
+    let mut world = fixture(VIEWPORT.0, VIEWPORT.1);
+    for (index, id) in ["post_switch_0", "post_switch_1"].into_iter().enumerate() {
+        let button = world.find_by_id(id).unwrap();
+        assert_eq!(with_model(&world, |model| model.switch(index)), 0);
+        assert!(trigger(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: button,
+            }
+        ));
+        assert_eq!(with_model(&world, |model| model.switch(index)), 1, "{id}");
+    }
+    model_handle(&world).open_shifts();
+    flush(&mut world);
+    assert!(crate::ui::branch::is_hidden_in_tree(
+        &world,
+        world.find_by_id("post_switch_0").unwrap()
     ));
-    assert_eq!(with_model(&world, |model| model.switch(0)), 1);
 }
 
 #[test]
@@ -306,7 +310,7 @@ fn every_word_follows_the_page_language() {
     flush(&mut world);
     assert_text(&world, "post_modal_title", "晨班 完成");
     assert_text(&world, "post_modal_subtitle", "错投 4 件。全部送对才得 ★。");
-    assert_text(&world, "post_summary_best", "新纪录 0220");
+    assert_text(&world, "post_summary_best", "新高 0220");
     assert_text(&world, "post_summary_next", "下一班 · 上午班 →");
 
     world.resource::<I18n>().unwrap().set_locale(Locale::EnUs);

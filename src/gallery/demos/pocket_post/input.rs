@@ -1,32 +1,6 @@
-use super::state::PostSurface;
 use crate::ecs::DeltaTimeMs;
-use crate::gallery::play::post::{MAIN_Y, PostModel, SWITCH_X};
+use crate::gallery::play::post::PostModel;
 use crate::prelude::*;
-
-fn local_point(rect: Rect, x: Fixed, y: Fixed) -> Option<Point> {
-    if rect.w.is_zero() || rect.h.is_zero() {
-        return None;
-    }
-    Some(Point {
-        x: (x - rect.x) * Fixed::from_int(480) / rect.w,
-        y: (y - rect.y) * Fixed::from_int(320) / rect.h,
-    })
-}
-
-pub(super) fn surface_tap(surface: &PostSurface, rect: Rect, x: Fixed, y: Fixed) -> bool {
-    let Some(point) = local_point(rect, x, y) else {
-        return false;
-    };
-    for (index, center_x) in SWITCH_X.into_iter().enumerate() {
-        let dx = point.x - Fixed::from_int(center_x);
-        let dy = point.y - Fixed::from_int(MAIN_Y);
-        if dx * dx + dy * dy <= Fixed::from_int(23) * Fixed::from_int(23) {
-            surface.model.toggle_switch(index);
-            return true;
-        }
-    }
-    false
-}
 
 #[mirui_macros::system(order = Animation)]
 pub(super) fn post_tick_system(model: model!(PostModel), delta: res!(DeltaTimeMs)) {

@@ -1,4 +1,4 @@
-use super::input::{keyboard, post_tick_system, surface_tap};
+use super::input::{keyboard, post_tick_system};
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
 use super::render::{
@@ -18,7 +18,6 @@ use crate::gallery::play::post::{
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::tr;
-use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 use core::fmt;
 
@@ -251,7 +250,7 @@ struct BestLine {
 impl fmt::Display for BestLine {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         let label = if self.new_best {
-            tr!(en: "New best", zh: "新纪录")
+            tr!(en: "New best", zh: "新高")
         } else {
             tr!(en: "Best", zh: "最高")
         };
@@ -714,17 +713,54 @@ pub(super) fn build_widgets(model: model!(PostModel)) {
             ) {
                 compose_header (model)
                 compose_route_labels (model)
+                compose_switches (model)
                 compose_foot (model)
             }
             compose_modal (model)
-        } on Tap(|event: event!(Tap), rows: query!(PostSurface, ComputedRect)| {
-            let Some((surface, rect)) = rows.get(event.target) else {
-                return false;
-            };
-            let rect = rect.0;
-            surface_tap(surface, rect, event.x, event.y)
-        })
+        }
     };
+}
+
+/// The two switches are buttons over their discs on the board.
+#[compose]
+fn compose_switches(model: model!(PostModel)) -> Entity {
+    ui! {
+        View (
+            id: "post_switches",
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 320
+        ) {
+            Button (
+                "",
+                id: "post_switch_0",
+                position: Position::Absolute,
+                left: SWITCH_X[0] - 23,
+                top: MAIN_Y - 23,
+                width: 46,
+                height: 46,
+                size: ButtonSize::Custom,
+                normal_color: Color::rgba(0, 0, 0, 0),
+                pressed_color: Color::rgba(170, 208, 231, 56),
+                border_radius: 23
+            ) on Tap { model.toggle_switch(0); }
+            Button (
+                "",
+                id: "post_switch_1",
+                position: Position::Absolute,
+                left: SWITCH_X[1] - 23,
+                top: MAIN_Y - 23,
+                width: 46,
+                height: 46,
+                size: ButtonSize::Custom,
+                normal_color: Color::rgba(0, 0, 0, 0),
+                pressed_color: Color::rgba(170, 208, 231, 56),
+                border_radius: 23
+            ) on Tap { model.toggle_switch(1); }
+        }
+    }
 }
 
 #[compose]

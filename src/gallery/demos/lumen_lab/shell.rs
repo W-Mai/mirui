@@ -257,22 +257,25 @@ fn compose_header(model: model!(LumenModel)) -> Entity {
 fn compose_board(model: model!(LumenModel)) -> Entity {
     ui! {
         View (
-            id: "lumen_board",
+            id: "lumen_board_clip",
             position: Position::Absolute,
             left: BOARD_LEFT,
             top: BOARD_TOP,
             width: BOARD_WIDTH,
-            height: BOARD_HEIGHT
-        ) [
-            LumenBoard { model: model.clone() },
-            TouchAction::None,
-        ] on Tap(|event: event!(Tap), rows: query!(LumenBoard, ComputedRect)| {
-            let Some((board, rect)) = rows.get(event.target) else {
-                return false;
-            };
-            let rect = rect.0;
-            board_tap(board, rect, event.x, event.y)
-        })
+            height: BOARD_HEIGHT,
+            clip_children: true
+        ) {
+            View (id: "lumen_board", width: BOARD_WIDTH, height: BOARD_HEIGHT) [
+                LumenBoard { model: model.clone() },
+                TouchAction::None,
+            ] on Tap(|event: event!(Tap), rows: query!(LumenBoard, ComputedRect)| {
+                let Some((board, rect)) = rows.get(event.target) else {
+                    return false;
+                };
+                let rect = rect.0;
+                board_tap(board, rect, event.x, event.y)
+            })
+        }
     }
 }
 
@@ -360,7 +363,8 @@ fn compose_side(model: model!(LumenModel)) -> Entity {
             top: BOARD_TOP,
             width: SIDE_WIDTH,
             height: BOARD_HEIGHT,
-            row_gap: 4
+            row_gap: 4,
+            visible: ${ !model.levels_open() }
         ) {
             compose_readout (model)
             Button (
@@ -512,7 +516,7 @@ fn compose_result(model: model!(LumenModel)) -> Entity {
                         text_color: TEXT,
                         border_radius: 7
                     ) [
-                        Text::label(tr!(en : "↻ Replay", zh : "↻ 再玩")),
+                        Text::label(tr!(en : "↻ Replay", zh : "↻ 再来")),
                     ] on Tap { model.reset(); }
                     Button (
                         text: ${ next_label(model.has_next()) },

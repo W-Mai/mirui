@@ -322,7 +322,7 @@ fn every_word_follows_the_page_language() {
     let model = world.get::<MossSurface>(surface).unwrap().model.clone();
     world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
     crate::core::reactive::flush_signal_dirty(&mut world);
-    assert_text(&world, "moss_title", "苔藓研究");
+    assert_text(&world, "moss_title", "苔藓习作");
     assert_text(&world, "moss_generation", "第 000 代");
     assert_text(&world, "moss_live", "存活 15");
     assert_text(&world, "moss_rate", "4代/秒");
