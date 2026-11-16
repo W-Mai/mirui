@@ -85,6 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add automatic flight presentation with timed camera changes, pause/resume handling and a parameter-controlled embedded entry.
 - Reuse scene workspaces across flight rendering passes and keep color-only frames free of depth and masking buffers.
 - Store Compact cockpit layers as lossless MIRX RLE rows while retaining procedural artwork and live instrument rendering.
+- Preserve flight projection, terrain samples and depth while drawing through bounded image regions.
+- Keep flight output revisions monotonic across palette and viewport rebuilds to avoid stale native texture uploads.
 
 ## [0.56.0] - 2026-11-12
 

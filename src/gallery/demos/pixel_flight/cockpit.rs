@@ -300,8 +300,8 @@ impl Ink for Live<'_, '_> {
     fn get(&self, x: i32, y: i32) -> u32 {
         let x = x + self.offset[0];
         let y = y + self.offset[1];
-        if x >= 0 && y >= 0 && x < self.canvas.width as i32 && y < self.canvas.height as i32 {
-            self.canvas.get(y as usize * self.canvas.width + x as usize)
+        if self.canvas.contains(x, y) {
+            self.canvas.get(self.canvas.index(x, y))
         } else {
             0
         }
@@ -1965,7 +1965,7 @@ impl Cockpit {
         let fraction = offset[2];
         let mut row_scratch = [0; ROW_PIXELS];
         let mut above_scratch = [0; ROW_PIXELS];
-        for y in 0..self.height {
+        for y in canvas.clip[1]..canvas.clip[3] {
             let sy = y - dy + self.pad;
             if sy < 0 || sy >= source.height {
                 continue;
@@ -1973,7 +1973,7 @@ impl Cockpit {
             let row = source.row(sy as usize, &mut row_scratch);
             let above = (fraction > Fixed::from_ratio(4, 1000) && sy > 0)
                 .then(|| source.row(sy as usize - 1, &mut above_scratch));
-            for x in 0..self.width {
+            for x in canvas.clip[0]..canvas.clip[2] {
                 let sx = x - dx + self.pad;
                 if sx < 0 || sx >= source.width {
                     continue;
@@ -2013,7 +2013,7 @@ impl Cockpit {
                         }
                     }
                 }
-                let out = y as usize * canvas.width + x as usize;
+                let out = canvas.index(x, y);
                 canvas.put(
                     out,
                     if cover == Fixed::ONE {
@@ -2046,12 +2046,12 @@ impl Cockpit {
                 + Fixed::from_int(r(86) - r(76)) * Fixed::from_int(bottom - y)
                     / Fixed::from_int((bottom - top).max(1))
         };
-        for y in top.max(0)..bottom.min(self.height) {
+        for y in top.max(canvas.clip[1])..bottom.min(canvas.clip[3]) {
             let half = (edge(y).round()).trunc_to_int();
             let left = (cx + gx - half).max(0);
             let right = (cx + gx + half).min(self.width - 1);
-            for x in left..=right {
-                let at = y as usize * canvas.width + x as usize;
+            for x in left.max(canvas.clip[0])..=right.min(canvas.clip[2] - 1) {
+                let at = canvas.index(x, y);
                 let sheen = (Fixed::from_int(x - left))
                     < Fixed::from_int(r(10))
                         + Fixed::from_int(y - top) * Fixed::from_ratio(12, 100)
@@ -2072,8 +2072,8 @@ impl Cockpit {
                     ),
                 );
             }
-            if left > 0 {
-                let at = y as usize * canvas.width + left as usize;
+            if left > 0 && canvas.contains(left, y) {
+                let at = canvas.index(left, y);
                 canvas.put(
                     at,
                     blend(
@@ -2083,8 +2083,8 @@ impl Cockpit {
                     ),
                 );
             }
-            if right < self.width - 1 {
-                let at = y as usize * canvas.width + right as usize;
+            if right < self.width - 1 && canvas.contains(right, y) {
+                let at = canvas.index(right, y);
                 canvas.put(
                     at,
                     blend(
@@ -2100,8 +2100,8 @@ impl Cockpit {
                 let x = cx + gx + side * ((edge(y).round()).trunc_to_int() + 1);
                 for i in 0..r(3).max(r(2).max(1)) {
                     let xx = x + side * i;
-                    if xx >= 0 && xx < self.width && y >= 0 && y < self.height {
-                        let at = y as usize * canvas.width + xx as usize;
+                    if canvas.contains(xx, y) {
+                        let at = canvas.index(xx, y);
                         let color = self.body[if i == 0 { 6 } else { 2 }];
                         canvas.put(at, blend(canvas.get(at), color, alpha));
                     }
@@ -2373,21 +2373,18 @@ impl Ink for Hud<'_, '_> {
                 / Fixed::from_int((self.bottom - self.top).max(1));
         if y < self.top
             || y >= self.bottom - 2
-            || x < 0
-            || y < 0
-            || x >= self.canvas.width as i32
-            || y >= self.canvas.height as i32
+            || !self.canvas.contains(x, y)
             || Fixed::from_int((x - self.cx).abs()) > edge - Fixed::from_int(2)
         {
             return;
         }
-        let at = y as usize * self.canvas.width + x as usize;
+        let at = self.canvas.index(x, y);
         self.canvas
             .put(at, blend(self.canvas.get(at), color, self.alpha));
     }
     fn get(&self, x: i32, y: i32) -> u32 {
-        if x >= 0 && y >= 0 && x < self.canvas.width as i32 && y < self.canvas.height as i32 {
-            self.canvas.get(y as usize * self.canvas.width + x as usize)
+        if self.canvas.contains(x, y) {
+            self.canvas.get(self.canvas.index(x, y))
         } else {
             0
         }
@@ -2400,6 +2397,51 @@ mod tests {
         raster::Raster,
     };
     use super::*;
+    #[test]
+    fn cockpit_regions_match_full_resolution_composition() {
+        use super::super::raster::{Daylight, Frame};
+        let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
+        let mut flight = Flight::new(&world, Settings::default());
+        flight.view = View::Cockpit;
+        for _ in 0..360 {
+            flight.step(&world, 16, 128, 128);
+        }
+        flight.head[0].position = Fixed::from_ratio(1, 2);
+        flight.head[1].position = Fixed::from_ratio(-3, 4);
+        let palette = Palette::new(Daylight::Day);
+        let art = Cockpit::new_compact(128, 128, &palette);
+        let mut full = Frame::new(128, 128).unwrap();
+        full.with_canvas(|canvas| {
+            for at in 0..128 * 128 {
+                canvas.put(at, 0xff603010);
+            }
+            art.draw(canvas, &world, &flight, &palette);
+        });
+        let reference = full.texture.read_pixels().unwrap();
+        let mut tile = Frame::new(24, 24).unwrap();
+        for y in (0..128).step_by(24) {
+            for x in (0..128).step_by(24) {
+                tile.with_region([128, 128], [x, y], [0, 0, 128, 128], |canvas| {
+                    for at in 0..24 * 24 {
+                        canvas.put(at, 0xff603010);
+                    }
+                    art.draw(canvas, &world, &flight, &palette);
+                });
+                let pixels = tile.texture.read_pixels().unwrap();
+                for yy in y..(y + 24).min(128) {
+                    for xx in x..(x + 24).min(128) {
+                        let a = (yy * 128 + xx) as usize;
+                        let b = ((yy - y) * 24 + xx - x) as usize;
+                        assert_eq!(
+                            &reference.bytes()[a * 4..a * 4 + 4],
+                            &pixels.bytes()[b * 4..b * 4 + 4],
+                            "cockpit region at {xx},{yy}"
+                        );
+                    }
+                }
+            }
+        }
+    }
     #[test]
     fn compressed_layers_preserve_pixels_and_fractional_live_composition() {
         let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);

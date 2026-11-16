@@ -27,7 +27,7 @@ pub struct FlightModel {
     cockpit: Option<Cockpit>,
     flames: Flames,
     viewport: (u16, u16),
-    revision: u32,
+    revision: u64,
     hint_time: Fixed,
     focused: bool,
     visible: bool,
@@ -118,6 +118,7 @@ impl FlightModel {
             )
             .expect("prepared flame textures");
         self.revision = self.revision.wrapping_add(1);
+        raster.frame.texture.cache_revision = self.revision;
     }
 }
 #[crate::model]
@@ -140,7 +141,7 @@ impl FlightModel {
         self.autoplay
     }
     #[observe]
-    pub fn revision(&self) -> u32 {
+    pub fn revision(&self) -> u64 {
         self.revision
     }
     #[observe]
@@ -531,6 +532,21 @@ fn setup_profile<B: Surface, F: RendererFactory<B>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn output_revisions_survive_storage_rebuilds() {
+        let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
+        let mut previous = scene.raster.as_ref().unwrap().frame.texture.cache_revision;
+        for (width, height) in [(128, 128), (320, 240), (128, 128), (128, 160)] {
+            for _ in 0..3 {
+                scene.key(PhysicalKey::KeyT, true, false);
+                scene.advance(16, width, height, None);
+                let revision = scene.raster.as_ref().unwrap().frame.texture.cache_revision;
+                assert_eq!(revision, scene.revision);
+                assert!(revision > previous);
+                previous = revision;
+            }
+        }
+    }
     #[test]
     fn autoplay_reuses_flight_and_camera_without_allocating() {
         let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
