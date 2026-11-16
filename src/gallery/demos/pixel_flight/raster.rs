@@ -249,6 +249,8 @@ pub struct Frame {
     pub texture: Texture<'static>,
     pub width: usize,
     pub height: usize,
+}
+struct Workspace {
     depth: Vec<Fixed>,
     mask: Vec<u8>,
     backdrop: Vec<u32>,
@@ -257,36 +259,30 @@ pub struct Frame {
 #[doc = " A short mutable borrow. No texture or allocator borrow survives the call."]
 pub struct Canvas<'a> {
     pub bytes: &'a mut [u8],
-    pub depth: &'a mut [Fixed],
-    pub mask: &'a mut [u8],
-    pub backdrop: &'a mut [u32],
-    pub columns: &'a mut [i32],
     pub width: usize,
     pub height: usize,
     pub bounds: [i32; 4],
 }
+struct SceneCanvas<'a, 'b> {
+    color: &'a mut Canvas<'b>,
+    depth: &'a mut [Fixed],
+    mask: &'a mut [u8],
+    backdrop: &'a mut [u32],
+    columns: &'a mut [i32],
+}
 impl Frame {
     pub fn new(width: usize, height: usize) -> Result<Self, RenderError> {
-        let count = width * height;
         Ok(Self {
             texture: Texture::owned(width as u16, height as u16, ColorFormat::RGBA8888)?
                 .with_cache_revision(0),
             width,
             height,
-            depth: vec![Fixed::MAX; count],
-            mask: vec![0; count],
-            backdrop: vec![0; count],
-            columns: vec![height as i32; width],
         })
     }
     pub fn with_canvas<R>(&mut self, f: impl FnOnce(&mut Canvas<'_>) -> R) -> R {
         let mut pixels = self.texture.pixels_mut().expect("owned flight frame");
         f(&mut Canvas {
             bytes: pixels.bytes_mut(),
-            depth: &mut self.depth,
-            mask: &mut self.mask,
-            backdrop: &mut self.backdrop,
-            columns: &mut self.columns,
             width: self.width,
             height: self.height,
             bounds: [0, 0, self.width as i32, self.height as i32],
@@ -294,10 +290,40 @@ impl Frame {
     }
     pub fn bytes(&self) -> usize {
         self.width * self.height * 4
-            + self.depth.capacity() * 4
+    }
+}
+impl Workspace {
+    fn new(width: usize, height: usize) -> Self {
+        let count = width * height;
+        Self {
+            depth: vec![Fixed::MAX; count],
+            mask: vec![0; count],
+            backdrop: vec![0; count],
+            columns: vec![height as i32; width],
+        }
+    }
+    fn bytes(&self) -> usize {
+        self.depth.capacity() * 4
             + self.mask.capacity()
             + self.backdrop.capacity() * 4
             + self.columns.capacity() * 4
+    }
+    fn with_canvas<R>(
+        &mut self,
+        frame: &mut Frame,
+        draw: impl FnOnce(&mut SceneCanvas<'_, '_>) -> R,
+    ) -> R {
+        let count = frame.width * frame.height;
+        let width = frame.width;
+        frame.with_canvas(|color| {
+            draw(&mut SceneCanvas {
+                color,
+                depth: &mut self.depth[..count],
+                mask: &mut self.mask[..count],
+                backdrop: &mut self.backdrop[..count],
+                columns: &mut self.columns[..width],
+            })
+        })
     }
 }
 impl Canvas<'_> {
@@ -316,9 +342,25 @@ impl Canvas<'_> {
             self.put(y as usize * self.width + x as usize, color);
         }
     }
+}
+impl SceneCanvas<'_, '_> {
+    fn get(&self, index: usize) -> u32 {
+        self.color.get(index)
+    }
+    fn put(&mut self, index: usize, color: u32) {
+        self.color.put(index, color);
+    }
+    fn depth_at(&self, x: i32, y: i32) -> Fixed {
+        let [left, top, right, bottom] = self.color.bounds;
+        if x < left || y < top || x >= right || y >= bottom {
+            Fixed::MAX
+        } else {
+            self.depth[y as usize * self.color.width + x as usize]
+        }
+    }
     fn fill_depth(&mut self, x: usize, y0: i32, y1: i32, color: u32, depth: Fixed) {
-        for y in y0.max(self.bounds[1])..y1.min(self.bounds[3]) {
-            let at = y as usize * self.width + x;
+        for y in y0.max(self.color.bounds[1])..y1.min(self.color.bounds[3]) {
+            let at = y as usize * self.color.width + x;
             if self.get(at) == 0 {
                 self.put(at, color);
                 self.depth[at] = depth;
@@ -326,11 +368,11 @@ impl Canvas<'_> {
         }
     }
     fn cloud_span(&mut self, x: usize, y0: i32, y1: i32, color: u32, depth: Fixed, thin: bool) {
-        for y in y0.max(self.bounds[1])..y1.min(self.bounds[3]) {
+        for y in y0.max(self.color.bounds[1])..y1.min(self.color.bounds[3]) {
             if thin && (x + y as usize) & 1 == 0 {
                 continue;
             }
-            let at = y as usize * self.width + x;
+            let at = y as usize * self.color.width + x;
             if self.get(at) == 0 {
                 self.put(at, color);
                 self.depth[at] = depth;
@@ -338,13 +380,13 @@ impl Canvas<'_> {
         }
     }
     fn clear(&mut self) {
-        for y in self.bounds[1]..self.bounds[3] {
-            let start = y as usize * self.width + self.bounds[0] as usize;
-            let end = y as usize * self.width + self.bounds[2] as usize;
-            self.bytes[start * 4..end * 4].fill(0);
+        for y in self.color.bounds[1]..self.color.bounds[3] {
+            let start = y as usize * self.color.width + self.color.bounds[0] as usize;
+            let end = y as usize * self.color.width + self.color.bounds[2] as usize;
+            self.color.bytes[start * 4..end * 4].fill(0);
             self.depth[start..end].fill(Fixed::MAX);
         }
-        self.columns.fill(self.bounds[3]);
+        self.columns.fill(self.color.bounds[3]);
     }
 }
 #[derive(Clone, Copy, Default)]
@@ -361,6 +403,7 @@ pub struct Flame {
 pub struct Raster {
     pub frame: Frame,
     pub sheet: Frame,
+    workspace: Workspace,
     pub palette: Palette,
     pub flames: [Flame; 6],
     pub flame_count: usize,
@@ -394,6 +437,7 @@ impl Raster {
         Ok(Self {
             frame: Frame::new(width, height)?,
             sheet: Frame::new(side, side)?,
+            workspace: Workspace::new(side, side),
             palette: Palette::new(Daylight::Day),
             flames: [Flame::default(); 6],
             flame_count: 0,
@@ -403,7 +447,10 @@ impl Raster {
         })
     }
     pub fn bytes(&self) -> usize {
-        self.frame.bytes() + self.sheet.bytes() + core::mem::size_of::<Self>()
+        self.frame.bytes()
+            + self.sheet.bytes()
+            + self.workspace.bytes()
+            + core::mem::size_of::<Self>()
     }
     pub fn render(&mut self, world: &World, flight: &Flight) {
         let p = flight.projection(self.frame.width, self.frame.height);
@@ -412,6 +459,7 @@ impl Raster {
         let Self {
             frame,
             sheet,
+            workspace,
             palette,
             flames,
             flame_count,
@@ -420,7 +468,7 @@ impl Raster {
             seen,
         } = self;
         let frame_height = frame.height;
-        let mut draw = |canvas: &mut Canvas<'_>, projection: Projection| {
+        let mut draw = |canvas: &mut SceneCanvas<'_, '_>, projection: Projection| {
             draw_world(canvas, world, flight, &projection, palette, shadow);
             draw_sky(canvas, &projection, palette, frame_height);
             draw_trails(canvas, flight, &projection, palette);
@@ -445,7 +493,7 @@ impl Raster {
             let pivot =
                 (Fixed::from_int((frame.height) as i32) * Fixed::from_ratio(34, 100)).round();
             projection.center = [half, half + (p.center[1] - pivot)];
-            sheet.with_canvas(|canvas| {
+            workspace.with_canvas(sheet, |canvas| {
                 let c = p.roll.cos().abs();
                 let s = p.roll.sin().abs();
                 let tall = pivot.max(Fixed::from_int((frame.height) as i32) - pivot);
@@ -460,11 +508,12 @@ impl Raster {
                     + s * Fixed::from_int((frame.width) as i32) / Fixed::from_int(2))
                 .ceil()
                     + Fixed::from_int(2);
-                canvas.bounds = [
+                canvas.color.bounds = [
                     ((half - x).max(Fixed::ZERO)).trunc_to_int(),
                     ((half - top).max(Fixed::ZERO)).trunc_to_int(),
-                    ((half + x).min(Fixed::from_int((canvas.width) as i32))).trunc_to_int(),
-                    ((half + bottom).min(Fixed::from_int((canvas.height) as i32))).trunc_to_int(),
+                    ((half + x).min(Fixed::from_int((canvas.color.width) as i32))).trunc_to_int(),
+                    ((half + bottom).min(Fixed::from_int((canvas.color.height) as i32)))
+                        .trunc_to_int(),
                 ];
                 draw(canvas, projection);
             });
@@ -500,12 +549,12 @@ impl Raster {
                 }
             }
         } else {
-            frame.with_canvas(|canvas| draw(canvas, p));
+            workspace.with_canvas(frame, |canvas| draw(canvas, p));
         }
     }
 }
 fn draw_world(
-    canvas: &mut Canvas<'_>,
+    canvas: &mut SceneCanvas<'_, '_>,
     world: &World,
     flight: &Flight,
     p: &Projection,
@@ -530,7 +579,7 @@ fn draw_world(
         (flight.time * Fixed::from_int(7)).rem_euclid(Fixed::from_int(world.cloud_period() as i32)),
         (flight.time * Fixed::from_int(3)).rem_euclid(Fixed::from_int(world.cloud_period() as i32)),
     ];
-    let below = Fixed::from_int(canvas.bounds[3]) - cy;
+    let below = Fixed::from_int(canvas.color.bounds[3]) - cy;
     let nearest = if q > Fixed64::ZERO {
         -p.divide_perspective(Fixed::from_ratio(85, 100))
     } else {
@@ -554,7 +603,7 @@ fn draw_world(
     };
     let limit = Fixed::from_int(1500) + Fixed::from_int(3) * alt;
     let fog_start = Fixed::from_int(300) + Fixed::from_int(2) * alt;
-    let above = cy - Fixed::from_int(canvas.bounds[1]) + Fixed::from_int(2);
+    let above = cy - Fixed::from_int(canvas.color.bounds[1]) + Fixed::from_int(2);
     let end = if scale * slope > p.apply_perspective(above) {
         limit.min((scale * alt + above) / (scale * slope - p.apply_perspective(above)))
     } else {
@@ -590,8 +639,8 @@ fn draw_world(
         let inverse = den / scale;
         let ax = cs * inverse;
         let ay = -sn * inverse;
-        let mut wx = bx - cx * ax - v * sn + ax * Fixed::from_int(canvas.bounds[0]);
-        let mut wy = by - cx * ay - v * cs + ay * Fixed::from_int(canvas.bounds[0]);
+        let mut wx = bx - cx * ax - v * sn + ax * Fixed::from_int(canvas.color.bounds[0]);
+        let mut wy = by - cx * ay - v * cs + ay * Fixed::from_int(canvas.color.bounds[0]);
         let fog = if q > Fixed64::ZERO && v > fog_start {
             (((v - fog_start) / (limit - fog_start)).sqrt() * Fixed::from_int(10))
                 .round()
@@ -600,7 +649,7 @@ fn draw_world(
         } else {
             Fixed::ZERO
         };
-        for px in canvas.bounds[0]..canvas.bounds[2] {
+        for px in canvas.color.bounds[0]..canvas.color.bounds[2] {
             let x = px as usize;
             let gx = (wx).trunc_to_int();
             let gy = (wy).trunc_to_int();
@@ -739,7 +788,7 @@ fn draw_world(
         }
     }
 }
-fn draw_sky(canvas: &mut Canvas<'_>, p: &Projection, pal: &Palette, frame_height: usize) {
+fn draw_sky(canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette, frame_height: usize) {
     let horizon = if p.perspective > Fixed64::ZERO {
         p.center[1] - p.divide_perspective(p.scale * p.slope)
     } else {
@@ -750,9 +799,9 @@ fn draw_sky(canvas: &mut Canvas<'_>, p: &Projection, pal: &Palette, frame_height
     } else {
         Fixed::from_int(1_000_000)
     };
-    for y in canvas.bounds[1]..canvas.bounds[3] {
-        for x in canvas.bounds[0]..canvas.bounds[2] {
-            let at = y as usize * canvas.width + x as usize;
+    for y in canvas.color.bounds[1]..canvas.color.bounds[3] {
+        for x in canvas.color.bounds[0]..canvas.color.bounds[2] {
+            let at = y as usize * canvas.color.width + x as usize;
             if canvas.get(at) != 0 {
                 continue;
             }
@@ -785,7 +834,7 @@ fn draw_sky(canvas: &mut Canvas<'_>, p: &Projection, pal: &Palette, frame_height
                     let (sn, cs) = p.yaw.sin_cos();
                     let along = -(dx * sn + dy * cs);
                     if along > Fixed::from_ratio(2, 10) {
-                        let radius = Fixed::from_int((canvas.width) as i32)
+                        let radius = Fixed::from_int((canvas.color.width) as i32)
                             * if pal.day == Daylight::Sunset {
                                 Fixed::from_ratio(5, 100)
                             } else {
@@ -821,7 +870,7 @@ fn draw_sky(canvas: &mut Canvas<'_>, p: &Projection, pal: &Palette, frame_height
         }
     }
 }
-fn draw_trails(canvas: &mut Canvas<'_>, flight: &Flight, p: &Projection, pal: &Palette) {
+fn draw_trails(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection, pal: &Palette) {
     for (i, jet) in flight.jets[..flight.count].iter().enumerate() {
         if i == 0 && p.jet_alpha < Fixed::from_ratio(5, 10) {
             continue;
@@ -879,12 +928,12 @@ fn draw_trails(canvas: &mut Canvas<'_>, flight: &Flight, p: &Projection, pal: &P
                                 } {
                                     if xx < 0
                                         || yy < 0
-                                        || xx >= canvas.width as i32
-                                        || yy >= canvas.height as i32
+                                        || xx >= canvas.color.width as i32
+                                        || yy >= canvas.color.height as i32
                                     {
                                         continue;
                                     }
-                                    let at = yy as usize * canvas.width + xx as usize;
+                                    let at = yy as usize * canvas.color.width + xx as usize;
                                     if canvas.depth[at] >= next[3] - Fixed::ONE
                                         && alpha * Fixed::from_int(16)
                                             > Fixed::from_int(
@@ -903,7 +952,7 @@ fn draw_trails(canvas: &mut Canvas<'_>, flight: &Flight, p: &Projection, pal: &P
         }
     }
 }
-fn draw_smoke(canvas: &mut Canvas<'_>, flight: &Flight, p: &Projection, day: Daylight) {
+fn draw_smoke(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection, day: Daylight) {
     for smoke in &flight.smoke {
         let age = flight.time - smoke.born;
         if smoke.life <= Fixed::ZERO || age < Fixed::ZERO || age >= smoke.life {
@@ -940,17 +989,17 @@ fn draw_smoke(canvas: &mut Canvas<'_>, flight: &Flight, p: &Projection, day: Day
         for y in ((point[1] - radius).floor()).trunc_to_int().max(0)
             ..=((point[1] + radius).ceil())
                 .trunc_to_int()
-                .min(canvas.height as i32 - 1)
+                .min(canvas.color.height as i32 - 1)
         {
             for x in ((point[0] - radius).floor()).trunc_to_int().max(0)
                 ..=((point[0] + radius).ceil())
                     .trunc_to_int()
-                    .min(canvas.width as i32 - 1)
+                    .min(canvas.color.width as i32 - 1)
             {
                 let d = ((Fixed::from_int(x) - point[0]).powi(2)
                     + (Fixed::from_int(y) - point[1]).powi(2))
                     / (radius * radius);
-                let at = y as usize * canvas.width + x as usize;
+                let at = y as usize * canvas.color.width + x as usize;
                 if d <= Fixed::ONE && canvas.depth[at] >= point[3] - Fixed::ONE {
                     canvas.put(
                         at,
@@ -966,7 +1015,7 @@ fn draw_smoke(canvas: &mut Canvas<'_>, flight: &Flight, p: &Projection, day: Day
     }
 }
 fn draw_jet(
-    canvas: &mut Canvas<'_>,
+    canvas: &mut SceneCanvas<'_, '_>,
     flight: &Flight,
     index: usize,
     p: &Projection,
@@ -987,9 +1036,9 @@ fn draw_jet(
     let reach = Fixed::from_int((jet::LENGTH) as i32) * flight.settings.jet_scale * center[2]
         + Fixed::from_int(40);
     if center[0] < -reach
-        || center[1] < -reach - Fixed::from_int((canvas.height) as i32)
-        || center[0] > Fixed::from_int((canvas.width) as i32) + reach
-        || center[1] > Fixed::from_int((canvas.height) as i32) + reach
+        || center[1] < -reach - Fixed::from_int((canvas.color.height) as i32)
+        || center[0] > Fixed::from_int((canvas.color.width) as i32) + reach
+        || center[1] > Fixed::from_int((canvas.color.height) as i32) + reach
     {
         return;
     }
@@ -1081,7 +1130,12 @@ fn draw_jet(
             ];
         }
     }
-    let mut bounds = [canvas.width as i32, canvas.height as i32, -1, -1];
+    let mut bounds = [
+        canvas.color.width as i32,
+        canvas.color.height as i32,
+        -1,
+        -1,
+    ];
     let first_slice = slices
         .iter()
         .position(|slice| !slice.is_empty())
@@ -1097,7 +1151,7 @@ fn draw_jet(
         }
         let drop = if t < Fixed::ONE {
             -(Fixed::ONE - t * t)
-                * (Fixed::from_int((canvas.height) as i32) / Fixed::from_int(2)
+                * (Fixed::from_int((canvas.color.height) as i32) / Fixed::from_int(2)
                     + Fixed::from_int(44))
         } else {
             Fixed::ZERO
@@ -1121,10 +1175,14 @@ fn draw_jet(
             for offset in &offsets[..samples * samples] {
                 let xx = ((x + offset[0] * m / center[2]).round()).trunc_to_int();
                 let yy = ((y + offset[1] * m / center[2]).round()).trunc_to_int();
-                if xx < 0 || yy < 0 || xx >= canvas.width as i32 || yy >= canvas.height as i32 {
+                if xx < 0
+                    || yy < 0
+                    || xx >= canvas.color.width as i32
+                    || yy >= canvas.color.height as i32
+                {
                     continue;
                 }
-                let at = yy as usize * canvas.width + xx as usize;
+                let at = yy as usize * canvas.color.width + xx as usize;
                 if canvas.depth[at] < depth - Fixed::ONE {
                     continue;
                 }
@@ -1142,9 +1200,9 @@ fn draw_jet(
             }
         }
     }
-    for y in (bounds[1] - 1).max(1)..=(bounds[3] + 1).min(canvas.height as i32 - 2) {
-        for x in (bounds[0] - 1).max(1)..=(bounds[2] + 1).min(canvas.width as i32 - 2) {
-            let at = y as usize * canvas.width + x as usize;
+    for y in (bounds[1] - 1).max(1)..=(bounds[3] + 1).min(canvas.color.height as i32 - 2) {
+        for x in (bounds[0] - 1).max(1)..=(bounds[2] + 1).min(canvas.color.width as i32 - 2) {
+            let at = y as usize * canvas.color.width + x as usize;
             if canvas.mask[at] != 0 {
                 if fade < Fixed::ONE {
                     canvas.put(at, blend(canvas.backdrop[at], canvas.get(at), fade));
@@ -1152,8 +1210,8 @@ fn draw_jet(
             } else if fade >= Fixed::from_ratio(5, 10)
                 && (canvas.mask[at - 1] != 0
                     || canvas.mask[at + 1] != 0
-                    || canvas.mask[at - canvas.width] != 0
-                    || canvas.mask[at + canvas.width] != 0)
+                    || canvas.mask[at - canvas.color.width] != 0
+                    || canvas.mask[at + canvas.color.width] != 0)
             {
                 canvas.put(at, pal.outline);
             }
@@ -1161,7 +1219,7 @@ fn draw_jet(
     }
 }
 fn record_flames(
-    canvas: &Canvas<'_>,
+    canvas: &SceneCanvas<'_, '_>,
     flight: &Flight,
     index: usize,
     p: &Projection,
@@ -1240,12 +1298,7 @@ fn record_flames(
             ] {
                 let x = ((point[0] + dx).round()).trunc_to_int() as i32;
                 let y = ((point[1] + dy).round()).trunc_to_int() as i32;
-                if x < 0
-                    || y < 0
-                    || x >= canvas.width as i32
-                    || y >= canvas.height as i32
-                    || canvas.depth[y as usize * canvas.width + x as usize] >= point[3] - Fixed::ONE
-                {
+                if canvas.depth_at(x, y) >= point[3] - Fixed::ONE {
                     open += 1;
                 }
             }
@@ -1300,7 +1353,10 @@ mod tests {
     #[test]
     fn foreground_depth_blocks_background_writes() {
         let mut frame = Frame::new(8, 8).unwrap();
-        frame.with_canvas(|canvas| {
+        let mut workspace = Workspace::new(8, 8);
+        assert_eq!(frame.bytes(), 8 * 8 * 4);
+        assert_eq!(workspace.bytes(), 8 * 8 * 9 + 8 * 4);
+        workspace.with_canvas(&mut frame, |canvas| {
             canvas.clear();
             canvas.fill_depth(
                 3,
@@ -1333,6 +1389,10 @@ mod tests {
                 )
             );
             assert_eq!(canvas.depth[3 * 8 + 3], Fixed::from_ratio(1, 1));
+            canvas.color.bounds = [0, 0, 2, 2];
+            assert_eq!(canvas.depth_at(3, 3), Fixed::MAX);
+            canvas.color.bounds = [0, 0, 8, 8];
+            assert_eq!(canvas.depth_at(3, 3), Fixed::ONE);
         });
     }
 }

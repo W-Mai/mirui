@@ -314,9 +314,15 @@ impl FlightModel {
     pub fn resident_bytes(&self) -> usize {
         self.terrain.bytes()
             + core::mem::size_of::<Self>()
-            + self.raster.as_ref().map_or(0, Raster::bytes)
-            + self.cockpit.as_ref().map_or(0, Cockpit::bytes)
+            + self
+                .raster
+                .as_ref()
+                .map_or(0, |raster| raster.bytes() - core::mem::size_of::<Raster>())
+            + self.cockpit.as_ref().map_or(0, |cockpit| {
+                cockpit.bytes() - core::mem::size_of::<Cockpit>()
+            })
             + self.flames.bytes()
+            - core::mem::size_of::<Flames>()
     }
 }
 #[crate::component]
