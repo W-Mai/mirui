@@ -499,7 +499,15 @@ split_demo_sources! {
     LUMEN_LAB => {
         demo: "lumen_lab",
         marker: "fn paint_board",
-        parts: ["style.rs", "runtime.rs", "board.rs", "shell.rs", "tests.rs"]
+        parts: [
+            "style.rs",
+            "runtime.rs",
+            "board.rs",
+            "stars.rs",
+            "persistence.rs",
+            "shell.rs",
+            "tests.rs",
+        ]
     },
     PIXEL_LOOM => {
         demo: "pixel_loom",

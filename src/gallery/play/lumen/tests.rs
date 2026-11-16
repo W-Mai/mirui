@@ -1,5 +1,7 @@
+use super::model::{SAVE_LEN, rating};
 use super::*;
 use crate::gallery::play::change::ChangeSet;
+use crate::types::Fixed;
 use alloc::vec::Vec;
 
 fn orientations_from_mask(level: &Level, mask: usize) -> [MirrorOrientation; MAX_MIRRORS] {
@@ -173,7 +175,9 @@ fn boards_are_well_formed() {
 fn each_set_adds_one_idea_and_grows_within_itself() {
     assert_eq!(SET_COUNT * SET_SIZE, LEVEL_COUNT);
     for (set, levels) in LEVELS.chunks(SET_SIZE).enumerate() {
-        assert!(!SETS[set].name.is_empty() && !SETS[set].rule.is_empty());
+        for phrase in [SETS[set].name, SETS[set].rule] {
+            assert!(!phrase.en.is_empty() && !phrase.zh.is_empty());
+        }
         for level in levels {
             match set {
                 0 => assert!(level.fixed.is_empty() && level.lamps.is_empty()),
@@ -212,7 +216,8 @@ fn playing_every_level_through_its_mirrors_lights_all_fifteen() {
     }
     assert_eq!(model.completion_mask(), (1 << LEVEL_COUNT) - 1);
     model.next_level();
-    assert_eq!(model.level_index(), 0);
+    assert!(model.levels_open(), "the last puzzle leads to the list");
+    assert_eq!(model.level_index(), LEVEL_COUNT - 1);
 }
 
 #[test]
@@ -310,19 +315,217 @@ fn modal_blocks_board_mutation_and_animation() {
     assert_eq!(model.orientations, before);
 }
 
+fn settle(model: &mut LumenModel) {
+    for _ in 0..200 {
+        model.advance_ms(16);
+    }
+}
+
 #[test]
-fn scan_animation_stops_without_accumulating_time() {
+fn light_flows_only_along_a_beam_that_is_drawn() {
     let mut model = LumenModel::new();
+    assert!(
+        !model.motion().beam_complete(),
+        "a puzzle opens drawing its beam"
+    );
     let start = model.scan_phase;
     assert!(model.advance_ms(16).contains(ChangeSet::VISUAL));
-    assert_ne!(model.scan_phase, start);
-    model.toggle_scan();
-    let stopped = model.scan_phase;
-    assert_eq!(model.advance_ms(1000), ChangeSet::NONE);
-    assert_eq!(model.scan_phase, stopped);
+    assert_eq!(model.scan_phase, start);
+    settle(&mut model);
+    assert!(model.motion().beam_complete());
+    let drawn = model.scan_phase;
+    assert!(model.advance_ms(16).contains(ChangeSet::VISUAL));
+    assert_ne!(model.scan_phase, drawn);
+    assert_eq!(model.advance_ms(0), ChangeSet::NONE);
+}
+
+#[test]
+fn par_counts_the_mirrors_that_start_the_wrong_way() {
+    for level in &LEVELS {
+        let wrong = level
+            .mirrors
+            .iter()
+            .zip(level.initial)
+            .filter(|(mirror, start)| mirror.solution != **start)
+            .count();
+        assert_eq!(usize::from(level.par()), wrong, "{}", level.name);
+        assert!(level.par() >= 1, "{}", level.name);
+    }
+}
+
+/// Turns every wrong mirror of the current puzzle once.
+fn solve_at_par(model: &mut LumenModel) {
+    let level = model.level();
+    for (index, mirror) in level.mirrors.iter().enumerate() {
+        if model.orientations()[index] != mirror.solution {
+            model.rotate(index);
+        }
+    }
+}
+
+#[test]
+fn stars_reward_par_and_count_slips_and_hints() {
+    assert_eq!(rating(2, 2, false), 3);
+    assert_eq!(rating(4, 2, false), 2);
+    assert_eq!(rating(5, 2, false), 1);
+    assert_eq!(rating(2, 2, true), 2);
+    assert_eq!(rating(9, 2, true), 1);
+
+    let mut model = LumenModel::new();
+    solve_at_par(&mut model);
+    assert!(model.solved());
+    assert_eq!(model.earned(), MAX_STARS);
+    assert_eq!(model.stars()[0], 3);
+
+    model.select_level(1);
+    model.rotate(0);
+    model.rotate(0);
+    solve_at_par(&mut model);
+    assert_eq!(model.earned(), 2, "one slip, there and back");
+
+    model.reset();
+    model.reveal_hint();
+    solve_at_par(&mut model);
+    assert_eq!(model.earned(), 2, "a hint caps the solve at two");
+    assert_eq!(model.stars()[1], 2);
+
+    model.select_level(0);
+    for _ in 0..4 {
+        model.rotate(0);
+    }
+    solve_at_par(&mut model);
+    assert_eq!(model.earned(), 1);
+    assert_eq!(model.stars()[0], 3, "the best solve is kept");
+    assert_eq!(model.total_stars(), 5);
+    assert_eq!(model.completed_count(), 2);
+}
+
+#[test]
+fn a_turn_redraws_the_beam_from_the_mirror_that_moved() {
+    let mut model = LumenModel::new();
+    settle(&mut model);
+    let position = model.level().mirrors[1].position;
+    model.rotate(1);
+    let from = model
+        .trace()
+        .points()
+        .iter()
+        .position(|point| *point == position)
+        .unwrap();
+    assert_eq!(model.motion().front(), Fixed::from_int(from as i32));
+    assert_eq!(model.motion().turn_of(1), Some(Fixed::ZERO));
+    assert!(!model.won(), "the result waits for the beam");
+    settle(&mut model);
+    let segments = model.trace().points().len() as i32 - 1;
+    assert_eq!(model.motion().front(), Fixed::from_int(segments));
+    assert_eq!(model.motion().turn_of(1), None);
+
+    model.select_level(1);
+    settle(&mut model);
+    let off_beam = (0..model.level().mirrors.len())
+        .find(|index| {
+            let position = model.level().mirrors[*index].position;
+            !model.trace().points().contains(&position)
+        })
+        .expect("the second puzzle opens with a mirror off the beam");
+    let before = *model.trace();
+    model.rotate(off_beam);
+    assert_eq!(*model.trace(), before);
+    assert!(model.motion().beam_complete(), "nothing to redraw");
+}
+
+#[test]
+fn a_solve_lights_up_then_pops_its_stars_one_by_one() {
+    let mut model = LumenModel::new();
+    settle(&mut model);
+    model.rotate(1);
+    assert!(model.solved());
+    while !model.motion().beam_complete() {
+        model.advance_ms(16);
+        assert!(!model.won());
+    }
+    model.advance_ms(16);
+    assert!(model.motion().glow().is_some(), "the receiver glows first");
+    let mut first = None;
+    let mut elapsed = 0;
+    while model.motion().star(2) == Fixed::ZERO {
+        model.advance_ms(10);
+        elapsed += 10;
+        if first.is_none() && model.motion().star(0) > Fixed::ZERO {
+            first = Some(elapsed);
+            assert!(model.won(), "the card opens with the first star");
+            assert_eq!(model.motion().star(1), Fixed::ZERO);
+        }
+        assert!(elapsed < 1_000);
+    }
+    assert!(first.unwrap() < elapsed);
+    settle(&mut model);
+    for star in 0..3 {
+        assert_eq!(model.motion().star(star), Fixed::ONE);
+    }
+}
+
+#[test]
+fn the_next_input_cuts_motion_short() {
+    let mut model = LumenModel::new();
+    model.rotate(1);
+    assert_ne!(model.finish_motion(), ChangeSet::NONE);
+    assert!(model.won(), "a skipped solve shows its result at once");
+    assert_eq!(model.motion().star(0), Fixed::ONE);
+    assert_eq!(model.finish_motion(), ChangeSet::NONE);
+
+    model.undo();
+    assert!(!model.won());
+    assert_eq!(model.motion().turn_of(1), Some(Fixed::ZERO));
+}
+
+#[test]
+fn a_refused_tap_shakes_the_fixed_mirror_every_time() {
+    let mut model = LumenModel::new();
+    model.select_level(SET_SIZE);
+    let fixed = model.level().fixed[0].position;
+    for _ in 0..2 {
+        assert!(
+            model
+                .rotate_cell(fixed.x, fixed.y)
+                .contains(ChangeSet::VISUAL)
+        );
+        model.advance_ms(16);
+        assert_ne!(model.motion().shake_of(0), Fixed::ZERO);
+        settle(&mut model);
+        assert_eq!(model.motion().shake_of(0), Fixed::ZERO);
+    }
+}
+
+#[test]
+fn progress_saves_the_puzzle_in_play_and_every_rating() {
+    let mut source = LumenModel::new();
+    solve_at_par(&mut source);
+    source.select_level(3);
+    source.rotate(0);
+    let mut bytes = [0_u8; SAVE_LEN];
+    assert_eq!(source.encode_into(&mut bytes), Ok(SAVE_LEN));
+    assert_eq!(&bytes[..4], b"LUM1");
+
+    let progress = LumenModel::decode_progress(&bytes).unwrap();
+    let mut restored = LumenModel::new();
+    restored.open_levels();
+    restored.restore(progress);
+    assert_eq!(restored.level_index(), 3);
+    assert_eq!(restored.moves(), 0, "the puzzle opens fresh");
+    assert_eq!(restored.stars(), source.stars());
+    assert!(!restored.levels_open());
+
+    let mut corrupt = bytes;
+    corrupt[6] ^= 1;
+    assert!(LumenModel::decode_progress(&corrupt).is_err());
+    assert!(LumenModel::decode_progress(&bytes[..SAVE_LEN - 1]).is_err());
 }
 
 #[test]
 fn model_storage_stays_within_embedded_budget() {
-    assert!(core::mem::size_of::<LumenModel>() <= 512);
+    // The beam trace is the bulk; the board motion (a tween for the beam and
+    // one for the receiver, springs for a turn and the three result stars)
+    // adds about 250 bytes.
+    assert!(core::mem::size_of::<LumenModel>() <= 768);
 }

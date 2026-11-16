@@ -1,24 +1,34 @@
-use super::board::{LumenBoard, board_tap};
+use super::board::{BOARD_HEIGHT, BOARD_WIDTH, LumenBoard, board_tap};
+use super::stars::{LumenStars, StarRow};
 use super::style::{
-    ACCENT, BACKGROUND, BOARD, CONTROL, CONTROL_PRESSED, HEADER, HINT, MUTED, PANEL, PANEL_BORDER,
-    SUCCESS, TEXT, padding,
+    ACCENT, BACKGROUND, BOARD, CONTROL, CONTROL_DISABLED, CONTROL_PRESSED, DIVIDER, HEADER, HINT,
+    MUTED, PANEL, PANEL_BORDER, SCRIM, SUCCESS, TEXT, TEXT_DISABLED, padding,
 };
+use crate::core::i18n::{Locale, Phrase, locale};
 use crate::gallery::play::lumen::{
-    BeamStatus, LEVEL_COUNT, LEVELS, LumenModel, LumenNote, SET_SIZE, SETS,
+    BeamStatus, LEVEL_COUNT, LEVELS, LumenModel, LumenNote, MAX_STARS, SET_SIZE, SETS,
 };
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::tr;
 use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 use core::fmt;
 
-fn status_label(status: BeamStatus) -> &'static str {
+/// Where the board sits; the result card covers the same box.
+const BOARD_LEFT: i32 = 6;
+const BOARD_TOP: i32 = 34;
+/// The side panel, right of the board.
+const SIDE_LEFT: i32 = 392;
+const SIDE_WIDTH: i32 = 82;
+
+fn status_label(status: BeamStatus) -> Phrase {
     match status {
-        BeamStatus::Lit => "接通",
-        BeamStatus::LampsDark => "还有灯没亮",
-        BeamStatus::Wall => "光撞墙了",
-        BeamStatus::Edge => "光出界了",
-        BeamStatus::Loop => "光在绕圈",
+        BeamStatus::Lit => tr!(en: "Lit", zh: "接通"),
+        BeamStatus::LampsDark => tr!(en: "A lamp is dark", zh: "还有灯没亮"),
+        BeamStatus::Wall => tr!(en: "Hit a wall", zh: "光撞墙了"),
+        BeamStatus::Edge => tr!(en: "Off the board", zh: "光出界了"),
+        BeamStatus::Loop => tr!(en: "Runs in a loop", zh: "光在绕圈"),
     }
 }
 
@@ -30,50 +40,131 @@ fn status_color(status: BeamStatus) -> Color {
     }
 }
 
-/// What the beam touches, in the small caps under the status.
-struct BeamCount {
-    mirrors: (u8, u8),
-    lamps: (u8, u8),
-}
+/// The puzzle's number and name.
+struct LevelTitle(usize);
 
-impl fmt::Display for BeamCount {
+impl fmt::Display for LevelTitle {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (hit, mirrors) = self.mirrors;
-        let (lit, lamps) = self.lamps;
-        if lamps == 0 {
-            write!(output, "MIRRORS {hit} / {mirrors}")
-        } else {
-            write!(output, "MIRRORS {hit}/{mirrors}  LAMPS {lit}/{lamps}")
-        }
+        write!(output, "{:02} {}", self.0 + 1, LEVELS[self.0].name)
     }
 }
 
-struct NoteText(LumenNote);
+/// The line beside the puzzle name: its tip, or a reply to the last tap.
+struct NoteText {
+    level: usize,
+    note: LumenNote,
+}
 
 impl fmt::Display for NoteText {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            LumenNote::Tip => output.write_str("每面镜子都会用上"),
-            LumenNote::Hint(_) => output.write_str("转动高亮的镜子"),
-            LumenNote::Fixed => output.write_str("这面镜子是固定的"),
+        let phrase = match self.note {
+            LumenNote::Tip => LEVELS[self.level].subtitle,
+            LumenNote::Hint(_) => tr!(en: "Turn the marked mirror.", zh: "转动高亮的镜子。"),
+            LumenNote::Fixed => tr!(en: "That mirror is fixed.", zh: "这面镜子是固定的。"),
+        };
+        write!(output, "{phrase}")
+    }
+}
+
+fn note_color(note: LumenNote) -> Color {
+    if note == LumenNote::Tip { MUTED } else { HINT }
+}
+
+/// Rotatable mirrors on the beam, of all on the board.
+struct MirrorCount((u8, u8));
+
+impl fmt::Display for MirrorCount {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (hit, all) = self.0;
+        write!(output, "{} {hit}/{all}", tr!(en: "Mirrors", zh: "镜子"))
+    }
+}
+
+/// Lamps the beam lights; nothing on a board without lamps.
+struct LampCount((u8, u8));
+
+impl fmt::Display for LampCount {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (lit, all) = self.0;
+        if all == 0 {
+            return Ok(());
+        }
+        write!(output, "{} {lit}/{all}", tr!(en: "Lamps", zh: "灯"))
+    }
+}
+
+/// How the solve went against par.
+struct TurnsLine {
+    moves: u16,
+    par: u8,
+}
+
+impl fmt::Display for TurnsLine {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { moves, par } = *self;
+        match locale() {
+            Locale::ZhCn => write!(output, "转动 {moves} 次 · 最少 {par} 次"),
+            _ if moves == 1 => write!(output, "1 turn · par {par}"),
+            _ => write!(output, "{moves} turns · par {par}"),
         }
     }
 }
 
-/// A level tile: its number over a star once it is solved.
+/// Under the result: how to do better, or the stars of the whole lab.
+struct ResultTip {
+    earned: u8,
+    total: u8,
+}
+
+impl fmt::Display for ResultTip {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.earned < MAX_STARS {
+            write!(
+                output,
+                "{}",
+                tr!(en: "At par, no hint: ★★★", zh: "最少次数、不看提示：★★★")
+            )
+        } else {
+            write!(
+                output,
+                "{} ★ {} / {}",
+                tr!(en: "All puzzles", zh: "全部谜题"),
+                self.total,
+                LEVEL_COUNT * usize::from(MAX_STARS)
+            )
+        }
+    }
+}
+
+fn next_label(has_next: bool) -> Phrase {
+    if has_next {
+        tr!(en: "Next ▶", zh: "下一关 ▶")
+    } else {
+        tr!(en: "☰ Puzzles", zh: "☰ 选关")
+    }
+}
+
+/// Stars as a row of three, filled for those earned.
+struct StarText(u8);
+
+impl fmt::Display for StarText {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for star in 0..MAX_STARS {
+            output.write_str(if star < self.0 { "★" } else { "☆" })?;
+        }
+        Ok(())
+    }
+}
+
+/// A puzzle tile: its number over its best stars.
 struct TileLabel {
     level: usize,
-    done: bool,
+    stars: u8,
 }
 
 impl fmt::Display for TileLabel {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            output,
-            "{:02}\n{}",
-            self.level + 1,
-            if self.done { "★" } else { "☆" }
-        )
+        write!(output, "{:02}\n{}", self.level + 1, StarText(self.stars))
     }
 }
 
@@ -83,7 +174,7 @@ fn control_color(enabled: bool, active: bool) -> Color {
     } else if enabled {
         CONTROL
     } else {
-        Color::rgb(35, 47, 43)
+        CONTROL_DISABLED
     }
 }
 
@@ -93,289 +184,352 @@ fn control_text_color(enabled: bool, active: bool) -> Color {
     } else if enabled {
         TEXT
     } else {
-        Color::rgb(93, 108, 101)
+        TEXT_DISABLED
     }
 }
 
-fn tile_text_color(current: bool, done: bool) -> Color {
+fn tile_text_color(current: bool, stars: u8) -> Color {
     if current {
         BACKGROUND
-    } else if done {
+    } else if stars == MAX_STARS {
+        ACCENT
+    } else if stars != 0 {
         SUCCESS
     } else {
         TEXT
     }
 }
 
-fn level_completed(mask: u16, level: usize) -> bool {
-    mask & (1 << level) != 0
-}
-
 #[compose]
 fn compose_header(model: model!(LumenModel)) -> Entity {
     ui! {
         Row (
-            height: 35,
-            padding: padding(7, 12),
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 30,
+            padding: padding(5, 12),
             align: AlignItems::Center,
             column_gap: 8,
             bg_color: HEADER
         ) {
-            View (width: 13, height: 13, bg_color: ACCENT, border_radius: 7)
+            View (width: 10, height: 10, bg_color: ACCENT, border_radius: 5)
             Text (
-                "LUMEN LAB",
-                grow: 1.0,
-                height: 21,
-                font_size: 12,
+                tr!(en : "LUMEN LAB", zh : "光路实验室"),
+                id: "lumen_title",
+                width: 56,
+                height: 20,
+                font_size: 10,
                 text_color: TEXT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                text: ${ format_args!("PUZZLE {:02} / {LEVEL_COUNT}", model.level_index() + 1) },
-                capacity: 14,
-                id: "lumen_puzzle",
-                width: 110,
-                height: 20,
-                font_size: 9,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-        }
-    }
-}
-
-#[compose]
-fn compose_level_intro(model: model!(LumenModel)) -> Entity {
-    ui! {
-        Row (
-            height: 28,
-            padding: padding(4, 19),
-            align: AlignItems::Center,
-            column_gap: 8,
-            visible: ${ !model.levels_open() }
-        ) {
-            Text (
-                text: ${ LEVELS[model.level_index()].name },
-                capacity: 15,
+                text: ${ LevelTitle(model.level_index()) },
+                capacity: 32,
                 id: "lumen_level_name",
-                width: 164,
+                width: 112,
                 height: 20,
-                font_size: 12,
+                font_size: 10,
                 text_color: ACCENT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                text: ${ LEVELS[model.level_index()].subtitle },
-                capacity: 48,
-                id: "lumen_level_subtitle",
+                text: ${
+                    NoteText {
+                        level: model.level_index(),
+                        note: model.note(),
+                    }
+                },
+                capacity: 64,
+                id: "lumen_note",
                 grow: 1.0,
-                height: 18,
-                font_size: 9,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+                height: 20,
+                font_size: 10,
+                text_color: ${ note_color(model.note()) },
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
         }
     }
 }
 
 #[compose]
-fn compose_playfield(model: model!(LumenModel)) -> Entity {
+fn compose_board(model: model!(LumenModel)) -> Entity {
     ui! {
-        Row (height: 204, padding: padding(0, 12), column_gap: 11) {
-            View (
-                width: 282,
-                height: 204,
-                clip_children: true
-            ) {
-                View (id: "lumen_board", grow: 1.0) [
-                    LumenBoard { model: model.clone() },
-                    TouchAction::None,
-                ] on Tap(|event: event!(Tap), rows: query!(LumenBoard, ComputedRect)| {
-                    let Some((board, rect)) = rows.get(event.target) else {
-                        return false;
-                    };
-                    let rect = rect.0;
-                    board_tap(board, rect, event.x, event.y)
-                })
-            }
-            Column (
-                width: 163,
-                height: 204,
-                row_gap: 6,
-                visible: ${ !model.levels_open() }
-            ) {
-                Column (
-                    height: 102,
-                    padding: padding(9, 14),
-                    row_gap: 3,
-                    bg_color: PANEL,
-                    border_color: PANEL_BORDER,
-                    border_width: 1,
-                    border_radius: 9
-                ) {
-                    Text (
-                        text: ${ status_label(model.beam_status()) },
-                        capacity: 15,
-                        id: "lumen_status",
-                        height: 20,
-                        font_size: 11,
-                        text_color: ${ status_color(model.beam_status()) },
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                    )
-                    Text (
-                        text: ${
-                            BeamCount {
-                                mirrors: model.mirror_count(),
-                                lamps: model.lamp_count(),
-                            }
-                        },
-                        capacity: 24,
-                        id: "lumen_status_subtitle",
-                        height: 13,
-                        font_size: 7,
-                        text_color: MUTED,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                    )
-                    View (height: 1, bg_color: Color::rgb(66, 82, 79))
-                    Row (grow: 1.0, align: AlignItems::Center, column_gap: 4) {
-                        Text (
-                            text: ${ format_args!("{:02}", model.moves().min(99)) },
-                            capacity: 2,
-                            id: "lumen_moves",
-                            width: 42,
-                            height: 35,
-                            font_size: 24,
-                            text_color: ACCENT,
-                            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                        )
-                        Text (
-                            "次旋转",
-                            grow: 1.0,
-                            height: 18,
-                            font_size: 8,
-                            text_color: MUTED,
-                            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                        )
-                        Column (width: 43, height: 38) {
-                            Text (
-                                text: ${ format_args!("{} / {LEVEL_COUNT}", model.completed_count()) },
-                                capacity: 7,
-                                id: "lumen_completed",
-                                height: 21,
-                                font_size: 12,
-                                text_color: Color::rgb(193, 214, 197),
-                                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-                            )
-                            Text (
-                                "已完成",
-                                height: 14,
-                                font_size: 7,
-                                text_color: MUTED,
-                                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-                            )
-                        }
-                    }
-                }
-                Button (
-                    "提示一步",
-                    size: ButtonSize::Compact,
-                    width: 163,
-                    height: 32,
-                    font_size: 10,
-                    normal_color: CONTROL,
-                    pressed_color: CONTROL_PRESSED,
-                    pressed_text_color: BOARD,
-                    text_color: TEXT,
-                    border_radius: 8
-                ) on Tap { model.reveal_hint(); }
-                Button (
-                    "↻ 重来",
-                    size: ButtonSize::Compact,
-                    width: 163,
-                    height: 32,
-                    font_size: 10,
-                    normal_color: CONTROL,
-                    pressed_color: CONTROL_PRESSED,
-                    pressed_text_color: BOARD,
-                    text_color: TEXT,
-                    border_radius: 8
-                ) on Tap { model.reset(); }
-                Text (
-                    text: ${ NoteText(model.note()) },
-                    capacity: 24,
-                    id: "lumen_hint_note",
-                    grow: 1.0,
-                    font_size: 7,
-                    text_color: ${ if model.note() == LumenNote::Tip { MUTED } else { HINT } },
-                    paragraph: ParagraphStyle::label()
-                )
-            }
+        View (
+            id: "lumen_board",
+            position: Position::Absolute,
+            left: BOARD_LEFT,
+            top: BOARD_TOP,
+            width: BOARD_WIDTH,
+            height: BOARD_HEIGHT
+        ) [
+            LumenBoard { model: model.clone() },
+            TouchAction::None,
+        ] on Tap(|event: event!(Tap), rows: query!(LumenBoard, ComputedRect)| {
+            let Some((board, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            board_tap(board, rect, event.x, event.y)
+        })
+    }
+}
+
+#[compose]
+fn compose_readout(model: model!(LumenModel)) -> Entity {
+    ui! {
+        Column (
+            width: SIDE_WIDTH,
+            height: 144,
+            padding: padding(6, 8),
+            bg_color: PANEL,
+            border_color: PANEL_BORDER,
+            border_width: 1,
+            border_radius: 8
+        ) {
+            Text (
+                tr!(en : "TURNS", zh : "转动"),
+                height: 12,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                text: ${ format_args!("{:02}", model.moves().min(99)) },
+                capacity: 2,
+                id: "lumen_moves",
+                height: 36,
+                font_size: 30,
+                text_color: ACCENT,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                text: ${ format_args!("{} {}", tr!(en : "PAR", zh : "最少"), model.par()) },
+                capacity: 12,
+                id: "lumen_par",
+                height: 12,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            View (id: "lumen_live_stars", width: 66, height: 18) [
+                LumenStars {
+                    model: model.clone(),
+                    row: StarRow::Live,
+                },
+            ]
+            View (height: 1, bg_color: DIVIDER)
+            Text (
+                text: ${ status_label(model.beam_status()) },
+                capacity: 24,
+                id: "lumen_status",
+                height: 26,
+                font_size: 10,
+                text_color: ${ status_color(model.beam_status()) },
+                paragraph: ParagraphStyle::default()
+            )
+            Text (
+                text: ${ MirrorCount(model.mirror_count()) },
+                capacity: 16,
+                id: "lumen_mirrors",
+                height: 12,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                text: ${ LampCount(model.lamp_count()) },
+                capacity: 16,
+                id: "lumen_lamps",
+                height: 12,
+                font_size: 10,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
         }
     }
 }
 
 #[compose]
-fn compose_footer(model: model!(LumenModel)) -> Entity {
+fn compose_side(model: model!(LumenModel)) -> Entity {
     ui! {
-        View (height: 15)
-    };
-    ui! {
-        Row (
-            height: 38,
-            padding: padding(6, 12),
-            column_gap: 7,
-            bg_color: Color::rgb(20, 30, 27)
+        Column (
+            position: Position::Absolute,
+            left: SIDE_LEFT,
+            top: BOARD_TOP,
+            width: SIDE_WIDTH,
+            height: BOARD_HEIGHT,
+            row_gap: 4
         ) {
+            compose_readout (model)
             Button (
-                "选关",
+                id: "lumen_undo",
                 size: ButtonSize::Compact,
-                width: 93,
-                height: 26,
+                width: SIDE_WIDTH,
+                height: 28,
+                font_size: 10,
+                normal_color: ${ control_color(model.can_undo(), false) },
+                pressed_color: CONTROL_PRESSED,
+                pressed_text_color: BOARD,
+                text_color: ${ control_text_color(model.can_undo(), false) },
+                border_radius: 7
+            ) [
+                Text::label(tr!(en : "↺ Undo", zh : "↺ 撤销")),
+            ] on Tap { model.undo(); }
+            Button (
+                id: "lumen_hint",
+                size: ButtonSize::Compact,
+                width: SIDE_WIDTH,
+                height: 28,
+                font_size: 10,
+                normal_color: ${ control_color(!model.solved(), false) },
+                pressed_color: CONTROL_PRESSED,
+                pressed_text_color: BOARD,
+                text_color: ${ control_text_color(!model.solved(), false) },
+                border_radius: 7
+            ) [
+                Text::label(tr!(en : "? Hint", zh : "? 提示")),
+            ] on Tap { model.reveal_hint(); }
+            Button (
+                id: "lumen_restart",
+                size: ButtonSize::Compact,
+                width: SIDE_WIDTH,
+                height: 28,
                 font_size: 10,
                 normal_color: CONTROL,
                 pressed_color: CONTROL_PRESSED,
                 pressed_text_color: BOARD,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { model.open_levels(); }
+            ) [
+                Text::label(tr!(en : "↻ Restart", zh : "↻ 重来")),
+            ] on Tap { model.reset(); }
             Button (
-                "↺ 撤销",
-                id: "lumen_undo",
+                id: "lumen_levels",
                 size: ButtonSize::Compact,
-                width: 93,
-                height: 26,
+                width: SIDE_WIDTH,
+                height: 28,
                 font_size: 10,
-                normal_color: ${ control_color(model.can_undo(), false) },
+                normal_color: CONTROL,
                 pressed_color: CONTROL_PRESSED,
-                text_color: ${ control_text_color(model.can_undo(), false) },
+                pressed_text_color: BOARD,
+                text_color: TEXT,
                 border_radius: 7
-            ) on Tap { model.undo(); }
-            Button (
-                text: ${ if model.scan() { "追光 开" } else { "追光 关" } },
-                capacity: 10,
-                id: "lumen_scan",
-                size: ButtonSize::Compact,
-                width: 113,
-                height: 26,
-                font_size: 10,
-                normal_color: ${ control_color(true, model.scan()) },
-                pressed_color: CONTROL_PRESSED,
-                text_color: ${ control_text_color(true, model.scan()) },
-                border_radius: 7
-            ) on Tap { model.toggle_scan(); }
-            Button (
-                "下一关 →",
-                id: "lumen_next",
-                size: ButtonSize::Compact,
-                grow: 1.0,
-                height: 26,
-                font_size: 10,
-                normal_color: ${ control_color(true, model.solved()) },
-                pressed_color: CONTROL_PRESSED,
-                text_color: ${ control_text_color(true, model.solved()) },
-                border_radius: 7
-            ) on Tap { model.next_level(); }
+            ) [
+                Text::label(tr!(en : "☰ Puzzles", zh : "☰ 选关")),
+            ] on Tap { model.open_levels(); }
         }
+    }
+}
+
+#[compose]
+fn compose_result(model: model!(LumenModel)) -> Entity {
+    ui! {
+        View (
+            id: "lumen_result",
+            position: Position::Absolute,
+            left: BOARD_LEFT,
+            top: BOARD_TOP,
+            width: BOARD_WIDTH,
+            height: BOARD_HEIGHT,
+            visible: ${ model.won() },
+            bg_color: SCRIM,
+            border_radius: 10
+        ) [
+            TouchAction::None,
+        ] {
+            Column (
+                position: Position::Absolute,
+                left: 69,
+                top: 61,
+                width: 240,
+                height: 150,
+                padding: padding(10, 12),
+                row_gap: 4,
+                align: AlignItems::Center,
+                bg_color: PANEL,
+                border_color: ACCENT,
+                border_width: 1,
+                border_radius: 10
+            ) {
+                Text (
+                    text: ${ LevelTitle(model.level_index()) },
+                    capacity: 32,
+                    id: "lumen_result_title",
+                    width: 216,
+                    height: 16,
+                    font_size: 10,
+                    text_color: ACCENT,
+                    paragraph: ParagraphStyle::label()
+                )
+                View (id: "lumen_result_stars", width: 150, height: 40) [
+                    LumenStars {
+                        model: model.clone(),
+                        row: StarRow::Result,
+                    },
+                ]
+                Text (
+                    text: ${
+                        TurnsLine {
+                            moves: model.moves(),
+                            par: model.par(),
+                        }
+                    },
+                    capacity: 40,
+                    id: "lumen_result_turns",
+                    width: 216,
+                    height: 14,
+                    font_size: 10,
+                    text_color: TEXT,
+                    paragraph: ParagraphStyle::label()
+                )
+                Text (
+                    text: ${
+                        ResultTip {
+                            earned: model.earned(),
+                            total: model.total_stars(),
+                        }
+                    },
+                    capacity: 48,
+                    id: "lumen_result_tip",
+                    width: 216,
+                    height: 14,
+                    font_size: 10,
+                    text_color: MUTED,
+                    paragraph: ParagraphStyle::label()
+                )
+                Row (width: 216, height: 30, column_gap: 8) {
+                    Button (
+                        id: "lumen_replay",
+                        size: ButtonSize::Compact,
+                        width: 84,
+                        height: 30,
+                        font_size: 10,
+                        normal_color: CONTROL,
+                        pressed_color: CONTROL_PRESSED,
+                        pressed_text_color: BOARD,
+                        text_color: TEXT,
+                        border_radius: 7
+                    ) [
+                        Text::label(tr!(en : "↻ Replay", zh : "↻ 再玩")),
+                    ] on Tap { model.reset(); }
+                    Button (
+                        text: ${ next_label(model.has_next()) },
+                        capacity: 16,
+                        id: "lumen_next",
+                        size: ButtonSize::Compact,
+                        width: 124,
+                        height: 30,
+                        font_size: 10,
+                        normal_color: ACCENT,
+                        pressed_color: CONTROL_PRESSED,
+                        text_color: BACKGROUND,
+                        border_radius: 7
+                    ) on Tap { model.next_level(); }
+                }
+            }
+        } on Tap { model.finish_motion(); }
     }
 }
 
@@ -386,22 +540,17 @@ fn level_tile(model: model!(LumenModel), level: usize) -> Entity {
             text: ${
                 TileLabel {
                     level,
-                    done: level_completed(model.completion_mask(), level),
+                    stars: model.stars()[level],
                 }
             },
-            capacity: 8,
+            capacity: 16,
             size: ButtonSize::Compact,
             grow: 1.0,
-            height: 56,
+            height: 54,
             font_size: 10,
             normal_color: ${ control_color(true, model.level_index() == level) },
             pressed_color: CONTROL_PRESSED,
-            text_color: ${
-                tile_text_color(
-                    model.level_index() == level,
-                    level_completed(model.completion_mask(), level),
-                )
-            },
+            text_color: ${ tile_text_color(model.level_index() == level, model.stars()[level]) },
             border_radius: 7
         ) on Tap { model.select_level(level); }
     }
@@ -410,19 +559,19 @@ fn level_tile(model: model!(LumenModel), level: usize) -> Entity {
 #[compose]
 fn level_set(model: model!(LumenModel), set: usize) -> Entity {
     ui! {
-        Row (height: 60, column_gap: 6, align: AlignItems::Center) {
-            Column (width: 88, height: 56, row_gap: 2, justify: JustifyContent::Center) {
+        Row (height: 58, column_gap: 6, align: AlignItems::Center) {
+            Column (width: 88, height: 54, row_gap: 2, justify: JustifyContent::Center) {
                 Text (
                     SETS[set].name,
-                    height: 18,
-                    font_size: 12,
+                    height: 16,
+                    font_size: 10,
                     text_color: ACCENT,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
                     SETS[set].rule,
-                    height: 15,
-                    font_size: 8,
+                    height: 14,
+                    font_size: 10,
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
@@ -454,41 +603,46 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
             Column (
                 position: Position::Absolute,
                 left: 20,
-                top: 24,
+                top: 22,
                 width: 440,
-                height: 272,
-                padding: Padding::all(12),
-                row_gap: 6,
+                height: 276,
+                padding: padding(10, 12),
+                row_gap: 5,
                 bg_color: PANEL,
                 border_color: ACCENT,
                 border_width: 1,
                 border_radius: 10
             ) {
-                Row (height: 25, align: AlignItems::Center, column_gap: 8) {
+                Row (height: 24, align: AlignItems::Center, column_gap: 8) {
                     Text (
-                        "选关",
+                        tr!(en : "PUZZLES", zh : "选关"),
                         grow: 1.0,
-                        height: 22,
-                        font_size: 12,
+                        height: 20,
+                        font_size: 10,
                         text_color: ACCENT,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        text: ${ format_args!("★ {} / {LEVEL_COUNT}", model.completed_count()) },
+                        text: ${
+                            format_args!(
+                                "★ {} / {}", model.total_stars(), LEVEL_COUNT * usize::from(MAX_STARS)
+                            )
+                        },
                         capacity: 12,
                         id: "lumen_levels_stars",
                         width: 90,
                         height: 18,
                         font_size: 10,
-                        text_color: SUCCESS,
+                        text_color: ACCENT,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::End)
                     )
                     Button (
                         "×",
+                        id: "lumen_levels_close",
                         size: ButtonSize::Compact,
                         width: 28,
                         height: 24,
-                        font_size: 12,
+                        font_size: 10,
                         normal_color: CONTROL,
                         pressed_color: CONTROL_PRESSED,
                         pressed_text_color: BOARD,
@@ -499,6 +653,16 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                 level_set (model, 0)
                 level_set (model, 1)
                 level_set (model, 2)
+                Text (
+                    tr!(
+                        en : "Keys: Z undo · H hint · R restart · Enter next · Esc list", zh :
+                        "按键：Z 撤销 · H 提示 · R 重来 · Enter 下一关 · Esc 选关"
+                    ),
+                    height: 14,
+                    font_size: 10,
+                    text_color: MUTED,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
             }
         } on Tap { }
     }
@@ -507,11 +671,11 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
 #[compose]
 pub(super) fn build_widgets(model: model!(LumenModel)) {
     ui! {
-        Column (width: 480, height: 320, bg_color: BACKGROUND) {
+        View (width: 480, height: 320, bg_color: BACKGROUND) {
             compose_header (model)
-            compose_level_intro (model)
-            compose_playfield (model)
-            compose_footer (model)
+            compose_board (model)
+            compose_side (model)
+            compose_result (model)
             compose_level_modal (model)
         }
     };

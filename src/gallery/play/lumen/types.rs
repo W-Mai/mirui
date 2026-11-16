@@ -1,3 +1,5 @@
+use crate::core::i18n::Phrase;
+
 pub(crate) const GRID_COLUMNS: i8 = 7;
 pub(crate) const GRID_ROWS: i8 = 5;
 /// Puzzles per set; each set adds one idea and opens with a puzzle that teaches it.
@@ -72,8 +74,8 @@ impl FixedMirror {
 /// wears the label `i + 1` on the board.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Level {
-    pub(crate) name: &'static str,
-    pub(crate) subtitle: &'static str,
+    pub(crate) name: Phrase,
+    pub(crate) subtitle: Phrase,
     pub(crate) source_row: i8,
     pub(crate) target: GridPoint,
     pub(crate) mirrors: &'static [MirrorSpec],
@@ -106,26 +108,36 @@ impl Level {
     pub(crate) const fn all_lamps(&self) -> u8 {
         ((1_u16 << self.lamps.len()) - 1) as u8
     }
+
+    /// The fewest turns that solve the puzzle: each mirror is a two-way
+    /// switch, so it is one turn for every mirror that starts the wrong way.
+    pub(crate) fn par(&self) -> u8 {
+        self.mirrors
+            .iter()
+            .zip(self.initial)
+            .filter(|(mirror, start)| mirror.solution != **start)
+            .count() as u8
+    }
 }
 
 /// A group of puzzles that shares one idea.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct LevelSet {
-    pub(crate) name: &'static str,
-    pub(crate) rule: &'static str,
+    pub(crate) name: Phrase,
+    pub(crate) rule: Phrase,
 }
 
 pub(crate) const SETS: [LevelSet; SET_COUNT] = [
     LevelSet {
-        name: "转镜",
-        rule: "点镜子换方向",
+        name: crate::tr!(en: "Turning", zh: "转镜"),
+        rule: crate::tr!(en: "Tap to turn", zh: "点镜子换方向"),
     },
     LevelSet {
-        name: "定镜",
-        rule: "有的镜子转不动",
+        name: crate::tr!(en: "Fixed", zh: "定镜"),
+        rule: crate::tr!(en: "Some never turn", zh: "有的镜子转不动"),
     },
     LevelSet {
-        name: "点灯",
-        rule: "先点亮所有灯",
+        name: crate::tr!(en: "Lamps", zh: "点灯"),
+        rule: crate::tr!(en: "Lamps come first", zh: "先点亮所有灯"),
     },
 ];

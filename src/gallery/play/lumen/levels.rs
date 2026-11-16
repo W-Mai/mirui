@@ -168,8 +168,11 @@ const L3_5_INITIAL: [MirrorOrientation; 7] = [
 
 pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
     Level {
-        name: "转角",
-        subtitle: "点镜子，它会在 / 和 \\ 之间切换。",
+        name: crate::tr!(en: "Corner", zh: "转角"),
+        subtitle: crate::tr!(
+            en: "Tap a mirror to flip it: / or \\.",
+            zh: "点镜子，它会在 / 和 \\ 之间切换。"
+        ),
         source_row: 3,
         target: GridPoint::new(5, 1),
         mirrors: &L1_1_MIRRORS,
@@ -179,8 +182,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L1_1_INITIAL,
     },
     Level {
-        name: "U 形弯",
-        subtitle: "先往下走，再从下面绕过去。",
+        name: crate::tr!(en: "U-turn", zh: "U 形弯"),
+        subtitle: crate::tr!(
+            en: "Go down first, then around below.",
+            zh: "先往下走，再从下面绕过去。"
+        ),
         source_row: 0,
         target: GridPoint::new(5, 1),
         mirrors: &L1_2_MIRRORS,
@@ -190,8 +196,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L1_2_INITIAL,
     },
     Level {
-        name: "绕墙",
-        subtitle: "每面镜子都要用上。",
+        name: crate::tr!(en: "Around the wall", zh: "绕墙"),
+        subtitle: crate::tr!(
+            en: "Every mirror is needed.",
+            zh: "每面镜子都要用上。"
+        ),
         source_row: 2,
         target: GridPoint::new(6, 4),
         mirrors: &L1_3_MIRRORS,
@@ -201,8 +210,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L1_3_INITIAL,
     },
     Level {
-        name: "交叉",
-        subtitle: "光路可以交叉。",
+        name: crate::tr!(en: "Crossing", zh: "交叉"),
+        subtitle: crate::tr!(
+            en: "The beam may cross itself.",
+            zh: "光路可以交叉。"
+        ),
         source_row: 4,
         target: GridPoint::new(6, 0),
         mirrors: &L1_4_MIRRORS,
@@ -212,8 +224,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L1_4_INITIAL,
     },
     Level {
-        name: "七面镜",
-        subtitle: "从光源出发，一面一面地调。",
+        name: crate::tr!(en: "7 mirrors", zh: "七面镜"),
+        subtitle: crate::tr!(
+            en: "Start at the source, one at a time.",
+            zh: "从光源出发，一面一面地调。"
+        ),
         source_row: 0,
         target: GridPoint::new(2, 2),
         mirrors: &L1_5_MIRRORS,
@@ -223,8 +238,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L1_5_INITIAL,
     },
     Level {
-        name: "挡路的镜子",
-        subtitle: "有的镜子是固定的，点了不会转。",
+        name: crate::tr!(en: "In the way", zh: "挡路的镜子"),
+        subtitle: crate::tr!(
+            en: "Riveted mirrors never turn.",
+            zh: "有的镜子是固定的，点了不会转。"
+        ),
         source_row: 4,
         target: GridPoint::new(6, 4),
         mirrors: &L2_1_MIRRORS,
@@ -234,8 +252,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L2_1_INITIAL,
     },
     Level {
-        name: "回头",
-        subtitle: "同一面镜子可以用两次。",
+        name: crate::tr!(en: "Double back", zh: "回头"),
+        subtitle: crate::tr!(
+            en: "One mirror can be used twice.",
+            zh: "同一面镜子可以用两次。"
+        ),
         source_row: 3,
         target: GridPoint::new(5, 3),
         mirrors: &L2_2_MIRRORS,
@@ -245,8 +266,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L2_2_INITIAL,
     },
     Level {
-        name: "之字",
-        subtitle: "从固定镜开始想。",
+        name: crate::tr!(en: "Zigzag", zh: "之字"),
+        subtitle: crate::tr!(
+            en: "Start from the fixed mirrors.",
+            zh: "从固定镜开始想。"
+        ),
         source_row: 0,
         target: GridPoint::new(6, 4),
         mirrors: &L2_3_MIRRORS,
@@ -256,8 +280,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L2_3_INITIAL,
     },
     Level {
-        name: "中间一排",
-        subtitle: "也可以从接收器往回推。",
+        name: crate::tr!(en: "Middle row", zh: "中间一排"),
+        subtitle: crate::tr!(
+            en: "Or work back from the receiver.",
+            zh: "也可以从接收器往回推。"
+        ),
         source_row: 4,
         target: GridPoint::new(4, 3),
         mirrors: &L2_4_MIRRORS,
@@ -267,8 +294,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L2_4_INITIAL,
     },
     Level {
-        name: "外圈",
-        subtitle: "接收器在左边，光要绕远路。",
+        name: crate::tr!(en: "Outer loop", zh: "外圈"),
+        subtitle: crate::tr!(
+            en: "The long way round to the left.",
+            zh: "接收器在左边，光要绕远路。"
+        ),
         source_row: 3,
         target: GridPoint::new(0, 1),
         mirrors: &L2_5_MIRRORS,
@@ -278,8 +308,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L2_5_INITIAL,
     },
     Level {
-        name: "近路",
-        subtitle: "先点亮灯，接收器才会亮。",
+        name: crate::tr!(en: "Shortcut", zh: "近路"),
+        subtitle: crate::tr!(
+            en: "Light the lamp before the receiver.",
+            zh: "先点亮灯，接收器才会亮。"
+        ),
         source_row: 2,
         target: GridPoint::new(2, 0),
         mirrors: &L3_1_MIRRORS,
@@ -289,8 +322,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L3_1_INITIAL,
     },
     Level {
-        name: "原路折回",
-        subtitle: "镜子正反两面都能反光。",
+        name: crate::tr!(en: "Way back", zh: "原路折回"),
+        subtitle: crate::tr!(
+            en: "Mirrors reflect on both sides.",
+            zh: "镜子正反两面都能反光。"
+        ),
         source_row: 2,
         target: GridPoint::new(3, 3),
         mirrors: &L3_2_MIRRORS,
@@ -300,8 +336,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L3_2_INITIAL,
     },
     Level {
-        name: "双灯",
-        subtitle: "两个灯都要亮，先后随意。",
+        name: crate::tr!(en: "Two lamps", zh: "双灯"),
+        subtitle: crate::tr!(
+            en: "Light both lamps, in any order.",
+            zh: "两个灯都要亮，先后随意。"
+        ),
         source_row: 1,
         target: GridPoint::new(5, 1),
         mirrors: &L3_3_MIRRORS,
@@ -311,8 +350,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L3_3_INITIAL,
     },
     Level {
-        name: "梯子",
-        subtitle: "四面镜子叠成一列。",
+        name: crate::tr!(en: "Ladder", zh: "梯子"),
+        subtitle: crate::tr!(
+            en: "Four mirrors stacked in a column.",
+            zh: "四面镜子叠成一列。"
+        ),
         source_row: 2,
         target: GridPoint::new(4, 1),
         mirrors: &L3_4_MIRRORS,
@@ -322,8 +364,11 @@ pub(crate) const LEVELS: [Level; super::types::LEVEL_COUNT] = [
         initial: &L3_4_INITIAL,
     },
     Level {
-        name: "七镜两灯",
-        subtitle: "最后一关。",
+        name: crate::tr!(en: "7 mirrors, 2 lamps", zh: "七镜两灯"),
+        subtitle: crate::tr!(
+            en: "The last puzzle.",
+            zh: "最后一关。"
+        ),
         source_row: 3,
         target: GridPoint::new(4, 3),
         mirrors: &L3_5_MIRRORS,

@@ -1,12 +1,15 @@
 mod levels;
 mod model;
+mod motion;
 mod trace;
 mod types;
 
 pub(crate) use levels::LEVELS;
 #[cfg(test)]
 pub(crate) use model::LumenModelHandle;
-pub(crate) use model::{BeamStatus, LumenModel, LumenNote};
+pub(crate) use model::{BeamStatus, LumenModel, LumenNote, MAX_STARS};
+#[cfg(any(feature = "persistence", test))]
+pub(crate) use model::{LumenProgress, SAVE_LEN};
 #[allow(unused_imports)]
 pub(crate) use trace::{Trace, TraceStop, trace};
 #[allow(unused_imports)]

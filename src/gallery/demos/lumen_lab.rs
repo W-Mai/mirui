@@ -1,8 +1,11 @@
 extern crate alloc;
 
 mod board;
+#[cfg(feature = "persistence")]
+mod persistence;
 mod runtime;
 mod shell;
+mod stars;
 mod style;
 
 #[cfg(feature = "std")]
@@ -12,8 +15,9 @@ use crate::gallery::play::lumen::LumenModel;
 use crate::prelude::*;
 
 use self::board::board_render;
-use self::runtime::lumen_tick_system;
+use self::runtime::{keyboard, lumen_tick_system};
 use self::shell::build_widgets;
+use self::stars::stars_render;
 
 pub const VIEWPORT: (u16, u16) = (480, 320);
 
@@ -25,8 +29,12 @@ where
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(PlayFontPlugin);
-    app.with_widget(board_render::view());
+    #[cfg(feature = "persistence")]
+    persistence::install_persistence(app);
+    app.with_widget(board_render::view())
+        .with_widget(stars_render::view());
     let model = app.add_model(LumenModel::new()).finish();
+    app.on_event(Key::EVENT, keyboard::callback(model.clone()));
     app.add_system(lumen_tick_system::system(model.clone()));
     app.compose(parent, build_widgets(model));
 }
