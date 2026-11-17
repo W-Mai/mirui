@@ -1479,15 +1479,28 @@ impl PreparedJet {
                     let Some([x, y, m, depth]) = self.project(layer, voxel, p) else {
                         continue;
                     };
-                    if self.samples_outside(x, 0, m, canvas.color.clip)
-                        || self.samples_outside(y, 1, m, canvas.color.clip)
+                    let xs = self.sample_ends(x, 0, m);
+                    if xs[0].max(xs[1]) < canvas.color.clip[0]
+                        || xs[0].min(xs[1]) >= canvas.color.clip[2]
+                    {
+                        continue;
+                    }
+                    let ys = self.sample_ends(y, 1, m);
+                    if ys[0].max(ys[1]) < canvas.color.clip[1]
+                        || ys[0].min(ys[1]) >= canvas.color.clip[3]
                     {
                         continue;
                     }
                     let a = voxel.a();
                     let color =
                         pal.jets[lights[usize::from(a >= Fixed::ZERO)]][usize::from(voxel.color)];
-                    for offset in &offsets[..samples * samples] {
+                    // Identical extrema mean every offset writes the same pixel.
+                    let sample_count = if xs[0] == xs[1] && ys[0] == ys[1] {
+                        1
+                    } else {
+                        samples * samples
+                    };
+                    for offset in &offsets[..sample_count] {
                         let xx = ((x + offset[0] * m / center[2]).round()).trunc_to_int();
                         if xx < canvas.color.clip[0] || xx >= canvas.color.clip[2] {
                             continue;
@@ -1592,12 +1605,6 @@ impl PreparedJet {
                 .round()
                 .trunc_to_int()
         })
-    }
-
-    fn samples_outside(&self, position: Fixed, axis: usize, scale: Fixed, clip: [i32; 4]) -> bool {
-        // Preserve multiplication, division and rounding from the actual sample path.
-        let ends = self.sample_ends(position, axis, scale);
-        ends[0].max(ends[1]) < clip[axis] || ends[0].min(ends[1]) >= clip[axis + 2]
     }
 }
 #[derive(Clone, Copy, Default)]
@@ -1859,7 +1866,22 @@ mod tests {
                     for raw in (-32 * 256..160 * 256).step_by(67) {
                         let position = Fixed::from_ratio(raw, 256);
                         for clip in [[0, 0, 32, 32], [31, 47, 63, 79], [127, 127, 128, 128]] {
-                            if prepared.samples_outside(position, axis, scale, clip) {
+                            let ends = prepared.sample_ends(position, axis, scale);
+                            if ends[0] == ends[1] {
+                                for offset in
+                                    &prepared.offsets[..prepared.samples * prepared.samples]
+                                {
+                                    assert_eq!(
+                                        (position + offset[axis] * scale / prepared.center[2])
+                                            .round()
+                                            .trunc_to_int(),
+                                        ends[0]
+                                    );
+                                }
+                            }
+                            if ends[0].max(ends[1]) < clip[axis]
+                                || ends[0].min(ends[1]) >= clip[axis + 2]
+                            {
                                 assert!(
                                     prepared.offsets[..prepared.samples * prepared.samples]
                                         .iter()
