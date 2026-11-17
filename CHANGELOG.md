@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Limit Pixel Flight terrain coverage to the current drawing region and skip ray segments below it.
+
 - Project Pixel Flight terrain heights on demand and reuse adjacent-column results within each ray.
 
 - Skip transparent Pixel Flight cockpit rows and reuse decoded rows during fractional composition.

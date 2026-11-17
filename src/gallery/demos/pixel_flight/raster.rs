@@ -448,7 +448,7 @@ impl SceneCanvas<'_, '_> {
             self.color.bytes[start * 4..end * 4].fill(0);
             self.depth[start..end].fill(Fixed::MAX);
         }
-        self.columns.fill(self.color.bounds[3]);
+        self.columns.fill(self.color.clip[3]);
     }
 }
 #[derive(Clone, Copy, Default)]
@@ -769,6 +769,13 @@ impl HeightProjection {
             .floor()
             .trunc_to_int()
     }
+    fn minimum_y(&self) -> i32 {
+        self.at(if self.scale >= Fixed::ZERO {
+            world::MAX_HEIGHT
+        } else {
+            0
+        })
+    }
 }
 fn draw_world(
     canvas: &mut SceneCanvas<'_, '_>,
@@ -848,6 +855,10 @@ fn draw_world(
         m = scale / den;
         let previous = row;
         row = HeightProjection::new(cy, m, slope, v, alt);
+        // Advance the global ray sequence, but do not sample below the local clip.
+        if row.minimum_y() >= bottom && previous.minimum_y() >= bottom {
+            continue;
+        }
         let inverse = den / scale;
         let ax = cs * inverse;
         let ay = -sn * inverse;
@@ -1761,6 +1772,21 @@ mod tests {
     use super::super::flight::{Settings, View};
     use super::*;
     #[test]
+    fn height_projection_minimum_bounds_every_supported_height() {
+        for origin in [-256, -1, 0, 37, 256] {
+            for scale in [-512, -37, -1, 0, 1, 37, 512] {
+                let row = HeightProjection {
+                    origin: Fixed::from_int(origin),
+                    scale: Fixed::from_ratio(scale, 256),
+                };
+                let minimum = row.minimum_y();
+                for height in 0..=world::MAX_HEIGHT {
+                    assert!(row.at(height) >= minimum);
+                }
+            }
+        }
+    }
+    #[test]
     #[should_panic(expected = "terrain height outside projection")]
     fn height_projection_rejects_heights_outside_the_world_domain() {
         HeightProjection::new(Fixed::ONE, Fixed::ONE, Fixed::ONE, Fixed::ONE, Fixed::ONE)
@@ -1905,6 +1931,11 @@ mod tests {
                         }
                     );
                     scene.draw(canvas, projection);
+                    if canvas.color.clip[0] < canvas.color.clip[2]
+                        && canvas.color.clip[1] < canvas.color.clip[3]
+                    {
+                        assert!(canvas.columns.iter().all(|y| *y <= canvas.color.clip[3]));
+                    }
                 });
                 let reference = full.texture.read_pixels().unwrap();
                 let local = region.texture.read_pixels().unwrap();
