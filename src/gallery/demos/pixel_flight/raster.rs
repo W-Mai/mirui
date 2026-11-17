@@ -1236,6 +1236,7 @@ struct PreparedJet {
     lights: [usize; 2],
     samples: usize,
     offsets: [[Fixed; 2]; 64],
+    sample_bounds: [[Fixed; 2]; 2],
 }
 impl PreparedJet {
     fn new(
@@ -1355,6 +1356,13 @@ impl PreparedJet {
                 ];
             }
         }
+        let mut sample_bounds = [offsets[0]; 2];
+        for offset in &offsets[1..samples * samples] {
+            for axis in 0..2 {
+                sample_bounds[0][axis] = sample_bounds[0][axis].min(offset[axis]);
+                sample_bounds[1][axis] = sample_bounds[1][axis].max(offset[axis]);
+            }
+        }
         Some(Self {
             center,
             fade,
@@ -1366,6 +1374,7 @@ impl PreparedJet {
             lights,
             samples,
             offsets,
+            sample_bounds,
         })
     }
     fn draw(
@@ -1428,12 +1437,18 @@ impl PreparedJet {
                         continue;
                     }
                     let m = p.scale / den;
-                    let color =
-                        pal.jets[lights[usize::from(a >= Fixed::ZERO)]][usize::from(voxel.color)];
                     let x = p.center[0] + m * (bu + a * right[0] + b * forward[0]);
+                    if self.samples_outside(x, 0, m, canvas.color.clip) {
+                        continue;
+                    }
                     let y = p.center[1]
                         - m * (bw + a * right[2] + b * forward[2] + p.slope * depth)
                         + drop;
+                    if self.samples_outside(y, 1, m, canvas.color.clip) {
+                        continue;
+                    }
+                    let color =
+                        pal.jets[lights[usize::from(a >= Fixed::ZERO)]][usize::from(voxel.color)];
                     for offset in &offsets[..samples * samples] {
                         let xx = ((x + offset[0] * m / center[2]).round()).trunc_to_int();
                         if xx < canvas.color.clip[0] || xx >= canvas.color.clip[2] {
@@ -1486,6 +1501,16 @@ impl PreparedJet {
                 }
             }
         }
+    }
+
+    fn samples_outside(&self, position: Fixed, axis: usize, scale: Fixed, clip: [i32; 4]) -> bool {
+        // Preserve multiplication, division and rounding from the actual sample path.
+        let ends = self.sample_bounds.map(|bound| {
+            (position + bound[axis] * scale / self.center[2])
+                .round()
+                .trunc_to_int()
+        });
+        ends[0].max(ends[1]) < clip[axis] || ends[0].min(ends[1]) >= clip[axis + 2]
     }
 }
 #[derive(Clone, Copy, Default)]
@@ -1659,6 +1684,44 @@ fn project_flames(
 mod tests {
     use super::super::flight::{Settings, View};
     use super::*;
+    #[test]
+    fn sample_bounds_never_reject_a_sample_inside_the_region() {
+        let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
+        let mut flight = Flight::new(&world, Settings::default());
+        let palette = Palette::new(Daylight::Day);
+        for view in [View::Overhead, View::Chase] {
+            flight.view = view;
+            for _ in 0..180 {
+                flight.step(&world, 16, 128, 128);
+            }
+            let projection = flight.projection(128, 128);
+            let prepared = PreparedJet::new(&flight, 0, &projection, &palette, [128, 128])
+                .expect("visible aircraft");
+            for scale in [1, 63, 256, 512, 1024] {
+                let scale = Fixed::from_ratio(scale, 256);
+                for axis in 0..2 {
+                    for raw in (-32 * 256..160 * 256).step_by(67) {
+                        let position = Fixed::from_ratio(raw, 256);
+                        for clip in [[0, 0, 32, 32], [31, 47, 63, 79], [127, 127, 128, 128]] {
+                            if prepared.samples_outside(position, axis, scale, clip) {
+                                assert!(
+                                    prepared.offsets[..prepared.samples * prepared.samples]
+                                        .iter()
+                                        .all(|offset| {
+                                            let at = (position
+                                                + offset[axis] * scale / prepared.center[2])
+                                                .round()
+                                                .trunc_to_int();
+                                            at < clip[axis] || at >= clip[axis + 2]
+                                        })
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     #[test]
     fn region_writes_preserve_global_scene_samples_and_depth() {
         let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);

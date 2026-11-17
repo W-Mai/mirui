@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Reject Pixel Flight voxel sample loops outside each native drawing region without changing sample density or rounding.
+
 - Prepare Pixel Flight aircraft projection, lighting and sample offsets once per frame across native drawing regions.
 
 - Restrict native Pixel Flight source production to mapped samples and their outline halo.
