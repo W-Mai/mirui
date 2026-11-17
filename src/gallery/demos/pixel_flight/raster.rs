@@ -490,7 +490,16 @@ impl Scene<'_> {
     fn prepare(&self, projection: Projection, size: [usize; 2]) -> [Option<PreparedJet>; 3] {
         core::array::from_fn(|index| {
             (index < self.flight.count)
-                .then(|| PreparedJet::new(self.flight, index, &projection, self.palette, size))
+                .then(|| {
+                    PreparedJet::new(
+                        self.flight,
+                        index,
+                        &projection,
+                        self.palette,
+                        size,
+                        self.slices,
+                    )
+                })
                 .flatten()
         })
     }
@@ -519,14 +528,7 @@ impl Scene<'_> {
         draw_smoke(canvas, self.flight, &projection, self.palette.day);
         for i in &order[..self.flight.count] {
             if let Some(jet) = &prepared[*i] {
-                jet.draw(
-                    canvas,
-                    self.flight,
-                    *i,
-                    &projection,
-                    self.palette,
-                    self.slices,
-                );
+                jet.draw(canvas, &projection, self.palette, self.slices);
             }
         }
     }
@@ -1225,13 +1227,19 @@ fn draw_smoke(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection,
         }
     }
 }
+#[derive(Clone, Copy)]
+struct PreparedLayer {
+    camera: [Fixed; 3],
+    drop: Fixed,
+    bounds: Option<[i32; 4]>,
+}
+
 struct PreparedJet {
     center: [Fixed; 4],
     fade: Fixed,
     right: [Fixed; 3],
     forward: [Fixed; 3],
-    up: [Fixed; 3],
-    camera: [Fixed; 3],
+    layers: [Option<PreparedLayer>; jet::LAYERS],
     order: [usize; jet::LAYERS],
     lights: [usize; 2],
     samples: usize,
@@ -1245,6 +1253,7 @@ impl PreparedJet {
         p: &Projection,
         pal: &Palette,
         size: [usize; 2],
+        slices: &[&[jet::Voxel]; jet::LAYERS],
     ) -> Option<Self> {
         crate::trace_span!("flight.aircraft.prepare");
         let jet = &flight.jets[index];
@@ -1363,13 +1372,41 @@ impl PreparedJet {
                 sample_bounds[1][axis] = sample_bounds[1][axis].max(offset[axis]);
             }
         }
+        let first_slice = slices
+            .iter()
+            .position(|slice| !slice.is_empty())
+            .unwrap_or(jet::LAYERS);
+        let layers = core::array::from_fn(|layer: usize| {
+            let intro = flight.intro - Fixed::from_int((index) as i32) * Fixed::from_ratio(25, 100);
+            let t = (intro
+                - Fixed::from_int((layer.saturating_sub(first_slice)) as i32)
+                    * Fixed::from_ratio(7, 100))
+                / Fixed::from_ratio(36, 100);
+            if t <= Fixed::ZERO {
+                return None;
+            }
+            let drop = if t < Fixed::ONE {
+                -(Fixed::ONE - t * t)
+                    * (Fixed::from_int((size[1]) as i32) / Fixed::from_int(2) + Fixed::from_int(44))
+            } else {
+                Fixed::ZERO
+            };
+            let height = (Fixed::from_int((layer) as i32) - jet::PIVOT[1]) * flight.spread;
+            let bu = cu + height * up[0];
+            let bv = cv + height * up[1];
+            let bw = cw + height * up[2];
+            Some(PreparedLayer {
+                camera: [bu, bv, bw],
+                drop,
+                bounds: None,
+            })
+        });
         Some(Self {
             center,
             fade,
             right,
             forward,
-            up,
-            camera: [cu, cv, cw],
+            layers,
             order,
             lights,
             samples,
@@ -1380,8 +1417,6 @@ impl PreparedJet {
     fn draw(
         &self,
         canvas: &mut SceneCanvas<'_, '_>,
-        flight: &Flight,
-        index: usize,
         p: &Projection,
         pal: &Palette,
         slices: &[&[jet::Voxel]; jet::LAYERS],
@@ -1389,8 +1424,6 @@ impl PreparedJet {
         crate::trace_span!("flight.aircraft");
         let center = self.center;
         let fade = self.fade;
-        let [right, forward, up] = [self.right, self.forward, self.up];
-        let [cu, cv, cw] = self.camera;
         let lights = self.lights;
         let samples = self.samples;
         let offsets = &self.offsets;
@@ -1401,52 +1434,30 @@ impl PreparedJet {
             -1,
             -1,
         ];
-        let first_slice = slices
-            .iter()
-            .position(|slice| !slice.is_empty())
-            .unwrap_or(jet::LAYERS);
         {
             crate::trace_span!("flight.aircraft.samples");
-            for layer in self.order {
-                let intro =
-                    flight.intro - Fixed::from_int((index) as i32) * Fixed::from_ratio(25, 100);
-                let t = (intro
-                    - Fixed::from_int((layer.saturating_sub(first_slice)) as i32)
-                        * Fixed::from_ratio(7, 100))
-                    / Fixed::from_ratio(36, 100);
-                if t <= Fixed::ZERO {
+            for index in self.order {
+                let Some(layer) = &self.layers[index] else {
+                    continue;
+                };
+                if layer.bounds.is_some_and(|b| {
+                    b[0] >= canvas.color.clip[2]
+                        || b[2] <= canvas.color.clip[0]
+                        || b[1] >= canvas.color.clip[3]
+                        || b[3] <= canvas.color.clip[1]
+                }) {
                     continue;
                 }
-                let drop = if t < Fixed::ONE {
-                    -(Fixed::ONE - t * t)
-                        * (Fixed::from_int((canvas.color.height) as i32) / Fixed::from_int(2)
-                            + Fixed::from_int(44))
-                } else {
-                    Fixed::ZERO
-                };
-                let height = (Fixed::from_int((layer) as i32) - jet::PIVOT[1]) * flight.spread;
-                let bu = cu + height * up[0];
-                let bv = cv + height * up[1];
-                let bw = cw + height * up[2];
-                for voxel in slices[layer] {
+                for voxel in slices[index] {
+                    let Some([x, y, m, depth]) = self.project(layer, voxel, p) else {
+                        continue;
+                    };
+                    if self.samples_outside(x, 0, m, canvas.color.clip)
+                        || self.samples_outside(y, 1, m, canvas.color.clip)
+                    {
+                        continue;
+                    }
                     let a = voxel.a();
-                    let b = voxel.b();
-                    let depth = bv + a * right[1] + b * forward[1];
-                    let den = Fixed::ONE + p.apply_perspective(depth);
-                    if den < Fixed::from_ratio(2, 10) {
-                        continue;
-                    }
-                    let m = p.scale / den;
-                    let x = p.center[0] + m * (bu + a * right[0] + b * forward[0]);
-                    if self.samples_outside(x, 0, m, canvas.color.clip) {
-                        continue;
-                    }
-                    let y = p.center[1]
-                        - m * (bw + a * right[2] + b * forward[2] + p.slope * depth)
-                        + drop;
-                    if self.samples_outside(y, 1, m, canvas.color.clip) {
-                        continue;
-                    }
                     let color =
                         pal.jets[lights[usize::from(a >= Fixed::ZERO)]][usize::from(voxel.color)];
                     for offset in &offsets[..samples * samples] {
@@ -1503,13 +1514,62 @@ impl PreparedJet {
         }
     }
 
-    fn samples_outside(&self, position: Fixed, axis: usize, scale: Fixed, clip: [i32; 4]) -> bool {
-        // Preserve multiplication, division and rounding from the actual sample path.
-        let ends = self.sample_bounds.map(|bound| {
+    fn prepare_regions(&mut self, p: &Projection, slices: &[&[jet::Voxel]; jet::LAYERS]) {
+        crate::trace_span!("flight.aircraft.regions");
+        for (index, slice) in slices.iter().enumerate() {
+            let Some(layer) = self.layers[index] else {
+                continue;
+            };
+            let mut bounds = [i32::MAX, i32::MAX, i32::MIN, i32::MIN];
+            for voxel in *slice {
+                let Some([x, y, scale, _]) = self.project(&layer, voxel, p) else {
+                    continue;
+                };
+                for (axis, position) in [x, y].into_iter().enumerate() {
+                    let ends = self.sample_ends(position, axis, scale);
+                    bounds[axis] = bounds[axis].min(ends[0].min(ends[1]));
+                    bounds[axis + 2] = bounds[axis + 2].max(ends[0].max(ends[1]).saturating_add(1));
+                }
+            }
+            self.layers[index].as_mut().unwrap().bounds = Some(bounds);
+        }
+    }
+
+    fn project(
+        &self,
+        layer: &PreparedLayer,
+        voxel: &jet::Voxel,
+        p: &Projection,
+    ) -> Option<[Fixed; 4]> {
+        let [bu, bv, bw] = layer.camera;
+        let a = voxel.a();
+        let b = voxel.b();
+        let depth = bv + a * self.right[1] + b * self.forward[1];
+        let den = Fixed::ONE + p.apply_perspective(depth);
+        if den < Fixed::from_ratio(2, 10) {
+            return None;
+        }
+        let m = p.scale / den;
+        Some([
+            p.center[0] + m * (bu + a * self.right[0] + b * self.forward[0]),
+            p.center[1] - m * (bw + a * self.right[2] + b * self.forward[2] + p.slope * depth)
+                + layer.drop,
+            m,
+            depth,
+        ])
+    }
+
+    fn sample_ends(&self, position: Fixed, axis: usize, scale: Fixed) -> [i32; 2] {
+        self.sample_bounds.map(|bound| {
             (position + bound[axis] * scale / self.center[2])
                 .round()
                 .trunc_to_int()
-        });
+        })
+    }
+
+    fn samples_outside(&self, position: Fixed, axis: usize, scale: Fixed, clip: [i32; 4]) -> bool {
+        // Preserve multiplication, division and rounding from the actual sample path.
+        let ends = self.sample_ends(position, axis, scale);
         ends[0].max(ends[1]) < clip[axis] || ends[0].min(ends[1]) >= clip[axis + 2]
     }
 }
@@ -1685,6 +1745,47 @@ mod tests {
     use super::super::flight::{Settings, View};
     use super::*;
     #[test]
+    fn prepared_regions_cover_all_samples_without_allocating() {
+        let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
+        let mut flight = Flight::new(&world, Settings::default());
+        let palette = Palette::new(Daylight::Day);
+        let slices = jet::slices();
+        for view in [View::Overhead, View::Chase] {
+            flight.view = view;
+            for _ in 0..180 {
+                flight.step(&world, 16, 128, 128);
+            }
+            let projection = flight.projection(128, 128);
+            let mut prepared =
+                PreparedJet::new(&flight, 0, &projection, &palette, [128, 128], &slices)
+                    .expect("visible aircraft");
+            assert!(prepared.layers.iter().flatten().all(|l| l.bounds.is_none()));
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    prepared.prepare_regions(&projection, &slices)
+                }),
+                0
+            );
+            for (index, layer) in prepared.layers.iter().enumerate() {
+                let Some(layer) = layer else { continue };
+                let bounds = layer.bounds.expect("prepared region");
+                for voxel in slices[index] {
+                    let Some([x, y, scale, _]) = prepared.project(layer, voxel, &projection) else {
+                        continue;
+                    };
+                    for offset in &prepared.offsets[..prepared.samples * prepared.samples] {
+                        for (axis, position) in [x, y].into_iter().enumerate() {
+                            let at = (position + offset[axis] * scale / prepared.center[2])
+                                .round()
+                                .trunc_to_int();
+                            assert!(at >= bounds[axis] && at < bounds[axis + 2]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
     fn sample_bounds_never_reject_a_sample_inside_the_region() {
         let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
         let mut flight = Flight::new(&world, Settings::default());
@@ -1695,8 +1796,15 @@ mod tests {
                 flight.step(&world, 16, 128, 128);
             }
             let projection = flight.projection(128, 128);
-            let prepared = PreparedJet::new(&flight, 0, &projection, &palette, [128, 128])
-                .expect("visible aircraft");
+            let prepared = PreparedJet::new(
+                &flight,
+                0,
+                &projection,
+                &palette,
+                [128, 128],
+                &jet::slices(),
+            )
+            .expect("visible aircraft");
             for scale in [1, 63, 256, 512, 1024] {
                 let scale = Fixed::from_ratio(scale, 256);
                 for axis in 0..2 {

@@ -36,7 +36,10 @@ impl Raster {
         };
         let prepared_cockpit = cockpit.prepare(flight, palette);
         let order = scene.order(mapping.projection);
-        let prepared_jets = scene.prepare(mapping.projection, mapping.size);
+        let mut prepared_jets = scene.prepare(mapping.projection, mapping.size);
+        for jet in prepared_jets.iter_mut().flatten() {
+            jet.prepare_regions(&mapping.projection, slices);
+        }
         let mut pending = [PendingFlame::default(); 6];
         let mut count = 0;
         for index in &order[..flight.count] {
