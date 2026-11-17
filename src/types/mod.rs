@@ -193,11 +193,10 @@ impl Color {
     /// Linear interpolation in 8-bit channel space. `t` is clamped to
     /// [0, 1]; t=0 returns `a`, t=1 returns `b`.
     pub fn lerp(a: Color, b: Color, t: Fixed) -> Color {
-        let t = t.clamp(Fixed::ZERO, Fixed::ONE);
-        let one_minus_t = Fixed::ONE - t;
+        // Q24.8 weights give exact byte products bounded by 255 * 256.
+        let weight = (t.clamp(Fixed::ZERO, Fixed::ONE) * Fixed::from_int(256)).to_int() as u32;
         let mix = |ca: u8, cb: u8| -> u8 {
-            let v = Fixed::from_int(ca as i32) * one_minus_t + Fixed::from_int(cb as i32) * t;
-            v.to_int().clamp(0, 255) as u8
+            ((u32::from(ca) * (256 - weight) + u32::from(cb) * weight) >> 8) as u8
         };
         Color {
             r: mix(a.r, b.r),
@@ -269,6 +268,17 @@ mod color_tests {
         assert!((mid.r as i32 - 100).abs() <= 1);
         assert!((mid.g as i32 - 50).abs() <= 1);
         assert!((mid.b as i32 - 30).abs() <= 1);
+    }
+
+    #[test]
+    fn lerp_preserves_equal_channels_and_alpha_at_every_weight() {
+        for weight in 0..=256 {
+            let t = Fixed::from_ratio(weight, 256);
+            for channel in 0..=255 {
+                let color = Color::rgba(channel, 255 - channel, channel, 255 - channel);
+                assert_eq!(Color::lerp(color, color, t), color);
+            }
+        }
     }
 
     #[test]

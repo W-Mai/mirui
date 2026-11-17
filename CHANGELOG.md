@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Interpolate byte color channels with exact bounded integer weights and reuse Color::lerp in Pixel Flight.
+
 - Skip fully covered terrain columns in Pixel Flight without changing scene pixels or depth.
 
 - Reject off-region aircraft samples and cockpit instrument work before projection and shading in Pixel Flight.

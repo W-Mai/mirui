@@ -10,7 +10,7 @@ use crate::render::{
     renderer::RenderError,
     texture::{ColorFormat, Texture},
 };
-use crate::types::{Fixed, Fixed64};
+use crate::types::{Color, Fixed, Fixed64};
 use alloc::{vec, vec::Vec};
 pub const MAX_WIDTH: usize = 480;
 pub const MAX_HEIGHT: usize = 300;
@@ -24,17 +24,11 @@ pub fn rgba(r: Fixed, g: Fixed, b: Fixed) -> u32 {
     ])
 }
 pub fn blend(bg: u32, fg: u32, amount: Fixed) -> u32 {
-    let a = bg.to_le_bytes();
-    let b = fg.to_le_bytes();
-    let t = amount.clamp(Fixed::ZERO, Fixed::ONE);
-    rgba(
-        Fixed::from_int((a[0]) as i32)
-            + (Fixed::from_int((b[0]) as i32) - Fixed::from_int((a[0]) as i32)) * t,
-        Fixed::from_int((a[1]) as i32)
-            + (Fixed::from_int((b[1]) as i32) - Fixed::from_int((a[1]) as i32)) * t,
-        Fixed::from_int((a[2]) as i32)
-            + (Fixed::from_int((b[2]) as i32) - Fixed::from_int((a[2]) as i32)) * t,
-    )
+    let [r, g, b, _] = bg.to_le_bytes();
+    let background = Color::rgb(r, g, b);
+    let [r, g, b, _] = fg.to_le_bytes();
+    let mixed = Color::lerp(background, Color::rgb(r, g, b), amount);
+    u32::from_le_bytes([mixed.r, mixed.g, mixed.b, 255])
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Daylight {
