@@ -33,6 +33,7 @@ impl Raster {
             palette,
             slices,
             frame_height: height,
+            terrain: PreparedTerrain::new(world, flight, &mapping.projection, palette),
         };
         let prepared_cockpit = cockpit.prepare(flight, palette);
         let order = scene.order(mapping.projection);
@@ -155,7 +156,14 @@ impl Raster {
                 .map(|p| p.resolved.count_ones())
                 .sum();
             workspace.with_region(sheet, mapping.size, origin, mapping.bounds, |canvas| {
-                draw_world(canvas, world, flight, &mapping.projection, palette);
+                draw_world(
+                    canvas,
+                    world,
+                    flight,
+                    &mapping.projection,
+                    palette,
+                    &scene.terrain,
+                );
                 for query in &mut pending[..count] {
                     query.resolve(canvas);
                 }

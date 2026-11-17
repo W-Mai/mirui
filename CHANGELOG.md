@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Share Pixel Flight terrain shadow centers, cloud inputs and water phases across native drawing regions.
+
 - Reject fully clipped Pixel Flight digit groups before decimal conversion and glyph expansion.
 
 - Prepare fixed radar geometry when Pixel Flight cockpit dimensions change and share heading values across instrument regions.

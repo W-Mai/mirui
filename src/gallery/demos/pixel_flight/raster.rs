@@ -479,6 +479,7 @@ struct Scene<'a> {
     palette: &'a Palette,
     slices: &'a [&'static [jet::Voxel]; jet::LAYERS],
     frame_height: usize,
+    terrain: PreparedTerrain,
 }
 impl Scene<'_> {
     fn draw(&self, canvas: &mut SceneCanvas<'_, '_>, projection: Projection) -> [usize; 3] {
@@ -522,7 +523,14 @@ impl Scene<'_> {
         order: &[usize; 3],
         prepared: &[Option<PreparedJet>; 3],
     ) {
-        draw_world(canvas, self.world, self.flight, &projection, self.palette);
+        draw_world(
+            canvas,
+            self.world,
+            self.flight,
+            &projection,
+            self.palette,
+            &self.terrain,
+        );
         draw_sky(canvas, &projection, self.palette, self.frame_height);
         draw_trails(canvas, self.flight, &projection, self.palette);
         draw_smoke(canvas, self.flight, &projection, self.palette.day);
@@ -695,12 +703,14 @@ impl Raster {
             output_tile: _,
         } = self;
         let frame_height = frame.height;
+        let mapping = Mapping::new(p, frame.width, frame.height);
         let scene = Scene {
             world,
             flight,
             palette,
             slices,
             frame_height,
+            terrain: PreparedTerrain::new(world, flight, &mapping.projection, palette),
         };
         let mut draw = |canvas: &mut SceneCanvas<'_, '_>, projection: Projection| {
             let order = scene.draw(canvas, projection);
@@ -708,7 +718,6 @@ impl Raster {
                 record_flames(canvas, flight, *i, &projection, flames, flame_count, seen);
             }
         };
-        let mapping = Mapping::new(p, frame.width, frame.height);
         if mapping.rolled {
             workspace.with_region(sheet, mapping.size, [0, 0], mapping.bounds, |canvas| {
                 draw(canvas, mapping.projection)
@@ -777,12 +786,56 @@ impl HeightProjection {
         })
     }
 }
+struct PreparedTerrain {
+    base: [Fixed; 2],
+    drift: [Fixed; 2],
+    cloud_sun: [Fixed; 2],
+    shadows: [[Fixed; 2]; 3],
+    reach: Fixed,
+    water: [i32; 3],
+    rank: u8,
+}
+impl PreparedTerrain {
+    fn new(world: &World, flight: &Flight, p: &Projection, pal: &Palette) -> Self {
+        let period = Fixed::from_int(world.period() as i32);
+        let base = [
+            p.position[0].rem_euclid(period) + period * Fixed::from_int(2),
+            p.position[1].rem_euclid(period) + period * Fixed::from_int(2),
+        ];
+        let mut shadows = [[Fixed::ZERO; 2]; 3];
+        for (center, jet) in shadows.iter_mut().zip(&flight.jets[..flight.count]) {
+            *center = core::array::from_fn(|axis| {
+                base[axis] + jet.position[axis] - p.position[axis] + pal.sun[axis] * jet.position[2]
+            });
+        }
+        Self {
+            base,
+            drift: [
+                (flight.time * Fixed::from_int(7))
+                    .rem_euclid(Fixed::from_int(world.cloud_period() as i32)),
+                (flight.time * Fixed::from_int(3))
+                    .rem_euclid(Fixed::from_int(world.cloud_period() as i32)),
+            ],
+            cloud_sun: pal.sun.map(|value| value * world::CLOUD_ALT),
+            shadows,
+            reach: Fixed::from_int(jet::LENGTH as i32)
+                * Fixed::from_ratio(75, 100)
+                * flight.settings.jet_scale
+                + Fixed::from_int(3),
+            water: [36, 6, 4].map(|rate| (flight.time * Fixed::from_int(rate)).trunc_to_int()),
+            rank: (flight.settings.clouds.clamp(Fixed::ZERO, Fixed::ONE) * Fixed::from_int(16))
+                .round()
+                .trunc_to_int() as u8,
+        }
+    }
+}
 fn draw_world(
     canvas: &mut SceneCanvas<'_, '_>,
     world: &World,
     flight: &Flight,
     p: &Projection,
     pal: &Palette,
+    prepared: &PreparedTerrain,
 ) {
     crate::trace_span!("flight.terrain");
     canvas.clear();
@@ -798,17 +851,9 @@ fn draw_world(
     let slope = p.slope;
     let [cx, cy] = p.center;
     let alt = p.position[2];
-    let bx = p.position[0].rem_euclid(Fixed::from_int(world.period() as i32))
-        + Fixed::from_int(world.period() as i32) * Fixed::from_int(2);
-    let by = p.position[1].rem_euclid(Fixed::from_int(world.period() as i32))
-        + Fixed::from_int(world.period() as i32) * Fixed::from_int(2);
-    let rank = ((flight.settings.clouds.clamp(Fixed::ZERO, Fixed::ONE) * Fixed::from_int(16))
-        .round())
-    .trunc_to_int() as u8;
-    let drift = [
-        (flight.time * Fixed::from_int(7)).rem_euclid(Fixed::from_int(world.cloud_period() as i32)),
-        (flight.time * Fixed::from_int(3)).rem_euclid(Fixed::from_int(world.cloud_period() as i32)),
-    ];
+    let [bx, by] = prepared.base;
+    let rank = prepared.rank;
+    let drift = prepared.drift;
     let below = Fixed::from_int(canvas.color.bounds[3]) - cy;
     let nearest = if q > Fixed64::ZERO {
         -p.divide_perspective(Fixed::from_ratio(85, 100))
@@ -936,23 +981,18 @@ fn draw_world(
             let mut shaded = false;
             if rank > 0 {
                 let c = world.cloud(
-                    (Fixed::from_int(gx) + pal.sun[0] * world::CLOUD_ALT - drift[0]).trunc_to_int(),
-                    (Fixed::from_int(gy) + pal.sun[1] * world::CLOUD_ALT - drift[1]).trunc_to_int(),
+                    (Fixed::from_int(gx) + prepared.cloud_sun[0] - drift[0]).trunc_to_int(),
+                    (Fixed::from_int(gy) + prepared.cloud_sun[1] - drift[1]).trunc_to_int(),
                 );
                 shaded = c & 15 > 1 && c >> 4 < rank;
             }
             if !shaded {
-                for jet in &flight.jets[..flight.count] {
-                    let dx = Fixed::from_int(gx)
-                        - (bx + jet.position[0] - p.position[0] + pal.sun[0] * jet.position[2])
-                        + pal.sun[0] * Fixed::from_int((h) as i32);
-                    let dy = Fixed::from_int(gy)
-                        - (by + jet.position[1] - p.position[1] + pal.sun[1] * jet.position[2])
-                        + pal.sun[1] * Fixed::from_int((h) as i32);
-                    let reach = Fixed::from_int((jet::LENGTH) as i32)
-                        * Fixed::from_ratio(75, 100)
-                        * flight.settings.jet_scale
-                        + Fixed::from_int(3);
+                for (jet, center) in flight.jets[..flight.count].iter().zip(&prepared.shadows) {
+                    let dx =
+                        Fixed::from_int(gx) - center[0] + pal.sun[0] * Fixed::from_int((h) as i32);
+                    let dy =
+                        Fixed::from_int(gy) - center[1] + pal.sun[1] * Fixed::from_int((h) as i32);
+                    let reach = prepared.reach;
                     if dx.abs() < reach && dy.abs() < reach {
                         let (s, c) = jet.yaw.sin_cos();
                         let a = (dx * c + dy * s)
@@ -986,24 +1026,12 @@ fn draw_world(
             };
             if material < 4 {
                 let noise = |x: i32, y: i32| world.noise_at(x, y);
-                if material == 3
-                    && noise(gx, gy)
-                        .wrapping_add((flight.time * Fixed::from_int(36)).trunc_to_int() as u8)
-                        < 120
-                {
+                if material == 3 && noise(gx, gy).wrapping_add(prepared.water[0] as u8) < 120 {
                     top = if shaded { pal.top_shade[2] } else { pal.foam };
                 } else if !shaded && inverse < Fixed::from_ratio(18, 10) {
-                    let n = noise(
-                        (gx + ((flight.time * Fixed::from_int(6)).trunc_to_int() & 1023)) >> 2,
-                        gy,
-                    );
+                    let n = noise((gx + (prepared.water[1] & 1023)) >> 2, gy);
                     if n > 243
-                        && noise(
-                            (gx + 1024
-                                - ((flight.time * Fixed::from_int(4)).trunc_to_int() & 1023))
-                                >> 2,
-                            gy + 91,
-                        ) > 128
+                        && noise((gx + 1024 - (prepared.water[2] & 1023)) >> 2, gy + 91) > 128
                     {
                         top = pal.spark[usize::from(n > 252)];
                     }
@@ -1789,6 +1817,40 @@ mod tests {
     use super::super::flight::{Settings, View};
     use super::*;
     #[test]
+    fn terrain_frame_preparation_keeps_every_active_shadow_caster() {
+        let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
+        let mut flight = Flight::new(&world, Settings::default());
+        flight.set_wingmen(2);
+        flight.jets[2].position = [
+            Fixed::from_int(2000),
+            Fixed::from_int(-2000),
+            Fixed::from_int(77),
+        ];
+        let palette = Palette::new(Daylight::Sunset);
+        let projection = flight.projection(128, 128);
+        let prepared = PreparedTerrain::new(&world, &flight, &projection, &palette);
+        for (index, jet) in flight.jets[..flight.count].iter().enumerate() {
+            for axis in 0..2 {
+                let base = projection.position[axis]
+                    .rem_euclid(Fixed::from_int(world.period() as i32))
+                    + Fixed::from_int(world.period() as i32) * Fixed::from_int(2);
+                assert_eq!(
+                    prepared.shadows[index][axis],
+                    base + jet.position[axis] - projection.position[axis]
+                        + palette.sun[axis] * jet.position[2]
+                );
+            }
+        }
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                let _ = PreparedTerrain::new(&world, &flight, &projection, &palette);
+            }),
+            0
+        );
+        assert!(core::mem::size_of::<PreparedTerrain>() <= 80);
+    }
+
+    #[test]
     fn height_projection_minimum_bounds_every_supported_height() {
         for origin in [-256, -1, 0, 37, 256] {
             for scale in [-512, -37, -1, 0, 1, 37, 512] {
@@ -1939,6 +2001,12 @@ mod tests {
                 palette: &raster.palette,
                 slices: &raster.slices,
                 frame_height: 128,
+                terrain: PreparedTerrain::new(
+                    &world,
+                    &flight,
+                    &flight.projection(128, 128),
+                    &raster.palette,
+                ),
             };
             let projection = flight.projection(128, 128);
             full_workspace.with_region(&mut full, [128, 128], [0, 0], bounds, |canvas| {
