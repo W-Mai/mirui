@@ -85,6 +85,7 @@ struct Puff {
     extinction: Fixed,
     t: Fixed,
     reach: Fixed,
+    reach_squared: Fixed,
 }
 
 impl Puff {
@@ -107,7 +108,13 @@ struct Prepared {
     puffs: [Puff; PUFFS],
     direction: [Fixed; 2],
     across: [Fixed; 2],
-    flow: Fixed,
+    per: Fixed,
+    side: Fixed,
+    warp_origin: [Fixed; 2],
+    streak_origin: [Fixed; 2],
+    diamond_power: Fixed,
+    heat_boost: Fixed,
+    glow_power: Fixed,
 }
 impl Prepared {
     fn new(flame: Flame, time: Fixed) -> Self {
@@ -116,22 +123,7 @@ impl Prepared {
             flame.points[1][0] - flame.points[0][0],
             flame.points[1][1] - flame.points[0][1],
         ]);
-        let extinction_sum: Fixed = (0..PUFFS)
-            .map(|i| {
-                (Fixed::ONE
-                    - (Fixed::from_int((i) as i32) + Fixed::from_ratio(5, 10))
-                        / Fixed::from_int((PUFFS) as i32))
-                .pow_fraction(Fixed::from_ratio(75, 100))
-            })
-            .fold(Fixed::ZERO, |sum, value| sum + value);
-        let glow_radius = ((flame.length / Fixed::from_int((PUFFS) as i32) * extinction_sum
-            / Fixed::from_ratio(609, 10000))
-        .max(Fixed::ONE)
-        .ln()
-            / Fixed::from_ratio(42, 100)
-            + Fixed::from_ratio(1, 10000))
-        .sqrt();
-        let puffs = core::array::from_fn(|i| {
+        let mut puffs = core::array::from_fn(|i| {
             let t = (Fixed::from_int((i) as i32) + Fixed::from_ratio(5, 10))
                 / Fixed::from_int((PUFFS) as i32);
             let r = flame.radius
@@ -149,16 +141,54 @@ impl Prepared {
                 cutoff: square * 16,
                 extinction: (Fixed::ONE - t).pow_fraction(Fixed::from_ratio(75, 100)),
                 t,
-                reach: (r * glow_radius).max(r + Fixed::from_ratio(604, 1000) * flame.radius),
+                reach: r,
+                reach_squared: Fixed::ZERO,
             }
         });
+        let extinction_sum = puffs
+            .iter()
+            .fold(Fixed::ZERO, |sum, puff| sum + puff.extinction);
+        let glow_radius = ((flame.length / Fixed::from_int((PUFFS) as i32) * extinction_sum
+            / Fixed::from_ratio(609, 10000))
+        .max(Fixed::ONE)
+        .ln()
+            / Fixed::from_ratio(42, 100)
+            + Fixed::from_ratio(1, 10000))
+        .sqrt();
+        for puff in &mut puffs {
+            let radius = puff.reach;
+            puff.reach =
+                (radius * glow_radius).max(radius + Fixed::from_ratio(604, 1000) * flame.radius);
+            puff.reach_squared = puff.reach * puff.reach;
+        }
+        let flow = time.rem_euclid(Fixed::from_int(600))
+            * (Fixed::from_int(5) + Fixed::from_int(6) * flame.power);
+        let length = ((flame.points[2][0] - flame.points[0][0]).powi(2)
+            + (flame.points[2][1] - flame.points[0][1]).powi(2))
+        .sqrt();
+        let side = ramp(
+            Fixed::from_ratio(3, 10),
+            Fixed::from_ratio(6, 10),
+            length / (flame.length * flame.radius),
+        );
         Self {
             flame,
             puffs,
             direction,
             across: [-direction[1], direction[0]],
-            flow: time.rem_euclid(Fixed::from_int(600))
-                * (Fixed::from_int(5) + Fixed::from_int(6) * flame.power),
+            per: flame.length / Fixed::from_int(PUFFS as i32),
+            side,
+            warp_origin: [
+                flame.seed * Fixed::from_ratio(53, 10),
+                flow * Fixed::from_ratio(6, 10),
+            ],
+            streak_origin: [
+                flame.seed * Fixed::from_ratio(21, 10),
+                flow * Fixed::from_ratio(15, 10),
+            ],
+            diamond_power: Fixed::from_ratio(3, 10) + Fixed::from_ratio(7, 10) * flame.power,
+            heat_boost: flame.power * Fixed::from_ratio(6, 100),
+            glow_power: Fixed::from_ratio(2, 10) + Fixed::from_ratio(18, 100) * flame.power,
         }
     }
     fn shade<const CULL: bool>(&self, p: [Fixed; 2]) -> [Fixed; 4] {
@@ -166,7 +196,7 @@ impl Prepared {
         if CULL
             && !self.puffs.iter().any(|puff| {
                 (p[0] - puff.center[0]).powi(2) + (p[1] - puff.center[1]).powi(2)
-                    <= puff.reach * puff.reach
+                    <= puff.reach_squared
             })
         {
             return [Fixed::ZERO; 4];
@@ -177,8 +207,8 @@ impl Prepared {
             (root[0] * self.direction[0] + root[1] * self.direction[1]) / f.radius,
         ];
         let wq = [
-            q[0] * Fixed::from_ratio(6, 10) + f.seed * Fixed::from_ratio(53, 10),
-            q[1] * Fixed::from_ratio(6, 10) - self.flow * Fixed::from_ratio(6, 10),
+            q[0] * Fixed::from_ratio(6, 10) + self.warp_origin[0],
+            q[1] * Fixed::from_ratio(6, 10) - self.warp_origin[1],
         ];
         let warp = [
             fbm(wq) - Fixed::from_ratio(47, 100),
@@ -208,7 +238,7 @@ impl Prepared {
             let d0 = puff.scaled_distance(p);
             halo += (-d0 * Fixed::from_ratio(42, 100)).exp() * puff.extinction;
         }
-        let per = f.length / Fixed::from_int((PUFFS) as i32);
+        let per = self.per;
         density = density * per;
         halo = halo * per;
         let t = if sum > Fixed::from_ratio(1, 1000000) {
@@ -229,8 +259,8 @@ impl Prepared {
             / (f.radius * mix(Fixed::ONE, f.tip_scale, t));
         let y = t * f.length;
         let streak = fbm([
-            x * Fixed::from_ratio(24, 10) + f.seed * Fixed::from_ratio(21, 10),
-            y * Fixed::from_ratio(8, 10) - self.flow * Fixed::from_ratio(15, 10),
+            x * Fixed::from_ratio(24, 10) + self.streak_origin[0],
+            y * Fixed::from_ratio(8, 10) - self.streak_origin[1],
         ]);
         let fire = Fixed::ONE - (-density * Fixed::from_ratio(145, 100)).exp();
         let mut heat = fire * (Fixed::from_ratio(62, 100) + Fixed::from_ratio(6, 10) * streak);
@@ -241,10 +271,10 @@ impl Prepared {
             Fixed::from_ratio(1, 10),
             knot + x.abs() * Fixed::from_ratio(22, 10),
         ) * (-t * Fixed::from_ratio(22, 10)).exp()
-            * (Fixed::from_ratio(3, 10) + Fixed::from_ratio(7, 10) * f.power)
+            * self.diamond_power
             * Fixed::from_int((cell >= Fixed::ZERO) as i32);
         heat = (heat
-            + (diamond * Fixed::from_ratio(5, 10) + f.power * Fixed::from_ratio(6, 100))
+            + (diamond * Fixed::from_ratio(5, 10) + self.heat_boost)
                 * ramp(Fixed::from_ratio(5, 100), Fixed::from_ratio(5, 10), fire))
         .clamp(Fixed::ZERO, Fixed::ONE);
         let mut color = [
@@ -313,19 +343,11 @@ impl Prepared {
         let glow =
             (Fixed::ONE - (-halo * Fixed::from_ratio(5, 10)).exp() - Fixed::from_ratio(3, 100))
                 .max(Fixed::ZERO)
-                * (Fixed::from_ratio(2, 10) + Fixed::from_ratio(18, 100) * f.power);
-        let length = ((f.points[2][0] - f.points[0][0]).powi(2)
-            + (f.points[2][1] - f.points[0][1]).powi(2))
-        .sqrt();
-        let side = ramp(
-            Fixed::from_ratio(3, 10),
-            Fixed::from_ratio(6, 10),
-            length / (f.length * f.radius),
-        );
+                * self.glow_power;
         let open = mix(
             Fixed::ONE,
             ramp(-Fixed::from_ratio(5, 10), Fixed::from_ratio(3, 10), q[1]),
-            side,
+            self.side,
         );
         let visible = if t < Fixed::from_ratio(5, 10) {
             mix(f.visibility[0], f.visibility[1], t * Fixed::from_int(2))
@@ -537,7 +559,7 @@ impl Flames {
                 let mut right = Fixed::MIN;
                 for puff in &prepared.puffs {
                     let dy = row_y - puff.center[1];
-                    let remaining = puff.reach * puff.reach - dy * dy;
+                    let remaining = puff.reach_squared - dy * dy;
                     if remaining < Fixed::ZERO {
                         continue;
                     }

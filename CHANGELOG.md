@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Reuse prepared Pixel Flight flame weights, support squares and shading coefficients across pixels.
+
 - Skip aircraft layers outside native Pixel Flight drawing regions using frame-local projected sample bounds.
 
 - Reject Pixel Flight voxel sample loops outside each native drawing region without changing sample density or rounding.
