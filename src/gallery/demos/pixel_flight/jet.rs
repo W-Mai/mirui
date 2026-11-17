@@ -267,6 +267,156 @@ pub fn slices() -> [&'static [Voxel]; LAYERS] {
     core::array::from_fn(|i| &VOXELS[STARTS[i]..STARTS[i + 1]])
 }
 
+const fn coarse_color(
+    cells: &[u8; WIDTH * LENGTH * LAYERS],
+    x: usize,
+    y: usize,
+    layer: usize,
+) -> u8 {
+    let mut counts = [0u8; 4];
+    let mut shades = [0u16; 4];
+    let mut i = 0;
+    while i < 4 {
+        let color = cells[layer * WIDTH * LENGTH + (y + i / 2) * WIDTH + x + i % 2];
+        if color != 0 {
+            let material = ((color - 1) >> 4) as usize;
+            counts[material] += 1;
+            shades[material] += color as u16;
+        }
+        i += 1;
+    }
+    let mut material = 0;
+    i = 1;
+    while i < counts.len() {
+        if counts[i] >= counts[material] {
+            material = i;
+        }
+        i += 1;
+    }
+    let count = counts[material] as u16;
+    match (shades[material] + count / 2).checked_div(count) {
+        Some(color) => color as u8,
+        None => 0,
+    }
+}
+
+const COARSE_COLORS: [u8; WIDTH * LENGTH * LAYERS / 4] = {
+    let mut cells = [0; WIDTH * LENGTH * LAYERS];
+    let mut cell = 0;
+    let mut run = 0;
+    while run < RUNS.len() {
+        let end = cell + RUNS[run] as usize;
+        while cell < end {
+            cells[cell] = RUNS[run + 1];
+            cell += 1;
+        }
+        run += 2;
+    }
+    let mut out = [0; WIDTH * LENGTH * LAYERS / 4];
+    let mut layer = 0;
+    while layer < LAYERS {
+        let mut y = 0;
+        while y < LENGTH {
+            let mut x = 0;
+            while x < WIDTH {
+                out[layer * WIDTH * LENGTH / 4 + y / 2 * (WIDTH / 2) + x / 2] =
+                    coarse_color(&cells, x, y, layer);
+                x += 2;
+            }
+            y += 2;
+        }
+        layer += 1;
+    }
+    out
+};
+
+const COARSE_STARTS: [usize; LAYERS + 1] = {
+    let colors = COARSE_COLORS;
+    let mut out = [0; LAYERS + 1];
+    let mut cell = 0;
+    while cell < colors.len() {
+        if colors[cell] != 0 {
+            out[cell / (WIDTH * LENGTH / 4) + 1] += 1;
+        }
+        cell += 1;
+    }
+    let mut layer = 1;
+    while layer <= LAYERS {
+        out[layer] += out[layer - 1];
+        layer += 1;
+    }
+    out
+};
+
+static COARSE_VOXELS: [Voxel; COARSE_STARTS[LAYERS]] = {
+    let colors = COARSE_COLORS;
+    let mut out = [Voxel {
+        x: 0,
+        y: 0,
+        color: 0,
+    }; COARSE_STARTS[LAYERS]];
+    let mut used = 0;
+    let mut layer = 0;
+    while layer < LAYERS {
+        let mut y = 0;
+        while y < LENGTH {
+            let mut x = 0;
+            while x < WIDTH {
+                let color = colors[layer * WIDTH * LENGTH / 4 + y / 2 * (WIDTH / 2) + x / 2];
+                if color != 0 {
+                    out[used] = Voxel {
+                        x: x as u8,
+                        y: y as u8,
+                        color,
+                    };
+                    used += 1;
+                }
+                x += 2;
+            }
+            y += 2;
+        }
+        layer += 1;
+    }
+    out
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Detail {
+    Full,
+    Coarse,
+}
+
+impl Detail {
+    pub(super) fn for_scale(scale: Fixed) -> Self {
+        if scale > Fixed::ZERO && scale <= Fixed::from_ratio(3, 2) {
+            Self::Coarse
+        } else {
+            Self::Full
+        }
+    }
+
+    pub(super) fn cell_scale(self) -> Fixed {
+        match self {
+            Self::Full => Fixed::ONE,
+            Self::Coarse => Fixed::from_int(2),
+        }
+    }
+
+    pub(super) fn center_offset(self) -> Fixed {
+        match self {
+            Self::Full => Fixed::ZERO,
+            Self::Coarse => Fixed::from_ratio(1, 2),
+        }
+    }
+
+    pub(super) fn slice(self, layer: usize) -> &'static [Voxel] {
+        match self {
+            Self::Full => &VOXELS[STARTS[layer]..STARTS[layer + 1]],
+            Self::Coarse => &COARSE_VOXELS[COARSE_STARTS[layer]..COARSE_STARTS[layer + 1]],
+        }
+    }
+}
+
 pub(super) struct Projections {
     pub shadow: [u8; WIDTH * LENGTH],
     pub top: [u8; WIDTH * LENGTH],
@@ -293,6 +443,57 @@ pub(super) static PROJECTIONS: Projections = {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn coarse_slices_partition_occupied_cells_without_allocating() {
+        assert_eq!(WIDTH % 2, 0);
+        assert_eq!(LENGTH % 2, 0);
+        assert!(COARSE_VOXELS.len() < VOXELS.len() / 3);
+        let mut cells = [0; WIDTH * LENGTH * LAYERS];
+        decode(&mut cells);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for layer in 0..LAYERS {
+                let slice = Detail::Coarse.slice(layer);
+                let mut represented = [false; WIDTH * LENGTH / 4];
+                for voxel in slice {
+                    let (x, y) = (usize::from(voxel.x), usize::from(voxel.y));
+                    assert!(x < WIDTH && y < LENGTH && x % 2 == 0 && y % 2 == 0);
+                    assert!(PALETTE.iter().any(|p| p[0] == voxel.color));
+                    let at = y / 2 * (WIDTH / 2) + x / 2;
+                    assert!(!represented[at]);
+                    represented[at] = true;
+                    assert!((0..4).any(|i| cells
+                        [layer * WIDTH * LENGTH + (y + i / 2) * WIDTH + x + i % 2]
+                        != 0));
+                }
+                for voxel in Detail::Full.slice(layer) {
+                    assert!(
+                        represented
+                            [usize::from(voxel.y) / 2 * (WIDTH / 2) + usize::from(voxel.x) / 2]
+                    );
+                }
+                assert_eq!(slice.is_empty(), Detail::Full.slice(layer).is_empty());
+            }
+        });
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn detail_uses_the_projected_cell_bound() {
+        for raw in -256..=512 {
+            let scale = Fixed::from_ratio(raw, 256);
+            let detail = Detail::for_scale(scale);
+            if detail == Detail::Coarse {
+                assert!(scale > Fixed::ZERO);
+                assert!(scale * detail.cell_scale() <= Fixed::from_int(3));
+                assert_eq!(detail.center_offset(), Fixed::from_ratio(1, 2));
+            } else {
+                assert!(scale <= Fixed::ZERO || scale > Fixed::from_ratio(3, 2));
+                assert_eq!(detail.cell_scale(), Fixed::ONE);
+                assert_eq!(detail.center_offset(), Fixed::ZERO);
+            }
+        }
+    }
+
     #[test]
     fn slices_have_complete_valid_palette_coverage() {
         let mut cells = [0; WIDTH * LENGTH * LAYERS];

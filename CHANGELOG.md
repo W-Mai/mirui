@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Select compile-time aircraft LOD by projected cell size in Pixel Flight while retaining native scene resolution and layered animation.
+
 - Share Pixel Flight terrain shadow centers, cloud inputs and water phases across native drawing regions.
 
 - Reject fully clipped Pixel Flight digit groups before decimal conversion and glyph expansion.

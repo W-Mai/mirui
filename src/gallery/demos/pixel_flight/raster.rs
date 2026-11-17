@@ -470,14 +470,12 @@ pub struct Raster {
     pub palette: Palette,
     pub flames: [Flame; 6],
     pub flame_count: usize,
-    slices: [&'static [jet::Voxel]; jet::LAYERS],
     pub(super) seen: [[Fixed; 3]; 6],
 }
 struct Scene<'a> {
     world: &'a World,
     flight: &'a Flight,
     palette: &'a Palette,
-    slices: &'a [&'static [jet::Voxel]; jet::LAYERS],
     frame_height: usize,
     terrain: PreparedTerrain,
 }
@@ -491,16 +489,7 @@ impl Scene<'_> {
     fn prepare(&self, projection: Projection, size: [usize; 2]) -> [Option<PreparedJet>; 3] {
         core::array::from_fn(|index| {
             (index < self.flight.count)
-                .then(|| {
-                    PreparedJet::new(
-                        self.flight,
-                        index,
-                        &projection,
-                        self.palette,
-                        size,
-                        self.slices,
-                    )
-                })
+                .then(|| PreparedJet::new(self.flight, index, &projection, self.palette, size))
                 .flatten()
         })
     }
@@ -536,7 +525,7 @@ impl Scene<'_> {
         draw_smoke(canvas, self.flight, &projection, self.palette.day);
         for i in &order[..self.flight.count] {
             if let Some(jet) = &prepared[*i] {
-                jet.draw(canvas, &projection, self.palette, self.slices);
+                jet.draw(canvas, &projection, self.palette);
             }
         }
     }
@@ -652,7 +641,6 @@ impl Raster {
         } else {
             sheet_side(width, height)
         };
-        let slices = jet::slices();
         Ok(Self {
             frame: Frame::with_format(
                 width,
@@ -673,7 +661,6 @@ impl Raster {
             palette: Palette::new(Daylight::Day),
             flames: [Flame::default(); 6],
             flame_count: 0,
-            slices,
             seen: [[Fixed::ONE; 3]; 6],
         })
     }
@@ -698,7 +685,6 @@ impl Raster {
             palette,
             flames,
             flame_count,
-            slices,
             seen,
             output_tile: _,
         } = self;
@@ -708,7 +694,6 @@ impl Raster {
             world,
             flight,
             palette,
-            slices,
             frame_height,
             terrain: PreparedTerrain::new(world, flight, &mapping.projection, palette),
         };
@@ -1300,6 +1285,8 @@ struct PreparedJet {
     samples: usize,
     offsets: [[Fixed; 2]; 64],
     sample_bounds: [[Fixed; 2]; 2],
+    detail: jet::Detail,
+    cell_offset: Fixed,
 }
 impl PreparedJet {
     fn new(
@@ -1308,7 +1295,6 @@ impl PreparedJet {
         p: &Projection,
         pal: &Palette,
         size: [usize; 2],
-        slices: &[&[jet::Voxel]; jet::LAYERS],
     ) -> Option<Self> {
         crate::trace_span!("flight.aircraft.prepare");
         let jet = &flight.jets[index];
@@ -1399,6 +1385,9 @@ impl PreparedJet {
                     Fixed::from_int(jet::LENGTH as i32) * Fixed::from_ratio(6, 10) * sc,
                 ))
             .max(Fixed::from_ratio(2, 10));
+        let detail = jet::Detail::for_scale(big);
+        let cell_scale = detail.cell_scale();
+        // Coarse cells reuse the existing grid over a larger footprint at lower density.
         let samples = ((big * Fixed::from_int(2) - Fixed::from_ratio(24, 100))
             .ceil()
             .clamp(Fixed::from_int(2), Fixed::from_int(8)))
@@ -1406,12 +1395,14 @@ impl PreparedJet {
         let mut offsets = [[Fixed::ZERO; 2]; 64];
         for i in 0..samples {
             for k in 0..samples {
-                let a = (Fixed::from_int((i) as i32) + Fixed::from_ratio(5, 10))
+                let a = ((Fixed::from_int((i) as i32) + Fixed::from_ratio(5, 10))
                     / Fixed::from_int((samples) as i32)
-                    - Fixed::from_ratio(5, 10);
-                let b = (Fixed::from_int((k) as i32) + Fixed::from_ratio(5, 10))
+                    - Fixed::from_ratio(5, 10))
+                    * cell_scale;
+                let b = ((Fixed::from_int((k) as i32) + Fixed::from_ratio(5, 10))
                     / Fixed::from_int((samples) as i32)
-                    - Fixed::from_ratio(5, 10);
+                    - Fixed::from_ratio(5, 10))
+                    * cell_scale;
                 offsets[i * samples + k] = [
                     center[2] * (a * right[0] + b * forward[0]),
                     -center[2]
@@ -1427,9 +1418,8 @@ impl PreparedJet {
                 sample_bounds[1][axis] = sample_bounds[1][axis].max(offset[axis]);
             }
         }
-        let first_slice = slices
-            .iter()
-            .position(|slice| !slice.is_empty())
+        let first_slice = (0..jet::LAYERS)
+            .position(|layer| !detail.slice(layer).is_empty())
             .unwrap_or(jet::LAYERS);
         let layers = core::array::from_fn(|layer: usize| {
             let intro = flight.intro - Fixed::from_int((index) as i32) * Fixed::from_ratio(25, 100);
@@ -1467,15 +1457,11 @@ impl PreparedJet {
             samples,
             offsets,
             sample_bounds,
+            detail,
+            cell_offset: detail.center_offset(),
         })
     }
-    fn draw(
-        &self,
-        canvas: &mut SceneCanvas<'_, '_>,
-        p: &Projection,
-        pal: &Palette,
-        slices: &[&[jet::Voxel]; jet::LAYERS],
-    ) {
+    fn draw(&self, canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette) {
         crate::trace_span!("flight.aircraft");
         let center = self.center;
         let fade = self.fade;
@@ -1503,7 +1489,7 @@ impl PreparedJet {
                 }) {
                     continue;
                 }
-                for voxel in slices[index] {
+                for voxel in self.detail.slice(index) {
                     let Some([x, y, m, depth]) = self.project(layer, voxel, p) else {
                         continue;
                     };
@@ -1519,7 +1505,7 @@ impl PreparedJet {
                     {
                         continue;
                     }
-                    let a = voxel.a();
+                    let a = voxel.a() + self.cell_offset;
                     let color =
                         pal.jets[lights[usize::from(a >= Fixed::ZERO)]][usize::from(voxel.color)];
                     // Coincident extrema make that coordinate identical for every offset.
@@ -1592,14 +1578,14 @@ impl PreparedJet {
         }
     }
 
-    fn prepare_regions(&mut self, p: &Projection, slices: &[&[jet::Voxel]; jet::LAYERS]) {
+    fn prepare_regions(&mut self, p: &Projection) {
         crate::trace_span!("flight.aircraft.regions");
-        for (index, slice) in slices.iter().enumerate() {
+        for index in 0..jet::LAYERS {
             let Some(layer) = self.layers[index] else {
                 continue;
             };
             let mut bounds = [i32::MAX, i32::MAX, i32::MIN, i32::MIN];
-            for voxel in *slice {
+            for voxel in self.detail.slice(index) {
                 let Some([x, y, scale, _]) = self.project(&layer, voxel, p) else {
                     continue;
                 };
@@ -1620,8 +1606,8 @@ impl PreparedJet {
         p: &Projection,
     ) -> Option<[Fixed; 4]> {
         let [bu, bv, bw] = layer.camera;
-        let a = voxel.a();
-        let b = voxel.b();
+        let a = voxel.a() + self.cell_offset;
+        let b = voxel.b() - self.cell_offset;
         let depth = bv + a * self.right[1] + b * self.forward[1];
         let den = Fixed::ONE + p.apply_perspective(depth);
         if den < Fixed::from_ratio(2, 10) {
@@ -1876,41 +1862,46 @@ mod tests {
         let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
         let mut flight = Flight::new(&world, Settings::default());
         let palette = Palette::new(Daylight::Day);
-        let slices = jet::slices();
-        for view in [View::Overhead, View::Chase] {
-            flight.view = view;
-            for _ in 0..180 {
-                flight.step(&world, 16, 128, 128);
-            }
-            let projection = flight.projection(128, 128);
-            let mut prepared =
-                PreparedJet::new(&flight, 0, &projection, &palette, [128, 128], &slices)
-                    .expect("visible aircraft");
-            assert!(prepared.layers.iter().flatten().all(|l| l.bounds.is_none()));
-            assert_eq!(
-                crate::test_support::tracked_allocations(|| {
-                    prepared.prepare_regions(&projection, &slices)
-                }),
-                0
-            );
-            for (index, layer) in prepared.layers.iter().enumerate() {
-                let Some(layer) = layer else { continue };
-                let bounds = layer.bounds.expect("prepared region");
-                for voxel in slices[index] {
-                    let Some([x, y, scale, _]) = prepared.project(layer, voxel, &projection) else {
-                        continue;
-                    };
-                    for offset in &prepared.offsets[..prepared.samples * prepared.samples] {
-                        for (axis, position) in [x, y].into_iter().enumerate() {
-                            let at = (position + offset[axis] * scale / prepared.center[2])
-                                .round()
-                                .trunc_to_int();
-                            assert!(at >= bounds[axis] && at < bounds[axis + 2]);
+        let mut details = [false; 2];
+        for size in [32, 128, 480] {
+            for view in [View::Overhead, View::Chase] {
+                flight.view = view;
+                for _ in 0..180 {
+                    flight.step(&world, 16, 128, 128);
+                }
+                let projection = flight.projection(size, size);
+                let mut prepared =
+                    PreparedJet::new(&flight, 0, &projection, &palette, [size, size])
+                        .expect("visible aircraft");
+                details[usize::from(prepared.detail == jet::Detail::Coarse)] = true;
+                assert!(prepared.layers.iter().flatten().all(|l| l.bounds.is_none()));
+                assert_eq!(
+                    crate::test_support::tracked_allocations(|| {
+                        prepared.prepare_regions(&projection)
+                    }),
+                    0
+                );
+                for (index, layer) in prepared.layers.iter().enumerate() {
+                    let Some(layer) = layer else { continue };
+                    let bounds = layer.bounds.expect("prepared region");
+                    for voxel in prepared.detail.slice(index) {
+                        let Some([x, y, scale, _]) = prepared.project(layer, voxel, &projection)
+                        else {
+                            continue;
+                        };
+                        for offset in &prepared.offsets[..prepared.samples * prepared.samples] {
+                            for (axis, position) in [x, y].into_iter().enumerate() {
+                                let at = (position + offset[axis] * scale / prepared.center[2])
+                                    .round()
+                                    .trunc_to_int();
+                                assert!(at >= bounds[axis] && at < bounds[axis + 2]);
+                            }
                         }
                     }
                 }
             }
         }
+        assert!(details.into_iter().all(|seen| seen));
     }
     #[test]
     fn sample_bounds_never_reject_a_sample_inside_the_region() {
@@ -1923,15 +1914,8 @@ mod tests {
                 flight.step(&world, 16, 128, 128);
             }
             let projection = flight.projection(128, 128);
-            let prepared = PreparedJet::new(
-                &flight,
-                0,
-                &projection,
-                &palette,
-                [128, 128],
-                &jet::slices(),
-            )
-            .expect("visible aircraft");
+            let prepared = PreparedJet::new(&flight, 0, &projection, &palette, [128, 128])
+                .expect("visible aircraft");
             for scale in [1, 63, 256, 512, 1024] {
                 let scale = Fixed::from_ratio(scale, 256);
                 for axis in 0..2 {
@@ -1999,7 +1983,6 @@ mod tests {
                 world: &world,
                 flight: &flight,
                 palette: &raster.palette,
-                slices: &raster.slices,
                 frame_height: 128,
                 terrain: PreparedTerrain::new(
                     &world,

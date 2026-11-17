@@ -21,7 +21,6 @@ impl Raster {
             palette,
             flames,
             flame_count,
-            slices,
             seen,
         } = self;
         let width = frame.width;
@@ -31,7 +30,6 @@ impl Raster {
             world,
             flight,
             palette,
-            slices,
             frame_height: height,
             terrain: PreparedTerrain::new(world, flight, &mapping.projection, palette),
         };
@@ -39,7 +37,7 @@ impl Raster {
         let order = scene.order(mapping.projection);
         let mut prepared_jets = scene.prepare(mapping.projection, mapping.size);
         for jet in prepared_jets.iter_mut().flatten() {
-            jet.prepare_regions(&mapping.projection, slices);
+            jet.prepare_regions(&mapping.projection);
         }
         let mut pending = [PendingFlame::default(); 6];
         let mut count = 0;
