@@ -49,6 +49,7 @@ struct Dial {
 }
 #[doc = " Only procedural instrument artwork uses these small pixel primitives."]
 trait Ink {
+    fn clip(&self) -> [i32; 4];
     fn put(&mut self, x: i32, y: i32, color: u32);
     fn get(&self, x: i32, y: i32) -> u32;
     fn tint(&mut self, x: i32, y: i32, color: u32, alpha: Fixed) {
@@ -58,13 +59,22 @@ trait Ink {
         }
     }
     fn rect(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: u32) {
-        for y in y0..y1 {
-            for x in x0..x1 {
+        let [left, top, right, bottom] = self.clip();
+        for y in y0.max(top)..y1.min(bottom) {
+            for x in x0.max(left)..x1.min(right) {
                 self.put(x, y, color);
             }
         }
     }
     fn line(&mut self, a: [Fixed; 2], b: [Fixed; 2], color: u32) {
+        let [left, top, right, bottom] = self.clip();
+        if a[0].max(b[0]).ceil().to_int() < left
+            || a[1].max(b[1]).ceil().to_int() < top
+            || a[0].min(b[0]).floor().to_int() >= right
+            || a[1].min(b[1]).floor().to_int() >= bottom
+        {
+            return;
+        }
         let n = ((b[0] - a[0])
             .abs()
             .max((b[1] - a[1]).abs())
@@ -81,8 +91,9 @@ trait Ink {
         }
     }
     fn disc(&mut self, x: i32, y: i32, r: i32, color: u32) {
-        for dy in -r..=r {
-            for dx in -r..=r {
+        let [left, top, right, bottom] = self.clip();
+        for dy in (-r).max(top - y)..=r.min(bottom - y - 1) {
+            for dx in (-r).max(left - x)..=r.min(right - x - 1) {
                 if dx * dx + dy * dy <= r * r {
                     self.put(x + dx, y + dy, color);
                 }
@@ -271,6 +282,14 @@ impl Layer {
     }
 }
 impl Ink for Layer {
+    fn clip(&self) -> [i32; 4] {
+        [
+            -self.pad,
+            -self.pad,
+            self.width - self.pad,
+            self.height - self.pad,
+        ]
+    }
     fn put(&mut self, x: i32, y: i32, color: u32) {
         let x = x + self.pad;
         let y = y + self.pad;
@@ -293,6 +312,15 @@ struct Live<'a, 'b> {
     offset: [i32; 2],
 }
 impl Ink for Live<'_, '_> {
+    fn clip(&self) -> [i32; 4] {
+        let [left, top, right, bottom] = self.canvas.clip;
+        [
+            left - self.offset[0],
+            top - self.offset[1],
+            right - self.offset[0],
+            bottom - self.offset[1],
+        ]
+    }
     fn put(&mut self, x: i32, y: i32, color: u32) {
         self.canvas
             .point(x + self.offset[0], y + self.offset[1], color);
@@ -1316,6 +1344,7 @@ impl Cockpit {
                 canvas,
                 offset: [(panel[0]).trunc_to_int(), (panel[1]).trunc_to_int()],
             };
+            let clip = live.clip();
             for (i, lamp) in self.lamps.iter().enumerate() {
                 if flight.boost > Fixed::from_ratio(25, 100)
                     || i < 2
@@ -1344,8 +1373,8 @@ impl Cockpit {
             let radius = Fixed::from_int(radar.w.min(radar.h)) * Fixed::from_ratio(47, 100);
             let zoom = Fixed::from_int(9) / s;
             let sweep = (flight.time * Fixed::from_ratio(16, 10)).rem_euclid(TAU);
-            for yy in 0..radar.h {
-                for xx in 0..radar.w {
+            for yy in 0.max(clip[1] - radar.y)..radar.h.min(clip[3] - radar.y) {
+                for xx in 0.max(clip[0] - radar.x)..radar.w.min(clip[2] - radar.x) {
                     let dx = xx - radar.w / 2;
                     let dy = yy - radar.h / 2;
                     let distance = (Fixed::from_int(dx * dx + dy * dy)).sqrt();
@@ -1433,7 +1462,7 @@ impl Cockpit {
             }
             instrument_glass(&mut live, radar);
             let status = self.screens[1];
-            for y in 0..status.h {
+            for y in 0.max(clip[1] - status.y)..status.h.min(clip[3] - status.y) {
                 live.rect(
                     status.x,
                     status.y + y,
@@ -1464,8 +1493,8 @@ impl Cockpit {
                         + ((Fixed::from_int(xx) / fit).trunc_to_int() as usize).min(jet::WIDTH - 1)]
                 }
             };
-            for yy in 0..jh {
-                for xx in 0..jw {
+            for yy in 0.max(clip[1] - jy)..jh.min(clip[3] - jy) {
+                for xx in 0.max(clip[0] - jx)..jw.min(clip[2] - jx) {
                     let c = at(xx, yy);
                     if c == 0 {
                         continue;
@@ -1564,8 +1593,8 @@ impl Cockpit {
                 .round()
                 .max(Fixed::from_int(6))
                 / Fixed::from_int(2);
-            for dy in -ball.r..=ball.r {
-                for dx in -ball.r..=ball.r {
+            for dy in (-ball.r).max(clip[1] - ball.y)..=ball.r.min(clip[3] - ball.y - 1) {
+                for dx in (-ball.r).max(clip[0] - ball.x)..=ball.r.min(clip[2] - ball.x - 1) {
                     let d = Fixed::from_int(dx * dx + dy * dy);
                     if d > Fixed::from_int(ball.r * ball.r) {
                         continue;
@@ -1643,8 +1672,8 @@ impl Cockpit {
                 Fixed::from_int(206),
                 Fixed::from_int(84),
             );
-            for dy in -ball.r..0 {
-                for dx in -ball.r..0 {
+            for dy in (-ball.r).max(clip[1] - ball.y)..0.min(clip[3] - ball.y) {
+                for dx in (-ball.r).max(clip[0] - ball.x)..0.min(clip[2] - ball.x) {
                     let d = (Fixed::from_int(dx * dx + dy * dy)).sqrt()
                         / Fixed::from_int(ball.r.max(1));
                     if d > Fixed::from_ratio(5, 10)
@@ -2311,8 +2340,9 @@ struct Light {
     top: i32,
 }
 fn instrument_glass(ink: &mut impl Ink, r: Box2) {
-    for y in 0..r.h {
-        for x in 0..r.w {
+    let [left, top, right, bottom] = ink.clip();
+    for y in 0.max(top - r.y)..r.h.min(bottom - r.y) {
+        for x in 0.max(left - r.x)..r.w.min(right - r.x) {
             if x < 2 || y < 2 {
                 ink.tint(
                     r.x + x,
@@ -2358,15 +2388,18 @@ struct Hud<'a, 'b> {
     alpha: Fixed,
 }
 impl Ink for Hud<'_, '_> {
+    fn clip(&self) -> [i32; 4] {
+        let [left, top, right, bottom] = self.canvas.clip;
+        [left, top.max(self.top), right, bottom.min(self.bottom - 2)]
+    }
     fn put(&mut self, x: i32, y: i32, color: u32) {
+        if y < self.top || y >= self.bottom - 2 || !self.canvas.contains(x, y) {
+            return;
+        }
         let edge = Fixed::from_int(self.bottom_half)
             + Fixed::from_int(self.top_half - self.bottom_half) * Fixed::from_int(self.bottom - y)
                 / Fixed::from_int((self.bottom - self.top).max(1));
-        if y < self.top
-            || y >= self.bottom - 2
-            || !self.canvas.contains(x, y)
-            || Fixed::from_int((x - self.cx).abs()) > edge - Fixed::from_int(2)
-        {
+        if Fixed::from_int((x - self.cx).abs()) > edge - Fixed::from_int(2) {
             return;
         }
         let at = self.canvas.index(x, y);

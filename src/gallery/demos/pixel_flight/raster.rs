@@ -1381,6 +1381,9 @@ fn draw_jet(
             let y = p.center[1] - m * (bw + a * right[2] + b * forward[2] + p.slope * depth) + drop;
             for offset in &offsets[..samples * samples] {
                 let xx = ((x + offset[0] * m / center[2]).round()).trunc_to_int();
+                if xx < canvas.color.clip[0] || xx >= canvas.color.clip[2] {
+                    continue;
+                }
                 let yy = ((y + offset[1] * m / center[2]).round()).trunc_to_int();
                 if !canvas.color.contains(xx, yy) {
                     continue;
