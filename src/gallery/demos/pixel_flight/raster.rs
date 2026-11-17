@@ -750,6 +750,12 @@ fn draw_world(
 ) {
     crate::trace_span!("flight.terrain");
     canvas.clear();
+    let [left, clip_top, right, bottom] = canvas.color.clip;
+    if left >= right || clip_top >= bottom {
+        return;
+    }
+    // Coverage moves upward; farther samples cannot change a completed local column.
+    let mut open_columns = right - left;
     let (sn, cs) = p.yaw.sin_cos();
     let q = p.perspective;
     let scale = p.scale;
@@ -808,7 +814,7 @@ fn draw_world(
     }
     let rows = scale * (slope + p.apply_perspective(alt));
     for _ in 0..4000 {
-        if v >= end {
+        if v >= end || open_columns == 0 {
             break;
         }
         let step = (den * den / rows)
@@ -839,10 +845,17 @@ fn draw_world(
         };
         for px in canvas.color.clip[0]..canvas.color.clip[2] {
             let x = px as usize;
-            let gx = (wx).trunc_to_int();
-            let gy = (wy).trunc_to_int();
+            let column_index = (px - canvas.color.origin[0]) as usize;
+            let mut column = canvas.columns[column_index];
+            let sample_x = wx;
+            let sample_y = wy;
             wx += ax;
             wy += ay;
+            if column <= clip_top {
+                continue;
+            }
+            let gx = sample_x.trunc_to_int();
+            let gy = sample_y.trunc_to_int();
             if rank > 0 {
                 let cloud = world.cloud(
                     (Fixed::from_int(gx) - drift[0]).trunc_to_int(),
@@ -880,7 +893,6 @@ fn draw_world(
                 }
             }
             let h = usize::from(world.height(gx, gy));
-            let mut column = canvas.columns[(x as i32 - canvas.color.origin[0]) as usize];
             let yt = row[h];
             let yr = previous[h];
             if yt >= column && yr >= column {
@@ -972,7 +984,10 @@ fn draw_world(
                 canvas.fill_depth(x, yt, column, blend(top, pal.haze, fog), v);
                 column = yt;
             }
-            canvas.columns[(x as i32 - canvas.color.origin[0]) as usize] = column;
+            canvas.columns[column_index] = column;
+            if column <= clip_top {
+                open_columns -= 1;
+            }
         }
     }
 }
@@ -1599,6 +1614,11 @@ mod tests {
             for _ in 0..300 {
                 flight.step(&world, 16, 128, 128);
             }
+            flight.settings.clouds = match view {
+                View::Overhead => Fixed::ZERO,
+                View::Chase => Fixed::from_ratio(1, 16),
+                View::Cockpit => Fixed::ONE,
+            };
             let scene = Scene {
                 world: &world,
                 flight: &flight,
@@ -1610,7 +1630,15 @@ mod tests {
             full_workspace.with_region(&mut full, [128, 128], [0, 0], bounds, |canvas| {
                 scene.draw(canvas, projection);
             });
-            for origin in [[-2, -2], [0, 0], [17, 37], [44, 20], [104, 90]] {
+            for origin in [
+                [-42, -42],
+                [-2, -2],
+                [0, 0],
+                [17, 37],
+                [44, 20],
+                [104, 90],
+                [128, 128],
+            ] {
                 region_workspace.with_region(&mut region, [128, 128], origin, bounds, |canvas| {
                     assert_eq!(
                         canvas.sample_depth(80, 80),

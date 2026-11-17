@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Skip fully covered terrain columns in Pixel Flight without changing scene pixels or depth.
+
 - Keep the pixel face to the Gallery games. `PlayFontPlugin` now gives the samples Geist (OFL) for Latin text and figures with MiSans behind it for Chinese, and the 13 games use the new `GameFontPlugin` with Fusion Pixel.
 
 - Add `FontToken::FALLBACK`: a font registered under it backs every text stack, so a Latin face can lean on a CJK face without each style listing the fallback. An unregistered `FALLBACK` costs nothing and resolves no face.
