@@ -12,6 +12,7 @@ use crate::{
 };
 pub const TILE: usize = 256;
 const PUFFS: usize = 36;
+const PUFF_DISTANCE_LIMIT: i32 = 16;
 fn mix(a: Fixed, b: Fixed, t: Fixed) -> Fixed {
     a + (b - a) * t
 }
@@ -97,7 +98,7 @@ impl Puff {
         // Beyond this bound density and the Q24.8 exponential are both zero.
         // It also bounds the following product to less than 16 * 2^32.
         if distance >= self.cutoff {
-            Fixed::from_int(16)
+            Fixed::from_int(PUFF_DISTANCE_LIMIT)
         } else {
             (distance * self.inverse).to_fixed()
         }
@@ -138,7 +139,7 @@ impl Prepared {
             Puff {
                 center: bezier(&flame, t),
                 inverse: Fixed64::ONE / square,
-                cutoff: square * 16,
+                cutoff: square * i64::from(PUFF_DISTANCE_LIMIT),
                 extinction: (Fixed::ONE - t).pow_fraction(Fixed::from_ratio(75, 100)),
                 t,
                 reach: r,
@@ -246,12 +247,16 @@ impl Prepared {
         let mut weighted = Fixed::ZERO;
         for puff in &self.puffs {
             let dd = puff.scaled_distance(pw);
-            let g = (Fixed::ONE - dd).max(Fixed::ZERO).powi(2);
-            density += g * puff.extinction;
-            sum += g;
-            weighted += g * puff.t;
+            if dd < Fixed::ONE {
+                let g = (Fixed::ONE - dd).powi(2);
+                density += g * puff.extinction;
+                sum += g;
+                weighted += g * puff.t;
+            }
             let d0 = puff.scaled_distance(p);
-            halo += (-d0 * Fixed::from_ratio(42, 100)).exp() * puff.extinction;
+            if d0 < Fixed::from_int(PUFF_DISTANCE_LIMIT) {
+                halo += (-d0 * Fixed::from_ratio(42, 100)).exp() * puff.extinction;
+            }
         }
         let per = self.per;
         density = density * per;
@@ -670,6 +675,24 @@ impl Flames {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn saturated_puff_distances_have_no_density_or_halo() {
+        let limit = Fixed::from_int(PUFF_DISTANCE_LIMIT);
+        assert_eq!((Fixed::ONE - limit).max(Fixed::ZERO), Fixed::ZERO);
+        assert_eq!((-limit * Fixed::from_ratio(42, 100)).exp(), Fixed::ZERO);
+        for radius in [Fixed::from_ratio(1, 256), Fixed::HALF, Fixed::from_int(4)] {
+            let radius = Fixed64::from_fixed(radius);
+            let square = (radius * radius).max(Fixed64::from_ratio(1, 65536));
+            let puff = Puff {
+                inverse: Fixed64::ONE / square,
+                cutoff: square * i64::from(PUFF_DISTANCE_LIMIT),
+                ..Puff::default()
+            };
+            for point in [[32, 0], [-32, 0], [0, 32], [0, -32]] {
+                assert_eq!(puff.scaled_distance(point.map(Fixed::from_int)), limit);
+            }
+        }
+    }
     #[test]
     fn flame_shading_is_finite_emissive_and_visibility_gated() {
         let mut flame = Flame {

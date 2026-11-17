@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Skip zero density and halo terms in Pixel Flight flame puff accumulation.
+
 - Process coincident Pixel Flight aircraft subsamples once while preserving depth, fade and outline output.
 
 - Limit Pixel Flight terrain coverage to the current drawing region and skip ray segments below it.
