@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Bound native Pixel Flight flame shading to existing row support and skip samples with zero density and glow.
+
 - Reuse prepared Pixel Flight flame weights, support squares and shading coefficients across pixels.
 
 - Skip aircraft layers outside native Pixel Flight drawing regions using frame-local projected sample bounds.

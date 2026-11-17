@@ -191,6 +191,21 @@ impl Prepared {
             glow_power: Fixed::from_ratio(2, 10) + Fixed::from_ratio(18, 100) * flame.power,
         }
     }
+    fn row_support(&self, y: Fixed) -> Option<[Fixed; 2]> {
+        let mut left = Fixed::MAX;
+        let mut right = Fixed::MIN;
+        for puff in &self.puffs {
+            let dy = y - puff.center[1];
+            let remaining = puff.reach_squared - dy * dy;
+            if remaining < Fixed::ZERO {
+                continue;
+            }
+            let span = remaining.sqrt();
+            left = left.min(puff.center[0] - span);
+            right = right.max(puff.center[0] + span);
+        }
+        (left <= right).then_some([left, right])
+    }
     fn shade<const CULL: bool>(&self, p: [Fixed; 2]) -> [Fixed; 4] {
         let f = &self.flame;
         if CULL
@@ -241,6 +256,13 @@ impl Prepared {
         let per = self.per;
         density = density * per;
         halo = halo * per;
+        let glow =
+            (Fixed::ONE - (-halo * Fixed::from_ratio(5, 10)).exp() - Fixed::from_ratio(3, 100))
+                .max(Fixed::ZERO)
+                * self.glow_power;
+        if density.is_zero() && glow.is_zero() {
+            return [Fixed::ZERO; 4];
+        }
         let t = if sum > Fixed::from_ratio(1, 1000000) {
             weighted / sum
         } else {
@@ -340,10 +362,6 @@ impl Prepared {
             );
         }
         let alpha = ramp(Fixed::from_ratio(2, 100), Fixed::from_ratio(42, 100), heat);
-        let glow =
-            (Fixed::ONE - (-halo * Fixed::from_ratio(5, 10)).exp() - Fixed::from_ratio(3, 100))
-                .max(Fixed::ZERO)
-                * self.glow_power;
         let open = mix(
             Fixed::ONE,
             ramp(-Fixed::from_ratio(5, 10), Fixed::from_ratio(3, 10), q[1]),
@@ -433,7 +451,14 @@ pub(super) fn composite_native(pixels: &mut TexturePixelsMut<'_>, flames: &[Flam
         });
         let prepared = Prepared::new(flame, time);
         for y in low[1]..high[1] {
-            for x in low[0]..high[0] {
+            let row_y = Fixed::from_int(y) + Fixed::HALF;
+            let Some([left, right]) = prepared.row_support(row_y) else {
+                continue;
+            };
+            // Keep a pixel halo around the quantized circle/square-root bounds.
+            let start = (left.floor().to_int() - 1).max(low[0]);
+            let end = (right.ceil().to_int() + 1).min(high[0]);
+            for x in start..end {
                 let value = prepared.shade::<true>([
                     Fixed::from_int(x) + Fixed::from_ratio(1, 2),
                     Fixed::from_int(y) + Fixed::from_ratio(1, 2),
@@ -555,18 +580,9 @@ impl Flames {
                     + (Fixed::from_int((y) as i32) + Fixed::from_ratio(5, 10))
                         / Fixed::from_int((height) as i32)
                         * tile.bounds[3];
-                let mut left = Fixed::MAX;
-                let mut right = Fixed::MIN;
-                for puff in &prepared.puffs {
-                    let dy = row_y - puff.center[1];
-                    let remaining = puff.reach_squared - dy * dy;
-                    if remaining < Fixed::ZERO {
-                        continue;
-                    }
-                    let span = remaining.sqrt();
-                    left = left.min(puff.center[0] - span);
-                    right = right.max(puff.center[0] + span);
-                }
+                let Some([left, right]) = prepared.row_support(row_y) else {
+                    continue;
+                };
                 if left >= right {
                     continue;
                 }
@@ -775,6 +791,15 @@ mod tests {
                         ];
                         let optimized = prepared.shade::<true>(position);
                         let reference = prepared.shade::<false>(position);
+                        if optimized != [Fixed::ZERO; 4] {
+                            let [left, right] = prepared
+                                .row_support(position[1])
+                                .expect("nonzero sample has row support");
+                            assert!(
+                                position[0] >= left.floor() - Fixed::ONE
+                                    && position[0] < right.ceil() + Fixed::ONE
+                            );
+                        }
                         assert_eq!(
                             optimized.map(|v| ((v
                                 .clamp(Fixed::from_ratio(0, 1), Fixed::from_ratio(1, 1))
