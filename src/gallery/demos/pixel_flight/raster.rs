@@ -748,6 +748,28 @@ impl Raster {
         }
     }
 }
+#[derive(Clone, Copy)]
+struct HeightProjection {
+    origin: Fixed,
+    scale: Fixed,
+}
+impl HeightProjection {
+    fn new(center: Fixed, scale: Fixed, slope: Fixed, depth: Fixed, altitude: Fixed) -> Self {
+        Self {
+            origin: center - scale * (slope * depth - altitude),
+            scale,
+        }
+    }
+    fn at(&self, height: usize) -> i32 {
+        assert!(
+            height <= world::MAX_HEIGHT,
+            "terrain height outside projection"
+        );
+        (self.origin - self.scale * Fixed::from_int(height as i32) + Fixed::from_ratio(1, 100000))
+            .floor()
+            .trunc_to_int()
+    }
+}
 fn draw_world(
     canvas: &mut SceneCanvas<'_, '_>,
     world: &World,
@@ -812,13 +834,7 @@ fn draw_world(
     };
     let mut den = Fixed::ONE + p.apply_perspective(v);
     let mut m = scale / den;
-    let mut row = [0i32; world::MAX_HEIGHT + 1];
-    for (z, r) in row.iter_mut().enumerate() {
-        *r = ((cy - m * (slope * v - alt) - m * Fixed::from_int((z) as i32)
-            + Fixed::from_ratio(1, 100000))
-        .floor())
-        .trunc_to_int();
-    }
+    let mut row = HeightProjection::new(cy, m, slope, v, alt);
     let rows = scale * (slope + p.apply_perspective(alt));
     for _ in 0..4000 {
         if v >= end || open_columns == 0 {
@@ -831,12 +847,7 @@ fn draw_world(
         den = Fixed::ONE + p.apply_perspective(v);
         m = scale / den;
         let previous = row;
-        for (z, r) in row.iter_mut().enumerate() {
-            *r = ((cy - m * (slope * v - alt) - m * Fixed::from_int((z) as i32)
-                + Fixed::from_ratio(1, 100000))
-            .floor())
-            .trunc_to_int();
-        }
+        row = HeightProjection::new(cy, m, slope, v, alt);
         let inverse = den / scale;
         let ax = cs * inverse;
         let ay = -sn * inverse;
@@ -850,6 +861,8 @@ fn draw_world(
         } else {
             Fixed::ZERO
         };
+        let mut ground_height = usize::MAX;
+        let mut ground_rows = [0; 2];
         for px in canvas.color.clip[0]..canvas.color.clip[2] {
             let x = px as usize;
             let column_index = (px - canvas.color.origin[0]) as usize;
@@ -873,16 +886,16 @@ fn draw_world(
                     let top = (world::CLOUD_ALT).trunc_to_int() as usize + thick - 1;
                     canvas.cloud_span(
                         x,
-                        row[top],
-                        previous[top],
+                        row.at(top),
+                        previous.at(top),
                         blend(pal.cloud_top[thick - 1], pal.haze, fog),
                         v,
                         thick == 1,
                     );
                     canvas.cloud_span(
                         x,
-                        previous[(world::CLOUD_ALT).trunc_to_int() as usize],
-                        row[(world::CLOUD_ALT).trunc_to_int() as usize],
+                        previous.at((world::CLOUD_ALT).trunc_to_int() as usize),
+                        row.at((world::CLOUD_ALT).trunc_to_int() as usize),
                         blend(pal.cloud_under, pal.haze, fog),
                         v,
                         thick == 1,
@@ -891,8 +904,8 @@ fn draw_world(
                         let z = (world::CLOUD_ALT).trunc_to_int() as usize + layer;
                         canvas.fill_depth(
                             x,
-                            previous[z + 1],
-                            previous[z],
+                            previous.at(z + 1),
+                            previous.at(z),
                             blend(pal.cloud_wall[layer], pal.haze, fog),
                             v,
                         );
@@ -900,8 +913,11 @@ fn draw_world(
                 }
             }
             let h = usize::from(world.height(gx, gy));
-            let yt = row[h];
-            let yr = previous[h];
+            if h != ground_height {
+                ground_rows = [row.at(h), previous.at(h)];
+                ground_height = h;
+            }
+            let [yt, yr] = ground_rows;
             if yt >= column && yr >= column {
                 continue;
             }
@@ -1744,6 +1760,12 @@ fn project_flames(
 mod tests {
     use super::super::flight::{Settings, View};
     use super::*;
+    #[test]
+    #[should_panic(expected = "terrain height outside projection")]
+    fn height_projection_rejects_heights_outside_the_world_domain() {
+        HeightProjection::new(Fixed::ONE, Fixed::ONE, Fixed::ONE, Fixed::ONE, Fixed::ONE)
+            .at(world::MAX_HEIGHT + 1);
+    }
     #[test]
     fn prepared_regions_cover_all_samples_without_allocating() {
         let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);

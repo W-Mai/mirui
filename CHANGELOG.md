@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Project Pixel Flight terrain heights on demand and reuse adjacent-column results within each ray.
+
 - Skip transparent Pixel Flight cockpit rows and reuse decoded rows during fractional composition.
 
 - Bound native Pixel Flight flame shading to existing row support and skip samples with zero density and glow.
