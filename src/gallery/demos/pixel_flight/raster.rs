@@ -1494,18 +1494,28 @@ impl PreparedJet {
                     let a = voxel.a();
                     let color =
                         pal.jets[lights[usize::from(a >= Fixed::ZERO)]][usize::from(voxel.color)];
-                    // Identical extrema mean every offset writes the same pixel.
-                    let sample_count = if xs[0] == xs[1] && ys[0] == ys[1] {
+                    // Coincident extrema make that coordinate identical for every offset.
+                    let fixed_x = xs[0] == xs[1];
+                    let fixed_y = ys[0] == ys[1];
+                    let sample_count = if fixed_x && fixed_y {
                         1
                     } else {
                         samples * samples
                     };
                     for offset in &offsets[..sample_count] {
-                        let xx = ((x + offset[0] * m / center[2]).round()).trunc_to_int();
+                        let xx = if fixed_x {
+                            xs[0]
+                        } else {
+                            ((x + offset[0] * m / center[2]).round()).trunc_to_int()
+                        };
                         if xx < canvas.color.clip[0] || xx >= canvas.color.clip[2] {
                             continue;
                         }
-                        let yy = ((y + offset[1] * m / center[2]).round()).trunc_to_int();
+                        let yy = if fixed_y {
+                            ys[0]
+                        } else {
+                            ((y + offset[1] * m / center[2]).round()).trunc_to_int()
+                        };
                         if !canvas.color.contains(xx, yy) {
                             continue;
                         }

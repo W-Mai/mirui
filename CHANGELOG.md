@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Reuse constant Pixel Flight aircraft sample coordinates before per-offset projection arithmetic.
+
 - Skip Pixel Flight body shading when flame density is zero while preserving weighted glow visibility.
 
 - Skip zero density and halo terms in Pixel Flight flame puff accumulation.
