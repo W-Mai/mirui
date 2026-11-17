@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Skip Pixel Flight body shading when flame density is zero while preserving weighted glow visibility.
+
 - Skip zero density and halo terms in Pixel Flight flame puff accumulation.
 
 - Process coincident Pixel Flight aircraft subsamples once while preserving depth, fade and outline output.

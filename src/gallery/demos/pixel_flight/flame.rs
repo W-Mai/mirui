@@ -273,6 +273,33 @@ impl Prepared {
         } else {
             Fixed::ONE
         };
+        let finish = |color: [Fixed; 3], alpha: Fixed| {
+            let open = mix(
+                Fixed::ONE,
+                ramp(-Fixed::from_ratio(5, 10), Fixed::from_ratio(3, 10), q[1]),
+                self.side,
+            );
+            let visible = if t < Fixed::from_ratio(5, 10) {
+                mix(f.visibility[0], f.visibility[1], t * Fixed::from_int(2))
+            } else {
+                mix(
+                    f.visibility[1],
+                    f.visibility[2],
+                    t * Fixed::from_int(2) - Fixed::ONE,
+                )
+            };
+            let strength = open * visible * f.alpha;
+            [
+                (color[0] * alpha + glow) * strength,
+                (color[1] * alpha + Fixed::from_ratio(46, 100) * glow) * strength,
+                (color[2] * alpha + Fixed::from_ratio(14, 100) * glow) * strength,
+                (alpha * Fixed::from_ratio(88, 100) + glow * Fixed::from_ratio(2, 10)) * strength,
+            ]
+        };
+        // Zero density cannot activate body heat or alpha; retain the weighted visibility.
+        if density.is_zero() {
+            return finish([Fixed::ZERO; 3], Fixed::ZERO);
+        }
         let tangent = normalize(core::array::from_fn(|k| {
             mix(
                 f.points[1][k] - f.points[0][k],
@@ -367,27 +394,7 @@ impl Prepared {
             );
         }
         let alpha = ramp(Fixed::from_ratio(2, 100), Fixed::from_ratio(42, 100), heat);
-        let open = mix(
-            Fixed::ONE,
-            ramp(-Fixed::from_ratio(5, 10), Fixed::from_ratio(3, 10), q[1]),
-            self.side,
-        );
-        let visible = if t < Fixed::from_ratio(5, 10) {
-            mix(f.visibility[0], f.visibility[1], t * Fixed::from_int(2))
-        } else {
-            mix(
-                f.visibility[1],
-                f.visibility[2],
-                t * Fixed::from_int(2) - Fixed::ONE,
-            )
-        };
-        let strength = open * visible * f.alpha;
-        [
-            (color[0] * alpha + glow) * strength,
-            (color[1] * alpha + Fixed::from_ratio(46, 100) * glow) * strength,
-            (color[2] * alpha + Fixed::from_ratio(14, 100) * glow) * strength,
-            (alpha * Fixed::from_ratio(88, 100) + glow * Fixed::from_ratio(2, 10)) * strength,
-        ]
+        finish(color, alpha)
     }
 }
 fn encode_sample(value: [Fixed; 4]) -> (Color, Color) {
