@@ -55,57 +55,74 @@ impl Raster {
                 let bottom = (y + TILE_SIDE).min(height) as i32;
                 let x = x as i32;
                 let y = y as i32;
-                let corners = [
-                    [x, y],
-                    [right - 1, y],
-                    [x, bottom - 1],
-                    [right - 1, bottom - 1],
-                ]
-                .map(|[x, y]| mapping.source_at(x, y));
-                let origin = [
-                    corners.iter().map(|p| p[0]).min().unwrap() - 2,
-                    corners.iter().map(|p| p[1]).min().unwrap() - 2,
-                ];
-                assert!(
-                    corners.iter().all(|p| p[0] > origin[0]
-                        && p[1] > origin[1]
-                        && p[0] < origin[0] + SOURCE_SIDE as i32 - 1
-                        && p[1] < origin[1] + SOURCE_SIDE as i32 - 1),
-                    "inverse roll exceeds source workspace"
-                );
-                workspace.with_region(sheet, mapping.size, origin, mapping.bounds, |canvas| {
-                    scene.draw_ordered(canvas, mapping.projection, &order);
-                    for query in &mut pending[..count] {
-                        query.resolve(canvas);
-                    }
+                let covered = prepared_cockpit.as_ref().is_some_and(|prepared| {
+                    cockpit.covers([x, y, right, bottom], prepared, &mut workspace.mask)
                 });
-                let source = sheet.texture.read_pixels().expect("compact source pixels");
+                let origin = if covered {
+                    [0, 0]
+                } else {
+                    let corners = [
+                        [x, y],
+                        [right - 1, y],
+                        [x, bottom - 1],
+                        [right - 1, bottom - 1],
+                    ]
+                    .map(|[x, y]| mapping.source_at(x, y));
+                    let origin = [
+                        corners.iter().map(|p| p[0]).min().unwrap() - 2,
+                        corners.iter().map(|p| p[1]).min().unwrap() - 2,
+                    ];
+                    assert!(
+                        corners.iter().all(|p| p[0] > origin[0]
+                            && p[1] > origin[1]
+                            && p[0] < origin[0] + SOURCE_SIDE as i32 - 1
+                            && p[1] < origin[1] + SOURCE_SIDE as i32 - 1),
+                        "inverse roll exceeds source workspace"
+                    );
+                    workspace.with_region(sheet, mapping.size, origin, mapping.bounds, |canvas| {
+                        scene.draw_ordered(canvas, mapping.projection, &order);
+                        for query in &mut pending[..count] {
+                            query.resolve(canvas);
+                        }
+                    });
+                    origin
+                };
+                let source =
+                    (!covered).then(|| sheet.texture.read_pixels().expect("compact source pixels"));
                 output_tile.with_region(
                     [width, height],
                     [x, y],
                     [0, 0, width as i32, height as i32],
                     |canvas| {
-                        for yy in y..bottom {
-                            for xx in x..right {
-                                let [sx, sy] = mapping.source_at(xx, yy);
-                                assert!(
-                                    sx >= mapping.bounds[0]
-                                        && sy >= mapping.bounds[1]
-                                        && sx < mapping.bounds[2]
-                                        && sy < mapping.bounds[3],
-                                "roll sample {sx},{sy} outside {:?}, virtual {:?}, output {width}x{height} at {xx},{yy}, roll {:?}", mapping.bounds, mapping.size, mapping.projection.roll
-                                );
-                                let at = (((sy - origin[1]) as usize) * SOURCE_SIDE
-                                    + (sx - origin[0]) as usize)
-                                    * 4;
-                                canvas.put(
-                                    canvas.index(xx, yy),
-                                    u32::from_le_bytes(
-                                        source.bytes()[at..at + 4]
-                                            .try_into()
-                                            .expect("RGBA source pixel"),
-                                    ),
-                                );
+                        if let Some(source) = &source {
+                            for yy in y..bottom {
+                                for xx in x..right {
+                                    let [sx, sy] = mapping.source_at(xx, yy);
+                                    assert!(
+                                        sx >= mapping.bounds[0]
+                                            && sy >= mapping.bounds[1]
+                                            && sx < mapping.bounds[2]
+                                            && sy < mapping.bounds[3],
+                                    "roll sample {sx},{sy} outside {:?}, virtual {:?}, output {width}x{height} at {xx},{yy}, roll {:?}", mapping.bounds, mapping.size, mapping.projection.roll
+                                    );
+                                    let at = (((sy - origin[1]) as usize) * SOURCE_SIDE
+                                        + (sx - origin[0]) as usize)
+                                        * 4;
+                                    canvas.put(
+                                        canvas.index(xx, yy),
+                                        u32::from_le_bytes(
+                                            source.bytes()[at..at + 4]
+                                                .try_into()
+                                                .expect("RGBA source pixel"),
+                                        ),
+                                    );
+                                }
+                            }
+                        } else {
+                            for yy in y..bottom {
+                                for xx in x..right {
+                                    canvas.put(canvas.index(xx, yy), 0xff00_0000);
+                                }
                             }
                         }
                         if let Some(prepared) = &prepared_cockpit {

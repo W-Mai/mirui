@@ -207,6 +207,39 @@ impl Layer {
             pad,
         }
     }
+    fn mark_coverage(
+        &self,
+        clip: [i32; 4],
+        offset: [Fixed; 3],
+        mask: &mut [u8],
+        row_scratch: &mut [u8; ROW_PIXELS],
+        above_scratch: &mut [u8; ROW_PIXELS],
+    ) -> usize {
+        let [left, top, right, bottom] = clip;
+        let width = (right - left) as usize;
+        let dx = offset[0].trunc_to_int() - self.pad;
+        let dy = offset[1].trunc_to_int() - self.pad;
+        let fraction = offset[2];
+        let mut marked = 0;
+        for y in top.max(dy)..bottom.min(dy + self.height) {
+            let sy = (y - dy) as usize;
+            let row = self.row(sy, row_scratch);
+            let above = (fraction > Fixed::from_ratio(4, 1000) && sy > 0)
+                .then(|| self.row(sy - 1, above_scratch));
+            for x in left.max(dx)..right.min(dx + self.width) {
+                let at = (y - top) as usize * width + (x - left) as usize;
+                if mask[at] != 0 {
+                    continue;
+                }
+                let (color, cover) = row.sample(above.as_ref(), (x - dx) as usize, fraction);
+                if color >> 24 == 255 && cover == Fixed::ONE {
+                    mask[at] = 1;
+                    marked += 1;
+                }
+            }
+        }
+        marked
+    }
     fn bytes(&self) -> usize {
         match &self.pixels {
             LayerPixels::Rgba(data) => data.capacity() * 4,
@@ -1355,6 +1388,45 @@ impl Cockpit {
             light,
         })
     }
+    pub(super) fn covers(
+        &self,
+        clip: [i32; 4],
+        prepared: &PreparedCockpit,
+        mask: &mut [u8],
+    ) -> bool {
+        crate::trace_span!("flight.cockpit.coverage");
+        let [left, top, right, bottom] = clip;
+        if left >= right || top >= bottom {
+            return false;
+        }
+        let count = ((right - left) * (bottom - top)) as usize;
+        let mask = &mut mask[..count];
+        mask.fill(0);
+        let width = (right - left) as usize;
+        let mut row_scratch = [0; ROW_PIXELS];
+        let mut above_scratch = [0; ROW_PIXELS];
+        for y in top..bottom {
+            let start = (y - top) as usize * width;
+            let row_mask = &mut mask[start..start + width];
+            let mut covered = 0;
+            for (layer, offset) in self.layers.iter().zip([0, 2, 3, 6]) {
+                covered += layer.mark_coverage(
+                    [left, y, right, y + 1],
+                    prepared.offsets[offset],
+                    row_mask,
+                    &mut row_scratch,
+                    &mut above_scratch,
+                );
+                if covered == width {
+                    break;
+                }
+            }
+            if covered != width {
+                return false;
+            }
+        }
+        true
+    }
     pub fn draw(&self, canvas: &mut Canvas<'_>, world: &World, flight: &Flight, palette: &Palette) {
         if let Some(prepared) = self.prepare(flight, palette) {
             self.draw_prepared(canvas, world, flight, &prepared);
@@ -2455,6 +2527,87 @@ mod tests {
         raster::Raster,
     };
     use super::*;
+    #[test]
+    fn opaque_coverage_requires_full_fractional_sample_coverage() {
+        let row = RowPixels::Rgba(&[WHITE, 0, WHITE, 0]);
+        let above = RowPixels::Rgba(&[0, BLACK, BLACK, 0]);
+        let fraction = Fixed::from_ratio(1, 4);
+        let samples = core::array::from_fn::<_, 4, _>(|x| row.sample(Some(&above), x, fraction));
+        assert_eq!(samples[0], (WHITE, Fixed::from_ratio(3, 4)));
+        assert_eq!(samples[1], (BLACK, fraction));
+        assert_eq!(samples[2].1, Fixed::ONE);
+        assert_eq!(samples[2].0 >> 24, 255);
+        assert_eq!(samples[3].0, 0);
+    }
+
+    #[test]
+    fn covered_regions_do_not_depend_on_background_or_retained_mask() {
+        use super::super::raster::{Daylight, Frame};
+        let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
+        let mut flight = Flight::new(&world, Settings::default());
+        flight.view = View::Cockpit;
+        let mut a = Frame::new(32, 32).unwrap();
+        let mut b = Frame::new(32, 32).unwrap();
+        let mut mask = [255; 1024];
+        let mut accepted = 0;
+        for day in [Daylight::Day, Daylight::Sunset, Daylight::Night] {
+            let palette = Palette::new(day);
+            let art = Cockpit::new_compact(128, 128, &palette);
+            for steps in [1, 12, 60, 240] {
+                for _ in 0..steps {
+                    flight.step(&world, 16, 128, 128);
+                }
+                flight.head[0].position = Fixed::from_ratio(steps % 5 - 2, 4);
+                flight.head[1].position = -flight.head[0].position;
+                let Some(prepared) = art.prepare(&flight, &palette) else {
+                    continue;
+                };
+                for y in (0..128).step_by(32) {
+                    for x in (0..128).step_by(32) {
+                        for [w, h] in [[32, 32], [17, 23]] {
+                            let clip = [x, y, x + w, y + h];
+                            mask.fill(255);
+                            let covered = art.covers(clip, &prepared, &mut mask);
+                            if !covered {
+                                continue;
+                            }
+                            accepted += 1;
+                            assert!(mask[..(w * h) as usize].iter().all(|value| *value == 1));
+                            for (frame, background) in [(&mut a, 0xff000000), (&mut b, 0xffffffff)]
+                            {
+                                frame.with_region([128, 128], [x, y], clip, |canvas| {
+                                    for yy in y..y + h {
+                                        for xx in x..x + w {
+                                            let at = canvas.index(xx, yy);
+                                            canvas.put(at, background);
+                                        }
+                                    }
+                                    art.draw_prepared(canvas, &world, &flight, &prepared);
+                                });
+                            }
+                            let ap = a.texture.read_pixels().unwrap();
+                            let bp = b.texture.read_pixels().unwrap();
+                            for yy in 0..h {
+                                let start = yy as usize * 32 * 4;
+                                let end = start + w as usize * 4;
+                                assert_eq!(
+                                    &ap.bytes()[start..end],
+                                    &bp.bytes()[start..end],
+                                    "{day:?}, steps {steps}, clip {clip:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+                assert!(!art.covers([0, 0, 0, 1], &prepared, &mut mask));
+            }
+        }
+        assert!(
+            accepted > 0,
+            "settled cockpit must hide some background regions"
+        );
+    }
+
     #[test]
     fn cockpit_regions_match_full_resolution_composition() {
         use super::super::raster::{Daylight, Frame};
