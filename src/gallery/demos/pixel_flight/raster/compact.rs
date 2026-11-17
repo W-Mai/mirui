@@ -34,6 +34,7 @@ impl Raster {
             slices,
             frame_height: height,
         };
+        let prepared_cockpit = cockpit.prepare(flight, palette);
         let order = scene.order(mapping.projection);
         let mut pending = [PendingFlame::default(); 6];
         let mut count = 0;
@@ -107,7 +108,9 @@ impl Raster {
                                 );
                             }
                         }
-                        cockpit.draw(canvas, world, flight, palette);
+                        if let Some(prepared) = &prepared_cockpit {
+                            cockpit.draw_prepared(canvas, world, flight, prepared);
+                        }
                         for yy in y..bottom {
                             for xx in x..right {
                                 let [r, g, b, a] = canvas.get(canvas.index(xx, yy)).to_le_bytes();

@@ -2,7 +2,7 @@
 use super::math::FixedMath as _;
 use super::math::{PI, SQRT_2, TAU};
 use super::{
-    flight::Flight,
+    flight::{Flight, Projection},
     jet,
     raster::{BAYER, Canvas, Palette, blend, rgba},
     world::{World, hash8},
@@ -156,6 +156,12 @@ enum RowPixels<'a> {
     Indexed(&'a [u8], &'a [u32; 32]),
     Empty,
 }
+#[derive(Clone, Copy)]
+pub(super) struct PreparedCockpit {
+    projection: Projection,
+    offsets: [[Fixed; 3]; 7],
+    light: Light,
+}
 impl RowPixels<'_> {
     fn color(&self, x: usize) -> u32 {
         match self {
@@ -163,6 +169,24 @@ impl RowPixels<'_> {
             Self::Indexed(row, colors) => colors[usize::from(row[x])],
             Self::Empty => 0,
         }
+    }
+    fn sample(&self, above: Option<&Self>, x: usize, fraction: Fixed) -> (u32, Fixed) {
+        let mut color = self.color(x);
+        let mut cover = Fixed::ONE;
+        if let Some(above) = above {
+            let above = above.color(x);
+            if above != color {
+                if above == 0 {
+                    cover = Fixed::ONE - fraction;
+                } else if color == 0 {
+                    color = above;
+                    cover = fraction;
+                } else {
+                    color = blend(color, above, fraction);
+                }
+            }
+        }
+        (color, cover)
     }
 }
 impl Layer {
@@ -1229,19 +1253,16 @@ impl Cockpit {
         }
         art
     }
-    pub fn draw(&self, canvas: &mut Canvas<'_>, world: &World, flight: &Flight, palette: &Palette) {
-        crate::trace_span!("flight.cockpit");
+    pub(super) fn prepare(&self, flight: &Flight, palette: &Palette) -> Option<PreparedCockpit> {
         let p = flight.projection(self.width as usize, self.height as usize);
         let amount = p.cockpit_in();
         if amount <= Fixed::ZERO {
-            return;
+            return None;
         }
         let s = self.scale;
         let r = |v: i32| scaled_pixel(v, s);
         let cx = self.width / 2;
         let j = &flight.jets[0];
-        let b = self.body;
-        let a = self.hot;
         let head = [
             flight.head[0].position * s,
             (flight.head[1].position
@@ -1328,6 +1349,34 @@ impl Cockpit {
             },
             top: self.panel_top,
         };
+        Some(PreparedCockpit {
+            projection: p,
+            offsets: [canopy, glass, panel, deck, lever, stick, rear],
+            light,
+        })
+    }
+    pub fn draw(&self, canvas: &mut Canvas<'_>, world: &World, flight: &Flight, palette: &Palette) {
+        if let Some(prepared) = self.prepare(flight, palette) {
+            self.draw_prepared(canvas, world, flight, &prepared);
+        }
+    }
+    pub(super) fn draw_prepared(
+        &self,
+        canvas: &mut Canvas<'_>,
+        world: &World,
+        flight: &Flight,
+        prepared: &PreparedCockpit,
+    ) {
+        crate::trace_span!("flight.cockpit");
+        let p = prepared.projection;
+        let [canopy, glass, panel, deck, lever, stick, rear] = prepared.offsets;
+        let light = prepared.light;
+        let s = self.scale;
+        let r = |v: i32| scaled_pixel(v, s);
+        let cx = self.width / 2;
+        let j = &flight.jets[0];
+        let b = self.body;
+        let a = self.hot;
         self.lay(
             canvas,
             0,
@@ -1337,7 +1386,7 @@ impl Cockpit {
                 ..light
             }),
         );
-        self.hud(canvas, flight, glass);
+        self.hud(canvas, flight, &p, glass);
         self.lay(canvas, 1, panel, Some(light));
         {
             let mut live = Live {
@@ -1998,21 +2047,7 @@ impl Cockpit {
                 if sx < 0 || sx >= source.width {
                     continue;
                 }
-                let mut color = row.color(sx as usize);
-                let mut cover = Fixed::ONE;
-                if let Some(above) = &above {
-                    let above = above.color(sx as usize);
-                    if above != color {
-                        if above == 0 {
-                            cover = Fixed::ONE - fraction;
-                        } else if color == 0 {
-                            color = above;
-                            cover = fraction;
-                        } else {
-                            color = blend(color, above, fraction);
-                        }
-                    }
-                }
+                let (mut color, cover) = row.sample(above.as_ref(), sx as usize, fraction);
                 if color == 0 {
                     continue;
                 }
@@ -2045,8 +2080,7 @@ impl Cockpit {
             }
         }
     }
-    fn hud(&self, canvas: &mut Canvas<'_>, flight: &Flight, offset: [Fixed; 3]) {
-        let p = flight.projection(self.width as usize, self.height as usize);
+    fn hud(&self, canvas: &mut Canvas<'_>, flight: &Flight, p: &Projection, offset: [Fixed; 3]) {
         let alpha = super::flight::smooth(
             (p.cockpit - Fixed::from_ratio(72, 100)) / Fixed::from_ratio(28, 100),
         );
