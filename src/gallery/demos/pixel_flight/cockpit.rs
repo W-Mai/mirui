@@ -226,6 +226,13 @@ impl Layer {
             let row = self.row(sy, row_scratch);
             let above = (fraction > Fixed::from_ratio(4, 1000) && sy > 0)
                 .then(|| self.row(sy - 1, above_scratch));
+            if matches!(row, RowPixels::Empty)
+                && above
+                    .as_ref()
+                    .is_none_or(|row| matches!(row, RowPixels::Empty))
+            {
+                continue;
+            }
             for x in left.max(dx)..right.min(dx + self.width) {
                 let at = (y - top) as usize * width + (x - left) as usize;
                 if mask[at] != 0 {
@@ -299,16 +306,24 @@ impl Layer {
         let width = self.width as usize;
         let length = data
             .chunks_exact(width)
-            .map(|row| codec.encoded_len(row).expect("cockpit row size"))
+            .map(|row| {
+                if row.iter().all(|v| *v == 0) {
+                    0
+                } else {
+                    codec.encoded_len(row).expect("cockpit row size")
+                }
+            })
             .sum();
         let mut encoded = vec![0; length];
         let mut rows = Vec::with_capacity(self.height as usize + 1);
         let mut offset = 0;
         rows.push(0);
         for row in data.chunks_exact(width) {
-            offset += codec
-                .encode_into(row, &mut encoded[offset..])
-                .expect("cockpit row encoding");
+            if row.iter().any(|v| *v != 0) {
+                offset += codec
+                    .encode_into(row, &mut encoded[offset..])
+                    .expect("cockpit row encoding");
+            }
             rows.push(u32::try_from(offset).expect("bounded cockpit layer"));
         }
         self.pixels = LayerPixels::Encoded {
@@ -319,6 +334,21 @@ impl Layer {
     }
     fn row<'a>(&'a self, y: usize, scratch: &'a mut [u8; ROW_PIXELS]) -> RowPixels<'a> {
         let width = self.width as usize;
+        if let LayerPixels::Encoded { data, rows, .. } = &self.pixels {
+            let encoded = &data[rows[y] as usize..rows[y + 1] as usize];
+            if !encoded.is_empty() {
+                mirx::coding::Rle::new()
+                    .plan(encoded, width)
+                    .expect("prepared cockpit row")
+                    .decode_into(&mut scratch[..width])
+                    .expect("cockpit row workspace");
+            }
+        }
+        self.row_view(y, scratch)
+    }
+    // Encoded scratch must already contain this row; transparent rows do not read it.
+    fn row_view<'a>(&'a self, y: usize, scratch: &'a [u8; ROW_PIXELS]) -> RowPixels<'a> {
+        let width = self.width as usize;
         match &self.pixels {
             LayerPixels::Rgba(data) if !data.is_empty() => {
                 RowPixels::Rgba(&data[y * width..(y + 1) * width])
@@ -326,12 +356,7 @@ impl Layer {
             LayerPixels::Indexed { data, colors, .. } if !data.is_empty() => {
                 RowPixels::Indexed(&data[y * width..(y + 1) * width], colors)
             }
-            LayerPixels::Encoded { data, rows, colors } => {
-                mirx::coding::Rle::new()
-                    .plan(&data[rows[y] as usize..rows[y + 1] as usize], width)
-                    .expect("prepared cockpit row")
-                    .decode_into(&mut scratch[..width])
-                    .expect("cockpit row workspace");
+            LayerPixels::Encoded { rows, colors, .. } if rows[y] != rows[y + 1] => {
                 RowPixels::Indexed(&scratch[..width], colors)
             }
             _ => RowPixels::Empty,
@@ -2106,14 +2131,35 @@ impl Cockpit {
         let fraction = offset[2];
         let mut row_scratch = [0; ROW_PIXELS];
         let mut above_scratch = [0; ROW_PIXELS];
+        let mut row_bytes = &mut row_scratch;
+        let mut above_bytes = &mut above_scratch;
+        let mut previous_y = None;
+        let fractional = fraction > Fixed::from_ratio(4, 1000);
         for y in canvas.clip[1]..canvas.clip[3] {
             let sy = y - dy + self.pad;
             if sy < 0 || sy >= source.height {
                 continue;
             }
-            let row = source.row(sy as usize, &mut row_scratch);
-            let above = (fraction > Fixed::from_ratio(4, 1000) && sy > 0)
-                .then(|| source.row(sy as usize - 1, &mut above_scratch));
+            let reuse_above = fractional && previous_y == Some(sy - 1);
+            if reuse_above {
+                core::mem::swap(&mut row_bytes, &mut above_bytes);
+            }
+            let row = source.row(sy as usize, row_bytes);
+            let above = (fractional && sy > 0).then(|| {
+                if reuse_above {
+                    source.row_view(sy as usize - 1, above_bytes)
+                } else {
+                    source.row(sy as usize - 1, above_bytes)
+                }
+            });
+            previous_y = Some(sy);
+            if matches!(row, RowPixels::Empty)
+                && above
+                    .as_ref()
+                    .is_none_or(|row| matches!(row, RowPixels::Empty))
+            {
+                continue;
+            }
             for x in canvas.clip[0]..canvas.clip[2] {
                 let sx = x - dx + self.pad;
                 if sx < 0 || sx >= source.width {
@@ -2527,6 +2573,26 @@ mod tests {
         raster::Raster,
     };
     use super::*;
+    #[test]
+    fn transparent_encoded_rows_do_not_read_or_clear_the_workspace() {
+        let mut layer = Layer::new(8, 4, 0, true);
+        layer.put(3, 1, WHITE);
+        layer.seal();
+        let LayerPixels::Encoded { rows, .. } = &layer.pixels else {
+            panic!("sealed indexed rows");
+        };
+        assert_eq!(rows[0], rows[1]);
+        assert!(rows[1] < rows[2]);
+        assert_eq!(rows[2], rows[3]);
+        assert_eq!(rows[3], rows[4]);
+        let mut scratch = [0xa5; ROW_PIXELS];
+        assert!(matches!(layer.row(0, &mut scratch), RowPixels::Empty));
+        assert!(scratch.iter().all(|v| *v == 0xa5));
+        assert_eq!(layer.row(1, &mut scratch).color(3), WHITE);
+        let saved = scratch;
+        assert!(matches!(layer.row(2, &mut scratch), RowPixels::Empty));
+        assert_eq!(scratch, saved);
+    }
     #[test]
     fn opaque_coverage_requires_full_fractional_sample_coverage() {
         let row = RowPixels::Rgba(&[WHITE, 0, WHITE, 0]);

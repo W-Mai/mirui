@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Skip transparent Pixel Flight cockpit rows and reuse decoded rows during fractional composition.
+
 - Bound native Pixel Flight flame shading to existing row support and skip samples with zero density and glow.
 
 - Reuse prepared Pixel Flight flame weights, support squares and shading coefficients across pixels.
