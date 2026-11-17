@@ -117,6 +117,10 @@ trait Ink {
         self.put(x, y, lit);
     }
     fn number(&mut self, x: i32, y: i32, value: u32, digits: usize, color: u32) {
+        let [left, top, right, bottom] = self.clip();
+        if x >= right || y >= bottom || x + digits as i32 * 4 - 1 <= left || y + 5 <= top {
+            return;
+        }
         let mut divisor = 10u32.pow((digits - 1) as u32);
         for i in 0..digits {
             let n = (value / divisor % 10) as usize;
@@ -2609,6 +2613,62 @@ mod tests {
         raster::Raster,
     };
     use super::*;
+    #[test]
+    fn digit_group_clipping_preserves_partial_glyphs_and_skips_empty_groups() {
+        struct Probe {
+            clip: [i32; 4],
+            pixels: [u32; 256],
+            visits: usize,
+        }
+        impl Ink for Probe {
+            fn clip(&self) -> [i32; 4] {
+                self.clip
+            }
+            fn get(&self, _: i32, _: i32) -> u32 {
+                0
+            }
+            fn put(&mut self, x: i32, y: i32, color: u32) {
+                self.visits += 1;
+                let [l, t, r, b] = self.clip;
+                if x >= l && x < r && y >= t && y < b {
+                    self.pixels[(y * 16 + x) as usize] = color;
+                }
+            }
+        }
+        for x in (-16..19).step_by(3) {
+            for y in (-8..19).step_by(2) {
+                for digits in [1, 4] {
+                    let mut full = Probe {
+                        clip: [0, 0, 16, 16],
+                        pixels: [0; 256],
+                        visits: 0,
+                    };
+                    let mut part = Probe {
+                        clip: [3, 2, 11, 13],
+                        pixels: [0; 256],
+                        visits: 0,
+                    };
+                    full.number(x, y, 1234, digits, WHITE);
+                    part.number(x, y, 1234, digits, WHITE);
+                    for yy in 0..16 {
+                        for xx in 0..16 {
+                            let at = (yy * 16 + xx) as usize;
+                            let expected = if (3..11).contains(&xx) && (2..13).contains(&yy) {
+                                full.pixels[at]
+                            } else {
+                                0
+                            };
+                            assert_eq!(part.pixels[at], expected);
+                        }
+                    }
+                    if x >= 11 || y >= 13 || x + digits as i32 * 4 - 1 <= 3 || y + 5 <= 2 {
+                        assert_eq!(part.visits, 0);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn radar_geometry_preserves_ring_and_bearing_at_all_native_cells() {
         for (width, height) in [(1, 1), (2, 3), (37, 22), (86, 51)] {

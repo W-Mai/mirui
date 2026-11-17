@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Reject fully clipped Pixel Flight digit groups before decimal conversion and glyph expansion.
+
 - Prepare fixed radar geometry when Pixel Flight cockpit dimensions change and share heading values across instrument regions.
 
 - Skip Pixel Flight warp noise and density evaluation on rows outside conservative flame density support.
