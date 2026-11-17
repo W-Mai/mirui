@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Restrict native Pixel Flight source production to mapped samples and their outline halo.
+
 - Skip Pixel Flight background production behind fully opaque cockpit regions while preserving fractional edges and flame depth queries.
 
 - Share Pixel Flight cockpit projection, layer placement and lighting across native output regions.

@@ -79,7 +79,14 @@ impl Raster {
                             && p[1] < origin[1] + SOURCE_SIDE as i32 - 1),
                         "inverse roll exceeds source workspace"
                     );
+                    let source_end = [
+                        corners.iter().map(|p| p[0]).max().unwrap() + 3,
+                        corners.iter().map(|p| p[1]).max().unwrap() + 3,
+                    ];
                     workspace.with_region(sheet, mapping.size, origin, mapping.bounds, |canvas| {
+                        // Keep global ray bounds; only produce samples and their outline halo.
+                        canvas.color.clip[2] = canvas.color.clip[2].min(source_end[0]);
+                        canvas.color.clip[3] = canvas.color.clip[3].min(source_end[1]);
                         scene.draw_ordered(canvas, mapping.projection, &order);
                         for query in &mut pending[..count] {
                             query.resolve(canvas);
