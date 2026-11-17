@@ -161,6 +161,38 @@ pub(super) struct PreparedCockpit {
     projection: Projection,
     offsets: [[Fixed; 3]; 7],
     light: Light,
+    heading: [Fixed; 2],
+}
+struct RadarCell {
+    bearing: Fixed,
+    flags: u8,
+}
+impl RadarCell {
+    const RING: u8 = 1;
+    const INSIDE: u8 = 2;
+
+    fn new(x: i32, y: i32, width: i32, height: i32) -> Self {
+        let dx = x - width / 2;
+        let dy = y - height / 2;
+        let distance = Fixed::from_int(dx * dx + dy * dy).sqrt();
+        let radius = Fixed::from_int(width.min(height)) * Fixed::from_ratio(47, 100);
+        let ring = [
+            Fixed::ONE,
+            Fixed::from_ratio(66, 100),
+            Fixed::from_ratio(33, 100),
+        ]
+        .into_iter()
+        .any(|ring| (distance / radius - ring).abs() < Fixed::from_ratio(5, 10) / radius);
+        let inside = distance <= radius;
+        Self {
+            bearing: if inside {
+                Fixed::from_int(dx).atan2(Fixed::from_int(-dy))
+            } else {
+                Fixed::ZERO
+            },
+            flags: (u8::from(ring) * Self::RING) | (u8::from(inside) * Self::INSIDE),
+        }
+    }
 }
 impl RowPixels<'_> {
     fn color(&self, x: usize) -> u32 {
@@ -434,12 +466,14 @@ pub struct Cockpit {
     lamps: [Box2; 5],
     panel_keys: Vec<Box2>,
     deck_keys: Vec<Box2>,
+    radar: Vec<RadarCell>,
 }
 impl Cockpit {
     pub fn bytes(&self) -> usize {
         self.layers.iter().map(Layer::bytes).sum::<usize>()
             + (self.panel_keys.capacity() + self.deck_keys.capacity())
                 * core::mem::size_of::<Box2>()
+            + self.radar.capacity() * core::mem::size_of::<RadarCell>()
             + core::mem::size_of::<Self>()
     }
     pub fn new(width: usize, height: usize, palette: &Palette) -> Self {
@@ -480,6 +514,7 @@ impl Cockpit {
             lamps: [Box2::default(); 5],
             panel_keys: Vec::with_capacity(8),
             deck_keys: Vec::with_capacity(8),
+            radar: Vec::new(),
         };
         let inside = |dx: Fixed, dy: Fixed, ax: Fixed, ay: Fixed| {
             (dx.abs() / ax).pow_fraction(Fixed::from_ratio(25, 10))
@@ -1309,6 +1344,15 @@ impl Cockpit {
             }
             pixels.seal();
         }
+        let radar = art.screens[0];
+        if radar.w > 0 && radar.h > 0 {
+            art.radar = Vec::with_capacity(radar.w as usize * radar.h as usize);
+            for y in 0..radar.h {
+                for x in 0..radar.w {
+                    art.radar.push(RadarCell::new(x, y, radar.w, radar.h));
+                }
+            }
+        }
         art
     }
     pub(super) fn prepare(&self, flight: &Flight, palette: &Palette) -> Option<PreparedCockpit> {
@@ -1321,6 +1365,7 @@ impl Cockpit {
         let r = |v: i32| scaled_pixel(v, s);
         let cx = self.width / 2;
         let j = &flight.jets[0];
+        let heading = [j.yaw.cos(), j.yaw.sin()];
         let head = [
             flight.head[0].position * s,
             (flight.head[1].position
@@ -1370,10 +1415,8 @@ impl Cockpit {
             -away * Fixed::from_int(self.height) * Fixed::from_ratio(9, 10),
         );
         let light_length = (palette.sun[0].powi(2) + palette.sun[1].powi(2)).sqrt();
-        let sun_side =
-            (-palette.sun[0] * j.yaw.cos() - palette.sun[1] * j.yaw.sin()) / light_length;
-        let sun_front =
-            (-palette.sun[0] * j.yaw.sin() + palette.sun[1] * j.yaw.cos()) / light_length;
+        let sun_side = (-palette.sun[0] * heading[0] - palette.sun[1] * heading[1]) / light_length;
+        let sun_front = (-palette.sun[0] * heading[1] + palette.sun[1] * heading[0]) / light_length;
         let sun_power = match palette.day {
             super::raster::Daylight::Day => Fixed::ONE,
             super::raster::Daylight::Sunset => Fixed::from_ratio(11, 10),
@@ -1411,6 +1454,7 @@ impl Cockpit {
             projection: p,
             offsets: [canopy, glass, panel, deck, lever, stick, rear],
             light,
+            heading,
         })
     }
     pub(super) fn covers(
@@ -1516,19 +1560,20 @@ impl Cockpit {
                 }
             }
             let radar = self.screens[0];
-            let radius = Fixed::from_int(radar.w.min(radar.h)) * Fixed::from_ratio(47, 100);
             let zoom = Fixed::from_int(9) / s;
             let sweep = (flight.time * Fixed::from_ratio(16, 10)).rem_euclid(TAU);
             for yy in 0.max(clip[1] - radar.y)..radar.h.min(clip[3] - radar.y) {
                 for xx in 0.max(clip[0] - radar.x)..radar.w.min(clip[2] - radar.x) {
                     let dx = xx - radar.w / 2;
                     let dy = yy - radar.h / 2;
-                    let distance = (Fixed::from_int(dx * dx + dy * dy)).sqrt();
+                    let cell = &self.radar[(yy * radar.w + xx) as usize];
                     let right = Fixed::from_int(dx) * zoom;
                     let ahead = Fixed::from_int(-dy) * zoom;
                     let mat = world.material(
-                        (j.position[0] + right * j.yaw.cos() + ahead * j.yaw.sin()).trunc_to_int(),
-                        (j.position[1] + right * j.yaw.sin() - ahead * j.yaw.cos()).trunc_to_int(),
+                        (j.position[0] + right * prepared.heading[0] + ahead * prepared.heading[1])
+                            .trunc_to_int(),
+                        (j.position[1] + right * prepared.heading[1] - ahead * prepared.heading[0])
+                            .trunc_to_int(),
                     );
                     let mut tone = if mat >= 12 {
                         4
@@ -1542,22 +1587,11 @@ impl Cockpit {
                     if mat < 4 && (dx == 0 || dy == 0) {
                         tone = 2;
                     }
-                    if mat < 12
-                        && [
-                            Fixed::ONE,
-                            Fixed::from_ratio(66, 100),
-                            Fixed::from_ratio(33, 100),
-                        ]
-                        .into_iter()
-                        .any(|ring| {
-                            (distance / radius - ring).abs() < Fixed::from_ratio(5, 10) / radius
-                        })
-                    {
+                    if mat < 12 && cell.flags & RadarCell::RING != 0 {
                         tone = tone.max(if mat >= 4 { 4 } else { 2 });
                     }
-                    if distance <= radius {
-                        let angle = (sweep - (Fixed::from_int(dx)).atan2(Fixed::from_int(-dy)))
-                            .rem_euclid(TAU);
+                    if cell.flags & RadarCell::INSIDE != 0 {
+                        let angle = (sweep - cell.bearing).rem_euclid(TAU);
                         if angle < Fixed::from_ratio(12, 100) {
                             tone = 5;
                         } else if angle < Fixed::from_ratio(7, 10) && tone < 5 {
@@ -1572,9 +1606,11 @@ impl Cockpit {
                 let ey = other.position[1] - j.position[1];
                 let x = radar.x
                     + radar.w / 2
-                    + (((ex * j.yaw.cos() + ey * j.yaw.sin()) / zoom).round()).trunc_to_int();
+                    + (((ex * prepared.heading[0] + ey * prepared.heading[1]) / zoom).round())
+                        .trunc_to_int();
                 let y = radar.y + radar.h / 2
-                    - (((ex * j.yaw.sin() - ey * j.yaw.cos()) / zoom).round()).trunc_to_int();
+                    - (((ex * prepared.heading[1] - ey * prepared.heading[0]) / zoom).round())
+                        .trunc_to_int();
                 if x > radar.x + 1
                     && x < radar.x + radar.w - 2
                     && y > radar.y + 1
@@ -2573,6 +2609,38 @@ mod tests {
         raster::Raster,
     };
     use super::*;
+    #[test]
+    fn radar_geometry_preserves_ring_and_bearing_at_all_native_cells() {
+        for (width, height) in [(1, 1), (2, 3), (37, 22), (86, 51)] {
+            let radius = Fixed::from_int(width.min(height)) * Fixed::from_ratio(47, 100);
+            for y in 0..height {
+                for x in 0..width {
+                    let cell = RadarCell::new(x, y, width, height);
+                    let dx = x - width / 2;
+                    let dy = y - height / 2;
+                    let distance = Fixed::from_int(dx * dx + dy * dy).sqrt();
+                    let ring = [
+                        Fixed::ONE,
+                        Fixed::from_ratio(66, 100),
+                        Fixed::from_ratio(33, 100),
+                    ]
+                    .into_iter()
+                    .any(|ring| {
+                        (distance / radius - ring).abs() < Fixed::from_ratio(5, 10) / radius
+                    });
+                    assert_eq!(cell.flags & RadarCell::RING != 0, ring);
+                    assert_eq!(cell.flags & RadarCell::INSIDE != 0, distance <= radius);
+                    if distance <= radius {
+                        assert_eq!(
+                            cell.bearing,
+                            Fixed::from_int(dx).atan2(Fixed::from_int(-dy))
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn transparent_encoded_rows_do_not_read_or_clear_the_workspace() {
         let mut layer = Layer::new(8, 4, 0, true);

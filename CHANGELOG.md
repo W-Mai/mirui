@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Prepare fixed radar geometry when Pixel Flight cockpit dimensions change and share heading values across instrument regions.
+
 - Skip Pixel Flight warp noise and density evaluation on rows outside conservative flame density support.
 
 - Reuse constant Pixel Flight aircraft sample coordinates before per-offset projection arithmetic.
