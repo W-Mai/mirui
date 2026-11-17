@@ -85,11 +85,25 @@ struct Puff {
     cutoff: Fixed64,
     extinction: Fixed,
     t: Fixed,
-    reach: Fixed,
+    radius: Fixed,
     reach_squared: Fixed,
 }
 
+struct PuffRow {
+    y: Fixed,
+    density_possible: bool,
+}
+
 impl Puff {
+    fn density_row_may_contribute(&self, interval: [Fixed; 2]) -> bool {
+        let closest = self.center[1].clamp(interval[0], interval[1]);
+        if self.radius >= Fixed::ZERO && self.radius <= Fixed::ONE {
+            // One Q24.8 quantum covers reciprocal truncation in this radius range.
+            (closest - self.center[1]).abs() <= self.radius + Fixed::from_ratio(1, 256)
+        } else {
+            self.scaled_distance([self.center[0], closest]) < Fixed::ONE
+        }
+    }
     fn scaled_distance(&self, point: [Fixed; 2]) -> Fixed {
         // Small-screen radii have squares below a Q24.8 unit.
         let dx = Fixed64::from_fixed(point[0] - self.center[0]);
@@ -142,7 +156,7 @@ impl Prepared {
                 cutoff: square * i64::from(PUFF_DISTANCE_LIMIT),
                 extinction: (Fixed::ONE - t).pow_fraction(Fixed::from_ratio(75, 100)),
                 t,
-                reach: r,
+                radius: r,
                 reach_squared: Fixed::ZERO,
             }
         });
@@ -157,10 +171,10 @@ impl Prepared {
             + Fixed::from_ratio(1, 10000))
         .sqrt();
         for puff in &mut puffs {
-            let radius = puff.reach;
-            puff.reach =
+            let radius = puff.radius;
+            let reach =
                 (radius * glow_radius).max(radius + Fixed::from_ratio(604, 1000) * flame.radius);
-            puff.reach_squared = puff.reach * puff.reach;
+            puff.reach_squared = reach * reach;
         }
         let flow = time.rem_euclid(Fixed::from_int(600))
             * (Fixed::from_int(5) + Fixed::from_int(6) * flame.power);
@@ -207,7 +221,45 @@ impl Prepared {
         }
         (left <= right).then_some([left, right])
     }
+    fn warp_y_interval(&self) -> [Fixed; 2] {
+        // The noise octave weights bound both warp components within half a unit.
+        let a = [-Fixed::HALF * self.across[1], Fixed::HALF * self.across[1]];
+        let b = [
+            -Fixed::HALF * self.direction[1],
+            Fixed::HALF * self.direction[1],
+        ]
+        .map(|v| v * Fixed::from_ratio(6, 10));
+        let ends = [
+            (a[0].min(a[1]) + b[0].min(b[1])) * self.flame.radius,
+            (a[0].max(a[1]) + b[0].max(b[1])) * self.flame.radius,
+        ];
+        [
+            ends[0].min(ends[1]).min(Fixed::ZERO) * Fixed::from_ratio(11, 10),
+            ends[0].max(ends[1]).max(Fixed::ZERO) * Fixed::from_ratio(11, 10),
+        ]
+    }
+    fn row_candidates(&self, y: Fixed, warp_y: [Fixed; 2]) -> PuffRow {
+        let interval = warp_y.map(|d| y + d);
+        PuffRow {
+            y,
+            density_possible: self
+                .puffs
+                .iter()
+                .any(|puff| puff.density_row_may_contribute(interval)),
+        }
+    }
+    #[cfg(test)]
     fn shade<const CULL: bool>(&self, p: [Fixed; 2]) -> [Fixed; 4] {
+        self.shade_row::<CULL>(
+            p[0],
+            &PuffRow {
+                y: p[1],
+                density_possible: true,
+            },
+        )
+    }
+    fn shade_row<const CULL: bool>(&self, x: Fixed, row: &PuffRow) -> [Fixed; 4] {
+        let p = [x, row.y];
         let f = &self.flame;
         if CULL
             && !self.puffs.iter().any(|puff| {
@@ -222,36 +274,42 @@ impl Prepared {
             (root[0] * self.across[0] + root[1] * self.across[1]) / f.radius,
             (root[0] * self.direction[0] + root[1] * self.direction[1]) / f.radius,
         ];
-        let wq = [
-            q[0] * Fixed::from_ratio(6, 10) + self.warp_origin[0],
-            q[1] * Fixed::from_ratio(6, 10) - self.warp_origin[1],
-        ];
-        let warp = [
-            fbm(wq) - Fixed::from_ratio(47, 100),
-            fbm([
-                wq[0] + Fixed::from_ratio(317, 10),
-                wq[1] + Fixed::from_ratio(113, 10),
-            ]) - Fixed::from_ratio(47, 100),
-        ];
-        let loose = ramp(Fixed::from_ratio(2, 10), Fixed::from_int(4), q[1]);
-        let pw = core::array::from_fn::<_, 2, _>(|k| {
-            p[k] + (self.across[k] * warp[0]
-                + self.direction[k] * warp[1] * Fixed::from_ratio(6, 10))
-                * f.radius
-                * loose
-                * Fixed::from_ratio(11, 10)
-        });
+        let pw = if row.density_possible {
+            let wq = [
+                q[0] * Fixed::from_ratio(6, 10) + self.warp_origin[0],
+                q[1] * Fixed::from_ratio(6, 10) - self.warp_origin[1],
+            ];
+            let warp = [
+                fbm(wq) - Fixed::from_ratio(47, 100),
+                fbm([
+                    wq[0] + Fixed::from_ratio(317, 10),
+                    wq[1] + Fixed::from_ratio(113, 10),
+                ]) - Fixed::from_ratio(47, 100),
+            ];
+            let loose = ramp(Fixed::from_ratio(2, 10), Fixed::from_int(4), q[1]);
+            core::array::from_fn::<_, 2, _>(|k| {
+                p[k] + (self.across[k] * warp[0]
+                    + self.direction[k] * warp[1] * Fixed::from_ratio(6, 10))
+                    * f.radius
+                    * loose
+                    * Fixed::from_ratio(11, 10)
+            })
+        } else {
+            p
+        };
         let mut density = Fixed::ZERO;
         let mut halo = Fixed::ZERO;
         let mut sum = Fixed::ZERO;
         let mut weighted = Fixed::ZERO;
         for puff in &self.puffs {
-            let dd = puff.scaled_distance(pw);
-            if dd < Fixed::ONE {
-                let g = (Fixed::ONE - dd).powi(2);
-                density += g * puff.extinction;
-                sum += g;
-                weighted += g * puff.t;
+            if row.density_possible {
+                let dd = puff.scaled_distance(pw);
+                if dd < Fixed::ONE {
+                    let g = (Fixed::ONE - dd).powi(2);
+                    density += g * puff.extinction;
+                    sum += g;
+                    weighted += g * puff.t;
+                }
             }
             let d0 = puff.scaled_distance(p);
             if d0 < Fixed::from_int(PUFF_DISTANCE_LIMIT) {
@@ -462,19 +520,19 @@ pub(super) fn composite_native(pixels: &mut TexturePixelsMut<'_>, flames: &[Flam
                 })
         });
         let prepared = Prepared::new(flame, time);
+        let warp_y = prepared.warp_y_interval();
         for y in low[1]..high[1] {
             let row_y = Fixed::from_int(y) + Fixed::HALF;
             let Some([left, right]) = prepared.row_support(row_y) else {
                 continue;
             };
+            let candidates = prepared.row_candidates(row_y, warp_y);
             // Keep a pixel halo around the quantized circle/square-root bounds.
             let start = (left.floor().to_int() - 1).max(low[0]);
             let end = (right.ceil().to_int() + 1).min(high[0]);
             for x in start..end {
-                let value = prepared.shade::<true>([
-                    Fixed::from_int(x) + Fixed::from_ratio(1, 2),
-                    Fixed::from_int(y) + Fixed::from_ratio(1, 2),
-                ]);
+                let value = prepared
+                    .shade_row::<true>(Fixed::from_int(x) + Fixed::from_ratio(1, 2), &candidates);
                 let (base, emission) = encode_sample(value);
                 pixels.composite_pixel_int(x, y, &base, base.a, CompositeMode::SourceOver);
                 if emission.r != 0 || emission.g != 0 || emission.b != 0 {
@@ -583,6 +641,7 @@ impl Flames {
             ];
             let [width, height] = tile.size.map(usize::from);
             let prepared = Prepared::new(flame, time);
+            let warp_y = prepared.warp_y_interval();
             let mut base = tile.base.pixels_mut()?;
             let mut emission = tile.emission.pixels_mut()?;
             base.bytes_mut()[..width * height * 4].fill(0);
@@ -598,6 +657,7 @@ impl Flames {
                 if left >= right {
                     continue;
                 }
+                let candidates = prepared.row_candidates(row_y, warp_y);
                 let start = ((((left - low[0]) / tile.bounds[2] * Fixed::from_int((width) as i32))
                     .floor())
                 .trunc_to_int() as i32
@@ -609,17 +669,11 @@ impl Flames {
                     + 1)
                 .clamp(0, width as i32) as usize;
                 for x in start..end {
-                    let position = [
-                        low[0]
-                            + (Fixed::from_int((x) as i32) + Fixed::from_ratio(5, 10))
-                                / Fixed::from_int((width) as i32)
-                                * tile.bounds[2],
-                        low[1]
-                            + (Fixed::from_int((y) as i32) + Fixed::from_ratio(5, 10))
-                                / Fixed::from_int((height) as i32)
-                                * tile.bounds[3],
-                    ];
-                    let value = prepared.shade::<true>(position);
+                    let position = low[0]
+                        + (Fixed::from_int((x) as i32) + Fixed::from_ratio(5, 10))
+                            / Fixed::from_int((width) as i32)
+                            * tile.bounds[2];
+                    let value = prepared.shade_row::<true>(position, &candidates);
                     let (base_color, emission_color) = encode_sample(value);
                     let at = (y * width + x) * 4;
                     base.bytes_mut()[at..at + 4].copy_from_slice(&[
@@ -682,6 +736,70 @@ impl Flames {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn density_row_admission_never_rejects_a_nonzero_weight() {
+        for raw in 0..=256 {
+            let radius = Fixed::from_ratio(raw, 256);
+            let wide = Fixed64::from_fixed(radius);
+            let square = (wide * wide).max(Fixed64::from_ratio(1, 65536));
+            let puff = Puff {
+                radius,
+                inverse: Fixed64::ONE / square,
+                cutoff: square * i64::from(PUFF_DISTANCE_LIMIT),
+                ..Puff::default()
+            };
+            for offset in -300..=300 {
+                let y = Fixed::from_ratio(offset, 256);
+                if !puff.density_row_may_contribute([y, y]) {
+                    assert!(puff.scaled_distance([Fixed::ZERO, y]) >= Fixed::ONE);
+                }
+            }
+        }
+    }
+    #[test]
+    fn noise_and_warp_intervals_preserve_fixed_rounding_bounds() {
+        for x in [-1000, -7, 0, 3, 1000] {
+            for y in [-1000, -11, 0, 5, 1000] {
+                let value = fbm([Fixed::from_int(x), Fixed::from_int(y)]);
+                assert!(value >= Fixed::ZERO && value < Fixed::ONE);
+            }
+        }
+        for direction in [[0, 0], [0, 1], [1, 0], [3, 4], [-3, 4], [1, -1]] {
+            for radius in [Fixed::from_ratio(1, 256), Fixed::HALF, Fixed::from_int(3)] {
+                let [dx, dy] = direction.map(Fixed::from_int);
+                let prepared = Prepared::new(
+                    Flame {
+                        points: [[Fixed::ZERO; 2], [dx, dy], [dx * 2, dy * 2]],
+                        radius,
+                        tip_scale: Fixed::ONE,
+                        length: Fixed::from_int(8),
+                        ..Flame::default()
+                    },
+                    Fixed::ZERO,
+                );
+                let bounds = prepared.warp_y_interval();
+                for a in -4..=4 {
+                    for b in -4..=4 {
+                        for loose in [
+                            Fixed::ZERO,
+                            Fixed::from_ratio(1, 256),
+                            Fixed::HALF,
+                            Fixed::ONE,
+                        ] {
+                            let dy = (prepared.across[1] * Fixed::from_ratio(a, 8)
+                                + prepared.direction[1]
+                                    * Fixed::from_ratio(b, 8)
+                                    * Fixed::from_ratio(6, 10))
+                                * radius
+                                * loose
+                                * Fixed::from_ratio(11, 10);
+                            assert!(dy >= bounds[0] && dy <= bounds[1]);
+                        }
+                    }
+                }
+            }
+        }
+    }
     #[test]
     fn saturated_puff_distances_have_no_density_or_halo() {
         let limit = Fixed::from_int(PUFF_DISTANCE_LIMIT);
@@ -819,7 +937,8 @@ mod tests {
                             Fixed::from_int(x) * Fixed::from_ratio(7, 10),
                             Fixed::from_int(y) * Fixed::from_ratio(7, 10),
                         ];
-                        let optimized = prepared.shade::<true>(position);
+                        let row = prepared.row_candidates(position[1], prepared.warp_y_interval());
+                        let optimized = prepared.shade_row::<true>(position[0], &row);
                         let reference = prepared.shade::<false>(position);
                         if optimized != [Fixed::ZERO; 4] {
                             let [left, right] = prepared
