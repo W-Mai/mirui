@@ -36,6 +36,7 @@ impl Raster {
         };
         let prepared_cockpit = cockpit.prepare(flight, palette);
         let order = scene.order(mapping.projection);
+        let prepared_jets = scene.prepare(mapping.projection, mapping.size);
         let mut pending = [PendingFlame::default(); 6];
         let mut count = 0;
         for index in &order[..flight.count] {
@@ -87,7 +88,7 @@ impl Raster {
                         // Keep global ray bounds; only produce samples and their outline halo.
                         canvas.color.clip[2] = canvas.color.clip[2].min(source_end[0]);
                         canvas.color.clip[3] = canvas.color.clip[3].min(source_end[1]);
-                        scene.draw_ordered(canvas, mapping.projection, &order);
+                        scene.draw_ordered(canvas, mapping.projection, &order, &prepared_jets);
                         for query in &mut pending[..count] {
                             query.resolve(canvas);
                         }

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Prepare Pixel Flight aircraft projection, lighting and sample offsets once per frame across native drawing regions.
+
 - Restrict native Pixel Flight source production to mapped samples and their outline halo.
 
 - Skip Pixel Flight background production behind fully opaque cockpit regions while preserving fractional edges and flame depth queries.

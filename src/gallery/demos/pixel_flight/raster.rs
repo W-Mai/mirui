@@ -483,8 +483,16 @@ struct Scene<'a> {
 impl Scene<'_> {
     fn draw(&self, canvas: &mut SceneCanvas<'_, '_>, projection: Projection) -> [usize; 3] {
         let order = self.order(projection);
-        self.draw_ordered(canvas, projection, &order);
+        let prepared = self.prepare(projection, [canvas.color.width, canvas.color.height]);
+        self.draw_ordered(canvas, projection, &order, &prepared);
         order
+    }
+    fn prepare(&self, projection: Projection, size: [usize; 2]) -> [Option<PreparedJet>; 3] {
+        core::array::from_fn(|index| {
+            (index < self.flight.count)
+                .then(|| PreparedJet::new(self.flight, index, &projection, self.palette, size))
+                .flatten()
+        })
     }
     fn order(&self, projection: Projection) -> [usize; 3] {
         let mut order = [0, 1, 2];
@@ -503,20 +511,23 @@ impl Scene<'_> {
         canvas: &mut SceneCanvas<'_, '_>,
         projection: Projection,
         order: &[usize; 3],
+        prepared: &[Option<PreparedJet>; 3],
     ) {
         draw_world(canvas, self.world, self.flight, &projection, self.palette);
         draw_sky(canvas, &projection, self.palette, self.frame_height);
         draw_trails(canvas, self.flight, &projection, self.palette);
         draw_smoke(canvas, self.flight, &projection, self.palette.day);
         for i in &order[..self.flight.count] {
-            draw_jet(
-                canvas,
-                self.flight,
-                *i,
-                &projection,
-                self.palette,
-                self.slices,
-            );
+            if let Some(jet) = &prepared[*i] {
+                jet.draw(
+                    canvas,
+                    self.flight,
+                    *i,
+                    &projection,
+                    self.palette,
+                    self.slices,
+                );
+            }
         }
     }
 }
@@ -1214,210 +1225,265 @@ fn draw_smoke(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection,
         }
     }
 }
-fn draw_jet(
-    canvas: &mut SceneCanvas<'_, '_>,
-    flight: &Flight,
-    index: usize,
-    p: &Projection,
-    pal: &Palette,
-    slices: &[&[jet::Voxel]; jet::LAYERS],
-) {
-    crate::trace_span!("flight.aircraft");
-    let jet = &flight.jets[index];
-    let fade = if index == 0 { p.jet_alpha } else { Fixed::ONE };
-    if fade < Fixed::from_ratio(4, 1000) {
-        return;
-    }
-    let Some(center) = p.project(jet.position) else {
-        return;
-    };
-    if center[2] <= Fixed::ZERO {
-        return;
-    }
-    let reach = Fixed::from_int((jet::LENGTH) as i32) * flight.settings.jet_scale * center[2]
-        + Fixed::from_int(40);
-    if center[0] < -reach
-        || center[1] < -reach - Fixed::from_int((canvas.color.height) as i32)
-        || center[0] > Fixed::from_int((canvas.color.width) as i32) + reach
-        || center[1] > Fixed::from_int((canvas.color.height) as i32) + reach
-    {
-        return;
-    }
-    canvas.mask.fill(0);
-    let axes = jet.axes();
-    let (sn, cs) = p.yaw.sin_cos();
-    let sc = flight.settings.jet_scale;
-    let project_axis = |a: [Fixed; 3]| {
-        [
-            sc * (a[0] * cs - a[1] * sn),
-            -sc * (a[0] * sn + a[1] * cs),
-            sc * a[2],
-        ]
-    };
-    let [right, forward, up] = axes.map(project_axis);
-    let dx = jet.position[0] - p.position[0];
-    let dy = jet.position[1] - p.position[1];
-    let cu = dx * cs - dy * sn;
-    let cv = -(dx * sn + dy * cs);
-    let cw = jet.position[2] - p.position[2];
-    let plane = if p.perspective.is_zero() {
-        if p.slope * up[2] - up[1] >= Fixed::ZERO {
-            Fixed::from_int(1_000_000)
-        } else {
-            -Fixed::from_int(1_000_000)
+struct PreparedJet {
+    center: [Fixed; 4],
+    fade: Fixed,
+    right: [Fixed; 3],
+    forward: [Fixed; 3],
+    up: [Fixed; 3],
+    camera: [Fixed; 3],
+    order: [usize; jet::LAYERS],
+    lights: [usize; 2],
+    samples: usize,
+    offsets: [[Fixed; 2]; 64],
+}
+impl PreparedJet {
+    fn new(
+        flight: &Flight,
+        index: usize,
+        p: &Projection,
+        pal: &Palette,
+        size: [usize; 2],
+    ) -> Option<Self> {
+        crate::trace_span!("flight.aircraft.prepare");
+        let jet = &flight.jets[index];
+        let fade = if index == 0 { p.jet_alpha } else { Fixed::ONE };
+        if fade < Fixed::from_ratio(4, 1000) {
+            return None;
         }
-    } else {
-        (-cu * up[0]
-            + (-p.divide_perspective(Fixed::ONE) - cv) * up[1]
-            + (p.divide_perspective(p.slope) - cw) * up[2])
-            / (sc * sc)
-    };
-    let mut order: [usize; jet::LAYERS] = core::array::from_fn(|i| i);
-    order.sort_unstable_by(|a, b| {
-        (((Fixed::from_int((*b) as i32) - jet::PIVOT[1]) * flight.spread - plane).abs())
-            .cmp(&((Fixed::from_int((*a) as i32) - jet::PIVOT[1]) * flight.spread - plane).abs())
-    });
-    let light = |side: Fixed| {
-        let n = core::array::from_fn::<_, 3, _>(|i| {
-            axes[2][i] + side * Fixed::from_ratio(4, 10) * axes[0][i]
-        });
-        let dot = -n[0] * pal.sun[0] - n[1] * pal.sun[1] + n[2] * Fixed::from_ratio(11, 10);
-        let norm =
-            ((pal.sun[0] * pal.sun[0] + pal.sun[1] * pal.sun[1] + Fixed::from_ratio(121, 100))
-                * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]))
-                .sqrt();
-        let v = dot / norm;
-        if v > if pal.day == Daylight::Night {
-            Fixed::from_ratio(74, 100)
-        } else {
-            Fixed::from_ratio(9, 10)
-        } {
-            1
-        } else if v < if pal.day == Daylight::Night {
-            Fixed::from_ratio(4, 10)
-        } else {
-            Fixed::from_ratio(66, 100)
-        } {
-            2
-        } else {
-            0
+        let center = p.project(jet.position)?;
+        if center[2] <= Fixed::ZERO {
+            return None;
         }
-    };
-    let lights = [light(-Fixed::ONE), light(Fixed::ONE)];
-    let big = sc * p.scale
-        / (Fixed::ONE + p.apply_perspective(cv)
-            - p.apply_perspective(
-                Fixed::from_int(jet::LENGTH as i32) * Fixed::from_ratio(6, 10) * sc,
-            ))
-        .max(Fixed::from_ratio(2, 10));
-    let samples = ((big * Fixed::from_int(2) - Fixed::from_ratio(24, 100))
-        .ceil()
-        .clamp(Fixed::from_int(2), Fixed::from_int(8)))
-    .trunc_to_int() as usize;
-    let mut offsets = [[Fixed::ZERO; 2]; 64];
-    for i in 0..samples {
-        for k in 0..samples {
-            let a = (Fixed::from_int((i) as i32) + Fixed::from_ratio(5, 10))
-                / Fixed::from_int((samples) as i32)
-                - Fixed::from_ratio(5, 10);
-            let b = (Fixed::from_int((k) as i32) + Fixed::from_ratio(5, 10))
-                / Fixed::from_int((samples) as i32)
-                - Fixed::from_ratio(5, 10);
-            offsets[i * samples + k] = [
-                center[2] * (a * right[0] + b * forward[0]),
-                -center[2]
-                    * (a * (right[2] + p.slope * right[1])
-                        + b * (forward[2] + p.slope * forward[1])),
-            ];
+        let reach = Fixed::from_int((jet::LENGTH) as i32) * flight.settings.jet_scale * center[2]
+            + Fixed::from_int(40);
+        if center[0] < -reach
+            || center[1] < -reach - Fixed::from_int((size[1]) as i32)
+            || center[0] > Fixed::from_int((size[0]) as i32) + reach
+            || center[1] > Fixed::from_int((size[1]) as i32) + reach
+        {
+            return None;
         }
-    }
-    let mut bounds = [
-        canvas.color.width as i32,
-        canvas.color.height as i32,
-        -1,
-        -1,
-    ];
-    let first_slice = slices
-        .iter()
-        .position(|slice| !slice.is_empty())
-        .unwrap_or(jet::LAYERS);
-    for layer in order {
-        let intro = flight.intro - Fixed::from_int((index) as i32) * Fixed::from_ratio(25, 100);
-        let t = (intro
-            - Fixed::from_int((layer.saturating_sub(first_slice)) as i32)
-                * Fixed::from_ratio(7, 100))
-            / Fixed::from_ratio(36, 100);
-        if t <= Fixed::ZERO {
-            continue;
-        }
-        let drop = if t < Fixed::ONE {
-            -(Fixed::ONE - t * t)
-                * (Fixed::from_int((canvas.color.height) as i32) / Fixed::from_int(2)
-                    + Fixed::from_int(44))
-        } else {
-            Fixed::ZERO
+        let axes = jet.axes();
+        let (sn, cs) = p.yaw.sin_cos();
+        let sc = flight.settings.jet_scale;
+        let project_axis = |a: [Fixed; 3]| {
+            [
+                sc * (a[0] * cs - a[1] * sn),
+                -sc * (a[0] * sn + a[1] * cs),
+                sc * a[2],
+            ]
         };
-        let height = (Fixed::from_int((layer) as i32) - jet::PIVOT[1]) * flight.spread;
-        let bu = cu + height * up[0];
-        let bv = cv + height * up[1];
-        let bw = cw + height * up[2];
-        for voxel in slices[layer] {
-            let a = voxel.a();
-            let b = voxel.b();
-            let depth = bv + a * right[1] + b * forward[1];
-            let den = Fixed::ONE + p.apply_perspective(depth);
-            if den < Fixed::from_ratio(2, 10) {
-                continue;
+        let [right, forward, up] = axes.map(project_axis);
+        let dx = jet.position[0] - p.position[0];
+        let dy = jet.position[1] - p.position[1];
+        let cu = dx * cs - dy * sn;
+        let cv = -(dx * sn + dy * cs);
+        let cw = jet.position[2] - p.position[2];
+        let plane = if p.perspective.is_zero() {
+            if p.slope * up[2] - up[1] >= Fixed::ZERO {
+                Fixed::from_int(1_000_000)
+            } else {
+                -Fixed::from_int(1_000_000)
             }
-            let m = p.scale / den;
-            let color = pal.jets[lights[usize::from(a >= Fixed::ZERO)]][usize::from(voxel.color)];
-            let x = p.center[0] + m * (bu + a * right[0] + b * forward[0]);
-            let y = p.center[1] - m * (bw + a * right[2] + b * forward[2] + p.slope * depth) + drop;
-            for offset in &offsets[..samples * samples] {
-                let xx = ((x + offset[0] * m / center[2]).round()).trunc_to_int();
-                if xx < canvas.color.clip[0] || xx >= canvas.color.clip[2] {
-                    continue;
-                }
-                let yy = ((y + offset[1] * m / center[2]).round()).trunc_to_int();
-                if !canvas.color.contains(xx, yy) {
-                    continue;
-                }
-                let at = canvas.color.index(xx, yy);
-                if canvas.depth[at] < depth - Fixed::ONE {
-                    continue;
-                }
-                if fade < Fixed::ONE && canvas.mask[at] == 0 {
-                    canvas.backdrop[at] = canvas.get(at);
-                }
-                canvas.put(at, color);
-                canvas.mask[at] = 1;
-                bounds = [
-                    bounds[0].min(xx),
-                    bounds[1].min(yy),
-                    bounds[2].max(xx),
-                    bounds[3].max(yy),
+        } else {
+            (-cu * up[0]
+                + (-p.divide_perspective(Fixed::ONE) - cv) * up[1]
+                + (p.divide_perspective(p.slope) - cw) * up[2])
+                / (sc * sc)
+        };
+        let mut order: [usize; jet::LAYERS] = core::array::from_fn(|i| i);
+        order.sort_unstable_by(|a, b| {
+            (((Fixed::from_int((*b) as i32) - jet::PIVOT[1]) * flight.spread - plane).abs()).cmp(
+                &((Fixed::from_int((*a) as i32) - jet::PIVOT[1]) * flight.spread - plane).abs(),
+            )
+        });
+        let light = |side: Fixed| {
+            let n = core::array::from_fn::<_, 3, _>(|i| {
+                axes[2][i] + side * Fixed::from_ratio(4, 10) * axes[0][i]
+            });
+            let dot = -n[0] * pal.sun[0] - n[1] * pal.sun[1] + n[2] * Fixed::from_ratio(11, 10);
+            let norm =
+                ((pal.sun[0] * pal.sun[0] + pal.sun[1] * pal.sun[1] + Fixed::from_ratio(121, 100))
+                    * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]))
+                    .sqrt();
+            let v = dot / norm;
+            if v > if pal.day == Daylight::Night {
+                Fixed::from_ratio(74, 100)
+            } else {
+                Fixed::from_ratio(9, 10)
+            } {
+                1
+            } else if v < if pal.day == Daylight::Night {
+                Fixed::from_ratio(4, 10)
+            } else {
+                Fixed::from_ratio(66, 100)
+            } {
+                2
+            } else {
+                0
+            }
+        };
+        let lights = {
+            crate::trace_span!("flight.aircraft.light");
+            [light(-Fixed::ONE), light(Fixed::ONE)]
+        };
+        let big = sc * p.scale
+            / (Fixed::ONE + p.apply_perspective(cv)
+                - p.apply_perspective(
+                    Fixed::from_int(jet::LENGTH as i32) * Fixed::from_ratio(6, 10) * sc,
+                ))
+            .max(Fixed::from_ratio(2, 10));
+        let samples = ((big * Fixed::from_int(2) - Fixed::from_ratio(24, 100))
+            .ceil()
+            .clamp(Fixed::from_int(2), Fixed::from_int(8)))
+        .trunc_to_int() as usize;
+        let mut offsets = [[Fixed::ZERO; 2]; 64];
+        for i in 0..samples {
+            for k in 0..samples {
+                let a = (Fixed::from_int((i) as i32) + Fixed::from_ratio(5, 10))
+                    / Fixed::from_int((samples) as i32)
+                    - Fixed::from_ratio(5, 10);
+                let b = (Fixed::from_int((k) as i32) + Fixed::from_ratio(5, 10))
+                    / Fixed::from_int((samples) as i32)
+                    - Fixed::from_ratio(5, 10);
+                offsets[i * samples + k] = [
+                    center[2] * (a * right[0] + b * forward[0]),
+                    -center[2]
+                        * (a * (right[2] + p.slope * right[1])
+                            + b * (forward[2] + p.slope * forward[1])),
                 ];
             }
         }
+        Some(Self {
+            center,
+            fade,
+            right,
+            forward,
+            up,
+            camera: [cu, cv, cw],
+            order,
+            lights,
+            samples,
+            offsets,
+        })
     }
-    for y in (bounds[1] - 1).max(canvas.color.clip[1] + 1)
-        ..=(bounds[3] + 1).min(canvas.color.clip[3] - 2)
-    {
-        for x in (bounds[0] - 1).max(canvas.color.clip[0] + 1)
-            ..=(bounds[2] + 1).min(canvas.color.clip[2] - 2)
+    fn draw(
+        &self,
+        canvas: &mut SceneCanvas<'_, '_>,
+        flight: &Flight,
+        index: usize,
+        p: &Projection,
+        pal: &Palette,
+        slices: &[&[jet::Voxel]; jet::LAYERS],
+    ) {
+        crate::trace_span!("flight.aircraft");
+        let center = self.center;
+        let fade = self.fade;
+        let [right, forward, up] = [self.right, self.forward, self.up];
+        let [cu, cv, cw] = self.camera;
+        let lights = self.lights;
+        let samples = self.samples;
+        let offsets = &self.offsets;
+        canvas.mask.fill(0);
+        let mut bounds = [
+            canvas.color.width as i32,
+            canvas.color.height as i32,
+            -1,
+            -1,
+        ];
+        let first_slice = slices
+            .iter()
+            .position(|slice| !slice.is_empty())
+            .unwrap_or(jet::LAYERS);
         {
-            let at = canvas.color.index(x, y);
-            if canvas.mask[at] != 0 {
-                if fade < Fixed::ONE {
-                    canvas.put(at, blend(canvas.backdrop[at], canvas.get(at), fade));
+            crate::trace_span!("flight.aircraft.samples");
+            for layer in self.order {
+                let intro =
+                    flight.intro - Fixed::from_int((index) as i32) * Fixed::from_ratio(25, 100);
+                let t = (intro
+                    - Fixed::from_int((layer.saturating_sub(first_slice)) as i32)
+                        * Fixed::from_ratio(7, 100))
+                    / Fixed::from_ratio(36, 100);
+                if t <= Fixed::ZERO {
+                    continue;
                 }
-            } else if fade >= Fixed::from_ratio(5, 10)
-                && (canvas.mask[at - 1] != 0
-                    || canvas.mask[at + 1] != 0
-                    || canvas.mask[at - canvas.color.pitch] != 0
-                    || canvas.mask[at + canvas.color.pitch] != 0)
+                let drop = if t < Fixed::ONE {
+                    -(Fixed::ONE - t * t)
+                        * (Fixed::from_int((canvas.color.height) as i32) / Fixed::from_int(2)
+                            + Fixed::from_int(44))
+                } else {
+                    Fixed::ZERO
+                };
+                let height = (Fixed::from_int((layer) as i32) - jet::PIVOT[1]) * flight.spread;
+                let bu = cu + height * up[0];
+                let bv = cv + height * up[1];
+                let bw = cw + height * up[2];
+                for voxel in slices[layer] {
+                    let a = voxel.a();
+                    let b = voxel.b();
+                    let depth = bv + a * right[1] + b * forward[1];
+                    let den = Fixed::ONE + p.apply_perspective(depth);
+                    if den < Fixed::from_ratio(2, 10) {
+                        continue;
+                    }
+                    let m = p.scale / den;
+                    let color =
+                        pal.jets[lights[usize::from(a >= Fixed::ZERO)]][usize::from(voxel.color)];
+                    let x = p.center[0] + m * (bu + a * right[0] + b * forward[0]);
+                    let y = p.center[1]
+                        - m * (bw + a * right[2] + b * forward[2] + p.slope * depth)
+                        + drop;
+                    for offset in &offsets[..samples * samples] {
+                        let xx = ((x + offset[0] * m / center[2]).round()).trunc_to_int();
+                        if xx < canvas.color.clip[0] || xx >= canvas.color.clip[2] {
+                            continue;
+                        }
+                        let yy = ((y + offset[1] * m / center[2]).round()).trunc_to_int();
+                        if !canvas.color.contains(xx, yy) {
+                            continue;
+                        }
+                        let at = canvas.color.index(xx, yy);
+                        if canvas.depth[at] < depth - Fixed::ONE {
+                            continue;
+                        }
+                        if fade < Fixed::ONE && canvas.mask[at] == 0 {
+                            canvas.backdrop[at] = canvas.get(at);
+                        }
+                        canvas.put(at, color);
+                        canvas.mask[at] = 1;
+                        bounds = [
+                            bounds[0].min(xx),
+                            bounds[1].min(yy),
+                            bounds[2].max(xx),
+                            bounds[3].max(yy),
+                        ];
+                    }
+                }
+            }
+        }
+        {
+            crate::trace_span!("flight.aircraft.outline");
+            for y in (bounds[1] - 1).max(canvas.color.clip[1] + 1)
+                ..=(bounds[3] + 1).min(canvas.color.clip[3] - 2)
             {
-                canvas.put(at, pal.outline);
+                for x in (bounds[0] - 1).max(canvas.color.clip[0] + 1)
+                    ..=(bounds[2] + 1).min(canvas.color.clip[2] - 2)
+                {
+                    let at = canvas.color.index(x, y);
+                    if canvas.mask[at] != 0 {
+                        if fade < Fixed::ONE {
+                            canvas.put(at, blend(canvas.backdrop[at], canvas.get(at), fade));
+                        }
+                    } else if fade >= Fixed::from_ratio(5, 10)
+                        && (canvas.mask[at - 1] != 0
+                            || canvas.mask[at + 1] != 0
+                            || canvas.mask[at - canvas.color.pitch] != 0
+                            || canvas.mask[at + canvas.color.pitch] != 0)
+                    {
+                        canvas.put(at, pal.outline);
+                    }
+                }
             }
         }
     }
