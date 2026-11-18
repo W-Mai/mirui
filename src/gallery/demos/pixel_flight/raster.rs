@@ -1563,18 +1563,40 @@ impl PreparedJet {
                     // Coincident extrema make that coordinate identical for every offset.
                     let fixed_x = xs[0] == xs[1];
                     let fixed_y = ys[0] == ys[1];
-                    let sample_count = if fixed_x && fixed_y {
-                        1
-                    } else {
-                        samples * samples
+                    let clip = canvas.color.clip;
+                    let mut mark = |xx, yy| {
+                        if !canvas.color.contains(xx, yy) {
+                            return;
+                        }
+                        let at = canvas.color.index(xx, yy);
+                        if canvas.depth[at] >= depth - Fixed::ONE {
+                            canvas.mask[at] = material;
+                            bounds = [
+                                bounds[0].min(xx),
+                                bounds[1].min(yy),
+                                bounds[2].max(xx),
+                                bounds[3].max(yy),
+                            ];
+                        }
                     };
-                    for offset in &offsets[..sample_count] {
+                    // Both extrema are sampled. On a single row or column they cover
+                    // the entire footprint if they are at most one pixel apart.
+                    if (fixed_x && ys[0].abs_diff(ys[1]) <= 1)
+                        || (fixed_y && xs[0].abs_diff(xs[1]) <= 1)
+                    {
+                        mark(xs[0], ys[0]);
+                        if !(fixed_x && fixed_y) {
+                            mark(xs[1], ys[1]);
+                        }
+                        continue;
+                    }
+                    for offset in &offsets[..samples * samples] {
                         let xx = if fixed_x {
                             xs[0]
                         } else {
                             ((x + offset[0] * m / center[2]).round()).trunc_to_int()
                         };
-                        if xx < canvas.color.clip[0] || xx >= canvas.color.clip[2] {
+                        if xx < clip[0] || xx >= clip[2] {
                             continue;
                         }
                         let yy = if fixed_y {
@@ -1582,20 +1604,7 @@ impl PreparedJet {
                         } else {
                             ((y + offset[1] * m / center[2]).round()).trunc_to_int()
                         };
-                        if !canvas.color.contains(xx, yy) {
-                            continue;
-                        }
-                        let at = canvas.color.index(xx, yy);
-                        if canvas.depth[at] < depth - Fixed::ONE {
-                            continue;
-                        }
-                        canvas.mask[at] = material;
-                        bounds = [
-                            bounds[0].min(xx),
-                            bounds[1].min(yy),
-                            bounds[2].max(xx),
-                            bounds[3].max(yy),
-                        ];
+                        mark(xx, yy);
                     }
                 }
             }
