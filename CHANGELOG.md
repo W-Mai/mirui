@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Skip aircraft shadow tests on Pixel Flight terrain scanlines outside the projected shadow bounds.
+
 - Skip fully covered rows in the Pixel Flight sky pass and compute each sky gradient once per scanline.
 
 - Composite compact cockpit instruments across full-width bands and resolve overlapping aircraft samples once per pixel.

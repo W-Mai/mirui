@@ -797,8 +797,9 @@ struct PreparedTerrain {
     drift: [Fixed; 2],
     cloud_sun: [Fixed; 2],
     shadows: [[Fixed; 2]; 3],
+    shadow_bounds: [i32; 4],
     reach: Fixed,
-    water: [i32; 3],
+    water: [u16; 3],
     rank: u8,
 }
 impl PreparedTerrain {
@@ -808,11 +809,24 @@ impl PreparedTerrain {
             p.position[0].rem_euclid(period) + period * Fixed::from_int(2),
             p.position[1].rem_euclid(period) + period * Fixed::from_int(2),
         ];
+        let reach = Fixed::from_int(jet::LENGTH as i32)
+            * Fixed::from_ratio(75, 100)
+            * flight.settings.jet_scale
+            + Fixed::from_int(3);
+        let displacement = pal.sun.map(|sun| sun * world::MAX_HEIGHT as i32);
+        let mut shadow_bounds = [i32::MAX, i32::MAX, i32::MIN, i32::MIN];
         let mut shadows = [[Fixed::ZERO; 2]; 3];
         for (center, jet) in shadows.iter_mut().zip(&flight.jets[..flight.count]) {
             *center = core::array::from_fn(|axis| {
                 base[axis] + jet.position[axis] - p.position[axis] + pal.sun[axis] * jet.position[2]
             });
+            for axis in 0..2 {
+                let far = center[axis] - displacement[axis];
+                shadow_bounds[axis] =
+                    shadow_bounds[axis].min((center[axis].min(far) - reach).to_int());
+                shadow_bounds[axis + 2] =
+                    shadow_bounds[axis + 2].max((center[axis].max(far) + reach).ceil().to_int());
+            }
         }
         Self {
             base,
@@ -824,11 +838,10 @@ impl PreparedTerrain {
             ],
             cloud_sun: pal.sun.map(|value| value * world::CLOUD_ALT),
             shadows,
-            reach: Fixed::from_int(jet::LENGTH as i32)
-                * Fixed::from_ratio(75, 100)
-                * flight.settings.jet_scale
-                + Fixed::from_int(3),
-            water: [36, 6, 4].map(|rate| (flight.time * Fixed::from_int(rate)).trunc_to_int()),
+            shadow_bounds,
+            reach,
+            water: [36, 6, 4]
+                .map(|rate| ((flight.time * Fixed::from_int(rate)).trunc_to_int() & 1023) as u16),
             rank: (flight.settings.clouds.clamp(Fixed::ZERO, Fixed::ONE) * Fixed::from_int(16))
                 .round()
                 .trunc_to_int() as u8,
@@ -915,6 +928,15 @@ fn draw_world(
         let ay = -sn * inverse;
         let mut wx = bx - cx * ax - v * sn + ax * Fixed::from_int(canvas.color.clip[0]);
         let mut wy = by - cx * ay - v * cs + ay * Fixed::from_int(canvas.color.clip[0]);
+        // All world samples along this scanline lie between its two endpoints.
+        let last = right - left - 1;
+        let x0 = wx.trunc_to_int();
+        let x1 = (wx + ax * last).trunc_to_int();
+        let y0 = wy.trunc_to_int();
+        let y1 = (wy + ay * last).trunc_to_int();
+        let [xmin, ymin, xmax, ymax] = prepared.shadow_bounds;
+        let cast_shadows =
+            x0.min(x1) <= xmax && x0.max(x1) >= xmin && y0.min(y1) <= ymax && y0.max(y1) >= ymin;
         let fog = if q > Fixed64::ZERO && v > fog_start {
             (((v - fog_start) / (limit - fog_start)).sqrt() * Fixed::from_int(10))
                 .round()
@@ -992,7 +1014,7 @@ fn draw_world(
                 );
                 shaded = c & 15 > 1 && c >> 4 < rank;
             }
-            if !shaded {
+            if !shaded && cast_shadows {
                 for (jet, center) in flight.jets[..flight.count].iter().zip(&prepared.shadows) {
                     let dx =
                         Fixed::from_int(gx) - center[0] + pal.sun[0] * Fixed::from_int((h) as i32);
@@ -1035,9 +1057,9 @@ fn draw_world(
                 if material == 3 && noise(gx, gy).wrapping_add(prepared.water[0] as u8) < 120 {
                     top = if shaded { pal.top_shade[2] } else { pal.foam };
                 } else if !shaded && inverse < Fixed::from_ratio(18, 10) {
-                    let n = noise((gx + (prepared.water[1] & 1023)) >> 2, gy);
+                    let n = noise((gx + i32::from(prepared.water[1])) >> 2, gy);
                     if n > 243
-                        && noise((gx + 1024 - (prepared.water[2] & 1023)) >> 2, gy + 91) > 128
+                        && noise((gx + 1024 - i32::from(prepared.water[2])) >> 2, gy + 91) > 128
                     {
                         top = pal.spark[usize::from(n > 252)];
                     }
@@ -1854,6 +1876,16 @@ mod tests {
                     base + jet.position[axis] - projection.position[axis]
                         + palette.sun[axis] * jet.position[2]
                 );
+                for h in 0..=world::MAX_HEIGHT as i32 {
+                    let center = prepared.shadows[index][axis] - palette.sun[axis] * h;
+                    assert!(
+                        Fixed::from_int(prepared.shadow_bounds[axis]) <= center - prepared.reach
+                    );
+                    assert!(
+                        Fixed::from_int(prepared.shadow_bounds[axis + 2])
+                            >= center + prepared.reach
+                    );
+                }
             }
         }
         assert_eq!(
