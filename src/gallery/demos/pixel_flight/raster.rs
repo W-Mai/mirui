@@ -8,6 +8,7 @@ use super::{
 };
 use crate::render::{
     renderer::RenderError,
+    sprite_stack::grid::GridBasis,
     texture::{ColorFormat, Texture},
 };
 use crate::types::{Color, Fixed, Fixed64};
@@ -1342,8 +1343,7 @@ struct PreparedLayer {
 struct PreparedJet {
     center: [Fixed; 4],
     fade: Fixed,
-    right: [Fixed; 3],
-    forward: [Fixed; 3],
+    grid: GridBasis,
     layers: [Option<PreparedLayer>; jet::LAYERS],
     order: [usize; jet::LAYERS],
     lights: [usize; 2],
@@ -1519,8 +1519,7 @@ impl PreparedJet {
         Some(Self {
             center,
             fade,
-            right,
-            forward,
+            grid: GridBasis::new(right, forward.map(|step| -step)),
             layers,
             order,
             lights,
@@ -1694,12 +1693,8 @@ impl PreparedJet {
         [x, y]: [[u8; 2]; 2],
     ) -> [i16; 4] {
         let axis_range = |axis: usize| {
-            let [a0, a1] = x.map(|x| self.right[axis] * i32::from(x));
-            let [b0, b1] = y.map(|y| self.forward[axis] * -i32::from(y));
-            [
-                layer.camera[axis] + a0.min(a1) + b0.min(b1),
-                layer.camera[axis] + a0.max(a1) + b0.max(b1),
-            ]
+            self.grid
+                .axis_range(layer.camera[axis], axis, x.map(i32::from), y.map(i32::from))
         };
         let depth = axis_range(1);
         let den = depth.map(|d| Fixed::ONE + p.apply_perspective(d));
@@ -1754,16 +1749,15 @@ impl PreparedJet {
         let [bu, bv, bw] = layer.camera;
         let x = i32::from(voxel.x);
         let y = i32::from(voxel.y);
-        let depth = bv + self.right[1] * x - self.forward[1] * y;
+        let depth = self.grid.axis(bv, 1, x, y);
         let den = Fixed::ONE + p.apply_perspective(depth);
         if den < Fixed::from_ratio(2, 10) {
             return None;
         }
         let m = p.scale / den;
         Some([
-            p.center[0] + m * (bu + self.right[0] * x - self.forward[0] * y),
-            p.center[1] - m * (bw + self.right[2] * x - self.forward[2] * y + p.slope * depth)
-                + layer.drop,
+            p.center[0] + m * self.grid.axis(bu, 0, x, y),
+            p.center[1] - m * (self.grid.axis(bw, 2, x, y) + p.slope * depth) + layer.drop,
             m,
             depth,
         ])
@@ -2077,8 +2071,7 @@ mod tests {
         let palette = Palette::new(Daylight::Day);
         let mut jet = PreparedJet::new(&flight, 0, &p, &palette, [128, 128]).unwrap();
         p.perspective = Fixed64::from_ratio(1, 64);
-        jet.right = [Fixed::ZERO, Fixed::ONE, Fixed::ZERO];
-        jet.forward = [Fixed::ZERO; 3];
+        jet.grid = GridBasis::new([Fixed::ZERO, Fixed::ONE, Fixed::ZERO], [Fixed::ZERO; 3]);
         let coords = [[0, 16], [0; 2]];
         let bounds = |depth| {
             let layer = PreparedLayer {
