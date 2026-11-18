@@ -112,6 +112,18 @@ fn temporal_measurement(
     })
 }
 
+fn mix_byte(target: u8, old: u8, mix: u8) -> u8 {
+    if mix == 255 {
+        return old;
+    }
+    let mut value =
+        ((u16::from(255 - mix) * u16::from(target) + u16::from(mix) * u16::from(old)) / 255) as u8;
+    if value == old && old != target {
+        value = if target > old { old + 1 } else { old - 1 };
+    }
+    value
+}
+
 fn mix_into(
     dst: &mut TexturePixelsMut<'_>,
     source: &TexturePixels<'_>,
@@ -121,6 +133,30 @@ fn mix_into(
     let row_bytes = usize::from(source.width()) * 4;
     let dst_stride = dst.stride();
     let dst = dst.bytes_mut();
+    if source.direct_format().is_none()
+        || previous.is_some_and(|pixels| pixels.direct_format().is_none())
+    {
+        let mut unfinished = false;
+        for y in 0..usize::from(source.height()) {
+            let row = &mut dst[y * dst_stride..][..row_bytes];
+            let target = source.sampled_rgba_row(y).flatten();
+            if let Some(previous) = previous.filter(|_| mix != 0) {
+                for ((out, t), p) in row
+                    .iter_mut()
+                    .zip(target)
+                    .zip(previous.sampled_rgba_row(y).flatten())
+                {
+                    *out = mix_byte(t, p, mix);
+                    unfinished |= mix != 255 && *out != t;
+                }
+            } else {
+                for (out, t) in row.iter_mut().zip(target) {
+                    *out = t;
+                }
+            }
+        }
+        return unfinished;
+    }
     let source_buf = source.bytes();
     let mut unfinished = false;
     for y in 0..usize::from(source.height()) {
@@ -134,12 +170,7 @@ fn mix_into(
                     continue;
                 }
                 for ((out, &target), &old) in row.iter_mut().zip(target).zip(old) {
-                    let mut value = ((u16::from(255 - mix) * u16::from(target)
-                        + u16::from(mix) * u16::from(old))
-                        / 255) as u8;
-                    if value == old && old != target {
-                        value = if target > old { old + 1 } else { old - 1 };
-                    }
+                    let value = mix_byte(target, old, mix);
                     unfinished |= value != target;
                     *out = value;
                 }

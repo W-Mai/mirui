@@ -2,14 +2,12 @@ use alloc::boxed::Box;
 use core::task::{Poll, ready};
 
 use super::super::decoded::{EncodedImage, EncodedPreparation, Pool};
-use super::{
-    AssetError, ContainerLayout, LoadContext, LoadError, PlaneLayout, PlaneRequirements,
-    SourceImage, map_mirx_format,
-};
+use super::{AssetError, ContainerLayout, LoadContext, LoadError, SourceImage};
 use crate::render::budget::Allocation;
 use mirx::image::{EncodedImageScan, RawImageScan};
 use mirx::reader::{
-    IntegrityScan, MediaIntegrityScan, MediaLayout, MetadataScan, RangeCheck, WholeDataScan,
+    IntegrityScan, MediaIntegrityScan, MediaLayout, MediaSectionKind, MetadataScan, RangeCheck,
+    WholeDataScan,
 };
 
 enum Stage {
@@ -18,7 +16,10 @@ enum Stage {
     Metadata(MetadataScan),
     Typed(RawImageScan),
     Encoded(EncodedImageScan),
-    EncodedRead(EncodedPreparation),
+    EncodedRead {
+        preparation: EncodedPreparation,
+        palette: Option<core::ops::Range<usize>>,
+    },
     Coverage(MediaIntegrityScan),
     Whole(WholeDataScan),
     Indexed {
@@ -150,33 +151,28 @@ impl ChunkRead {
                             if surface.plane_count() != 1 {
                                 return Poll::Ready(Err(AssetError::Unsupported.into()));
                             }
-                            let format = map_mirx_format(
-                                surface
-                                    .sample_layout()
-                                    .color_format()
-                                    .ok_or(AssetError::Unsupported)?,
-                            )?;
+                            let format = surface
+                                .sample_layout()
+                                .color_format()
+                                .ok_or(AssetError::Unsupported)?;
                             let memory = layout.plane(0).ok_or(AssetError::InvalidSource)?;
                             if memory.flags().bits() != 0 {
                                 return Poll::Ready(Err(AssetError::Unsupported.into()));
                             }
-                            let layout = PlaneLayout::new(
-                                surface.width().try_into().map_err(invalid)?,
-                                surface.height().try_into().map_err(invalid)?,
-                                format,
-                                memory.stride() as usize,
-                                PlaneRequirements::CPU,
-                            )
-                            .map_err(invalid)?;
                             let start = self.offset
                                 + scan.data_range().unwrap().start
                                 + memory.data_offset() as usize;
-                            self.selected = Some(SourceImage {
-                                layout,
-                                range: start..start + memory.byte_len() as usize,
-                                logical_len: self.container.logical_len(),
-                                encoded: None,
-                            });
+                            let palette = scan
+                                .color_table_range()
+                                .map(|p| self.offset + p.start..self.offset + p.end);
+                            self.selected = Some(SourceImage::new(
+                                [surface.width(), surface.height()],
+                                format,
+                                memory.stride() as usize,
+                                start..start + memory.byte_len() as usize,
+                                palette,
+                                self.container.logical_len(),
+                            )?);
                         }
                         self.stage =
                             Stage::Coverage(self.media.unwrap().integrity().map_err(invalid)?);
@@ -192,15 +188,25 @@ impl ChunkRead {
                         )
                         .map_err(|_| AssetError::Capacity)?;
                         self.encoded = Some(EncodedImage::new(scan, self.offset, &mut storage)?);
-                        self.stage = Stage::EncodedRead(EncodedPreparation::default());
+                        let palette = scan.section(MediaSectionKind::COLOR_TABLE).map(|section| {
+                            let start = self.offset + section.offset() as usize;
+                            start..start + section.size() as usize
+                        });
+                        self.stage = Stage::EncodedRead {
+                            preparation: EncodedPreparation::default(),
+                            palette,
+                        };
                     }
                 }
-                Stage::EncodedRead(progress) => {
+                Stage::EncodedRead {
+                    preparation,
+                    palette,
+                } => {
                     ready!(
                         self.encoded
                             .as_mut()
                             .expect("encoded metadata")
-                            .poll_prepare(progress, pool, cx)
+                            .poll_prepare(preparation, pool, cx)
                     )?;
                     let image = self.encoded.take().unwrap();
                     if self.primary {
@@ -208,24 +214,23 @@ impl ChunkRead {
                         if surface.plane_count() != 1 {
                             return Poll::Ready(Err(AssetError::Unsupported.into()));
                         }
-                        let format = map_mirx_format(
-                            surface
-                                .sample_layout()
-                                .color_format()
-                                .ok_or(AssetError::Unsupported)?,
-                        )?;
-                        let layout = PlaneLayout::packed(
-                            surface.width().try_into().map_err(invalid)?,
-                            surface.height().try_into().map_err(invalid)?,
+                        let format = surface
+                            .sample_layout()
+                            .color_format()
+                            .ok_or(AssetError::Unsupported)?;
+                        let stride = format
+                            .minimum_stride(surface.width())
+                            .ok_or(AssetError::OutOfBounds)?;
+                        let mut selected = SourceImage::new(
+                            [surface.width(), surface.height()],
                             format,
-                        )
-                        .map_err(invalid)?;
-                        self.selected = Some(SourceImage {
-                            layout,
-                            range: image.data_range(),
-                            logical_len: self.container.logical_len(),
-                            encoded: Some(image),
-                        });
+                            stride as usize,
+                            image.data_range(),
+                            palette.take(),
+                            self.container.logical_len(),
+                        )?;
+                        selected.encoded = Some(image);
+                        self.selected = Some(selected);
                     }
                     self.stage = Stage::Coverage(self.media.unwrap().integrity().map_err(invalid)?);
                 }

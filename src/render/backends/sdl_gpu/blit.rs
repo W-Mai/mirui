@@ -23,15 +23,16 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         area: Option<sdl2::rect::Rect>,
     ) -> Result<(), RenderError> {
         crate::trace_span!("sdl.texture.upload");
+        let direct = src.direct_format();
         let swap = matches!(
-            src.format(),
-            ColorFormat::RGB565 | ColorFormat::RGB565Swapped
-        ) && (src.format() == ColorFormat::RGB565Swapped) != cfg!(target_endian = "big");
+            direct,
+            Some(ColorFormat::RGB565 | ColorFormat::RGB565Swapped)
+        ) && (direct == Some(ColorFormat::RGB565Swapped)) != cfg!(target_endian = "big");
         let complete_pitch = src
             .stride()
             .checked_mul(usize::from(src.height()))
             .is_some_and(|len| len <= src.bytes().len());
-        let result = if swap || !complete_pitch {
+        let result = if direct.is_none() || swap || !complete_pitch {
             dst.with_lock(area, |pixels, pitch| {
                 Self::write_rows(src, pixels, pitch, swap)
             })
@@ -46,7 +47,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             crate::core::perf::TransferKind::SdlTextureUpload,
             src.width(),
             src.height(),
-            src.format(),
+            direct.unwrap_or(ColorFormat::RGBA8888),
             result.is_ok(),
         );
         result
@@ -58,7 +59,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         pitch: usize,
         swap: bool,
     ) -> Result<(), RenderError> {
-        let row_bytes = usize::from(src.width()) * src.format().bytes_per_pixel();
+        let direct = src.direct_format();
+        let row_bytes =
+            usize::from(src.width()) * direct.unwrap_or(ColorFormat::RGBA8888).bytes_per_pixel();
         let height = usize::from(src.height());
         if pitch < row_bytes
             || pitch
@@ -67,6 +70,15 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 .is_none_or(|required| required > dst.len())
         {
             return Err(RenderError::InvalidTexture);
+        }
+        if direct.is_none() {
+            for y in 0..height {
+                let output = &mut dst[y * pitch..][..row_bytes];
+                for (out, rgba) in output.chunks_exact_mut(4).zip(src.sampled_rgba_row(y)) {
+                    out.copy_from_slice(&rgba);
+                }
+            }
+            return Ok(());
         }
         let source = src.bytes();
         for y in 0..height {

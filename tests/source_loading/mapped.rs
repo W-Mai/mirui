@@ -113,7 +113,7 @@ fn pixel_offset(bytes: &[u8]) -> usize {
     surface.plane(0).unwrap().bytes().as_ptr() as usize - bytes.as_ptr() as usize
 }
 
-fn app(bytes: Rc<Vec<u8>>, control: Rc<Control>, known_length: bool) -> Headless {
+pub(super) fn app(bytes: Rc<Vec<u8>>, control: Rc<Control>, known_length: bool) -> Headless {
     let mut app: Headless = App::headless(1, 2);
     app.with_widget(mirui::ui::widgets::image::view());
     app.add_plugin(

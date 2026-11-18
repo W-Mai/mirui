@@ -6,7 +6,7 @@ use crate::render::texture::{ColorFormat, TexturePixels, TexturePixelsMut};
 
 /// Mix `b` into `a` in place. `mix=0` leaves `a` untouched; `mix=255` copies `b`. Mismatched dimensions or formats leave `a` unchanged.
 pub fn mix_inplace(a: &mut TexturePixelsMut<'_>, b: &TexturePixels<'_>, mix: u8) {
-    if a.width() != b.width() || a.height() != b.height() || a.format() != b.format() {
+    if a.width() != b.width() || a.height() != b.height() || Some(a.format()) != b.direct_format() {
         return;
     }
     if mix == 0 {

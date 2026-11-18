@@ -81,11 +81,29 @@ fn flip_into(src: &Texture, rect: Rect, fade: u8, paint: &mut PaintCtx<'_>) {
         };
         let dst_stride = destination.stride();
         let dst_buf = destination.bytes_mut();
-        match source.format() {
-            ColorFormat::RGBA8888 => flip_rgba8888(&source, dst_buf, dst_stride, fade),
-            ColorFormat::RGB565 => flip_rgb565(&source, dst_buf, dst_stride, fade, false),
-            ColorFormat::RGB565Swapped => flip_rgb565(&source, dst_buf, dst_stride, fade, true),
-            ColorFormat::RGB888 | ColorFormat::BGRA8888 => return,
+        match source.direct_format() {
+            Some(ColorFormat::RGBA8888) => flip_rgba8888(&source, dst_buf, dst_stride, fade),
+            Some(ColorFormat::RGB565) => flip_rgb565(&source, dst_buf, dst_stride, fade, false),
+            Some(ColorFormat::RGB565Swapped) => {
+                flip_rgb565(&source, dst_buf, dst_stride, fade, true)
+            }
+            Some(ColorFormat::RGB888 | ColorFormat::BGRA8888) => return,
+            None => {
+                let height = usize::from(source.height());
+                for y in 0..height {
+                    let alpha_scale = 255 - usize::from(fade) * y / height;
+                    for x in 0..usize::from(source.width()) {
+                        let c = source.get_pixel(x as i32, (height - 1 - y) as i32);
+                        let start = y * dst_stride + x * 4;
+                        dst_buf[start..start + 4].copy_from_slice(&[
+                            c.r,
+                            c.g,
+                            c.b,
+                            (usize::from(c.a) * alpha_scale / 255) as u8,
+                        ]);
+                    }
+                }
+            }
         }
 
         paint.draw(&DrawCommand::Blit {

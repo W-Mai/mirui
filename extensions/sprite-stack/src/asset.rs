@@ -51,11 +51,15 @@ impl SpriteStackAsset {
     ) -> Result<Self, SpriteStackError> {
         let descriptor = StackDescriptor::from_mirx(bytes).map_err(SpriteStackError::Placement)?;
         let atlas = Texture::from_mirx_with(bytes, options).map_err(SpriteStackError::Atlas)?;
-        let pixels = atlas.read_pixels().map_err(SpriteStackError::Pixels)?;
-        if matches!(
-            pixels.format(),
-            ColorFormat::RGBA8888 | ColorFormat::BGRA8888
-        ) {
+        let check_alpha = match atlas.indexed_color_table() {
+            Some(table) => table.iter().any(|color| !matches!(color.a, 0 | 255)),
+            None => matches!(
+                atlas.format(),
+                ColorFormat::RGBA8888 | ColorFormat::BGRA8888
+            ),
+        };
+        if check_alpha {
+            let pixels = atlas.read_pixels().map_err(SpriteStackError::Pixels)?;
             for y in 0..pixels.height() {
                 for x in 0..pixels.width() {
                     let alpha = pixels.get_pixel(i32::from(x), i32::from(y)).a;
@@ -101,10 +105,12 @@ mod tests {
     fn file(pixels: &[u8; 8], with_stack: bool) -> &'static [u8] {
         let surface =
             SurfaceDescriptor::new(2, 1, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap();
+        sprite_file(RawImageAsset::new(surface, &[pixels]), with_stack)
+    }
+
+    fn sprite_file(image: RawImageAsset<'_, '_>, with_stack: bool) -> &'static [u8] {
         let mut file = Document::new();
-        let atlas = file
-            .push_image(&RawImageAsset::new(surface, &[pixels]))
-            .unwrap();
+        let atlas = file.push_image(&image).unwrap();
         file.set_primary(atlas).unwrap();
         if with_stack {
             let regions = [
@@ -120,6 +126,31 @@ mod tests {
                 .unwrap()
                 .into_boxed_slice(),
         )
+    }
+
+    #[test]
+    fn only_used_palette_entries_need_binary_alpha() {
+        let surface =
+            SurfaceDescriptor::new(2, 1, SampleLayout::I2, ColorDescription::SRGB).unwrap();
+        let palette = [[7, 8, 9, 255], [1, 2, 3, 0], [4, 5, 6, 72], [0; 4]];
+        let indexed = |byte| {
+            sprite_file(
+                RawImageAsset::new(surface, &[&[byte]]).with_color_table(palette.as_flattened()),
+                true,
+            )
+        };
+        let asset = SpriteStackAsset::from_mirx(indexed(0b00_01_10_00)).unwrap();
+        let pixels = asset.atlas().read_pixels().unwrap();
+        assert_eq!(pixels.get_pixel(0, 0).a, 255);
+        assert_eq!(pixels.get_pixel(1, 0).a, 0);
+        assert_eq!(
+            SpriteStackAsset::from_mirx(indexed(0b00_10_00_00)).err(),
+            Some(SpriteStackError::PartialAlpha {
+                x: 1,
+                y: 0,
+                alpha: 72
+            })
+        );
     }
 
     #[test]

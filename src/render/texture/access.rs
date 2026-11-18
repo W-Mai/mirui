@@ -1,9 +1,11 @@
-use super::{AlphaMode, ColorFormat, Texture};
+use super::indexed::{IndexLayout, IndexPlane};
+use super::{AlphaMode, ColorFormat, TexBuf, Texture};
 use crate::core::cache::Handle;
 use crate::render::renderer::RenderError;
 use crate::render::scratch::{PlaneLayout, PlaneRequirements};
 use crate::types::{Color, Fixed};
 use core::ops::Range;
+use mirx::{image::ColorFormat as SampleFormat, palette::ColorTableView};
 
 pub(super) struct CachedPixels {
     pub(super) bytes: alloc::vec::Vec<u8>,
@@ -30,6 +32,7 @@ impl CachedPixels {
 pub struct TexturePixels<'a> {
     bytes: PixelBorrow<'a>,
     layout: PlaneLayout,
+    indexed: Option<(IndexLayout, PaletteBorrow<'a>)>,
 }
 
 enum PixelBorrow<'a> {
@@ -40,53 +43,79 @@ enum PixelBorrow<'a> {
     },
 }
 
+enum PaletteBorrow<'a> {
+    Direct(ColorTableView<'a>),
+    Cached(Handle<CachedPixels>),
+}
+
+impl PaletteBorrow<'_> {
+    fn view(&self) -> ColorTableView<'_> {
+        match self {
+            Self::Direct(table) => *table,
+            Self::Cached(owner) => {
+                ColorTableView::from_rgba_bytes(&owner.bytes).expect("validated color table")
+            }
+        }
+    }
+}
+
 impl<'a> TexturePixels<'a> {
-    pub(super) fn into_region(self, region: super::Region) -> Result<Self, RenderError> {
+    pub(super) fn into_region(mut self, region: super::Region) -> Result<Self, RenderError> {
         let width = u16::try_from(region.width()).map_err(|_| RenderError::InvalidTexture)?;
         let height = u16::try_from(region.height()).map_err(|_| RenderError::InvalidTexture)?;
         if region.right() > u32::from(self.width()) || region.bottom() > u32::from(self.height()) {
             return Err(RenderError::InvalidTexture);
         }
-        let layout = PlaneLayout::new(
-            width,
-            height,
-            self.format(),
-            self.stride(),
-            PlaneRequirements::CPU,
-        )
-        .map_err(|_| RenderError::InvalidTexture)?;
-        let start = usize::try_from(region.y())
-            .ok()
-            .and_then(|y| y.checked_mul(self.stride()))
-            .and_then(|row| {
-                usize::try_from(region.x())
-                    .ok()?
-                    .checked_mul(self.format().bytes_per_pixel())?
-                    .checked_add(row)
-            })
-            .ok_or(RenderError::InvalidTexture)?;
+        let y = region.y() as usize;
+        let x = region.x() as usize;
+        let (start, len) = if let Some((index, _)) = &mut self.indexed {
+            let bit = usize::from(index.bit)
+                + x * usize::from(index.format.indexed_bit_depth().expect("indexed layout"));
+            let start = y * index.stride + bit / 8;
+            index.bit = (bit % 8) as u8;
+            self.layout = PlaneLayout::packed(width, height, ColorFormat::RGBA8888)
+                .map_err(|_| RenderError::InvalidTexture)?;
+            (start, index.minimum_bytes(width, height)?)
+        } else {
+            let format = self.layout.format();
+            let stride = self.layout.stride_bytes();
+            self.layout = PlaneLayout::new(width, height, format, stride, PlaneRequirements::CPU)
+                .map_err(|_| RenderError::InvalidTexture)?;
+            (
+                y * stride + x * format.bytes_per_pixel(),
+                self.layout.minimum_bytes(),
+            )
+        };
         let end = start
-            .checked_add(layout.minimum_bytes())
+            .checked_add(len)
             .filter(|end| *end <= self.bytes().len())
             .ok_or(RenderError::InvalidTexture)?;
-        let bytes = match self.bytes {
+        self.bytes = match self.bytes {
             PixelBorrow::Direct(bytes) => PixelBorrow::Direct(&bytes[start..end]),
             PixelBorrow::Cached { owner, range } => PixelBorrow::Cached {
                 owner,
                 range: range.start + start..range.start + end,
             },
         };
-        Ok(Self { bytes, layout })
+        Ok(self)
     }
 
     pub(super) fn reborrow(&self) -> TexturePixels<'_> {
-        TexturePixels::new(self.bytes(), self.layout)
+        TexturePixels {
+            bytes: PixelBorrow::Direct(self.bytes()),
+            layout: self.layout,
+            indexed: self
+                .indexed
+                .as_ref()
+                .map(|(index, table)| (*index, PaletteBorrow::Direct(table.view()))),
+        }
     }
 
     pub(super) fn new(bytes: &'a [u8], layout: PlaneLayout) -> Self {
         Self {
             bytes: PixelBorrow::Direct(bytes),
             layout,
+            indexed: None,
         }
     }
 
@@ -95,9 +124,55 @@ impl<'a> TexturePixels<'a> {
         Self {
             bytes: PixelBorrow::Cached { owner, range },
             layout,
+            indexed: None,
         }
     }
 
+    pub(super) fn indexed(
+        bytes: &'a [u8],
+        palette_rgba: &'a [u8],
+        width: u16,
+        height: u16,
+        stride: usize,
+        format: SampleFormat,
+    ) -> Result<Self, RenderError> {
+        let layout = PlaneLayout::packed(width, height, ColorFormat::RGBA8888)
+            .map_err(|_| RenderError::InvalidTexture)?;
+        let palette =
+            ColorTableView::from_rgba_bytes(palette_rgba).ok_or(RenderError::InvalidTexture)?;
+        let index = IndexPlane::new(format, palette, stride, layout, bytes)?;
+        Ok(Self::from_index_plane(bytes, layout, index))
+    }
+
+    pub(super) fn cached_indexed(
+        owner: Handle<CachedPixels>,
+        palette: Handle<CachedPixels>,
+        width: u16,
+        height: u16,
+        stride: usize,
+        format: SampleFormat,
+    ) -> Result<Self, RenderError> {
+        let view =
+            TexturePixels::indexed(&owner.bytes, &palette.bytes, width, height, stride, format)?;
+        let layout = view.layout;
+        let index = view.indexed.expect("indexed constructor").0;
+        let range = 0..owner.bytes.len();
+        Ok(Self {
+            bytes: PixelBorrow::Cached { owner, range },
+            layout,
+            indexed: Some((index, PaletteBorrow::Cached(palette))),
+        })
+    }
+
+    fn from_index_plane(bytes: &'a [u8], layout: PlaneLayout, index: IndexPlane<'a>) -> Self {
+        Self {
+            bytes: PixelBorrow::Direct(bytes),
+            layout,
+            indexed: Some((index.layout, PaletteBorrow::Direct(index.palette))),
+        }
+    }
+
+    /// Borrows the underlying samples. Indexed rows start at `bit_offset()` within the first byte.
     pub fn bytes(&self) -> &[u8] {
         match &self.bytes {
             PixelBorrow::Direct(bytes) => bytes,
@@ -108,25 +183,79 @@ impl<'a> TexturePixels<'a> {
     pub fn width(&self) -> u16 {
         self.layout.width()
     }
-
     pub fn height(&self) -> u16 {
         self.layout.height()
     }
 
-    pub fn format(&self) -> ColorFormat {
-        self.layout.format()
+    /// Direct pixel encoding, when rows can be consumed without a palette.
+    pub fn direct_format(&self) -> Option<ColorFormat> {
+        self.indexed.is_none().then(|| self.layout.format())
+    }
+
+    /// Actual encoding of the bytes returned by this view.
+    pub fn sample_format(&self) -> SampleFormat {
+        self.indexed
+            .as_ref()
+            .map_or_else(|| self.layout.format().samples(), |(index, _)| index.format)
+    }
+
+    pub fn indexed_color_table(&self) -> Option<ColorTableView<'_>> {
+        self.indexed.as_ref().map(|(_, table)| table.view())
+    }
+
+    /// MSB-first offset of the first visible sample within each row.
+    pub fn bit_offset(&self) -> u8 {
+        self.indexed.as_ref().map_or(0, |(index, _)| index.bit)
     }
 
     pub fn stride(&self) -> usize {
-        self.layout.stride_bytes()
+        self.indexed
+            .as_ref()
+            .map_or_else(|| self.layout.stride_bytes(), |(index, _)| index.stride)
+    }
+
+    /// Borrows this view as a transient texture, preserving row and palette addressing.
+    pub fn as_texture(&self) -> Texture<'_> {
+        let storage = match &self.indexed {
+            None => TexBuf::Ref(self.bytes()),
+            Some((layout, palette)) => TexBuf::Indexed(
+                self.bytes(),
+                IndexPlane {
+                    layout: *layout,
+                    palette: palette.view(),
+                },
+            ),
+        };
+        Texture::from_layout(storage, self.layout, true)
     }
 
     #[inline]
     pub fn get_pixel(&self, x: i32, y: i32) -> Color {
+        if let Some((index, palette)) = &self.indexed {
+            if x < 0 || y < 0 || x >= i32::from(self.width()) || y >= i32::from(self.height()) {
+                return Color::rgb(0, 0, 0);
+            }
+            let row = &self.bytes()[y as usize * index.stride..];
+            let bit = usize::from(index.bit)
+                + x as usize
+                    * usize::from(
+                        index
+                            .format
+                            .indexed_bit_depth()
+                            .expect("validated indexed format"),
+                    );
+            let value =
+                mirx::image::read_index_at(row, bit, index.format).expect("validated index stride");
+            let color = palette
+                .view()
+                .get(usize::from(value))
+                .expect("complete color table");
+            return Color::rgba(color.r, color.g, color.b, color.a);
+        }
         let Some(offset) = offset(self.layout, x, y) else {
             return Color::rgb(0, 0, 0);
         };
-        self.format().read_pixel(self.bytes(), offset)
+        self.layout.format().read_pixel(self.bytes(), offset)
     }
 }
 
@@ -325,6 +454,7 @@ impl Texture<'_> {
         self.height
     }
 
+    /// Direct-color format used for display and color output. See [`Self::sample_format`] for the source encoding.
     pub const fn format(&self) -> ColorFormat {
         self.format
     }
@@ -359,6 +489,18 @@ impl Texture<'_> {
                 Err(RenderError::InvalidTexture)
             };
         }
+        if let super::TexBuf::Mapped(source) = &self.buf
+            && source.sample_format().indexed_bit_depth().is_some()
+        {
+            return (layout == source.layout())
+                .then_some(layout)
+                .ok_or(RenderError::InvalidTexture);
+        }
+        if let Some((bytes, index)) = self.indexed_plane() {
+            return (index.layout.minimum_bytes(self.width, self.height)? <= bytes.len())
+                .then_some(layout)
+                .ok_or(RenderError::InvalidTexture);
+        }
         if self
             .buf
             .cpu_bytes()
@@ -373,10 +515,18 @@ impl Texture<'_> {
 
     /// Interpret CPU storage with a padded row stride, rejecting layouts that exceed the supplied bytes.
     pub fn with_stride(mut self, stride: usize) -> Result<Self, RenderError> {
+        if let TexBuf::Indexed(bytes, plane) = &mut self.buf {
+            plane.layout.stride = stride;
+            if plane.layout.minimum_bytes(self.width, self.height)? > bytes.len() {
+                return Err(RenderError::InvalidTexture);
+            }
+            return Ok(self);
+        }
         if matches!(
             self.buf,
-            super::TexBuf::Native(_) | super::TexBuf::Decoded(_)
-        ) {
+            super::TexBuf::Native(_) | super::TexBuf::Decoded(_) | super::TexBuf::IndexedAligned(_)
+        ) || matches!(&self.buf, TexBuf::Mapped(source) if source.sample_format().indexed_bit_depth().is_some())
+        {
             return Err(RenderError::InvalidTexture);
         }
         self.stride = stride;
@@ -395,10 +545,23 @@ impl Texture<'_> {
                     .map_err(|_| RenderError::InvalidTexture)?,
             );
         }
-        Ok(Some(TexturePixels::new(
+        self.direct_pixels(self.pixel_layout()?).map(Some)
+    }
+
+    pub(super) fn direct_pixels(
+        &self,
+        layout: PlaneLayout,
+    ) -> Result<TexturePixels<'_>, RenderError> {
+        if let Some((bytes, index)) = self.indexed_plane() {
+            return Ok(TexturePixels::from_index_plane(bytes, layout, index));
+        }
+        if let TexBuf::Mapped(source) = &self.buf {
+            return source.texture_pixels(layout);
+        }
+        Ok(TexturePixels::new(
             self.buf.cpu_bytes().ok_or(RenderError::InvalidTexture)?,
-            self.pixel_layout()?,
-        )))
+            layout,
+        ))
     }
 
     /// Obtain readable pixels, preparing and caching a native source's CPU copy when necessary. Native readback may allocate or wait for its device. Nonresident asynchronous sources return `ResourcePending` without starting I/O; use [`Self::poll_read_pixels`] with a task context to prepare them.
@@ -414,6 +577,8 @@ impl Texture<'_> {
         let layout = self.pixel_layout()?;
         let bytes = match &mut self.buf {
             super::TexBuf::Ref(_)
+            | super::TexBuf::Indexed(..)
+            | super::TexBuf::IndexedAligned(_)
             | super::TexBuf::Native(_)
             | super::TexBuf::Mapped(_)
             | super::TexBuf::Decoded(_) => {

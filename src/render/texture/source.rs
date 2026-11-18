@@ -5,18 +5,27 @@ use core::cell::RefCell;
 use core::ops::Range;
 use core::task::{Poll, ready};
 
-use super::{TexBuf, Texture, TextureMeta, map_mirx_format, open_mirx_image, texture_from_surface};
+use super::access::CachedPixels;
+use super::{
+    TexBuf, Texture, TextureMeta, TexturePixels, map_mirx_format, open_mirx_image,
+    texture_from_surface,
+};
+use crate::core::cache::Handle;
 use crate::core::resource::{
     AssetError, AssetSource, FormatMatch, LoadContext, LoadError, LoadInput, Loader, ProbeLoader,
 };
-use crate::render::{PlaneLayout, PlaneRequirements};
-use mirx::reader::{ContainerLayout, FlatImageLayout, ReadOptions};
+use crate::render::{PlaneLayout, PlaneRequirements, RenderError};
+use mirx::image::ColorFormat as SampleFormat;
+use mirx::palette::ColorTableView;
+use mirx::reader::{ContainerLayout, ReadOptions};
 
 mod chunk;
 
 pub(super) struct MappedTexture {
     source: AssetSource,
     range: Range<usize>,
+    layout: PlaneLayout,
+    indexed: Option<IndexedSource>,
     bytes: usize,
     #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
     identity: Shared<()>,
@@ -24,7 +33,56 @@ pub(super) struct MappedTexture {
 
 impl MappedTexture {
     pub(super) fn pixels(&self) -> Option<&[u8]> {
+        if self.indexed.is_some() {
+            return None;
+        }
         self.source.mapped().ok()??.get(self.range.clone())
+    }
+
+    pub(super) fn layout(&self) -> PlaneLayout {
+        self.layout
+    }
+
+    pub(super) fn sample_format(&self) -> SampleFormat {
+        self.indexed
+            .as_ref()
+            .map_or(self.layout.format().samples(), |p| p.format)
+    }
+
+    pub(super) fn indexed_color_table(&self) -> Option<ColorTableView<'_>> {
+        let palette = self.indexed.as_ref()?.palette.clone();
+        ColorTableView::from_rgba_bytes(self.source.mapped().ok()??.get(palette)?)
+    }
+
+    pub(super) fn texture_pixels(
+        &self,
+        logical: PlaneLayout,
+    ) -> Result<TexturePixels<'_>, RenderError> {
+        let mapping = self
+            .source
+            .mapped()
+            .ok()
+            .flatten()
+            .ok_or(RenderError::InvalidTexture)?;
+        let bytes = mapping
+            .get(self.range.clone())
+            .ok_or(RenderError::InvalidTexture)?;
+        if let Some(indexed) = &self.indexed {
+            return TexturePixels::indexed(
+                bytes,
+                mapping
+                    .get(indexed.palette.clone())
+                    .ok_or(RenderError::InvalidTexture)?,
+                logical.width(),
+                logical.height(),
+                indexed.stride,
+                indexed.format,
+            );
+        }
+        if bytes.len() < logical.minimum_bytes() {
+            return Err(RenderError::InvalidTexture);
+        }
+        Ok(TexturePixels::new(bytes, logical))
     }
 
     pub(super) fn cache_size(&self) -> usize {
@@ -49,13 +107,15 @@ impl MappedTexture {
             return Err(AssetError::InvalidSource.into());
         }
         let range = image.range;
-        if range.len() < layout.minimum_bytes() || range.end > bytes {
+        if range.end > bytes || image.indexed.is_none() && range.len() < layout.minimum_bytes() {
             return Err(AssetError::Truncated.into());
         }
         Ok(Texture::from_layout(
             TexBuf::Mapped(Box::new(Self {
                 source,
                 range,
+                indexed: image.indexed,
+                layout,
                 bytes,
                 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
                 identity: Shared::new(()),
@@ -145,17 +205,6 @@ mod tests {
     }
 }
 
-fn layout(image: FlatImageLayout) -> Result<PlaneLayout, LoadError> {
-    let format = map_mirx_format(image.format())?;
-    let width =
-        u16::try_from(image.width()).map_err(|_| LoadError::Failed("MIRX width exceeds u16"))?;
-    let height =
-        u16::try_from(image.height()).map_err(|_| LoadError::Failed("MIRX height exceeds u16"))?;
-    let stride = usize::try_from(image.stride()).map_err(|_| AssetError::OutOfBounds)?;
-    PlaneLayout::new(width, height, format, stride, PlaneRequirements::CPU)
-        .map_err(|_| LoadError::Failed("invalid MIRX pixel layout"))
-}
-
 pub(crate) struct SourceMirxLoader {
     decode_budget: usize,
     pool: RefCell<Option<super::decoded::Pool>>,
@@ -181,14 +230,73 @@ impl SourceMirxLoader {
     }
 }
 
-struct SourceImage {
-    layout: PlaneLayout,
-    range: Range<usize>,
+pub(super) struct SourceImage {
+    pub(super) layout: PlaneLayout,
+    pub(super) range: Range<usize>,
     logical_len: usize,
-    encoded: Option<Box<super::decoded::EncodedImage>>,
+    pub(super) encoded: Option<Box<super::decoded::EncodedImage>>,
+    pub(super) indexed: Option<IndexedSource>,
+}
+
+pub(super) struct IndexedSource {
+    pub(super) format: SampleFormat,
+    pub(super) stride: usize,
+    palette: Range<usize>,
 }
 
 impl SourceImage {
+    fn new(
+        size: [u32; 2],
+        format: SampleFormat,
+        stride: usize,
+        range: Range<usize>,
+        palette: Option<Range<usize>>,
+        logical_len: usize,
+    ) -> Result<Self, LoadError> {
+        let width =
+            u16::try_from(size[0]).map_err(|_| LoadError::Failed("MIRX width exceeds u16"))?;
+        let height =
+            u16::try_from(size[1]).map_err(|_| LoadError::Failed("MIRX height exceeds u16"))?;
+        let logical_format = map_mirx_format(format)?;
+        let (layout, indexed) = if let Some(entries) = format.palette_entries() {
+            let palette = palette
+                .filter(|p| p.end <= logical_len && p.len() == entries as usize * 4)
+                .ok_or(AssetError::InvalidSource)?;
+            let minimum = format
+                .minimum_stride(size[0])
+                .ok_or(AssetError::OutOfBounds)?;
+            if stride < minimum as usize {
+                return Err(AssetError::InvalidSource.into());
+            }
+            (
+                PlaneLayout::packed(width, height, logical_format),
+                Some(IndexedSource {
+                    format,
+                    stride,
+                    palette,
+                }),
+            )
+        } else {
+            (
+                PlaneLayout::new(
+                    width,
+                    height,
+                    logical_format,
+                    stride,
+                    PlaneRequirements::CPU,
+                ),
+                None,
+            )
+        };
+        Ok(Self {
+            layout: layout.map_err(|_| LoadError::Failed("invalid MIRX pixel layout"))?,
+            range,
+            logical_len,
+            encoded: None,
+            indexed,
+        })
+    }
+
     fn mapped(bytes: &[u8]) -> Result<Option<Self>, LoadError> {
         let mirx::image::ImageRef::Raw(surface) = open_mirx_image(bytes)? else {
             return Ok(None);
@@ -200,17 +308,30 @@ impl SourceImage {
         let pixels = texture
             .read_pixels()
             .map_err(super::MirxLoadError::Texture)?;
-        // The checked reader supplies a plane inside the original immutable mapping.
-        let start = (pixels.bytes().as_ptr() as usize)
-            .checked_sub(bytes.as_ptr() as usize)
-            .ok_or(AssetError::InvalidSource)?;
-        let end = start
-            .checked_add(pixels.bytes().len())
-            .filter(|end| *end <= bytes.len())
-            .ok_or(AssetError::InvalidSource)?;
+        // The verified ranges borrow the same mapping and survive promotion to its owner.
+        let range = |part: &[u8]| -> Result<Range<usize>, LoadError> {
+            let start = (part.as_ptr() as usize)
+                .checked_sub(bytes.as_ptr() as usize)
+                .ok_or(AssetError::InvalidSource)?;
+            let end = start
+                .checked_add(part.len())
+                .filter(|end| *end <= bytes.len())
+                .ok_or(AssetError::InvalidSource)?;
+            Ok(start..end)
+        };
+        let indexed = if let Some(table) = pixels.indexed_color_table() {
+            Some(IndexedSource {
+                format: pixels.sample_format(),
+                stride: pixels.stride(),
+                palette: range(table.as_bytes())?,
+            })
+        } else {
+            None
+        };
         Ok(Some(Self {
             layout,
-            range: start..end,
+            range: range(pixels.bytes())?,
+            indexed,
             logical_len: bytes.len(),
             encoded: None,
         }))
@@ -224,6 +345,8 @@ pub(crate) struct SourceMirxState {
     chunk: Option<Box<chunk::ChunkRead>>,
     image: Option<SourceImage>,
     source: Option<AssetSource>,
+    palette: Option<Handle<CachedPixels>>,
+    palette_ready: bool,
     length_check: LengthCheck,
 }
 
@@ -260,6 +383,8 @@ impl Default for SourceMirxState {
             chunk: None,
             image: None,
             source: None,
+            palette: None,
+            palette_ready: false,
             length_check: LengthCheck::Unchecked,
         }
     }
@@ -308,6 +433,31 @@ impl Loader<Texture<'static>> for SourceMirxLoader {
             Poll::Ready(MappedTexture::into_texture(source, image))
         } else {
             let pool = self.pool()?;
+            if !state.palette_ready
+                && let Some(indexed) = &state.image.as_ref().expect("probed image").indexed
+            {
+                if state.palette.is_none() {
+                    let mut storage =
+                        ready!(pool.poll_take(&mut core::task::Context::from_waker(cx.waker())))
+                            .map_err(|_| AssetError::Capacity)?;
+                    state.palette = Some(
+                        storage
+                            .palette((indexed.palette.len() / 4) as u16)
+                            .map_err(|_| AssetError::Capacity)?,
+                    );
+                }
+                let palette = state
+                    .palette
+                    .as_mut()
+                    .unwrap()
+                    .get_mut()
+                    .expect("unpublished palette");
+                ready!(
+                    cx.using_source(state.source.as_mut().unwrap())
+                        .poll_read_exact(indexed.palette.start as u64, &mut palette.bytes)
+                )?;
+                state.palette_ready = true;
+            }
             let mut storage =
                 ready!(pool.poll_take(&mut core::task::Context::from_waker(cx.waker())))
                     .map_err(|_| AssetError::Capacity)?;
@@ -315,11 +465,10 @@ impl Loader<Texture<'static>> for SourceMirxLoader {
             let source = state.source.take().unwrap();
             Poll::Ready(super::decoded::DecodedTexture::into_texture(
                 source,
-                image.layout,
-                image.range.start,
+                image,
                 pool.clone(),
                 &mut storage,
-                image.encoded,
+                state.palette.take(),
             ))
         }
     }
@@ -357,12 +506,14 @@ impl ProbeLoader<Texture<'static>> for SourceMirxLoader {
         if state.image.is_none() {
             let container = state.container.expect("parsed container");
             state.image = Some(if let Some(image) = container.flat_image() {
-                SourceImage {
-                    layout: layout(image)?,
-                    range: image.main_range(),
-                    logical_len: image.logical_len(),
-                    encoded: None,
-                }
+                SourceImage::new(
+                    [image.width(), image.height()],
+                    image.format(),
+                    image.stride() as usize,
+                    image.main_range(),
+                    image.extra_range(),
+                    image.logical_len(),
+                )?
             } else {
                 // Retain the same opened object across metadata and value publication.
                 if state.source.is_none() {

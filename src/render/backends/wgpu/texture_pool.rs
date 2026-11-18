@@ -139,7 +139,7 @@ fn upload_region(
     for (area, pixels) in region.tiles() {
         let converted;
         let (bytes, stride) =
-            if pixels.format() == ColorFormat::RGBA8888 && pixels.stride() % 4 == 0 {
+            if pixels.direct_format() == Some(ColorFormat::RGBA8888) && pixels.stride() % 4 == 0 {
                 (pixels.bytes(), pixels.stride())
             } else {
                 converted = pixels.rgba8_upload_pixels()?;

@@ -3,11 +3,14 @@ use alloc::boxed::Box;
 use core::task::{Context, Poll};
 
 use super::access::CachedPixels;
+use super::source::SourceImage;
 use super::{ColorFormat, Region, TexBuf, Texture, TexturePixels};
 use crate::core::cache::{Entry, Handle, LruLinearCache};
 use crate::core::resource::{AssetError, AssetSource, LoadBudget, LoadError, SourceAccess};
 use crate::render::budget::{Allocation, MemoryBudget};
 use crate::render::{PlaneLayout, RenderError, RenderResource};
+use mirx::image::ColorFormat as SampleFormat;
+use mirx::palette::ColorTableView;
 
 mod encoded;
 pub(super) use encoded::{EncodedImage, EncodedPreparation};
@@ -59,6 +62,24 @@ impl Key {
     fn layout(self, format: ColorFormat) -> Result<PlaneLayout, RenderError> {
         PlaneLayout::packed(self.width as u16, self.height as u16, format)
             .map_err(|_| RenderError::InvalidTexture)
+    }
+
+    fn byte_aligned(mut self, format: SampleFormat) -> Self {
+        if let Some(bits) = format.indexed_bit_depth() {
+            // Prepare from the containing byte, then crop the returned lease to the request.
+            let alignment = u32::from(8 / bits);
+            let extra = self.x % alignment;
+            self.x -= extra;
+            self.width += extra;
+        }
+        self
+    }
+
+    fn row_bytes(self, format: SampleFormat) -> Result<usize, RenderError> {
+        format
+            .minimum_stride(self.width)
+            .map(|n| n as usize)
+            .ok_or(RenderError::InvalidTexture)
     }
 }
 
@@ -146,11 +167,13 @@ impl DecodePool {
     fn begin(
         &mut self,
         key: Key,
-        format: ColorFormat,
+        format: SampleFormat,
     ) -> Result<Handle<CachedPixels>, RenderError> {
-        let layout = key.layout(format)?;
-        let bytes = layout
-            .required_bytes()
+        let size = key
+            .row_bytes(format)?
+            .checked_mul(key.height as usize)
+            .ok_or_else(capacity_error)?;
+        let bytes = size
             .checked_add(CachedPixels::OWNER_BYTES)
             .ok_or_else(capacity_error)?;
         if bytes > self.limit {
@@ -167,13 +190,25 @@ impl DecodePool {
                 break;
             };
             if let Some(pixels) = old.get_mut()
-                && pixels.bytes.capacity() >= layout.required_bytes()
+                && pixels.bytes.capacity() >= size
             {
-                pixels.bytes.resize(layout.required_bytes(), 0);
+                pixels.bytes.resize(size, 0);
                 return Ok(old);
             }
         }
         self.make_room(bytes)?;
+        CachedPixels::shared_bytes(size, &self.budget)
+    }
+
+    pub(super) fn palette(&mut self, entries: u16) -> Result<Handle<CachedPixels>, RenderError> {
+        let layout = PlaneLayout::packed(entries, 1, ColorFormat::RGBA8888)
+            .map_err(|_| RenderError::InvalidTexture)?;
+        self.make_room(
+            layout
+                .required_bytes()
+                .checked_add(CachedPixels::OWNER_BYTES)
+                .ok_or_else(capacity_error)?,
+        )?;
         CachedPixels::shared(layout, &self.budget)
     }
 
@@ -181,6 +216,7 @@ impl DecodePool {
         &mut self,
         key: Key,
         format: ColorFormat,
+        indexed: Option<&IndexedPixels>,
     ) -> Result<Option<TexturePixels<'static>>, RenderError> {
         let found = self
             .cache
@@ -195,9 +231,19 @@ impl DecodePool {
             .ok_or(RenderError::InvalidTexture)?;
         let region = Region::new(key.x - found.x, key.y - found.y, key.width, key.height)
             .map_err(|_| RenderError::InvalidTexture)?;
-        TexturePixels::cached(owner, found.layout(format)?)
-            .into_region(region)
-            .map(Some)
+        let pixels = if let Some(indexed) = indexed {
+            TexturePixels::cached_indexed(
+                owner,
+                indexed.palette.clone(),
+                found.width as u16,
+                found.height as u16,
+                found.row_bytes(indexed.format)?,
+                indexed.format,
+            )?
+        } else {
+            TexturePixels::cached(owner, found.layout(format)?)
+        };
+        pixels.into_region(region).map(Some)
     }
 
     fn publish(&mut self, key: Key, pixels: Handle<CachedPixels>) -> Result<(), RenderError> {
@@ -227,12 +273,19 @@ struct ReadState {
     encoded: Option<Box<EncodedImage>>,
 }
 
+struct IndexedPixels {
+    format: SampleFormat,
+    stride: usize,
+    palette: Handle<CachedPixels>,
+}
+
 pub(super) struct DecodedTexture {
     state: State<ReadState>,
     pool: Pool,
     source: u64,
     start: usize,
     layout: PlaneLayout,
+    indexed: Option<IndexedPixels>,
     _storage: Allocation,
     #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
     identity: Shared<()>,
@@ -241,11 +294,10 @@ pub(super) struct DecodedTexture {
 impl DecodedTexture {
     pub(super) fn into_texture(
         source: AssetSource,
-        layout: PlaneLayout,
-        start: usize,
+        image: SourceImage,
         pool: Pool,
         storage: &mut DecodePool,
-        encoded: Option<Box<EncodedImage>>,
+        palette: Option<Handle<CachedPixels>>,
     ) -> Result<Texture<'static>, LoadError> {
         let info = source.info().ok_or(AssetError::InvalidSource)?;
         if info.access != SourceAccess::Random {
@@ -255,17 +307,28 @@ impl DecodedTexture {
         #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
         let bytes = bytes + 2 * core::mem::size_of::<usize>();
         let (id, allocation) = storage.source(bytes).map_err(|_| AssetError::Capacity)?;
+        let layout = image.layout;
+        let indexed = match (image.indexed, palette) {
+            (Some(indexed), Some(palette)) => Some(IndexedPixels {
+                format: indexed.format,
+                stride: indexed.stride,
+                palette,
+            }),
+            (None, None) => None,
+            _ => return Err(AssetError::InvalidSource.into()),
+        };
         Ok(Texture::from_layout(
             TexBuf::Decoded(Box::new(Self {
                 state: State::new(ReadState {
                     source,
                     pending: None,
-                    encoded,
+                    encoded: image.encoded,
                 }),
                 pool,
                 source: id,
-                start,
+                start: image.range.start,
                 layout,
+                indexed,
                 _storage: allocation,
                 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
                 identity: Shared::new(()),
@@ -277,6 +340,16 @@ impl DecodedTexture {
 
     pub(super) fn layout(&self) -> PlaneLayout {
         self.layout
+    }
+
+    pub(super) fn sample_format(&self) -> SampleFormat {
+        self.indexed
+            .as_ref()
+            .map_or(self.layout.format().samples(), |p| p.format)
+    }
+
+    pub(super) fn indexed_color_table(&self) -> Option<ColorTableView<'_>> {
+        ColorTableView::from_rgba_bytes(&self.indexed.as_ref()?.palette.bytes)
     }
 
     pub(super) fn cache_size(&self) -> usize {
@@ -293,7 +366,13 @@ impl DecodedTexture {
         region: Region,
     ) -> Result<Option<TexturePixels<'static>>, RenderError> {
         self.pool
-            .try_with(|pool| pool.view(Key::new(self.source, region), self.layout.format()))
+            .try_with(|pool| {
+                pool.view(
+                    Key::new(self.source, region),
+                    self.layout.format(),
+                    self.indexed.as_ref(),
+                )
+            })
             .map_err(super::state_error)?
     }
 
@@ -305,7 +384,11 @@ impl DecodedTexture {
         {
             let mut pool =
                 core::task::ready!(self.pool.poll_take(cx)).map_err(super::state_error)?;
-            if let Some(pixels) = pool.view(Key::new(self.source, region), self.layout.format())? {
+            if let Some(pixels) = pool.view(
+                Key::new(self.source, region),
+                self.layout.format(),
+                self.indexed.as_ref(),
+            )? {
                 return Poll::Ready(Ok(pixels));
             }
         }
@@ -316,12 +399,14 @@ impl DecodedTexture {
         if state.pending.is_none() {
             let mut pool =
                 core::task::ready!(self.pool.poll_take(cx)).map_err(super::state_error)?;
-            if let Some(pixels) = pool.view(wanted, self.layout.format())? {
+            if let Some(pixels) = pool.view(wanted, self.layout.format(), self.indexed.as_ref())? {
                 return Poll::Ready(Ok(pixels));
             }
-            let pixels = pool.begin(wanted, self.layout.format())?;
+            let format = self.sample_format();
+            let key = wanted.byte_aligned(format);
+            let pixels = pool.begin(key, format)?;
             state.pending = Some(ReadRegion {
-                key: wanted,
+                key,
                 pixels,
                 filled: 0,
                 group: 0,
@@ -340,7 +425,9 @@ impl DecodedTexture {
                     core::task::ready!(self.pool.poll_take(cx)).map_err(super::state_error)?;
                 let complete = state.pending.take().expect("completed region");
                 pool.publish(complete.key, complete.pixels)?;
-                if let Some(pixels) = pool.view(wanted, self.layout.format())? {
+                if let Some(pixels) =
+                    pool.view(wanted, self.layout.format(), self.indexed.as_ref())?
+                {
                     Poll::Ready(Ok(pixels))
                 } else {
                     // Finish an already submitted read before admitting a changed region.
@@ -362,8 +449,15 @@ impl DecodedTexture {
         if let Some(encoded) = state.encoded.as_mut() {
             return encoded.poll_region(&mut state.source, pending, &self.pool, cx);
         }
-        let bpp = self.layout.format().bytes_per_pixel();
-        let row_bytes = pending.key.width as usize * bpp;
+        let format = self.sample_format();
+        let row_bytes = pending.key.row_bytes(format)?;
+        let source_stride = self
+            .indexed
+            .as_ref()
+            .map_or(self.layout.stride_bytes(), |i| i.stride);
+        let x_offset = format
+            .minimum_stride(pending.key.x)
+            .ok_or(RenderError::InvalidTexture)? as usize;
         let pixels = &mut pending
             .pixels
             .get_mut()
@@ -377,10 +471,8 @@ impl DecodedTexture {
             let row = pending.filled / row_bytes;
             let column = pending.filled % row_bytes;
             let count = row_bytes - column;
-            let offset = self.start
-                + (pending.key.y as usize + row) * self.layout.stride_bytes()
-                + pending.key.x as usize * bpp
-                + column;
+            let offset =
+                self.start + (pending.key.y as usize + row) * source_stride + x_offset + column;
             let count = core::task::ready!(state.source.poll_read_budgeted(
                 offset as u64,
                 &mut pixels[pending.filled..pending.filled + count],
@@ -554,6 +646,40 @@ mod tests {
     }
 
     #[test]
+    fn indexed_region_pins_both_allocations_after_cache_and_source_exit() {
+        let pool = DecodePool::new(4096).unwrap();
+        let budget = pool.try_take().unwrap().budget.clone();
+        let mut cache = pool.try_take().unwrap();
+        let mut palette = cache.palette(256).unwrap();
+        palette.get_mut().unwrap().bytes[12..16].copy_from_slice(&[0x16, 0x75, 0xe1, 127]);
+        let indexed = IndexedPixels {
+            format: SampleFormat::I8,
+            stride: 4,
+            palette,
+        };
+        let key = Key::new(1, Region::new(0, 0, 4, 1).unwrap());
+        let mut pixels = cache.begin(key, indexed.format).unwrap();
+        pixels.get_mut().unwrap().bytes.fill(3);
+        let charge = pixels._allocation.bytes() + indexed.palette._allocation.bytes();
+        cache.publish(key, pixels).unwrap();
+        let lease = cache
+            .view(key, ColorFormat::RGBA8888, Some(&indexed))
+            .unwrap()
+            .unwrap();
+        drop(cache);
+        drop(indexed);
+        drop(pool);
+        assert_eq!(budget.allocated(), charge);
+        assert_eq!(lease.bytes(), &[3; 4]);
+        assert_eq!(
+            lease.get_pixel(3, 0),
+            crate::types::Color::rgba(0x16, 0x75, 0xe1, 127)
+        );
+        drop(lease);
+        assert_eq!(budget.allocated(), 0);
+    }
+
+    #[test]
     fn evicted_pixel_owners_keep_their_charge_until_the_last_lease_drops() {
         let pool = DecodePool::new(4096).unwrap();
         let budget = pool.try_take().unwrap().budget.clone();
@@ -561,7 +687,7 @@ mod tests {
         let mut pixels = pool
             .try_take()
             .unwrap()
-            .begin(key, ColorFormat::RGBA8888)
+            .begin(key, SampleFormat::RGBA8888)
             .unwrap();
         pixels.get_mut().unwrap().bytes.fill(0x71);
         let charge = pixels._allocation.bytes();
@@ -569,7 +695,7 @@ mod tests {
         let lease = pool
             .try_take()
             .unwrap()
-            .view(key, ColorFormat::RGBA8888)
+            .view(key, ColorFormat::RGBA8888, None)
             .unwrap()
             .unwrap();
         drop(pool.try_take().unwrap().cache.evict_one());
@@ -588,7 +714,7 @@ mod tests {
         let pixels = pool
             .try_take()
             .unwrap()
-            .begin(first, ColorFormat::RGBA8888)
+            .begin(first, SampleFormat::RGBA8888)
             .unwrap();
         let address = pixels.bytes.as_ptr();
         pool.try_take().unwrap().publish(first, pixels).unwrap();
@@ -598,7 +724,7 @@ mod tests {
                 let mut pixels = pool
                     .try_take()
                     .unwrap()
-                    .begin(key, ColorFormat::RGBA8888)
+                    .begin(key, SampleFormat::RGBA8888)
                     .unwrap();
                 assert_eq!(pixels.bytes.as_ptr(), address);
                 pixels.get_mut().unwrap().bytes.fill(source as u8);
@@ -606,14 +732,14 @@ mod tests {
                 assert!(
                     pool.try_take()
                         .unwrap()
-                        .view(first, ColorFormat::RGBA8888)
+                        .view(first, ColorFormat::RGBA8888, None)
                         .unwrap()
                         .is_none()
                 );
                 assert_eq!(
                     pool.try_take()
                         .unwrap()
-                        .view(key, ColorFormat::RGBA8888)
+                        .view(key, ColorFormat::RGBA8888, None)
                         .unwrap()
                         .unwrap()
                         .bytes()[0],

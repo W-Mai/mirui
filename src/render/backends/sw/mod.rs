@@ -1774,7 +1774,7 @@ impl SwRenderer<'_> {
         }
 
         // Same-format reads can copy complete pixel rows.
-        if target.format() == dst.format() {
+        if target.direct_format() == Some(dst.format()) {
             let bpp = dst.format().bytes_per_pixel();
             let target_buf = target.bytes();
             let target_stride = target.stride();

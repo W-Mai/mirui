@@ -448,6 +448,42 @@ fn sample_color(
     result.read_pixels().unwrap().get_pixel(2, 2)
 }
 
+#[test]
+fn indexed_layers_sample_their_own_palette_and_bit_offset() {
+    use super::super::super::texture_pool::{new_pool, source_view};
+    use crate::render::texture::Region;
+    use mirx::{image::ColorFormat::I2, palette::ColorTableView};
+    let Some(context) = context() else { return };
+    let mut pool = new_pool(8192);
+    let samples = [0b00_01_10_11, 0, 0b11_10_01_00, 0];
+    let a = [[0; 4], [255, 0, 0, 128], [0, 255, 0, 255], [0, 0, 255, 255]];
+    let mut b = a;
+    b[1] = [0, 0, 255, 128];
+    let mut read = |x, palette: &[[u8; 4]; 4]| {
+        let atlas = Texture::from_indexed(
+            &samples,
+            5,
+            2,
+            I2,
+            ColorTableView::from_rgba_bytes(palette.as_flattened()).unwrap(),
+        )
+        .unwrap();
+        let crop = atlas
+            .pixels_in(Region::new(x, 0, 3, 2).unwrap())
+            .unwrap()
+            .unwrap();
+        let pixels = crop.pixels().unwrap();
+        let source = pixels.as_texture().with_cache_revision(19);
+        let native = source_view(&mut pool, 8192, &context, &source, None).unwrap();
+        sample_color(&context, &native)
+    };
+    assert_eq!(read(1, &a), Color::rgba(255, 0, 0, 128));
+    assert_eq!(read(1, &a), Color::rgba(255, 0, 0, 128));
+    assert_eq!(read(0, &a), Color::rgba(0, 255, 0, 255));
+    assert_eq!(read(1, &b), Color::rgba(0, 0, 255, 128));
+    assert_eq!(pool.stats().insert_count, 3);
+}
+
 #[cfg(feature = "sdl-gpu")]
 #[test]
 fn partial_uploads_share_storage_and_require_complete_sample_coverage() {

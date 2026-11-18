@@ -6,7 +6,7 @@ use mirui::render::texture::{ColorFormat, Texture};
 
 pub fn write_png(path: &Path, texture: &Texture<'_>) {
     let pixels = texture.read_pixels().expect("read snapshot pixels");
-    assert_eq!(pixels.format(), ColorFormat::RGBA8888);
+    assert_eq!(pixels.direct_format(), Some(ColorFormat::RGBA8888));
     assert_eq!(pixels.stride(), usize::from(pixels.width()) * 4);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).expect("create output directory");

@@ -6,6 +6,9 @@ use mirui::types::Color;
 #[path = "encoded.rs"]
 mod encoded;
 
+#[path = "indexed.rs"]
+mod indexed;
+
 struct File {
     bytes: Rc<Vec<u8>>,
     control: Rc<Control>,

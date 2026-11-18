@@ -1061,7 +1061,16 @@ impl TextureWrite<'_> {
         }
         let current = current.read_pixels()?;
         let previous = previous.read_pixels()?;
-        let row_bytes = usize::from(current.width()) * current.format().bytes_per_pixel();
+        let Some(format) = current
+            .direct_format()
+            .filter(|format| Some(*format) == previous.direct_format())
+        else {
+            return Ok((0..i32::from(current.height())).any(|y| {
+                (0..i32::from(current.width()))
+                    .any(|x| current.get_pixel(x, y) != previous.get_pixel(x, y))
+            }));
+        };
+        let row_bytes = usize::from(current.width()) * format.bytes_per_pixel();
         Ok((0..usize::from(current.height())).any(|row| {
             current.bytes()[row * current.stride()..][..row_bytes]
                 != previous.bytes()[row * previous.stride()..][..row_bytes]

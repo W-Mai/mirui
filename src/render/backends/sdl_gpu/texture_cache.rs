@@ -272,6 +272,64 @@ mod tests {
     use crate::types::Color;
 
     #[test]
+    fn cropped_indexed_layers_keep_bit_offsets_palette_alpha_and_cached_uploads() {
+        use mirx::{image::ColorFormat::I2, palette::ColorTableView};
+        use sdl2::{pixels::PixelFormatEnum, render::BlendMode};
+
+        let canvas = sdl2::surface::Surface::new(3, 2, PixelFormatEnum::RGBA32)
+            .unwrap()
+            .into_canvas()
+            .unwrap();
+        let creator = canvas.texture_creator();
+        let device = Rc::new(Device::new(canvas, creator).unwrap());
+        let mut cache = TextureCache::new(device.clone(), 4096);
+        let bytes = [0b00_01_10_11, 0b01_00_00_00, 0b11_10_01_00, 0b10_00_00_00];
+        let a = [
+            [1, 2, 3, 0],
+            [5, 6, 7, 255],
+            [9, 10, 11, 128],
+            [13, 14, 15, 255],
+        ];
+        let mut b = a;
+        b[1] = [47, 53, 59, 42];
+        let mut read = |x, palette: &[[u8; 4]; 4]| {
+            let table = ColorTableView::from_rgba_bytes(palette.as_flattened()).unwrap();
+            let atlas = Texture::from_indexed(&bytes, 5, 2, I2, table).unwrap();
+            let slice = atlas
+                .pixels_in(Region::new(x, 0, 3, 2).unwrap())
+                .unwrap()
+                .unwrap();
+            let pixels = slice.pixels().unwrap();
+            let texture = pixels.as_texture().with_cache_revision(19);
+            cache
+                .with_texture(&texture, CompositeMode::SourceOver, None, |source, _| {
+                    source.set_blend_mode(BlendMode::None);
+                    let mut canvas = device.canvas().unwrap();
+                    canvas.copy(source, None, None).unwrap();
+                    canvas.read_pixels(None, PixelFormatEnum::RGBA32).unwrap()
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            read(1, &a),
+            [a[1], a[2], a[3], a[2], a[1], a[0]].as_flattened()
+        );
+        assert_eq!(
+            read(1, &a),
+            [a[1], a[2], a[3], a[2], a[1], a[0]].as_flattened()
+        );
+        assert_eq!(
+            read(0, &a),
+            [a[0], a[1], a[2], a[3], a[2], a[1]].as_flattened()
+        );
+        assert_eq!(
+            read(1, &b),
+            [b[1], b[2], b[3], b[2], b[1], b[0]].as_flattened()
+        );
+        assert_eq!(cache.pool.stats().hit_count, 1);
+    }
+
+    #[test]
     fn strided_sprite_layers_reuse_completed_uploads_and_distinguish_revisions() {
         use crate::render::texture::{AlphaMode, ColorFormat};
         use sdl2::pixels::PixelFormatEnum;
@@ -290,11 +348,7 @@ mod tests {
                 .unwrap()
                 .unwrap();
             let pixels = slice.pixels().unwrap();
-            let mut texture = Texture::from_ref(pixels.bytes(), 1, 2, pixels.format())
-                .unwrap()
-                .with_stride(pixels.stride())
-                .unwrap()
-                .with_cache_revision(revision);
+            let mut texture = pixels.as_texture().with_cache_revision(revision);
             texture.alpha_mode = AlphaMode::Blend;
             cache
                 .with_texture(&texture, CompositeMode::SourceOver, None, |source, _| {

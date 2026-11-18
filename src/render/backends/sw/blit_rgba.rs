@@ -10,7 +10,7 @@ fn accepts(
 ) -> bool {
     let (x, y, w, h) = rect;
     dst.format() == ColorFormat::RGBA8888
-        && src.format() == ColorFormat::RGBA8888
+        && src.direct_format() == Some(ColorFormat::RGBA8888)
         && x >= 0
         && y >= 0
         && w > 0

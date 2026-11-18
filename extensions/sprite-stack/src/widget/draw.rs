@@ -1,7 +1,7 @@
 use super::SpriteStack;
 use mirui::render::RenderError;
 use mirui::render::command::{CompositeMode, DrawCommand};
-use mirui::render::texture::{AlphaMode, Texture, TexturePixels};
+use mirui::render::texture::{AlphaMode, TexturePixels};
 use mirui::types::{Fixed, Fixed64, GridBasis, Point, Rect, Transform};
 use mirui::ui::view::PaintCtx;
 
@@ -111,14 +111,9 @@ pub(super) fn paint(sprite: &SpriteStack, paint: &mut PaintCtx<'_>) -> Result<()
                 transform,
             );
         } else {
-            let mut texture = Texture::from_ref(
-                pixels.bytes(),
-                pixels.width(),
-                pixels.height(),
-                pixels.format(),
-            )?
-            .with_stride(pixels.stride())?
-            .with_cache_revision(asset.layer_revision(index));
+            let mut texture = pixels
+                .as_texture()
+                .with_cache_revision(asset.layer_revision(index));
             texture.alpha_mode = AlphaMode::Blend;
             let layer_transform = Transform {
                 m00: col[0],

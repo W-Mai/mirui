@@ -70,3 +70,9 @@ Under `sync`, `AssetProvider` and `AssetReader` require `Send + Sync`; their ope
 Source blocks, decoded pixels, output storage and backend upload caches keep their separate budgets. Evicting an index or closing an owner does not release charges for pixels or control storage that are still held. Preparation uses bounded waiters without an unbounded work queue. Shared metadata is charged to the corresponding existing budget.
 
 `BackendTarget` payloads require `Send + Sync` with this feature. Portable backends retain their thread-safe device storage directly. Thread-bound backends use `ThreadOwner` and `ThreadResource<T>` without making raw device objects transferable. Native targets attach `TargetStorage` to their actual storage owner. Existing `compose_backend!` routing and target binding remain unchanged. See [backend target storage](backend-targets.md) for the extension contract.
+
+## Indexed images
+
+`Texture::from_mirx` accepts MIRX I1, I2, I4 and I8 images. Software rendering reads these packed samples directly and looks up straight-alpha RGBA colors in the image's palette. GPU backends resolve the requested regions during upload. Multiple sprites can share the same atlas.
+
+`TexturePixels::get_pixel` samples every supported encoding. Code that consumes the underlying bytes can use `direct_format()` to select a direct-color fast path. For an indexed view, `sample_format()`, `indexed_color_table()`, `stride()` and the MSB-first `bit_offset()` describe the samples. `as_texture()` borrows the view with its palette and cropped origin intact. Mutable texture targets use the direct-color formats.

@@ -85,17 +85,17 @@ pub fn blit_1to1_fast(
     let run_w = (vx1 - vx0) as usize;
     let run_h = (vy1 - vy0) as usize;
 
-    match (src.format(), dst.format()) {
-        (ColorFormat::RGBA8888, ColorFormat::RGBA8888) => {
+    match (src.direct_format(), dst.format()) {
+        (Some(ColorFormat::RGBA8888), ColorFormat::RGBA8888) => {
             blit_1to1_argb_to_argb(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
         }
-        (ColorFormat::RGBA8888, ColorFormat::RGB565Swapped) => {
+        (Some(ColorFormat::RGBA8888), ColorFormat::RGB565Swapped) => {
             blit_1to1_argb_to_565sw(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
         }
-        (ColorFormat::RGB565Swapped, ColorFormat::RGB565Swapped) => {
+        (Some(ColorFormat::RGB565Swapped), ColorFormat::RGB565Swapped) => {
             blit_1to1_565sw_to_565sw(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
         }
-        (ColorFormat::RGBA8888, ColorFormat::RGB565) => {
+        (Some(ColorFormat::RGBA8888), ColorFormat::RGB565) => {
             blit_1to1_argb_to_565(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
         }
         _ => blit_generic_slow(
@@ -328,17 +328,17 @@ pub fn blit_2to2_fast(
     let block_w = (vx1 - vx0) as usize / 2;
     let block_h = (vy1 - vy0) as usize / 2;
 
-    match (src.format(), dst.format()) {
-        (ColorFormat::RGBA8888, ColorFormat::RGBA8888) => {
+    match (src.direct_format(), dst.format()) {
+        (Some(ColorFormat::RGBA8888), ColorFormat::RGBA8888) => {
             blit_2to2_argb_to_argb(dst, src, src_x0, src_y0, vx0, vy0, block_w, block_h)
         }
-        (ColorFormat::RGBA8888, ColorFormat::RGB565Swapped) => {
+        (Some(ColorFormat::RGBA8888), ColorFormat::RGB565Swapped) => {
             blit_2to2_argb_to_565sw(dst, src, src_x0, src_y0, vx0, vy0, block_w, block_h)
         }
-        (ColorFormat::RGB565Swapped, ColorFormat::RGB565Swapped) => {
+        (Some(ColorFormat::RGB565Swapped), ColorFormat::RGB565Swapped) => {
             blit_2to2_565sw_to_565sw(dst, src, src_x0, src_y0, vx0, vy0, block_w, block_h)
         }
-        (ColorFormat::RGBA8888, ColorFormat::RGB565) => {
+        (Some(ColorFormat::RGBA8888), ColorFormat::RGB565) => {
             blit_2to2_argb_to_565(dst, src, src_x0, src_y0, vx0, vy0, block_w, block_h)
         }
         _ => blit_dda(

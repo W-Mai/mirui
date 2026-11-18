@@ -263,7 +263,14 @@ fn render_drop_effect(
             let di =
                 (y + usize::from(plane.padding.1)) * dst_stride + usize::from(plane.padding.0) * 4;
             let copy_len = usize::from(source.width()) * 4;
-            buf[di..di + copy_len].copy_from_slice(&source.bytes()[si..si + copy_len]);
+            let row = &mut buf[di..di + copy_len];
+            if source.direct_format() == Some(ColorFormat::RGBA8888) {
+                row.copy_from_slice(&source.bytes()[si..si + copy_len]);
+            } else {
+                for (pixel, color) in row.chunks_exact_mut(4).zip(source.sampled_rgba_row(y)) {
+                    pixel.copy_from_slice(&color);
+                }
+            }
         }
         blur_effect(&mut pixels, plane.alpha);
         let buf = pixels.bytes_mut();

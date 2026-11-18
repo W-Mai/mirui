@@ -44,21 +44,27 @@ impl CachedPixels {
         layout: PlaneLayout,
         budget: &MemoryBudget,
     ) -> Result<Handle<Self>, RenderError> {
-        let charged = layout
-            .required_bytes()
+        Self::shared_bytes(layout.required_bytes(), budget)
+    }
+
+    pub(super) fn shared_bytes(
+        size: usize,
+        budget: &MemoryBudget,
+    ) -> Result<Handle<Self>, RenderError> {
+        let charged = size
             .checked_add(Self::OWNER_BYTES)
             .ok_or_else(capacity_error)?;
         let reservation = budget.reserve(charged).ok_or_else(capacity_error)?;
         let mut bytes = Vec::new();
         bytes
-            .try_reserve_exact(layout.required_bytes())
+            .try_reserve_exact(size)
             .map_err(|_| capacity_error())?;
         let actual = bytes
             .capacity()
             .checked_add(Self::OWNER_BYTES)
             .ok_or_else(capacity_error)?;
         let allocation = reservation.commit(actual).map_err(|_| capacity_error())?;
-        bytes.resize(layout.required_bytes(), 0);
+        bytes.resize(size, 0);
         Ok(Handle::new(Self {
             bytes,
             _allocation: PixelAllocation::Shared(allocation),

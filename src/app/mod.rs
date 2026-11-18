@@ -2185,9 +2185,17 @@ fn clone_texture_owned(
 ) -> Result<crate::render::texture::Texture<'static>, crate::render::RenderError> {
     use crate::render::texture::Texture;
     let source = src.read_pixels()?;
-    let mut owned = Texture::owned(source.width(), source.height(), source.format())?;
+    let mut owned = Texture::owned(source.width(), source.height(), src.format())?;
     owned.alpha_mode = src.alpha_mode;
     let mut target = owned.pixels_mut()?;
+    if source.direct_format().is_none() {
+        for y in 0..i32::from(source.height()) {
+            for x in 0..i32::from(source.width()) {
+                target.set_pixel(x, y, &source.get_pixel(x, y));
+            }
+        }
+        return Ok(owned);
+    }
     let stride = target.stride();
     for (row, destination) in target.bytes_mut().chunks_exact_mut(stride).enumerate() {
         let start = row * source.stride();

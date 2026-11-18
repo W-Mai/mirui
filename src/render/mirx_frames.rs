@@ -348,6 +348,54 @@ mod tests {
     }
 
     #[test]
+    fn successive_indexed_frames_borrow_one_canvas_with_the_original_palette() {
+        let surface =
+            SurfaceDescriptor::new(4, 1, SampleLayout::I2, ColorDescription::SRGB).unwrap();
+        let palette = [
+            5, 7, 9, 255, 10, 20, 30, 128, 40, 50, 60, 0, 70, 80, 90, 255,
+        ];
+        let mut encoder = FramesEncoder::new(FrameSequence::new(2, 1_000, 40).unwrap(), surface)
+            .unwrap()
+            .with_color_table(&palette)
+            .unwrap();
+        encoder.push(&[0b00_01_10_11]).unwrap();
+        encoder.push(&[0b11_10_01_00]).unwrap();
+        let mut document = Document::new();
+        let id = document.push_frames(encoder.finish().unwrap()).unwrap();
+        document.set_primary(id).unwrap();
+        let bytes = document.encode(&Default::default()).unwrap();
+        let mut groups = [None; 4];
+        let plan = MirxFramesPlan::open(&bytes, MirxTextureOptions::new(), &mut groups).unwrap();
+        let mut canvas = Aligned([0; 128]);
+        let mut workspace = Aligned([0; 512]);
+        let mut backup = Aligned([0; 128]);
+        let mut session = plan
+            .bind(MirxFramesStorage {
+                groups: &mut groups,
+                canvas: &mut canvas.0,
+                workspace: &mut workspace.0,
+                backup: &mut backup.0,
+            })
+            .unwrap();
+        for (frame, index) in [(0, 1usize), (1, 2)] {
+            let texture = session.present(frame).unwrap();
+            assert!(texture.transient);
+            let pixels = texture.read_pixels().unwrap();
+            assert_eq!(pixels.sample_format(), mirx::image::ColorFormat::I2);
+            let i = index * 4;
+            assert_eq!(
+                pixels.get_pixel(1, 0),
+                crate::types::Color::rgba(
+                    palette[i],
+                    palette[i + 1],
+                    palette[i + 2],
+                    palette[i + 3]
+                )
+            );
+        }
+    }
+
+    #[test]
     fn plan_rejects_static_images_and_unsupported_render_layouts() {
         let flat = Document::new_flat(mirx::image::ImageAsset::new(
             1,

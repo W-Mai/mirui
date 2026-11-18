@@ -1,4 +1,6 @@
-use super::{ColorFormat, Texture};
+#[cfg(test)]
+use super::ColorFormat;
+use super::Texture;
 use crate::core::threading::Shared;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -7,7 +9,9 @@ pub(crate) struct TextureKey {
     len: usize,
     width: u16,
     height: u16,
-    format: ColorFormat,
+    format: mirx::image::ColorFormat,
+    palette: usize,
+    bit: u8,
     stride: usize,
     revision: u64,
     owner: Option<Shared<()>>,
@@ -19,6 +23,7 @@ impl TextureKey {
     }
 
     pub fn from(src: &Texture) -> Self {
+        let index = src.indexed_plane().map(|(_, index)| index);
         let (ptr, len, owner) = match &src.buf {
             super::TexBuf::Decoded(source) => {
                 let owner = source.identity();
@@ -44,6 +49,12 @@ impl TextureKey {
                     Some(owner),
                 )
             }
+            super::TexBuf::Indexed(bytes, _) => (bytes.as_ptr() as usize, bytes.len(), None),
+            super::TexBuf::IndexedAligned(source) => (
+                source.0.as_slice().as_ptr() as usize,
+                source.0.as_slice().len(),
+                None,
+            ),
             _ => {
                 let buf = src.buf.cpu_bytes().expect("CPU storage");
                 (buf.as_ptr() as usize, buf.len(), None)
@@ -54,8 +65,10 @@ impl TextureKey {
             len,
             width: src.width,
             height: src.height,
-            format: src.format,
-            stride: src.stride,
+            format: src.sample_format(),
+            palette: index.map_or(0, |index| index.palette.as_bytes().as_ptr() as usize),
+            bit: index.map_or(0, |index| index.layout.bit),
+            stride: index.map_or(src.stride, |index| index.layout.stride),
             revision: src.cache_revision,
             owner,
         }

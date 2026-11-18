@@ -64,16 +64,19 @@ impl TextureRegion<'_> {
 
 impl Texture<'_> {
     pub(crate) fn direct_region(&self) -> Result<Option<TextureRegion<'_>>, RenderError> {
-        let Some(bytes) = self.buf.cpu_bytes() else {
+        if matches!(
+            self.buf,
+            super::TexBuf::Native(_) | super::TexBuf::Decoded(_)
+        ) {
             return Ok(None);
-        };
+        }
         let layout = self.storage_layout()?;
         let region = Region::new(0, 0, u32::from(layout.width()), u32::from(layout.height()))
             .map_err(|_| RenderError::InvalidTexture)?;
         Ok(Some(TextureRegion {
             region,
             format: layout.format(),
-            pixels: Some(TexturePixels::new(bytes, layout)),
+            pixels: Some(self.direct_pixels(layout)?),
         }))
     }
 
@@ -93,13 +96,7 @@ impl Texture<'_> {
             let pixels = match &self.buf {
                 super::TexBuf::Native(native) => native.pixels_in(self.cache_revision, region)?,
                 super::TexBuf::Decoded(source) => source.pixels_in(region)?,
-                _ => Some(
-                    TexturePixels::new(
-                        self.buf.cpu_bytes().ok_or(RenderError::InvalidTexture)?,
-                        layout,
-                    )
-                    .into_region(region)?,
-                ),
+                _ => Some(self.direct_pixels(layout)?.into_region(region)?),
             };
             let Some(pixels) = pixels else {
                 return Ok(None);

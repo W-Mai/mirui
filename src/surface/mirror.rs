@@ -9,7 +9,10 @@ pub(crate) fn blit_region(
     area: PhysicalRect,
 ) -> Result<(), RenderError> {
     let src = src.read_pixels()?;
-    if src.format() != dst.format() || src.width() != dst.width() || src.height() != dst.height() {
+    if src.direct_format() != Some(dst.format())
+        || src.width() != dst.width()
+        || src.height() != dst.height()
+    {
         return Err(RenderError::InvalidTexture);
     }
     if area.right() > src.width() || area.bottom() > src.height() {
@@ -20,7 +23,7 @@ pub(crate) fn blit_region(
     let y0 = usize::from(area.y());
     let x1 = usize::from(area.right());
     let y1 = usize::from(area.bottom());
-    let bpp = src.format().bytes_per_pixel();
+    let bpp = dst.format().bytes_per_pixel();
     let row = (x1 - x0) * bpp;
     let src_stride = src.stride();
     let dst_stride = dst.stride();

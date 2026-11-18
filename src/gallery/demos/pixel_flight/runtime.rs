@@ -654,7 +654,13 @@ mod tests {
                 assert!(raster.frame.width <= 128 && raster.frame.height <= 128);
                 assert!(scene.resident_bytes() < 128 * 1024);
                 assert!(
-                    raster.frame.texture.read_pixels().unwrap().format()
+                    raster
+                        .frame
+                        .texture
+                        .read_pixels()
+                        .unwrap()
+                        .direct_format()
+                        .unwrap()
                         == crate::render::texture::ColorFormat::RGB565
                 );
             }

@@ -25,6 +25,7 @@ mod access;
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32", test))]
 mod coverage;
 mod decoded;
+mod indexed;
 mod native;
 mod pixel_cache;
 mod pixels;
@@ -35,7 +36,6 @@ mod thread_tests;
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
 pub(crate) use coverage::UploadCoverage;
 pub(crate) use source::SourceMirxLoader;
-#[cfg(any(feature = "wgpu", target_arch = "wasm32", test))]
 mod upload;
 pub use access::{TexturePixels, TexturePixelsMut};
 pub use mirx::image::Region;
@@ -158,6 +158,8 @@ impl ColorFormat {
 
 enum TexBuf<'a> {
     Ref(&'a [u8]),
+    Indexed(&'a [u8], indexed::IndexPlane<'a>),
+    IndexedAligned(alloc::boxed::Box<(AlignedBytes, indexed::IndexPlane<'a>)>),
     Mut(&'a mut [u8]),
     Owned(Vec<u8>),
     BudgetedOwned {
@@ -177,7 +179,9 @@ impl TexBuf<'_> {
             Self::Mut(s) => Some(s),
             Self::Owned(v) | Self::BudgetedOwned { bytes: v, .. } => Some(v),
             Self::Aligned(v) => Some(v.as_slice()),
-            Self::Native(_) | Self::Decoded(_) => None,
+            Self::Native(_) | Self::Decoded(_) | Self::Indexed(..) | Self::IndexedAligned(_) => {
+                None
+            }
             Self::Mapped(source) => source.pixels(),
         }
     }
@@ -260,6 +264,12 @@ impl HasSize for Texture<'_> {
     fn cache_size(&self) -> usize {
         match &self.buf {
             TexBuf::Ref(bytes) => bytes.len(),
+            TexBuf::Indexed(bytes, plane) => bytes.len() + plane.palette.as_bytes().len(),
+            TexBuf::IndexedAligned(source) => {
+                source.0.storage.capacity()
+                    + source.1.palette.as_bytes().len()
+                    + core::mem::size_of_val(&**source)
+            }
             TexBuf::Mut(bytes) => bytes.len(),
             TexBuf::Owned(bytes) | TexBuf::BudgetedOwned { bytes, .. } => bytes.capacity(),
             TexBuf::Aligned(bytes) => bytes.storage.capacity(),
@@ -500,6 +510,7 @@ pub(super) fn map_mirx_format(fmt: mirx::image::ColorFormat) -> Result<ColorForm
             Ok(ColorFormat::RGBA8888)
         }
         mirx::image::ColorFormat::BGRA8888 => Ok(ColorFormat::BGRA8888),
+        indexed if indexed.indexed_bit_depth().is_some() => Ok(ColorFormat::RGBA8888),
         other => Err(MirxLoadError::UnsupportedFormat(other)),
     }
 }
@@ -718,6 +729,33 @@ pub(super) fn texture_from_surface(
     let plane = surface
         .plane(0)
         .ok_or(MirxLoadError::UnsupportedLayout(descriptor.sample_layout()))?;
+    if source_format.indexed_bit_depth().is_some() {
+        if plane.memory().flags().bits() != 0 {
+            return Err(MirxLoadError::UnsupportedLayout(descriptor.sample_layout()));
+        }
+        let logical = PlaneLayout::packed(
+            descriptor.width().try_into()?,
+            descriptor.height().try_into()?,
+            format,
+        )
+        .map_err(|_| MirxLoadError::Texture(RenderError::InvalidTexture))?;
+        let palette = surface
+            .color_table()
+            .ok_or(MirxLoadError::UnsupportedFormat(source_format))?;
+        let index = indexed::IndexPlane::new(
+            source_format,
+            palette,
+            plane.memory().stride() as usize,
+            logical,
+            plane.bytes(),
+        )
+        .map_err(MirxLoadError::Texture)?;
+        return Ok(Texture::from_layout(
+            TexBuf::Indexed(plane.bytes(), index),
+            logical,
+            true,
+        ));
+    }
     Texture::from_ref(
         plane.bytes(),
         descriptor.width().try_into()?,
@@ -725,7 +763,6 @@ pub(super) fn texture_from_surface(
         format,
     )
     .and_then(|texture| texture.with_stride(plane.memory().stride() as usize))
-    .map(|texture| texture.with_transient(false))
     .map_err(MirxLoadError::Texture)
 }
 
@@ -809,7 +846,7 @@ impl Texture<'static> {
         let image = open_mirx_image(bytes)?;
         if request == mirx::image::DecodeRequest::default() {
             if let mirx::image::ImageRef::Raw(surface) = image {
-                return texture_from_surface(surface);
+                return texture_from_surface(surface).map(|texture| texture.with_transient(false));
             }
         }
         let group_count = image.encoded().map_or(0, |image| image.group_count());
@@ -832,9 +869,20 @@ impl Texture<'static> {
         .ok_or(MirxLoadError::AllocationSizeOverflow)?;
         let decoded = plan.decode_into(output.as_mut_slice(), workspace.as_mut_slice())?;
         let layout = decoded.pixel_layout().map_err(MirxLoadError::Texture)?;
-        drop(decoded);
+        let index = if let TexBuf::Indexed(_, index) = decoded.buf {
+            Some(indexed::IndexPlane {
+                layout: index.layout,
+                palette: image.color_table().expect("validated indexed palette"),
+            })
+        } else {
+            None
+        };
         debug_assert_eq!(memory.plane(0).map(|plane| plane.data_offset()), Some(0));
-        Ok(Self::from_layout(TexBuf::Aligned(output), layout, false))
+        let storage = match index {
+            Some(index) => TexBuf::IndexedAligned(alloc::boxed::Box::new((output, index))),
+            None => TexBuf::Aligned(output),
+        };
+        Ok(Self::from_layout(storage, layout, false))
     }
 }
 
