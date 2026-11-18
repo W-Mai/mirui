@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Composite compact cockpit instruments across full-width bands and resolve overlapping aircraft samples once per pixel.
+
 - Render unrotated compact Pixel Flight views in full-height strips and pack visible rows directly into the RGB565 texture.
 
 - Select compile-time aircraft LOD by projected cell size in Pixel Flight while retaining native scene resolution and layered animation.

@@ -248,7 +248,6 @@ pub struct Frame {
 struct Workspace {
     depth: Vec<Fixed>,
     mask: Vec<u8>,
-    backdrop: Vec<u32>,
     columns: Vec<i32>,
 }
 #[doc = " A short mutable borrow. No texture or allocator borrow survives the call."]
@@ -266,7 +265,6 @@ struct SceneCanvas<'a, 'b> {
     color: &'a mut Canvas<'b>,
     depth: &'a mut [Fixed],
     mask: &'a mut [u8],
-    backdrop: &'a mut [u32],
     columns: &'a mut [i32],
 }
 impl Frame {
@@ -331,15 +329,11 @@ impl Workspace {
         Self {
             depth: vec![Fixed::MAX; count],
             mask: vec![0; count],
-            backdrop: vec![0; count],
             columns: vec![height as i32; width],
         }
     }
     fn bytes(&self) -> usize {
-        self.depth.capacity() * 4
-            + self.mask.capacity()
-            + self.backdrop.capacity() * 4
-            + self.columns.capacity() * 4
+        self.depth.capacity() * 4 + self.mask.capacity() + self.columns.capacity() * 4
     }
     fn with_canvas<R>(
         &mut self,
@@ -386,7 +380,6 @@ impl Workspace {
                 color,
                 depth: &mut self.depth[..count],
                 mask: &mut self.mask[..count],
-                backdrop: &mut self.backdrop[..count],
                 columns: &mut self.columns[..extent[0]],
             })
         })
@@ -494,7 +487,7 @@ pub struct Raster {
     pub frame: Frame,
     pub sheet: Frame,
     workspace: Workspace,
-    output_tile: Option<Frame>,
+    output_band: Option<Frame>,
     pub palette: Palette,
     pub flames: [Flame; 6],
     pub flame_count: usize,
@@ -681,8 +674,8 @@ impl Raster {
             )?,
             sheet: Frame::new(side, side)?,
             workspace: Workspace::new(side, side),
-            output_tile: if compact {
-                Some(Frame::new(compact::TILE_SIDE, compact::TILE_SIDE)?)
+            output_band: if compact {
+                Some(Frame::new(width, height.min(compact::TILE_SIDE))?)
             } else {
                 None
             },
@@ -696,12 +689,12 @@ impl Raster {
         self.frame.bytes()
             + self.sheet.bytes()
             + self.workspace.bytes()
-            + self.output_tile.as_ref().map_or(0, Frame::bytes)
+            + self.output_band.as_ref().map_or(0, Frame::bytes)
             + core::mem::size_of::<Self>()
     }
     pub fn render(&mut self, world: &World, flight: &Flight) {
         assert!(
-            self.output_tile.is_none(),
+            self.output_band.is_none(),
             "compact rendering requires its cockpit pass"
         );
         let p = flight.projection(self.frame.width, self.frame.height);
@@ -714,7 +707,7 @@ impl Raster {
             flames,
             flame_count,
             seen,
-            output_tile: _,
+            output_band: _,
         } = self;
         let frame_height = frame.height;
         let mapping = Mapping::new(p, frame.width, frame.height);
@@ -761,7 +754,7 @@ impl Raster {
         flight: &Flight,
         cockpit: &super::cockpit::Cockpit,
     ) {
-        if self.output_tile.is_some() {
+        if self.output_band.is_some() {
             self.render_compact(world, flight, cockpit);
         } else {
             self.render(world, flight);
@@ -1493,7 +1486,6 @@ impl PreparedJet {
         crate::trace_span!("flight.aircraft");
         let center = self.center;
         let fade = self.fade;
-        let lights = self.lights;
         let samples = self.samples;
         let offsets = &self.offsets;
         canvas.mask.fill(0);
@@ -1534,8 +1526,8 @@ impl PreparedJet {
                         continue;
                     }
                     let a = voxel.a() + self.cell_offset;
-                    let color =
-                        pal.jets[lights[usize::from(a >= Fixed::ZERO)]][usize::from(voxel.color)];
+                    // Zero is uncovered. Keep the visible palette index and its lighting side.
+                    let material = voxel.color | (u8::from(a >= Fixed::ZERO) << 7);
                     // Coincident extrema make that coordinate identical for every offset.
                     let fixed_x = xs[0] == xs[1];
                     let fixed_y = ys[0] == ys[1];
@@ -1565,11 +1557,7 @@ impl PreparedJet {
                         if canvas.depth[at] < depth - Fixed::ONE {
                             continue;
                         }
-                        if fade < Fixed::ONE && canvas.mask[at] == 0 {
-                            canvas.backdrop[at] = canvas.get(at);
-                        }
-                        canvas.put(at, color);
-                        canvas.mask[at] = 1;
+                        canvas.mask[at] = material;
                         bounds = [
                             bounds[0].min(xx),
                             bounds[1].min(yy),
@@ -1582,18 +1570,21 @@ impl PreparedJet {
         }
         {
             crate::trace_span!("flight.aircraft.outline");
-            for y in (bounds[1] - 1).max(canvas.color.clip[1] + 1)
-                ..=(bounds[3] + 1).min(canvas.color.clip[3] - 2)
-            {
-                for x in (bounds[0] - 1).max(canvas.color.clip[0] + 1)
-                    ..=(bounds[2] + 1).min(canvas.color.clip[2] - 2)
-                {
+            let [left, top, right, bottom] = canvas.color.clip;
+            for y in (bounds[1] - 1).max(top)..=(bounds[3] + 1).min(bottom - 1) {
+                for x in (bounds[0] - 1).max(left)..=(bounds[2] + 1).min(right - 1) {
                     let at = canvas.color.index(x, y);
-                    if canvas.mask[at] != 0 {
-                        if fade < Fixed::ONE {
-                            canvas.put(at, blend(canvas.backdrop[at], canvas.get(at), fade));
+                    let interior = x > left && x + 1 < right && y > top && y + 1 < bottom;
+                    let material = canvas.mask[at];
+                    if material != 0 {
+                        let light = self.lights[usize::from(material >> 7)];
+                        let mut color = pal.jets[light][usize::from(material & 0x7f)];
+                        if fade < Fixed::ONE && interior {
+                            color = blend(canvas.get(at), color, fade);
                         }
-                    } else if fade >= Fixed::from_ratio(5, 10)
+                        canvas.put(at, color);
+                    } else if interior
+                        && fade >= Fixed::from_ratio(5, 10)
                         && (canvas.mask[at - 1] != 0
                             || canvas.mask[at + 1] != 0
                             || canvas.mask[at - canvas.color.pitch] != 0
@@ -2097,7 +2088,7 @@ mod tests {
         let mut frame = Frame::new(8, 8).unwrap();
         let mut workspace = Workspace::new(8, 8);
         assert_eq!(frame.bytes(), 8 * 8 * 4);
-        assert_eq!(workspace.bytes(), 8 * 8 * 9 + 8 * 4);
+        assert_eq!(workspace.bytes(), 8 * 8 * 5 + 8 * 4);
         workspace.with_canvas(&mut frame, |canvas| {
             canvas.clear();
             canvas.fill_depth(

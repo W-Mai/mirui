@@ -36,7 +36,7 @@ impl Raster {
             frame,
             sheet,
             workspace,
-            output_tile,
+            output_band,
             palette,
             flames,
             flame_count,
@@ -69,7 +69,7 @@ impl Raster {
                 &mut count,
             );
         }
-        let output_tile = output_tile.as_mut().expect("compact color workspace");
+        let band = output_band.as_mut().expect("compact color workspace");
         let mut target = frame.texture.pixels_mut().expect("owned compact frame");
         // Without an inverse roll or cockpit overlay, the source columns are the output columns.
         // March them over the full height, keeping the two-pixel outline halo on either side.
@@ -141,10 +141,10 @@ impl Raster {
                 };
                 let source =
                     (!covered).then(|| sheet.texture.read_pixels().expect("compact source pixels"));
-                output_tile.with_region(
+                band.with_region(
                     [width, height],
-                    [x, y],
-                    [0, 0, width as i32, height as i32],
+                    [0, y],
+                    [x, y, right, bottom],
                     |canvas| {
                         if let Some(source) = &source {
                             for yy in y..bottom {
@@ -177,12 +177,22 @@ impl Raster {
                                 }
                             }
                         }
-                        if let Some(prepared) = &prepared_cockpit {
-                            cockpit.draw_prepared(canvas, world, flight, prepared);
-                        }
-                        write_rgb565(canvas, &mut target, [x, y, right, bottom]);
                     },
                 );
+            }
+            if strip_pitch.is_none() {
+                let rect = [
+                    0,
+                    y as i32,
+                    width as i32,
+                    (y + tile_height).min(height) as i32,
+                ];
+                band.with_region([width, height], [0, y as i32], rect, |canvas| {
+                    if let Some(prepared) = &prepared_cockpit {
+                        cockpit.draw_prepared(canvas, world, flight, prepared);
+                    }
+                    write_rgb565(canvas, &mut target, rect);
+                });
             }
         }
         while let Some(origin) = pending[..count].iter().find_map(PendingFlame::missing) {
