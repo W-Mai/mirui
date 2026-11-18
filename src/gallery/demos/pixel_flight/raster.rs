@@ -1061,78 +1061,88 @@ fn draw_world(
 }
 fn draw_sky(canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette, frame_height: usize) {
     crate::trace_span!("flight.sky");
+    let [left, top, right, bottom] = canvas.color.clip;
+    if left >= right || top >= bottom {
+        return;
+    }
+    // Ground spans cover every pixel from the column boundary to the clip bottom.
+    // Clouds above that boundary can leave holes, so keep testing those pixels.
+    let local_x = |x: i32| (x - canvas.color.origin[0]) as usize;
+    let sky_bottom = *canvas.columns[local_x(left)..local_x(right)]
+        .iter()
+        .max()
+        .expect("nonempty clipped columns");
+    if sky_bottom <= top {
+        return;
+    }
     let horizon = if p.perspective > Fixed64::ZERO {
         p.center[1] - p.divide_perspective(p.scale * p.slope)
     } else {
         -Fixed::from_int(1_000_000)
     };
-    let focal = if p.perspective > Fixed64::ZERO {
-        p.divide_perspective(p.scale)
-    } else {
-        Fixed::from_int(1_000_000)
-    };
-    for y in canvas.color.clip[1]..canvas.color.clip[3] {
-        for x in canvas.color.clip[0]..canvas.color.clip[2] {
+    let mut star_offset = 0;
+    let mut disk = None;
+    if Fixed::from_int(top) < horizon && pal.day != Daylight::Day {
+        let focal = p.divide_perspective(p.scale);
+        if pal.day == Daylight::Night {
+            star_offset = (p.yaw * focal).trunc_to_int();
+        }
+        let length = (pal.sun[0] * pal.sun[0] + pal.sun[1] * pal.sun[1]).sqrt();
+        let dx = -pal.sun[0] / length;
+        let dy = -pal.sun[1] / length;
+        let (sn, cs) = p.yaw.sin_cos();
+        let along = -(dx * sn + dy * cs);
+        if along > Fixed::from_ratio(2, 10) {
+            let (size, elevation) = if pal.day == Daylight::Sunset {
+                (Fixed::from_ratio(5, 100), Fixed::from_ratio(12, 100))
+            } else {
+                (Fixed::from_ratio(22, 1000), Fixed::from_ratio(3, 10))
+            };
+            disk = Some((
+                p.center[0] + focal * (dx * cs - dy * sn) / along,
+                horizon - focal * elevation / along,
+                Fixed::from_int(canvas.color.width as i32) * size,
+            ));
+        }
+    }
+    for y in top..sky_bottom {
+        let gradient = (Fixed::from_int(y) < horizon).then(|| {
+            let t = (horizon - Fixed::from_int(y))
+                / (Fixed::from_int(frame_height as i32) * Fixed::from_ratio(75, 100))
+                * Fixed::from_int(7);
+            let band = t.trunc_to_int();
+            let threshold = (t - Fixed::from_int(band) - Fixed::from_ratio(7, 10))
+                * Fixed::from_ratio(34, 10)
+                * Fixed::from_int(16);
+            (band as usize, threshold)
+        });
+        for x in left..right {
             let at = canvas.color.index(x, y);
             if canvas.get(at) != 0 {
                 continue;
             }
             let mut color = pal.haze;
-            if (Fixed::from_int(y)) < horizon {
-                let t = (horizon - Fixed::from_int(y))
-                    / (Fixed::from_int((frame_height) as i32) * Fixed::from_ratio(75, 100))
-                    * Fixed::from_int(7);
-                let mut band = (t).trunc_to_int() as usize;
-                if (t - Fixed::from_int((band) as i32) - Fixed::from_ratio(7, 10))
-                    * Fixed::from_ratio(34, 10)
-                    * Fixed::from_int(16)
-                    > Fixed::from_int((BAYER[((y & 3) * 4 + (x & 3)) as usize]) as i32)
-                {
-                    band += 1;
-                }
+            if let Some((base, threshold)) = gradient {
+                let dither = Fixed::from_int(BAYER[((y & 3) * 4 + (x & 3)) as usize] as i32);
+                let band = base + usize::from(threshold > dither);
                 color = pal.sky[band.min(7)];
                 if pal.day == Daylight::Night
                     && band > 1
-                    && world::hash8(
-                        (((x + (p.yaw * focal).trunc_to_int()) & 4095) * 73 + y * 9973) as u32,
-                    ) < 2
+                    && world::hash8((((x + star_offset) & 4095) * 73 + y * 9973) as u32) < 2
                 {
                     color = pal.sun_color;
                 }
-                if pal.day != Daylight::Day {
-                    let length = (pal.sun[0] * pal.sun[0] + pal.sun[1] * pal.sun[1]).sqrt();
-                    let dx = -pal.sun[0] / length;
-                    let dy = -pal.sun[1] / length;
-                    let (sn, cs) = p.yaw.sin_cos();
-                    let along = -(dx * sn + dy * cs);
-                    if along > Fixed::from_ratio(2, 10) {
-                        let radius = Fixed::from_int((canvas.color.width) as i32)
-                            * if pal.day == Daylight::Sunset {
-                                Fixed::from_ratio(5, 100)
-                            } else {
-                                Fixed::from_ratio(22, 1000)
-                            };
-                        let sx = p.center[0] + focal * (dx * cs - dy * sn) / along;
-                        let sy = horizon
-                            - focal
-                                * if pal.day == Daylight::Sunset {
-                                    Fixed::from_ratio(12, 100)
-                                } else {
-                                    Fixed::from_ratio(3, 10)
-                                }
-                                / along;
-                        let distance = ((Fixed::from_int(x) - sx).powi(2)
-                            + (Fixed::from_int(y) - sy).powi(2))
-                        .sqrt()
-                            / radius;
-                        if distance < Fixed::ONE {
-                            color = pal.sun_color;
-                        } else if distance < Fixed::from_ratio(19, 10)
-                            && (Fixed::from_ratio(19, 10) - distance) * Fixed::from_int(14)
-                                > Fixed::from_int((BAYER[((y & 3) * 4 + (x & 3)) as usize]) as i32)
-                        {
-                            color = pal.sun_glow;
-                        }
+                if let Some((sx, sy, radius)) = disk {
+                    let distance = ((Fixed::from_int(x) - sx).powi(2)
+                        + (Fixed::from_int(y) - sy).powi(2))
+                    .sqrt()
+                        / radius;
+                    if distance < Fixed::ONE {
+                        color = pal.sun_color;
+                    } else if distance < Fixed::from_ratio(19, 10)
+                        && (Fixed::from_ratio(19, 10) - distance) * Fixed::from_int(14) > dither
+                    {
+                        color = pal.sun_glow;
                     }
                 }
             } else if p.perspective.is_zero() {
