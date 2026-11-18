@@ -14,7 +14,7 @@ categories = ["gui", "embedded"]
 rust-version = "1.85"
 
 [workspace]
-members = [".", "xtask", "mirui-macros", "mirx", "gallery", "gallery/web", "extensions/sprite-stack", "extensions/sprite-stack/format"]
+members = [".", "xtask", "mirui-macros", "mirx", "gallery", "gallery/web", "gallery/pixel-flight-assets", "extensions/sprite-stack", "extensions/sprite-stack/format"]
 
 [package.metadata.ci]
 contract-tests = ["compose_backend_fail", "compose_resource_contracts", "event_type_contracts", "prelude_contracts", "query_borrow_contracts", "ui_diagnostics_fail", "view_query_contracts"]
@@ -22,6 +22,7 @@ contract-tests = ["compose_backend_fail", "compose_resource_contracts", "event_t
 [dependencies]
 mirui-macros = { version = "0.56.0", path = "mirui-macros" }
 mirx = { version = "0.56.0", path = "mirx" }
+mirui-pixel-flight-assets = { version = "0.56.0", path = "gallery/pixel-flight-assets", optional = true }
 textflow-rs = { version = "0.3.4", default-features = false, features = ["alloc", "script-arabic", "script-devanagari", "script-thai"] }
 critical-section = { version = "1.2", default-features = false }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
@@ -69,7 +70,8 @@ persistence = ["dep:serde", "dep:postcard"]
 # hard-edge binary fill back — embedded targets that can't spare the
 # cycles should `default-features = false`.
 quad-aa = []
-gallery = ["dep:libm", "dep:mirui-sprite-stack-format", "dep:mirx"]
+gallery = ["dep:libm"]
+pixel-flight = ["gallery", "dep:mirui-pixel-flight-assets"]
 audio = []
 web-audio = ["audio", "web-canvas"]
 sdl-audio = ["audio", "sdl"]
@@ -240,10 +242,6 @@ web-sys = { version = "0.3.99", optional = true, features = [
 js-sys = { version = "0.3.99", optional = true }
 wasm-bindgen = { version = "0.2.122", optional = true }
 wasm-bindgen-futures = { version = "0.4.72", optional = true }
-
-[build-dependencies]
-mirx = { version = "0.56.0", path = "mirx", optional = true }
-mirui-sprite-stack-format = { version = "0.56.0", path = "extensions/sprite-stack/format", optional = true }
 
 [dev-dependencies]
 crc32fast = "1"

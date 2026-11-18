@@ -321,7 +321,7 @@ fn cmd_riscv_clippy() -> Result {
             "--lib",
             "--no-default-features",
             "--features",
-            "gallery",
+            "pixel-flight",
             "--target",
             "riscv32imc-unknown-none-elf",
             "--",
@@ -639,11 +639,17 @@ fn cmd_bump(level: &str) -> Result {
     //    deps still need a version pin for cargo publish; the root
     //    Cargo.toml carries `mirui-macros = { version = "X.Y.Z", path = ... }`
     //    and that string has to track the bumped [package].version.
-    let workspace_deps = ["mirui-macros", "mirx", "mirui-sprite-stack-format"];
+    let workspace_deps = [
+        "mirui-macros",
+        "mirx",
+        "mirui-sprite-stack-format",
+        "mirui-pixel-flight-assets",
+    ];
     let cargo_toml_paths = [
         format!("{root}/Cargo.toml"),
         format!("{root}/gallery/Cargo.toml"),
         format!("{root}/extensions/sprite-stack/format/Cargo.toml"),
+        format!("{root}/gallery/pixel-flight-assets/Cargo.toml"),
     ];
     for cargo_toml in &cargo_toml_paths {
         for dep in &workspace_deps {
@@ -825,7 +831,13 @@ fn cmd_publish(dry_run: bool) -> Result {
         return Err("working tree not clean".into());
     }
 
-    for package in ["mirx", "mirui-macros", "mirui-sprite-stack-format", "mirui"] {
+    for package in [
+        "mirx",
+        "mirui-macros",
+        "mirui-sprite-stack-format",
+        "mirui-pixel-flight-assets",
+        "mirui",
+    ] {
         let mut args = vec![
             "publish",
             "-p",

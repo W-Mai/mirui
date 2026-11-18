@@ -10,6 +10,7 @@ sdl = ["mirui/sdl", "mirui/sdl-audio", "dep:sdl2"]
 sdl-gpu = ["mirui/sdl-gpu", "mirui/sdl-audio", "dep:sdl2"]
 wgpu = ["mirui/wgpu"]
 web-canvas = [
+    "pixel-flight",
     "mirui/web-canvas",
     "mirui/web-audio",
     "dep:wasm-bindgen",
@@ -19,7 +20,8 @@ linux-fb = ["mirui/linux-fb"]
 linux-drm = ["mirui/linux-drm"]
 perf = ["mirui/perf"]
 persistence = ["mirui/persistence"]
-snapshot = ["mirui/std", "persistence"]
+snapshot = ["mirui/std", "persistence", "pixel-flight"]
+pixel-flight = ["mirui/pixel-flight"]
 
 [dependencies]
 mirui = { path = "..", default-features = false, features = ["quad-aa", "gallery"] }
@@ -44,6 +46,14 @@ web-sys = { version = "0.3.99", optional = true, features = [
 ] }
 
 # cargo autoexamples doesn't recurse — subdir entries need explicit path.
+[[example]]
+name = "pixel_flight_demo"
+required-features = ["pixel-flight"]
+
+[[example]]
+name = "pixel_flight_compact_demo"
+required-features = ["pixel-flight"]
+
 [[example]]
 name = "pixel_flight_snapshot"
 path = "examples/tools/pixel_flight_snapshot.rs"

@@ -6,6 +6,13 @@ use mirx::{ChunkType, Reader};
 use std::fmt::Write;
 use std::path::Path;
 
+fn main() {
+    println!("cargo:rerun-if-changed=jet.mirx");
+    let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    prepare(include_bytes!("jet.mirx"), &output)
+        .expect("invalid Pixel Flight jet.mirx or unwritable build output");
+}
+
 // Pixel Flight indexes four lighting materials, with up to sixteen shades per material.
 fn material(color: u8) -> usize {
     usize::from((color - 1) >> 4)
@@ -75,14 +82,18 @@ impl Level {
     fn write(&self, out: &mut String, prefix: &str) {
         writeln!(
             out,
-            "static {prefix}VOXELS: [Voxel; {}] = [",
+            "pub const {prefix}VOXELS: [[u8; 3]; {}] = [",
             self.voxels.len()
         )
         .unwrap();
         for [x, y, color] in &self.voxels {
-            writeln!(out, "Voxel {{ x: {x}, y: {y}, color: {color} }},").unwrap();
+            writeln!(out, "[{x}, {y}, {color}],").unwrap();
         }
-        writeln!(out, "];\nconst {prefix}STARTS: [usize; LAYERS + 1] = [0,").unwrap();
+        writeln!(
+            out,
+            "];\npub const {prefix}STARTS: [usize; LAYERS + 1] = [0,"
+        )
+        .unwrap();
         for end in &self.ends {
             writeln!(out, "{end},").unwrap();
         }
@@ -90,7 +101,7 @@ impl Level {
     }
 }
 
-pub fn prepare(bytes: &[u8], output: &Path) -> Result<(), String> {
+fn prepare(bytes: &[u8], output: &Path) -> Result<(), String> {
     let reader = Reader::open(bytes).map_err(|e| format!("{e:?}"))?;
     let stack = StackDescriptor::from_reader(&reader).map_err(|e| e.to_string())?;
     let (width, length) = stack.canvas();
@@ -173,7 +184,7 @@ pub fn prepare(bytes: &[u8], output: &Path) -> Result<(), String> {
     let z = vertical_pivot(&reader)?;
     let mut source = String::new();
     writeln!(source, "pub const WIDTH: usize = {width};\npub const LENGTH: usize = {length};\npub const LAYERS: usize = {};", stack.layers().len()).unwrap();
-    writeln!(source, "pub(super) const PIVOT_X: Fixed = Fixed::from_ratio({x}, 256);\npub const PIVOT: [Fixed; 2] = [Fixed::from_ratio({y}, 256), Fixed::from_ratio({z}, 256)];").unwrap();
+    writeln!(source, "pub const PIVOT_Q8: [i32; 3] = [{x}, {y}, {z}];").unwrap();
     writeln!(source, "pub const PALETTE: &[[u8; 5]] = &{colors:?};").unwrap();
     full.write(&mut source, "");
     coarse.write(&mut source, "COARSE_");

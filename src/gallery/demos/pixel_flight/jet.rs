@@ -1,7 +1,18 @@
 //! Static aircraft slices prepared from the indexed MIRX atlas at build time.
 use crate::types::Fixed;
 
-include!(concat!(env!("OUT_DIR"), "/pixel_flight_jet.rs"));
+use asset::{COARSE_STARTS, PIVOT_Q8, STARTS};
+pub use asset::{LAYERS, LENGTH, PALETTE, WIDTH};
+use mirui_pixel_flight_assets as asset;
+
+pub(super) const PIVOT_X: Fixed = Fixed::from_ratio(PIVOT_Q8[0], 256);
+pub const PIVOT: [Fixed; 2] = [
+    Fixed::from_ratio(PIVOT_Q8[1], 256),
+    Fixed::from_ratio(PIVOT_Q8[2], 256),
+];
+
+static VOXELS: [Voxel; asset::VOXELS.len()] = model_voxels(&asset::VOXELS);
+static COARSE_VOXELS: [Voxel; asset::COARSE_VOXELS.len()] = model_voxels(&asset::COARSE_VOXELS);
 
 /// Expands the full-detail slices into caller-owned material indices.
 pub fn decode(out: &mut [u8; WIDTH * LENGTH * LAYERS]) {
@@ -19,6 +30,21 @@ pub struct Voxel {
     pub x: u8,
     pub y: u8,
     pub color: u8,
+}
+
+const fn model_voxels<const N: usize>(samples: &[[u8; 3]; N]) -> [Voxel; N] {
+    let mut voxels = [Voxel {
+        x: 0,
+        y: 0,
+        color: 0,
+    }; N];
+    let mut i = 0;
+    while i < N {
+        let [x, y, color] = samples[i];
+        voxels[i] = Voxel { x, y, color };
+        i += 1;
+    }
+    voxels
 }
 
 impl Voxel {

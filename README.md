@@ -15,11 +15,11 @@ The artwork above is the Iris demo, one component tree recorded from the scene r
 
 The Glass Light Toggle demo supports clicking, dragging, Space/Enter and arrow keys. Run `cargo run -p gallery --example glass_light_toggle_demo --release --no-default-features --features sdl-gpu` or select Glass Light Toggle in the browser gallery.
 
-Pixel Flight has overhead, chase and cockpit views, procedural islands and live instruments. Both desktop and Compact builds generate two levels of aircraft detail from [jet.mirx](src/gallery/demos/assets/jet.mirx). Run `cargo run -p gallery --example pixel_flight_demo --profile release-opt --no-default-features --features sdl-gpu`. Press Space to switch views, point to steer, click to roll, and hold or press Shift to boost.
+Pixel Flight has overhead, chase and cockpit views, procedural islands and live instruments. Its asset package generates two levels of aircraft detail from [jet.mirx](gallery/pixel-flight-assets/jet.mirx). Run `cargo run -p gallery --example pixel_flight_demo --profile release-opt --no-default-features --features sdl-gpu,pixel-flight`. Press Space to switch views, point to steer, click to roll, and hold or press Shift to boost.
 
-Pixel Flight Compact renders at native 128×128 into RGB565, using bounded scene tiles and lossless MIRX cockpit rows. Run `cargo run -p gallery --example pixel_flight_compact_demo --profile release-opt --no-default-features --features sdl-gpu`. Both flight demos support window resizing and the same controls.
+Pixel Flight Compact renders at native 128×128 into RGB565, using bounded scene tiles and lossless MIRX cockpit rows. Run `cargo run -p gallery --example pixel_flight_compact_demo --profile release-opt --no-default-features --features sdl-gpu,pixel-flight`. Both flight demos support window resizing and the same controls.
 
-Append `-- --auto` to either flight example for unattended flight with automatic camera changes every twelve simulation seconds. Embedded applications enable the same mode through the returned Model: `let flight = pixel_flight::setup_compact_app(&mut app, parent); flight.set_autoplay(true);`. Passing `false` restores manual control without restarting the flight.
+Append `-- --auto` to either flight example for unattended flight with automatic camera changes every twelve simulation seconds. Embedded applications enable Mirui's `pixel-flight` Cargo feature and call `set_autoplay(true)` on the Model returned by `pixel_flight::setup_compact_app`. Passing `false` restores manual control without restarting the flight.
 
 ## Features
 
