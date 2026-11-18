@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Project aircraft cells from a shared grid origin in Pixel Flight.
+
 - Clip projected Pixel Flight trails to each drawing region before sampling segments.
 
 - Skip color interpolation on fog-free Pixel Flight terrain and cloud spans.

@@ -1351,7 +1351,7 @@ struct PreparedJet {
     offsets: [[Fixed; 2]; 64],
     sample_bounds: [[Fixed; 2]; 2],
     detail: jet::Detail,
-    cell_offset: Fixed,
+    right_side_x: u8,
 }
 impl PreparedJet {
     fn new(
@@ -1486,6 +1486,11 @@ impl PreparedJet {
         let first_slice = (0..jet::LAYERS)
             .position(|layer| !detail.slice(layer).is_empty())
             .unwrap_or(jet::LAYERS);
+        // All cells share a fractional pivot. Project that fraction once;
+        // whole-cell steps along either axis are exact integer products.
+        let grid_x = jet::lateral(0) + detail.center_offset();
+        let grid_y = jet::longitudinal(0) - detail.center_offset();
+        let grid: [Fixed; 3] = core::array::from_fn(|i| grid_x * right[i] + grid_y * forward[i]);
         let layers = core::array::from_fn(|layer: usize| {
             let intro = flight.intro - Fixed::from_int((index) as i32) * Fixed::from_ratio(25, 100);
             let t = (intro
@@ -1506,7 +1511,7 @@ impl PreparedJet {
             let bv = cv + height * up[1];
             let bw = cw + height * up[2];
             Some(PreparedLayer {
-                camera: [bu, bv, bw],
+                camera: [bu + grid[0], bv + grid[1], bw + grid[2]],
                 drop,
                 bounds: None,
             })
@@ -1523,7 +1528,7 @@ impl PreparedJet {
             offsets,
             sample_bounds,
             detail,
-            cell_offset: detail.center_offset(),
+            right_side_x: (-grid_x).ceil().to_int() as u8,
         })
     }
     fn draw(&self, canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette) {
@@ -1580,9 +1585,8 @@ impl PreparedJet {
                     {
                         continue;
                     }
-                    let a = voxel.a() + self.cell_offset;
                     // Zero is uncovered. Keep the visible palette index and its lighting side.
-                    let material = voxel.color | (u8::from(a >= Fixed::ZERO) << 7);
+                    let material = voxel.color | (u8::from(voxel.x >= self.right_side_x) << 7);
                     // Coincident extrema make that coordinate identical for every offset.
                     let fixed_x = xs[0] == xs[1];
                     let fixed_y = ys[0] == ys[1];
@@ -1687,13 +1691,11 @@ impl PreparedJet {
         &self,
         layer: &PreparedLayer,
         p: &Projection,
-        [a, b]: [[Fixed; 2]; 2],
+        [x, y]: [[u8; 2]; 2],
     ) -> [i16; 4] {
-        let a = a.map(|x| x + self.cell_offset);
-        let b = b.map(|y| y - self.cell_offset);
         let axis_range = |axis: usize| {
-            let [a0, a1] = a.map(|x| x * self.right[axis]);
-            let [b0, b1] = b.map(|y| y * self.forward[axis]);
+            let [a0, a1] = x.map(|x| self.right[axis] * i32::from(x));
+            let [b0, b1] = y.map(|y| self.forward[axis] * -i32::from(y));
             [
                 layer.camera[axis] + a0.min(a1) + b0.min(b1),
                 layer.camera[axis] + a0.max(a1) + b0.max(b1),
@@ -1750,17 +1752,17 @@ impl PreparedJet {
         p: &Projection,
     ) -> Option<[Fixed; 4]> {
         let [bu, bv, bw] = layer.camera;
-        let a = voxel.a() + self.cell_offset;
-        let b = voxel.b() - self.cell_offset;
-        let depth = bv + a * self.right[1] + b * self.forward[1];
+        let x = i32::from(voxel.x);
+        let y = i32::from(voxel.y);
+        let depth = bv + self.right[1] * x - self.forward[1] * y;
         let den = Fixed::ONE + p.apply_perspective(depth);
         if den < Fixed::from_ratio(2, 10) {
             return None;
         }
         let m = p.scale / den;
         Some([
-            p.center[0] + m * (bu + a * self.right[0] + b * self.forward[0]),
-            p.center[1] - m * (bw + a * self.right[2] + b * self.forward[2] + p.slope * depth)
+            p.center[0] + m * (bu + self.right[0] * x - self.forward[0] * y),
+            p.center[1] - m * (bw + self.right[2] * x - self.forward[2] * y + p.slope * depth)
                 + layer.drop,
             m,
             depth,
@@ -2077,10 +2079,10 @@ mod tests {
         p.perspective = Fixed64::from_ratio(1, 64);
         jet.right = [Fixed::ZERO, Fixed::ONE, Fixed::ZERO];
         jet.forward = [Fixed::ZERO; 3];
-        let coords = [[-Fixed::from_int(8), Fixed::from_int(8)], [Fixed::ZERO; 2]];
+        let coords = [[0, 16], [0; 2]];
         let bounds = |depth| {
             let layer = PreparedLayer {
-                camera: [Fixed::ZERO, Fixed::from_int(depth), Fixed::ZERO],
+                camera: [Fixed::ZERO, Fixed::from_int(depth - 8), Fixed::ZERO],
                 drop: Fixed::ZERO,
                 bounds: None,
             };

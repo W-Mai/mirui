@@ -201,11 +201,11 @@ impl Voxel {
     }
 }
 
-fn lateral(x: u8) -> Fixed {
+pub(super) fn lateral(x: u8) -> Fixed {
     Fixed::from_ratio(i32::from(x) * 2 - (WIDTH - 1) as i32, 2)
 }
 
-fn longitudinal(y: u8) -> Fixed {
+pub(super) fn longitudinal(y: u8) -> Fixed {
     PIVOT[0] - Fixed::from_int(i32::from(y))
 }
 
@@ -418,7 +418,7 @@ const fn layer_widths(voxels: &[Voxel], starts: &[usize; LAYERS + 1]) -> [[[u8; 
 }
 
 impl Detail {
-    pub(super) fn band_bounds(self, layer: usize, half: usize) -> Option<[[Fixed; 2]; 2]> {
+    pub(super) fn band_bounds(self, layer: usize, half: usize) -> Option<[[u8; 2]; 2]> {
         static FULL: [[[u8; 2]; 2]; LAYERS] = layer_widths(&VOXELS, &STARTS);
         static COARSE: [[[u8; 2]; 2]; LAYERS] = layer_widths(&COARSE_VOXELS, &COARSE_STARTS);
         let voxels = self.slice(layer);
@@ -428,13 +428,7 @@ impl Detail {
             Self::Full => FULL[layer][half],
             Self::Coarse => COARSE[layer][half],
         };
-        Some([
-            x.map(lateral),
-            [
-                longitudinal(voxels.last()?.y),
-                longitudinal(voxels.first()?.y),
-            ],
-        ])
+        Some([x, [voxels.first()?.y, voxels.last()?.y]])
     }
 
     pub(super) fn for_scale(scale: Fixed) -> Self {
