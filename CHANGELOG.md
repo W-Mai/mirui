@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Clip projected Pixel Flight trails to each drawing region before sampling segments.
+
 - Skip color interpolation on fog-free Pixel Flight terrain and cloud spans.
 
 - Reuse terrain depth to identify uncovered Pixel Flight pixels and fill the remaining sky directly.

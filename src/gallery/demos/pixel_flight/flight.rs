@@ -189,7 +189,13 @@ impl Projection {
     }
     #[doc = " Returns screen x/y, scale and camera depth. Points behind the eye are rejected."]
     pub fn project(&self, point: V3) -> Option<[Fixed; 4]> {
-        let (sn, cs) = self.yaw.sin_cos();
+        self.project_with_yaw(point, self.yaw.sin_cos())
+    }
+    pub(super) fn project_with_yaw(
+        &self,
+        point: V3,
+        (sn, cs): (Fixed, Fixed),
+    ) -> Option<[Fixed; 4]> {
         let dx = point[0] - self.position[0];
         let dy = point[1] - self.position[1];
         let depth = -(dx * sn + dy * cs);

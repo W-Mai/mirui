@@ -1184,79 +1184,83 @@ fn draw_sky(canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette, fra
 }
 fn draw_trails(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection, pal: &Palette) {
     crate::trace_span!("flight.trails");
-    for (i, jet) in flight.jets[..flight.count].iter().enumerate() {
-        if i == 0 && p.jet_alpha < Fixed::from_ratio(5, 10) {
-            continue;
-        }
+    let first = usize::from(p.jet_alpha < Fixed::HALF).min(flight.count);
+    let jets = &flight.jets[first..flight.count];
+    if jets.is_empty() {
+        return;
+    }
+    let yaw = p.yaw.sin_cos();
+    let [left, top, right, bottom] = canvas.color.clip;
+    for jet in jets {
+        let lifetime = Fixed::from_ratio(26, 10)
+            * (Fixed::from_ratio(3, 10) + Fixed::from_ratio(7, 10) * jet.load);
         for wing in &jet.trails {
             let mut last: Option<[Fixed; 4]> = None;
             for n in 0..jet.trail_len {
                 let point = wing[(jet.trail_head + TRAIL_CAPACITY - 1 - n) % TRAIL_CAPACITY];
-                let age = (flight.time - point.born)
-                    / (Fixed::from_ratio(26, 10)
-                        * (Fixed::from_ratio(3, 10) + Fixed::from_ratio(7, 10) * jet.load));
+                let age = (flight.time - point.born) / lifetime;
                 if age >= Fixed::ONE {
                     break;
                 }
-                let Some(next) = p.project(point.position) else {
+                let Some(next) = p.project_with_yaw(point.position, yaw) else {
                     last = None;
                     continue;
                 };
-                if let Some(prev) = last {
-                    let span = (next[0] - prev[0]).abs().max((next[1] - prev[1]).abs());
-                    if span < Fixed::from_int(600) {
-                        let steps = (span.ceil().max(Fixed::ONE)).trunc_to_int() as usize;
-                        let alpha = if age < Fixed::from_ratio(5, 10) {
-                            Fixed::ONE
-                        } else {
-                            (Fixed::ONE - age) * Fixed::from_int(2)
-                        };
-                        let color = pal.trails[if age < Fixed::from_ratio(25, 100) {
-                            0
-                        } else if age < Fixed::from_ratio(6, 10) {
-                            1
-                        } else {
-                            2
-                        }];
-                        for k in 0..steps {
-                            let x = ((prev[0]
-                                + (next[0] - prev[0]) * Fixed::from_int((k) as i32)
-                                    / Fixed::from_int((steps) as i32))
-                            .round())
-                            .trunc_to_int();
-                            let y = ((prev[1]
-                                + (next[1] - prev[1]) * Fixed::from_int((k) as i32)
-                                    / Fixed::from_int((steps) as i32))
-                            .round())
-                            .trunc_to_int();
-                            for yy in y..y + if next[2] > Fixed::from_ratio(24, 10) {
-                                2
-                            } else {
-                                1
-                            } {
-                                for xx in x..x + if next[2] > Fixed::from_ratio(24, 10) {
-                                    2
-                                } else {
-                                    1
-                                } {
-                                    if !canvas.color.contains(xx, yy) {
-                                        continue;
-                                    }
-                                    let at = canvas.color.index(xx, yy);
-                                    if canvas.depth[at] >= next[3] - Fixed::ONE
-                                        && alpha * Fixed::from_int(16)
-                                            > Fixed::from_int(
-                                                (BAYER[((yy & 3) * 4 + (xx & 3)) as usize]) as i32,
-                                            )
-                                    {
-                                        canvas.put(at, color);
-                                    }
-                                }
+                let Some(prev) = last.replace(next) else {
+                    continue;
+                };
+                let dx = next[0] - prev[0];
+                let dy = next[1] - prev[1];
+                let span = dx.abs().max(dy.abs());
+                if span >= Fixed::from_int(600) {
+                    continue;
+                }
+                let width = if next[2] > Fixed::from_ratio(24, 10) {
+                    2
+                } else {
+                    1
+                };
+                // Every rounded sample is between the two rounded endpoints.
+                if prev[0].max(next[0]).round().to_int() + width <= left
+                    || prev[0].min(next[0]).round().to_int() >= right
+                    || prev[1].max(next[1]).round().to_int() + width <= top
+                    || prev[1].min(next[1]).round().to_int() >= bottom
+                {
+                    continue;
+                }
+                let steps = span.ceil().to_int().max(1);
+                let alpha = if age < Fixed::from_ratio(5, 10) {
+                    Fixed::ONE
+                } else {
+                    (Fixed::ONE - age) * Fixed::from_int(2)
+                };
+                let color = pal.trails[if age < Fixed::from_ratio(25, 100) {
+                    0
+                } else if age < Fixed::from_ratio(6, 10) {
+                    1
+                } else {
+                    2
+                }];
+                for k in 0..steps {
+                    let x = (prev[0] + dx * k / steps).round().to_int();
+                    let y = (prev[1] + dy * k / steps).round().to_int();
+                    for yy in y..y + width {
+                        for xx in x..x + width {
+                            if !canvas.color.contains(xx, yy) {
+                                continue;
+                            }
+                            let at = canvas.color.index(xx, yy);
+                            if canvas.depth[at] >= next[3] - Fixed::ONE
+                                && alpha * Fixed::from_int(16)
+                                    > Fixed::from_int(
+                                        (BAYER[((yy & 3) * 4 + (xx & 3)) as usize]) as i32,
+                                    )
+                            {
+                                canvas.put(at, color);
                             }
                         }
                     }
                 }
-                last = Some(next);
             }
         }
     }
