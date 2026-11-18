@@ -945,6 +945,14 @@ fn draw_world(
         } else {
             Fixed::ZERO
         };
+        let shade_fog = |color| {
+            if fog.is_zero() {
+                // Terrain spans are opaque, including custom palette colors.
+                color | 0xff00_0000
+            } else {
+                blend(color, pal.haze, fog)
+            }
+        };
         let mut ground_height = usize::MAX;
         let mut ground_rows = [0; 2];
         for px in canvas.color.clip[0]..canvas.color.clip[2] {
@@ -972,7 +980,7 @@ fn draw_world(
                         x,
                         row.at(top),
                         previous.at(top),
-                        blend(pal.cloud_top[thick - 1], pal.haze, fog),
+                        shade_fog(pal.cloud_top[thick - 1]),
                         v,
                         thick == 1,
                     );
@@ -980,7 +988,7 @@ fn draw_world(
                         x,
                         previous.at((world::CLOUD_ALT).trunc_to_int() as usize),
                         row.at((world::CLOUD_ALT).trunc_to_int() as usize),
-                        blend(pal.cloud_under, pal.haze, fog),
+                        shade_fog(pal.cloud_under),
                         v,
                         thick == 1,
                     );
@@ -990,7 +998,7 @@ fn draw_world(
                             x,
                             previous.at(z + 1),
                             previous.at(z),
-                            blend(pal.cloud_wall[layer], pal.haze, fog),
+                            shade_fog(pal.cloud_wall[layer]),
                             v,
                         );
                     }
@@ -1067,11 +1075,11 @@ fn draw_world(
                 wall = top;
             }
             if yr < column {
-                canvas.fill_depth(x, yr, column, blend(wall, pal.haze, fog), v);
+                canvas.fill_depth(x, yr, column, shade_fog(wall), v);
                 column = yr;
             }
             if yt < column {
-                canvas.fill_depth(x, yt, column, blend(top, pal.haze, fog), v);
+                canvas.fill_depth(x, yt, column, shade_fog(top), v);
                 column = yt;
             }
             canvas.columns[column_index] = column;
