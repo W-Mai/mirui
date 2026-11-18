@@ -1035,9 +1035,7 @@ fn draw_world(
                             / (jet.roll.cos().abs().max(Fixed::from_ratio(3, 10))
                                 * flight.settings.jet_scale);
                         let b = (dx * s - dy * c) / flight.settings.jet_scale;
-                        let i = ((a + Fixed::from_int((jet::WIDTH) as i32) / Fixed::from_int(2))
-                            .floor())
-                        .trunc_to_int();
+                        let i = (a + (jet::PIVOT_X + Fixed::HALF)).floor().trunc_to_int();
                         let k =
                             ((jet::PIVOT[0] - b + Fixed::from_ratio(5, 10)).floor()).trunc_to_int();
                         if (0..jet::WIDTH as i32).contains(&i)

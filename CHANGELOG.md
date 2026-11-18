@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Build Pixel Flight's full and coarse aircraft geometry from a single indexed MIRX atlas. Firmware uses static material and voxel tables.
+
 - Add the standalone `mirui-sprite-stack` extension with an atlas descriptor and a reactive widget. Applications opt in with a Cargo dependency. Format tools can disable the widget feature.
 
 - Project aircraft cells from a shared grid origin in Pixel Flight.

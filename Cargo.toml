@@ -69,7 +69,7 @@ persistence = ["dep:serde", "dep:postcard"]
 # hard-edge binary fill back — embedded targets that can't spare the
 # cycles should `default-features = false`.
 quad-aa = []
-gallery = ["dep:libm"]
+gallery = ["dep:libm", "dep:mirui-sprite-stack-format", "dep:mirx"]
 audio = []
 web-audio = ["audio", "web-canvas"]
 sdl-audio = ["audio", "sdl"]
@@ -240,6 +240,10 @@ web-sys = { version = "0.3.99", optional = true, features = [
 js-sys = { version = "0.3.99", optional = true }
 wasm-bindgen = { version = "0.2.122", optional = true }
 wasm-bindgen-futures = { version = "0.4.72", optional = true }
+
+[build-dependencies]
+mirx = { version = "0.56.0", path = "mirx", optional = true }
+mirui-sprite-stack-format = { version = "0.56.0", path = "extensions/sprite-stack/format", optional = true }
 
 [dev-dependencies]
 crc32fast = "1"
