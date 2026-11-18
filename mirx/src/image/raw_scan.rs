@@ -198,6 +198,14 @@ impl RawImageScan {
     pub fn data_range(&self) -> Option<Range<usize>> {
         self.sections.data.map(range)
     }
+
+    /// Returns the payload-relative color-table range after metadata validation. Use `finish` to validate plane storage.
+    pub fn color_table_range(&self) -> Option<Range<usize>> {
+        if self.phase != Phase::Done {
+            return None;
+        }
+        self.sections.colors.map(range)
+    }
 }
 
 fn range(section: MediaSectionDescriptor) -> Range<usize> {
@@ -228,7 +236,14 @@ mod tests {
 
     #[test]
     fn metadata_windows_match_static_plane_and_color_table_validation() {
-        for layout in [SampleLayout::RGBA8888, SampleLayout::I420, SampleLayout::I4] {
+        for layout in [
+            SampleLayout::RGBA8888,
+            SampleLayout::I420,
+            SampleLayout::I1,
+            SampleLayout::I2,
+            SampleLayout::I4,
+            SampleLayout::I8,
+        ] {
             let color = if layout == SampleLayout::I420 {
                 ColorDescription::BT709_YUV_LIMITED
             } else {
@@ -245,9 +260,9 @@ mod tests {
                 .collect();
             let planes: Vec<_> = data.iter().map(Vec::as_slice).collect();
             let asset = RawImageAsset::new(surface, &planes).with_memory_layouts(&memory);
-            let colors = [0; 64];
-            let asset = if layout == SampleLayout::I4 {
-                asset.with_color_table(&colors)
+            let colors = [0x53; 1024];
+            let asset = if let Some(entries) = layout.color_table_entries() {
+                asset.with_color_table(&colors[..entries as usize * 4])
             } else {
                 asset
             };
@@ -258,10 +273,15 @@ mod tests {
                 let mut scan = RawImageScan::new(media, 0);
                 assert!(scan.finish().is_err());
                 while let Some(range) = scan.read_range() {
+                    assert_eq!(scan.color_table_range(), None);
                     scan.accept(&payload[range.start..range.start + range.len().min(count)])
                         .unwrap();
                 }
                 let actual = scan.finish().unwrap();
+                assert_eq!(
+                    scan.color_table_range().map(|range| &payload[range]),
+                    expected.color_table().map(|table| table.as_bytes())
+                );
                 assert_eq!(actual.surface(), surface);
                 for plane in 0..surface.plane_count() {
                     assert_eq!(

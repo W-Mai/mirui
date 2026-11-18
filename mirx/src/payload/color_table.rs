@@ -12,7 +12,8 @@ pub struct ColorTableView<'a> {
 }
 
 impl<'a> ColorTableView<'a> {
-    pub(crate) fn from_rgba_bytes(rgba: &'a [u8]) -> Option<Self> {
+    /// Borrows whole RGBA entries, including an empty table. A partial entry returns `None`.
+    pub fn from_rgba_bytes(rgba: &'a [u8]) -> Option<Self> {
         rgba.chunks_exact(4)
             .remainder()
             .is_empty()

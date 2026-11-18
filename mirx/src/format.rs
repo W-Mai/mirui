@@ -57,6 +57,15 @@ impl ColorFormat {
         self as u8
     }
 
+    /// Width of an indexed pixel in bits. Other formats return `None`.
+    pub const fn indexed_bit_depth(self) -> Option<u8> {
+        if self.palette_entries().is_some() {
+            Some(self.bits_per_pixel())
+        } else {
+            None
+        }
+    }
+
     pub const fn palette_entries(self) -> Option<u32> {
         match self {
             Self::I1 => Some(2),

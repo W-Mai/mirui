@@ -1,3 +1,18 @@
+use crate::ColorFormat;
+
+/// Reads a packed palette index at an MSB-first bit offset in one row. The caller checks the image width when the row contains padding.
+#[inline]
+pub fn read_index_at(row: &[u8], bit_offset: usize, format: ColorFormat) -> Option<u8> {
+    let depth = format.indexed_bit_depth()?;
+    let byte = bit_offset / 8;
+    let bit = (bit_offset % 8) as u8;
+    let mut value = *row.get(byte)? << bit;
+    if bit + depth > 8 {
+        value |= *row.get(byte + 1)? >> (8 - bit);
+    }
+    Some(value >> (8 - depth))
+}
+
 /// Copies validated MSB-first sample bits while preserving neighbouring bits.
 /// Starts are intra-byte offsets; the caller has already checked both spans.
 pub(crate) fn copy(
@@ -65,6 +80,24 @@ pub(super) fn clear(target: &mut [u8], mut target_bit: u8, mut bits: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn indexed_rows_use_msb_first_samples_across_byte_boundaries() {
+        let row = [0b1011_0001, 0b1000_0101];
+        for (format, bits, first, tail) in [
+            (ColorFormat::I1, 1, 1, 1),
+            (ColorFormat::I2, 2, 2, 1),
+            (ColorFormat::I4, 4, 11, 5),
+            (ColorFormat::I8, 8, 177, 133),
+        ] {
+            assert_eq!(read_index_at(&row, 0, format), Some(first));
+            assert_eq!(read_index_at(&row, 16 - bits, format), Some(tail));
+            assert_eq!(read_index_at(&row, 17 - bits, format), None);
+        }
+        assert_eq!(read_index_at(&row, 6, ColorFormat::I4), Some(6));
+        assert_eq!(read_index_at(&row, usize::MAX, ColorFormat::I8), None);
+        assert_eq!(read_index_at(&row, 0, ColorFormat::A4), None);
+    }
 
     #[test]
     fn every_bit_offset_preserves_exact_source_samples_and_target_neighbours() {

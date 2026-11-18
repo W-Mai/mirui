@@ -110,6 +110,7 @@ pub use raw_layout::RawImageLayout;
 pub use raw_scan::RawImageScan;
 pub use reference::{ImageReadError, ImageRef};
 pub use region::RegionMemoryPlan;
+pub use samples::read_index_at;
 pub(crate) use surface::SURFACE_RECORD_LEN;
 pub use surface::{SurfaceDescriptor, SurfaceError, SurfaceFlags, SurfaceRecordError};
 pub(crate) use units::ScalarProfile;
