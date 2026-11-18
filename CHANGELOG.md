@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Read and write ordered sprite layers, pivot and spacing in an optional MIRX extension alongside a standard image atlas. Mirui can load the sprite and borrow mapped atlas pixels.
+
 - Project aircraft cells from a shared grid origin in Pixel Flight.
 
 - Clip projected Pixel Flight trails to each drawing region before sampling segments.
