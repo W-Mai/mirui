@@ -10,6 +10,7 @@ use mirx::extension::sprite_stack::{StackDescriptor, StackError};
 pub struct SpriteStackAsset {
     descriptor: StackDescriptor<'static>,
     atlas: Texture<'static>,
+    file: &'static [u8],
 }
 
 /// Reports malformed placement, unsupported atlas data or nonbinary alpha.
@@ -64,7 +65,11 @@ impl SpriteStackAsset {
                 }
             }
         }
-        Ok(Self { descriptor, atlas })
+        Ok(Self {
+            descriptor,
+            atlas,
+            file: bytes,
+        })
     }
 
     pub const fn descriptor(&self) -> StackDescriptor<'static> {
@@ -74,6 +79,12 @@ impl SpriteStackAsset {
     /// Borrows the image shared by all slices.
     pub fn atlas(&self) -> &Texture<'static> {
         &self.atlas
+    }
+
+    /// The validated descriptor reserves at least one immutable file byte per
+    /// layer. Its address distinguishes layers and survives decoded atlas eviction.
+    pub(crate) fn layer_revision(&self, index: usize) -> u64 {
+        core::ptr::from_ref(&self.file[index]) as usize as u64
     }
 }
 

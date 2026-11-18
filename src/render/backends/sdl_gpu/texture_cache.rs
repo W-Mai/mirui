@@ -272,6 +272,49 @@ mod tests {
     use crate::types::Color;
 
     #[test]
+    fn strided_sprite_layers_reuse_completed_uploads_and_distinguish_revisions() {
+        use crate::render::texture::{AlphaMode, ColorFormat};
+        use sdl2::pixels::PixelFormatEnum;
+        let canvas = sdl2::surface::Surface::new(1, 2, PixelFormatEnum::RGBA32)
+            .unwrap()
+            .into_canvas()
+            .unwrap();
+        let creator = canvas.texture_creator();
+        let device = Rc::new(Device::new(canvas, creator).unwrap());
+        let mut cache = TextureCache::new(device.clone(), 4096);
+        let mut bytes = [1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255];
+        let mut read = |bytes: &[u8; 16], x, revision| {
+            let parent = Texture::from_ref(bytes, 2, 2, ColorFormat::RGBA8888).unwrap();
+            let slice = parent
+                .pixels_in(Region::new(x, 0, 1, 2).unwrap())
+                .unwrap()
+                .unwrap();
+            let pixels = slice.pixels().unwrap();
+            let mut texture = Texture::from_ref(pixels.bytes(), 1, 2, pixels.format())
+                .unwrap()
+                .with_stride(pixels.stride())
+                .unwrap()
+                .with_cache_revision(revision);
+            texture.alpha_mode = AlphaMode::Blend;
+            cache
+                .with_texture(&texture, CompositeMode::SourceOver, None, |source, _| {
+                    let mut canvas = device.canvas().unwrap();
+                    canvas.copy(source, None, None).unwrap();
+                    canvas.read_pixels(None, PixelFormatEnum::RGBA32).unwrap()
+                })
+                .unwrap()
+        };
+        assert_eq!(read(&bytes, 1, 3), [4, 5, 6, 255, 10, 11, 12, 255]);
+        assert_eq!(read(&bytes, 0, 1), [1, 2, 3, 255, 7, 8, 9, 255]);
+        bytes[0] = 122;
+        // Deliberately retain the old test revision. A second upload would
+        // expose the changed byte, while a cache hit preserves the original.
+        assert_eq!(read(&bytes, 0, 1)[0], 1);
+        assert_eq!(read(&bytes, 0, 2)[0], 122);
+        assert_eq!(cache.pool.stats().hit_count, 1);
+    }
+
+    #[test]
     fn radial_entries_share_image_budget_own_palette_values_and_reuse_after_source_drop() {
         let canvas = sdl2::surface::Surface::new(16, 16, sdl2::pixels::PixelFormatEnum::RGBA32)
             .unwrap()
