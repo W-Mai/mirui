@@ -1,9 +1,28 @@
 use super::*;
+use crate::render::texture::TexturePixelsMut;
 use crate::types::Color;
 
 // A rotated 32-pixel core spans at most 45 samples; retain two halo pixels per side.
 pub(super) const TILE_SIDE: usize = 32;
 pub(super) const SOURCE_SIDE: usize = 50;
+
+fn write_rgb565(canvas: &Canvas<'_>, target: &mut TexturePixelsMut<'_>, rect: [i32; 4]) {
+    let [left, top, right, bottom] = rect;
+    let width = (right - left) as usize;
+    debug_assert_eq!(target.format(), ColorFormat::RGB565);
+    let stride = target.stride();
+    let bytes = target.bytes_mut();
+    for y in top..bottom {
+        let src = canvas.index(left, y) * 4;
+        let dst = y as usize * stride + left as usize * 2;
+        let row = &canvas.bytes[src..src + width * 4];
+        let output = &mut bytes[dst..dst + width * 2];
+        for (rgba, out) in row.chunks_exact(4).zip(output.chunks_exact_mut(2)) {
+            let color = Color::rgb(rgba[0], rgba[1], rgba[2]);
+            out.copy_from_slice(&(ColorFormat::RGB565.pack(&color) as u16).to_le_bytes());
+        }
+    }
+}
 
 impl Raster {
     pub(super) fn render_compact(
@@ -52,12 +71,35 @@ impl Raster {
         }
         let output_tile = output_tile.as_mut().expect("compact color workspace");
         let mut target = frame.texture.pixels_mut().expect("owned compact frame");
-        for y in (0..height).step_by(TILE_SIDE) {
-            for x in (0..width).step_by(TILE_SIDE) {
-                let right = (x + TILE_SIDE).min(width) as i32;
-                let bottom = (y + TILE_SIDE).min(height) as i32;
+        // Without an inverse roll or cockpit overlay, the source columns are the output columns.
+        // March them over the full height, keeping the two-pixel outline halo on either side.
+        let strip_pitch = (!mapping.rolled && prepared_cockpit.is_none())
+            .then(|| (SOURCE_SIDE * SOURCE_SIDE / height).min(SOURCE_SIDE));
+        let (tile_width, tile_height) =
+            strip_pitch.map_or((TILE_SIDE, TILE_SIDE), |pitch| (pitch - 4, height));
+        for y in (0..height).step_by(tile_height) {
+            for x in (0..width).step_by(tile_width) {
+                let right = (x + tile_width).min(width) as i32;
+                let bottom = (y + tile_height).min(height) as i32;
                 let x = x as i32;
                 let y = y as i32;
+                if let Some(pitch) = strip_pitch {
+                    workspace.with_extent(
+                        sheet,
+                        [pitch, height],
+                        mapping.size,
+                        [x - 2, 0],
+                        mapping.bounds,
+                        |canvas| {
+                            scene.draw_ordered(canvas, mapping.projection, &order, &prepared_jets);
+                            for query in &mut pending[..count] {
+                                query.resolve(canvas);
+                            }
+                            write_rgb565(canvas.color, &mut target, [x, y, right, bottom]);
+                        },
+                    );
+                    continue;
+                }
                 let covered = prepared_cockpit.as_ref().is_some_and(|prepared| {
                     cockpit.covers([x, y, right, bottom], prepared, &mut workspace.mask)
                 });
@@ -138,12 +180,7 @@ impl Raster {
                         if let Some(prepared) = &prepared_cockpit {
                             cockpit.draw_prepared(canvas, world, flight, prepared);
                         }
-                        for yy in y..bottom {
-                            for xx in x..right {
-                                let [r, g, b, a] = canvas.get(canvas.index(xx, yy)).to_le_bytes();
-                                target.set_pixel(xx, yy, &Color::rgba(r, g, b, a));
-                            }
-                        }
+                        write_rgb565(canvas, &mut target, [x, y, right, bottom]);
                     },
                 );
             }

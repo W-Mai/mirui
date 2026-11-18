@@ -295,17 +295,28 @@ impl Frame {
         bounds: [i32; 4],
         f: impl FnOnce(&mut Canvas<'_>) -> R,
     ) -> R {
+        self.with_extent([self.width, self.height], virtual_size, origin, bounds, f)
+    }
+    fn with_extent<R>(
+        &mut self,
+        extent: [usize; 2],
+        virtual_size: [usize; 2],
+        origin: [i32; 2],
+        bounds: [i32; 4],
+        f: impl FnOnce(&mut Canvas<'_>) -> R,
+    ) -> R {
         assert_eq!(self.texture.format, ColorFormat::RGBA8888);
         let mut pixels = self.texture.pixels_mut().expect("owned flight frame");
+        let bytes = &mut pixels.bytes_mut()[..extent[0] * extent[1] * 4];
         let mut canvas = Canvas {
-            bytes: pixels.bytes_mut(),
+            bytes,
             width: virtual_size[0],
             height: virtual_size[1],
             bounds,
             clip: bounds,
-            pitch: self.width,
+            pitch: extent[0],
             origin,
-            extent: [self.width, self.height],
+            extent,
         };
         canvas.set_bounds(bounds);
         f(&mut canvas)
@@ -351,15 +362,32 @@ impl Workspace {
         bounds: [i32; 4],
         draw: impl FnOnce(&mut SceneCanvas<'_, '_>) -> R,
     ) -> R {
-        let count = frame.width * frame.height;
-        let width = frame.width;
-        frame.with_region(virtual_size, origin, bounds, |color| {
+        self.with_extent(
+            frame,
+            [frame.width, frame.height],
+            virtual_size,
+            origin,
+            bounds,
+            draw,
+        )
+    }
+    fn with_extent<R>(
+        &mut self,
+        frame: &mut Frame,
+        extent: [usize; 2],
+        virtual_size: [usize; 2],
+        origin: [i32; 2],
+        bounds: [i32; 4],
+        draw: impl FnOnce(&mut SceneCanvas<'_, '_>) -> R,
+    ) -> R {
+        let count = extent[0] * extent[1];
+        frame.with_extent(extent, virtual_size, origin, bounds, |color| {
             draw(&mut SceneCanvas {
                 color,
                 depth: &mut self.depth[..count],
                 mask: &mut self.mask[..count],
                 backdrop: &mut self.backdrop[..count],
-                columns: &mut self.columns[..width],
+                columns: &mut self.columns[..extent[0]],
             })
         })
     }
