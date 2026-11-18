@@ -538,7 +538,8 @@ impl<'frame> PaintCtx<'frame> {
         }
     }
 
-    pub(crate) fn fail(&mut self, error: RenderError) {
+    /// Records the first error encountered while preparing or drawing this View. Subsequent draws skip submission and the render walker receives the failure.
+    pub fn fail(&mut self, error: RenderError) {
         if self.error.is_none() {
             self.error = Some(error);
         }

@@ -3,12 +3,11 @@
 //! The optional chunk identifies the file's primary IMAGE by role. Moving the
 //! chunk table leaves its payload valid. Layer zero is the bottom layer.
 
-use super::{Extension, Policy, Relocation};
-use crate::image::{AtlasMap, AtlasMapError, ImageReadError};
-use crate::reader::ReadError;
-use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
-use crate::{ChunkFlags, ChunkType, Reader};
 use alloc::vec;
+use mirx::extension::{Extension, Policy, Relocation};
+use mirx::image::{AtlasMap, AtlasMapError, ImageReadError};
+use mirx::reader::ReadError;
+use mirx::{ChunkFlags, ChunkType, Reader};
 
 /// Noncritical sprite-stack descriptor chunk. Its payload starts with `SSTK`.
 pub const CHUNK_TYPE: ChunkType = ChunkType::new(0x5353).unwrap();
@@ -134,9 +133,9 @@ impl<'a> StackDescriptor<'a> {
         if header[..4] != *b"SSTK" {
             return Err(StackError::InvalidHeader);
         }
-        let u16_at = |offset| read_u16_le(header, offset).expect("fixed sprite-stack header");
+        let u16_at = |i| u16::from_le_bytes([header[i], header[i + 1]]);
         let i32_at =
-            |offset| read_u32_le(header, offset).expect("fixed sprite-stack header") as i32;
+            |i| i32::from_le_bytes([header[i], header[i + 1], header[i + 2], header[i + 3]]);
         let version = u16_at(4);
         if version != VERSION {
             return Err(StackError::UnsupportedVersion(version));
@@ -179,21 +178,30 @@ impl<'a> StackDescriptor<'a> {
         let len = self.encoded_len();
         let bytes = out.get_mut(..len).ok_or(StackError::OutputTooSmall)?;
         bytes[..4].copy_from_slice(b"SSTK");
-        write_u16_le(bytes, 4, VERSION);
-        write_u16_le(bytes, 6, self.canvas.0);
-        write_u16_le(bytes, 8, self.canvas.1);
-        write_u16_le(bytes, 10, self.layers.len() as u16);
-        write_u32_le(bytes, 12, self.pivot[0] as u32);
-        write_u32_le(bytes, 16, self.pivot[1] as u32);
-        write_u32_le(bytes, 20, self.spacing as u32);
+        let dimensions = [
+            VERSION,
+            self.canvas.0,
+            self.canvas.1,
+            self.layers.len() as u16,
+        ];
+        for (field, value) in bytes[4..12].chunks_exact_mut(2).zip(dimensions) {
+            field.copy_from_slice(&value.to_le_bytes());
+        }
+        for (field, value) in bytes[12..HEADER_BYTES].chunks_exact_mut(4).zip([
+            self.pivot[0],
+            self.pivot[1],
+            self.spacing,
+        ]) {
+            field.copy_from_slice(&value.to_le_bytes());
+        }
         for (out, region) in bytes[HEADER_BYTES..]
             .chunks_exact_mut(REGION_BYTES)
             .zip(self.layers)
         {
-            write_u32_le(out, 0, region.x());
-            write_u32_le(out, 4, region.y());
-            write_u32_le(out, 8, region.width());
-            write_u32_le(out, 12, region.height());
+            let rect = [region.x(), region.y(), region.width(), region.height()];
+            for (field, value) in out.chunks_exact_mut(4).zip(rect) {
+                field.copy_from_slice(&value.to_le_bytes());
+            }
         }
         Ok(len)
     }

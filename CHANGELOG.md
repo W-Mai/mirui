@@ -7,9 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Display layered sprites with the `SpriteStack` widget. Asset, yaw, pitch, scale and layer spacing support reactive bindings.
-
-- Read and write ordered sprite layers, pivot and spacing in an optional MIRX extension alongside a standard image atlas. Mirui can load the sprite and borrow mapped atlas pixels.
+- Add the standalone `mirui-sprite-stack` extension with an atlas descriptor and a reactive widget. Applications opt in with a Cargo dependency. Format tools can disable the widget feature.
 
 - Project aircraft cells from a shared grid origin in Pixel Flight.
 

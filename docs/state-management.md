@@ -618,6 +618,29 @@ Registration retains a shared attachment/input plan in registration order. Per-n
 
 `ui!` seeds the primary component and static text content, prepares binding captures, inserts static component attachments in source order, and invokes matching attachment hooks once before running reactive initial values. Preparing captures does not evaluate reactive expressions or register effects. Layout containers with component attachments participate in the same initialization; plain containers without a matching gesture capability do not gain input feedback. Prepared callbacks stay on the construction stack until installation and reuse the existing effect runtime.
 
+A custom widget can declare a display binding on a named component field with `#[property(P)]`, where `P` implements `mirui::ui::property::Property`. For example, a meter can expose its existing `MeterLevel` property on the `level` field:
+
+```rust,ignore
+#[component]
+#[derive(Default)]
+pub struct Meter {
+    #[property(MeterLevel)]
+    pub level: u32,
+}
+
+#[compose]
+fn meters(level: model!(Signal<u32>)) -> Entity {
+    ui! {
+        Column () {
+            Meter (level: 25_u32)
+            Meter (level: ${ level.get() })
+        }
+    }
+}
+```
+
+The first meter initializes its field once. The second converts each reactive value to `MeterLevel::Value` and invokes `MeterLevel::apply` after attachment. The property compares values and returns the appropriate `PropertyChange`. A cached branch pauses the binding while inactive and reads the latest value on selection. Widget retirement releases the binding. Use component-specific attribute names for these fields. Shared layout and style attributes such as `width` and `bg_color` retain their standard meaning. [Complete example and lifecycle test](../tests/compose_props.rs)
+
 `LazyList` supplies each retained cell with a `ListItem` Model. Reading `item.index()` in a reactive property binds it to the cell's current data index; inactive cells suspend their bindings until reused. Persistent selection and editing state belong in a business Model keyed by data identity, not the recycled Entity. See [scrolling and virtualized cells](scrolling.md#virtualized-cells) for cell construction, viewport behavior, and input handling.
 
 An empty `#[view]` function declares a widget without a paint hook:

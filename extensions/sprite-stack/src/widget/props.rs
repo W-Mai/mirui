@@ -1,9 +1,11 @@
+//! Typed properties for updating a mounted sprite.
+
 use super::{LayerSpacing, SpriteStack};
-use crate::core::cache::Handle;
-use crate::ecs::{Entity, World, world::ComponentChangeKind};
-use crate::render::sprite_stack::SpriteStackAsset;
-use crate::types::Fixed;
-use crate::ui::property::{Property, PropertyChange};
+use crate::SpriteStackAsset;
+use mirui::core::cache::Handle;
+use mirui::ecs::{Entity, World};
+use mirui::types::Fixed;
+use mirui::ui::property::{Property, PropertyChange};
 
 pub struct SpriteAsset;
 
@@ -20,7 +22,7 @@ impl Property for SpriteAsset {
             return PropertyChange::Unchanged;
         }
         world
-            .get_mut_with_change::<SpriteStack>(entity, ComponentChangeKind::Visual)
+            .get_mut::<SpriteStack>(entity)
             .expect("checked sprite")
             .asset = Some(value);
         PropertyChange::Visual
@@ -40,7 +42,7 @@ macro_rules! sprite_field {
                     return PropertyChange::Unchanged;
                 }
                 world
-                    .get_mut_with_change::<SpriteStack>(entity, ComponentChangeKind::Visual)
+                    .get_mut::<SpriteStack>(entity)
                     .expect("checked sprite")
                     .$field = value;
                 PropertyChange::Visual

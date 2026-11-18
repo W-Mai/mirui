@@ -8,10 +8,9 @@ use super::{
 };
 use crate::render::{
     renderer::RenderError,
-    sprite_stack::grid::GridBasis,
     texture::{ColorFormat, Texture},
 };
-use crate::types::{Color, Fixed, Fixed64};
+use crate::types::{Color, Fixed, Fixed64, GridBasis};
 use alloc::{vec, vec::Vec};
 pub const MAX_WIDTH: usize = 480;
 pub const MAX_HEIGHT: usize = 300;

@@ -20,7 +20,6 @@ pub mod renderer;
 mod sampling;
 pub mod scene;
 pub mod scratch;
-pub mod sprite_stack;
 pub mod target;
 pub mod texture;
 

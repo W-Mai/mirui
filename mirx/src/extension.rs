@@ -1,7 +1,5 @@
 use alloc::vec::Vec;
 
-pub mod sprite_stack;
-
 use crate::document::raw::{PayloadInput, RawChunkInput};
 use crate::document::{Document, EditError};
 use crate::{ChunkFlags, ChunkId, ChunkType};

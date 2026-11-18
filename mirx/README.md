@@ -438,8 +438,6 @@ Modified CHUNK output is deterministic: descriptor order is stable, padding is c
 
 ## Opaque extensions
 
-Layered sprites use a standard primary IMAGE atlas and an optional `extension::sprite_stack` descriptor. `StackDescriptor::from_reader(&reader)` borrows the ordered layer rectangles, canvas size, pivot and spacing. Layers are ordered from bottom to top. Empty rectangles retain their layer height. A reader can display the atlas using the standard image API. An editor that reorders sprite files can supply the module's `relocation_policy()` for `CHUNK_TYPE`.
-
 An `Extension` carries type, flags, payload ownership, and rewrite policy as one value:
 
 ```rust,no_run

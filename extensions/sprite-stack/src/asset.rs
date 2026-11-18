@@ -1,6 +1,6 @@
-use crate::render::RenderError;
-use crate::render::texture::{ColorFormat, MirxLoadError, MirxTextureOptions, Texture};
-use mirx::extension::sprite_stack::{StackDescriptor, StackError};
+use crate::format::{StackDescriptor, StackError};
+use mirui::render::RenderError;
+use mirui::render::texture::{ColorFormat, MirxLoadError, MirxTextureOptions, Texture};
 
 /// Shared image and slice placement for a layered sprite.
 ///

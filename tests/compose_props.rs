@@ -333,6 +333,85 @@ fn hidden_niche_inputs_resume_with_the_latest_value() {
     assert_eq!(app.world.query::<Text>().collect(), entities);
 }
 
+#[derive(Default)]
+struct Forwarded(Prop<u32>);
+
+impl From<Prop<u32>> for Forwarded {
+    fn from(value: Prop<u32>) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Default)]
+#[component]
+struct Meter {
+    #[property(MeterLevel)]
+    level: u32,
+    source: Forwarded,
+    writes: usize,
+}
+
+struct MeterLevel;
+
+impl mirui::ui::property::Property for MeterLevel {
+    type Value = u32;
+
+    fn apply(
+        world: &mut mirui::ecs::World,
+        entity: Entity,
+        value: u32,
+    ) -> mirui::ui::property::PropertyChange {
+        use mirui::ui::property::PropertyChange;
+        if world
+            .get::<Meter>(entity)
+            .is_none_or(|meter| meter.level == value)
+        {
+            return PropertyChange::Unchanged;
+        }
+        let meter = world.get_mut::<Meter>(entity).unwrap();
+        meter.level = value;
+        meter.writes += 1;
+        PropertyChange::Visual
+    }
+}
+
+#[compose]
+fn conditional_meter(shown: model!(Signal<bool>), value: model!(Signal<u32>)) -> Entity {
+    ui! {
+        Column () {
+            if ${ shown.get() } {
+                Meter (level: ${ value.get() / 2 }, source: ${ value.get() })
+            }
+        }
+    }
+}
+
+#[test]
+fn component_declared_display_properties_pause_and_forwarded_getters_remain_lazy() {
+    let mut app = App::headless(64, 64);
+    let root = app.spawn_root().id();
+    let shown = Signal::new(true);
+    let value = Signal::new(6);
+    app.compose(root, conditional_meter(shown.clone(), value.clone()));
+    let meter = app.world.query::<Meter>().collect()[0];
+    let state = |world: &mirui::ecs::World| {
+        let fields = world.get::<Meter>(meter).unwrap();
+        (fields.level, fields.writes, fields.source.0.get())
+    };
+    assert_eq!(state(&app.world), (3, 1, 6));
+    value.set(7);
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(state(&app.world), (3, 1, 7));
+    shown.set(false);
+    flush_signal_dirty(&mut app.world);
+    value.set(12);
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(state(&app.world), (3, 1, 12));
+    shown.set(true);
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(state(&app.world), (6, 2, 12));
+}
+
 #[test]
 fn niche_retirement_releases_inputs_and_never_updates_reused_entities() {
     let mut app = App::headless(64, 64);

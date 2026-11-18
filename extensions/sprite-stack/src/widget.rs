@@ -1,12 +1,11 @@
 //! A stack of parallel sprite layers, projected into a widget rectangle.
 //!
-//! Register `sprite_stack::view()` with the App, load the MIRX atlas once with `SpriteStackAsset::from_mirx`, and share it through a `Handle`. Yaw and pitch are degrees. Positive pitch looks down on the stack. An omitted layer spacing uses the distance stored in the asset.
+//! Register `mirui_sprite_stack::view()` with the App, load the MIRX atlas once with `SpriteStackAsset::from_mirx`, and share it through a `Handle`. Yaw and pitch are degrees. Positive pitch looks down on the stack. An omitted layer spacing uses the distance stored in the asset.
 //!
 //! ```no_run
 //! use mirui::core::cache::Handle;
 //! use mirui::prelude::*;
-//! use mirui::render::sprite_stack::SpriteStackAsset;
-//! use mirui::ui::widgets::SpriteStack;
+//! use mirui_sprite_stack::{SpriteStack, SpriteStackAsset};
 //!
 //! #[mirui::compose]
 //! fn vehicle(car: Handle<SpriteStackAsset>, heading: Signal<Fixed>) -> Entity {
@@ -16,13 +15,13 @@
 //! }
 //! ```
 
-use crate::core::cache::Handle;
-use crate::render::sprite_stack::SpriteStackAsset;
-use crate::types::Fixed;
-use crate::ui::{OffscreenRender, View};
+use crate::SpriteStackAsset;
+use mirui::core::cache::Handle;
+use mirui::types::Fixed;
+use mirui::ui::{OffscreenRender, View};
 
 mod draw;
-pub(crate) mod props;
+pub mod props;
 
 /// Uses the asset's layer spacing until the author supplies a distance.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -35,12 +34,17 @@ impl<T: Into<Fixed>> From<T> for LayerSpacing {
 }
 
 /// A layered sprite. Angles use degrees and scale is logical pixels per model pixel.
-#[crate::component]
+#[mirui::component]
 pub struct SpriteStack {
+    #[property(props::SpriteAsset)]
     pub asset: Option<Handle<SpriteStackAsset>>,
+    #[property(props::SpriteYaw)]
     pub yaw: Fixed,
+    #[property(props::SpritePitch)]
     pub pitch: Fixed,
+    #[property(props::SpriteScale)]
     pub scale: Fixed,
+    #[property(props::SpriteSpacing)]
     pub layer_spacing: LayerSpacing,
 }
 
@@ -65,7 +69,7 @@ impl SpriteStack {
     }
 }
 
-#[crate::event]
+#[mirui::event]
 fn attach(
     entity: entity!(),
     sprites: query!(SpriteStack, optional OffscreenRender),
@@ -76,7 +80,7 @@ fn attach(
     }
 }
 
-#[crate::view(component = SpriteStack, name = "SpriteStack", priority = 60, invalidation = Visual, attach = attach::callback())]
+#[mirui::view(component = SpriteStack, name = "SpriteStack", priority = 60, invalidation = Visual, attach = attach::callback())]
 fn sprite(component: component!(), paint: paint!()) {
     if let Err(error) = draw::paint(component, paint) {
         paint.fail(error);
@@ -86,6 +90,3 @@ fn sprite(component: component!(), paint: paint!()) {
 pub fn view() -> View {
     sprite::view()
 }
-
-#[cfg(test)]
-mod tests;

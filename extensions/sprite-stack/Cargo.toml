@@ -1,0 +1,22 @@
+[package]
+name = "mirui-sprite-stack"
+version = "0.56.0"
+edition = "2024"
+license = "MIT"
+description = "Layered MIRX sprites and a reactive Mirui view"
+publish = false
+
+[features]
+default = ["widget"]
+widget = ["dep:mirui"]
+
+[dependencies]
+mirx = { path = "../../mirx" }
+mirui = { path = "../..", default-features = false, optional = true }
+
+[dev-dependencies]
+mirui = { path = "../..", default-features = false, features = ["std"] }
+
+[[example]]
+name = "turntable"
+required-features = ["widget", "mirui/sdl"]

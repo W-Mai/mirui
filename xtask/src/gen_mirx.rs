@@ -14,18 +14,6 @@ pub fn cmd_gen_mirx(args: &[String]) -> Result {
         "builtin-font" => builtin_font::run(&args[1..]),
         "font" => font::run(&args[1..]),
         "frames" => frames::run(&args[1..]),
-        "sprite-stack" => {
-            probe_icu()?;
-            let status = std::process::Command::new(icu_program())
-                .arg("sprite-stack")
-                .args(&args[1..])
-                .status()?;
-            if status.success() {
-                Ok(())
-            } else {
-                Err(format!("icu sprite-stack exited with {status}").into())
-            }
-        }
         "image" => image::run(&args[1..]),
         "bundle" => bundle::run(&args[1..]),
         "vector" => vector::run(&args[1..]),
@@ -70,11 +58,10 @@ pub fn cmd_gen_mirx(args: &[String]) -> Result {
                      [--output-memory <cpu|shared-coherent|shared-noncoherent>] \
     \
                      [--workspace-memory <cpu|shared-coherent|shared-noncoherent>] [--quality <1..100>]\n  \
-                 cargo xtask gen-mirx sprite-stack <model.obj|layers.png...> --out <sprite.mirx> [--resolution <cells>]\n  \
                  cargo xtask gen-mirx bundle <a.mirx> <b.mirx> ... --out <bundle.mirx>\n  \
                  cargo xtask gen-mirx vector --in <scene.txt> --out <scene.mirx>\n\
                  \n\
-                 font/image/frames/sprite-stack/bundle use the icu tool for source decoding.\n\
+                 font/image/frames/bundle use the icu tool for source decoding.\n\
                  install: cargo install icu_tool  \
                  (or brew install w-mai/homebrew-cellar/icu_tool)"
             );

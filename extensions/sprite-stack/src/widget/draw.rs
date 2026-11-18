@@ -1,26 +1,27 @@
 use super::SpriteStack;
-use crate::render::RenderError;
-use crate::render::command::{CompositeMode, DrawCommand};
-use crate::render::sprite_stack::grid::GridBasis;
-use crate::render::texture::{AlphaMode, Texture, TexturePixels};
-use crate::types::{Fixed, Point, Rect, Transform, fixed::storage::to_i32};
-use crate::ui::view::PaintCtx;
+use mirui::render::RenderError;
+use mirui::render::command::{CompositeMode, DrawCommand};
+use mirui::render::texture::{AlphaMode, Texture, TexturePixels};
+use mirui::types::{Fixed, Fixed64, GridBasis, Point, Rect, Transform};
+use mirui::ui::view::PaintCtx;
 
 fn sin_cos(degrees: Fixed) -> (Fixed, Fixed) {
-    const QUARTER: i32 = to_i32(Fixed::from_int(90));
-    const HALF: i32 = 2 * QUARTER;
-    const THREE_QUARTERS: i32 = 3 * QUARTER;
-    let raw = to_i32(degrees).rem_euclid(4 * QUARTER);
-    match raw {
-        0 => (Fixed::ZERO, Fixed::ONE),
+    const QUARTER: Fixed = Fixed::from_int(90);
+    const HALF: Fixed = Fixed::from_int(180);
+    const THREE_QUARTERS: Fixed = Fixed::from_int(270);
+    let angle = Fixed::from_int(degrees.to_int().rem_euclid(360)) + degrees.fract();
+    match angle {
+        Fixed::ZERO => (Fixed::ZERO, Fixed::ONE),
         QUARTER => (Fixed::ONE, Fixed::ZERO),
         HALF => (Fixed::ZERO, -Fixed::ONE),
         THREE_QUARTERS => (-Fixed::ONE, Fixed::ZERO),
-        _ => {
-            let angle = Fixed::from_ratio(raw, 256);
-            (Fixed::sin_deg(angle), Fixed::cos_deg(angle))
-        }
+        _ => (Fixed::sin_deg(angle), Fixed::cos_deg(angle)),
     }
+}
+
+// Sprite metadata expresses pivot and layer spacing in 1/256 model pixels.
+fn q8(value: Fixed) -> i64 {
+    (Fixed64::from(value) * 256).to_int()
 }
 
 /// Checks fixed-point projection range before camera basis arithmetic.
@@ -33,10 +34,8 @@ fn fits(canvas: (u16, u16), pivot: [i32; 2], height: i64, scale: Fixed, center: 
                 let pivot = i64::from(pivot);
                 sum.saturating_add(pivot.abs().max((i64::from(length) * 256 - pivot).abs()))
             });
-    let screen = extent.saturating_mul(i64::from(to_i32(scale))) / 256;
-    let center = i64::from(to_i32(center.x))
-        .abs()
-        .max(i64::from(to_i32(center.y)).abs());
+    let screen = extent.saturating_mul(q8(scale)) / 256;
+    let center = q8(center.x).abs().max(q8(center.y).abs());
     screen.saturating_add(center) < i64::from(i32::MAX) - 256
 }
 
@@ -58,7 +57,7 @@ pub(super) fn paint(sprite: &SpriteStack, paint: &mut PaintCtx<'_>) -> Result<()
         return Err(RenderError::InvalidGeometry);
     }
     let count = config.layers().len();
-    let height = i64::from(to_i32(spacing)) * (count as i64 - 1);
+    let height = q8(spacing) * (count as i64 - 1);
     if height > i64::from(i32::MAX)
         || !fits(
             config.canvas(),

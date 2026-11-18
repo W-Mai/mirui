@@ -1,10 +1,7 @@
-//! Camera-space steps along the columns and rows of an image layer.
+use super::Fixed;
 
-use crate::types::Fixed;
-
-/// A linear mapping from integer slice coordinates to three fixed-point camera axes.
-/// The caller chooses the camera axes and supplies a separate origin for each layer.
-/// Coordinates and their intermediate products must fit in the fixed-point range.
+/// Maps an integer grid to three fixed-point coordinates using column and row steps.
+/// Each axis uses the caller's origin. Coordinates and intermediate products must fit in the fixed-point range.
 #[derive(Clone, Copy, Debug)]
 pub struct GridBasis {
     column: [Fixed; 3],
@@ -16,7 +13,7 @@ impl GridBasis {
         Self { column, row }
     }
 
-    /// Projects one axis independently, allowing depth rejection before computing screen position.
+    /// Projects a single axis.
     #[inline]
     pub fn axis(&self, origin: Fixed, axis: usize, x: i32, y: i32) -> Fixed {
         origin + self.column[axis] * x + self.row[axis] * y
@@ -27,7 +24,7 @@ impl GridBasis {
         core::array::from_fn(|axis| self.axis(origin[axis], axis, x, y))
     }
 
-    /// Extrema along one axis over a rectangle in the layer's coordinate system.
+    /// Returns the extrema along one axis over a grid rectangle.
     #[inline]
     pub fn axis_range(&self, origin: Fixed, axis: usize, x: [i32; 2], y: [i32; 2]) -> [Fixed; 2] {
         let [a, b] = x.map(|v| self.column[axis] * v);

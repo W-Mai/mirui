@@ -1,5 +1,6 @@
 pub mod dimension;
 pub mod fixed;
+mod grid_basis;
 mod physical_rect;
 pub mod transform;
 pub mod transform_3d;
@@ -7,6 +8,7 @@ pub mod viewport;
 
 pub use dimension::{DimPoint, Dimension};
 pub use fixed::{Fixed, Fixed64};
+pub use grid_basis::GridBasis;
 pub use physical_rect::PhysicalRect;
 pub use transform::{Transform, TransformClass};
 pub use transform_3d::Transform3D;

@@ -130,7 +130,9 @@ macro_rules! __mirui_persistence {
 /// Runtime types used only by generated authoring macros.
 #[doc(hidden)]
 pub mod __macro_support {
-    pub use crate::ui::construction::{apply_component_field, component_event, component_type};
+    pub use crate::ui::construction::{
+        FieldProperty, ForwardProp, apply_component_field, component_event, component_type,
+    };
     pub fn despawn_subtree(world: &mut crate::ecs::World, entity: crate::ecs::Entity) {
         crate::ui::despawn_subtree(world, entity);
     }

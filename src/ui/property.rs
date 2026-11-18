@@ -171,9 +171,6 @@ pub(crate) fn invalidate_for_change(world: &mut World, entity: Entity, change: P
 pub mod prop {
     use super::{Property, PropertyChange};
     use crate::ecs::{Entity, World};
-    pub use crate::ui::widgets::sprite_stack::props::{
-        SpriteAsset, SpritePitch, SpriteScale, SpriteSpacing, SpriteYaw,
-    };
 
     pub struct TextPath;
     pub struct TextContent;

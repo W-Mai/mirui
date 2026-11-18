@@ -29,6 +29,8 @@ mod timer_attr;
 /// Declare entity data with optional Model fields and output dependencies.
 ///
 /// `#[depends_on(T)]` on an `Entity` or `Option<Entity>` field requests that source's current output. On the component type it refers to the owner. Type-level `#[retain_previous(T)]` requests owner history. Declarations activate when a View filtered by this component is registered; ordinary fields and component instances retain their authored types.
+///
+/// On a named custom component field, `#[property(P)]` binds a reactive `field: ${ expression }` through the declared [`Property`](https://docs.rs/mirui/latest/mirui/ui/property/trait.Property.html). The getter's result converts to `P::Value`. The display binding starts after View attachment, pauses in inactive branches, and is retired with the widget. Static field values initialize the component directly.
 #[proc_macro_attribute]
 pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = proc_macro2::TokenStream::from(attr);
@@ -270,11 +272,6 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
     match attr {
         "text" => Some("TextContent"),
         "src" if widget == "Image" => Some("ImageSource"),
-        "asset" if widget == "SpriteStack" => Some("SpriteAsset"),
-        "yaw" if widget == "SpriteStack" => Some("SpriteYaw"),
-        "pitch" if widget == "SpriteStack" => Some("SpritePitch"),
-        "scale" if widget == "SpriteStack" => Some("SpriteScale"),
-        "layer_spacing" if widget == "SpriteStack" => Some("SpriteSpacing"),
         "visible" => Some("Visible"),
         "bg_color" => Some("BackgroundColor"),
         "text_color" => Some("TextColor"),
@@ -309,8 +306,7 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
 fn binding_role(property: &syn::Ident) -> proc_macro2::TokenStream {
     let role = match property.to_string().as_str() {
         "Visible" | "Page" | "PageTransition" | "LazyListItems" | "LazyListExtent" => "Maintenance",
-        "SpriteAsset" | "SpriteYaw" | "SpritePitch" | "SpriteScale" | "SpriteSpacing"
-        | "TextContent" | "ImageSource" | "BackgroundColor" | "TextColor" | "BorderColor"
+        "TextContent" | "ImageSource" | "BackgroundColor" | "TextColor" | "BorderColor"
         | "BorderWidth" | "ButtonNormalColor" | "RenderKey" | "Transform" | "FontSize"
         | "Direction" | "Width" | "Height" | "Left" | "Top" | "Paragraph" | "TextPath"
         | "ProgressValue" | "SliderValue" | "SwitchOn" | "CheckboxChecked" | "ScrollOffset" => {
@@ -410,6 +406,7 @@ struct WidgetCmd {
     enchants: Vec<proc_macro2::TokenStream>,
     on_handlers: Vec<OnCmd>,
     component_fields: Vec<proc_macro2::TokenStream>,
+    field_bindings: Vec<syn::Ident>,
     text_tuple_value: Option<proc_macro2::TokenStream>,
     capacity: Option<proc_macro2::TokenStream>,
     preedit_capacity: Option<proc_macro2::TokenStream>,
@@ -428,6 +425,7 @@ struct ParsedAttrs {
     errors: Vec<proc_macro2::TokenStream>,
     component_inserts: Vec<proc_macro2::TokenStream>,
     component_fields: Vec<proc_macro2::TokenStream>,
+    field_bindings: Vec<syn::Ident>,
     text_tuple_value: Option<proc_macro2::TokenStream>,
     capacity: Option<proc_macro2::TokenStream>,
     preedit_capacity: Option<proc_macro2::TokenStream>,
@@ -510,6 +508,7 @@ impl MiruiRune {
         let mut errors = Vec::new();
         let mut component_inserts = Vec::new();
         let mut component_fields = Vec::new();
+        let mut field_bindings = Vec::new();
         let mut component_field_names = std::collections::BTreeSet::new();
         let mut text_tuple_value: Option<proc_macro2::TokenStream> = None;
         let mut capacity: Option<proc_macro2::TokenStream> = None;
@@ -683,12 +682,44 @@ impl MiruiRune {
                         || reactive_property(widget_name, &name).is_none())
                 {
                     let field = syn::Ident::new(&name, attr_span);
-                    let input = compose_input::getter(value, &self.props);
-                    component_fields.push(Self::field_init_tokens(
-                        &field,
-                        &input,
-                        &mut component_field_names,
-                    ));
+                    if !component_field_names.insert(name.clone()) {
+                        errors.push(
+                            syn::Error::new(
+                                attr_span,
+                                format!("duplicate component property `{field}`"),
+                            )
+                            .to_compile_error(),
+                        );
+                        continue;
+                    }
+                    let marker = quote::format_ident!("__mirui_property_{field}");
+                    let install = quote::format_ident!(
+                        "__mirui_install_{field}",
+                        span = proc_macro2::Span::mixed_site()
+                    );
+                    let value_name =
+                        syn::Ident::new("__mirui_value", proc_macro2::Span::mixed_site());
+                    let read = reactive_read(value);
+                    let once = compose_input::direct_prop(&attr.value, &self.props)
+                        .map_or_else(|| quote!(false), |input| quote!(#input.__mirui_is_static()));
+                    component_fields.push(quote! {
+                        let #install = {
+                            // An inherent field declaration selects a typed property. Components
+                            // without one keep the existing forwarded Prop conversion.
+                            #[allow(dead_code)]
+                            trait ForwardInput {
+                                fn #marker(&self) -> ::mirui::__macro_support::ForwardProp {
+                                    ::mirui::__macro_support::ForwardProp
+                                }
+                            }
+                            impl<T> ForwardInput for T {}
+                            __c.#marker().__mirui_prepare_field(&mut __c.#field, #once, move || {
+                                let #value_name = #read;
+                                ::core::convert::Into::into(#value_name)
+                            })
+                        };
+                    });
+                    field_bindings.push(install);
                     continue;
                 }
                 match reactive_property(widget_name, &name) {
@@ -876,6 +907,7 @@ impl MiruiRune {
             errors,
             component_inserts,
             component_fields,
+            field_bindings,
             text_tuple_value,
             capacity,
             preedit_capacity,
@@ -1227,15 +1259,16 @@ impl MiruiRune {
                 });
             } else {
                 let comp_fields = &cmd.component_fields;
+                let field_bindings = &cmd.field_bindings;
                 let kind = quote::format_ident!("{var}_kind");
                 tokens.extend(quote! {
-                    let #kind = {
+                    let (#kind, #(#field_bindings,)*) = {
                         #[allow(unused_mut, clippy::field_reassign_with_default)]
                         let mut __c = #comp_name::default();
                         #(#comp_fields)*
                         let __kind = ::mirui::__macro_support::component_type(&__c);
                         (#world).insert(#var, __c);
-                        __kind
+                        (__kind, #(#field_bindings,)*)
                     };
                 });
                 if cmd.name == "Button" {
@@ -1405,6 +1438,9 @@ impl MiruiRune {
             } else {
                 tokens.extend(quote! { #prepared.install(#world); });
             }
+        }
+        for install in &cmd.field_bindings {
+            tokens.extend(quote! { #install(#world, #var); });
         }
 
         if !cmd.layout_binds.is_empty() {
@@ -2356,6 +2392,7 @@ impl DsRune for MiruiRune {
             enchants: enchant_tokens,
             on_handlers: collected_on_handlers,
             component_fields: parsed.component_fields,
+            field_bindings: parsed.field_bindings,
             text_tuple_value: parsed.text_tuple_value,
             capacity: parsed.capacity,
             preedit_capacity: parsed.preedit_capacity,
@@ -3203,6 +3240,12 @@ impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
 
     fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
         syn::visit_mut::visit_expr_mut(self, expr);
+        if let syn::Expr::MethodCall(call) = expr
+            && call.method == "__mirui_prepare_field"
+            && let Some(closure @ syn::Expr::Closure(_)) = call.args.last_mut()
+        {
+            self.wrap(closure);
+        }
         let generated_event = matches!(expr, syn::Expr::MethodCall(call)
             if matches!(call.method.to_string().as_str(),
                 "__bind_callback" | "__bind_plain" | "__bind_deferred" | "__bind_params" | "__bind_params_deferred")

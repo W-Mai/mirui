@@ -1,8 +1,8 @@
 use super::*;
-use crate::Document;
-use crate::document::{EncodeOptions, OpenOptions};
-use crate::extension::SourcePolicy;
-use crate::image::{ColorDescription, RawImageAsset, Region, SampleLayout, SurfaceDescriptor};
+use mirx::Document;
+use mirx::document::{EncodeOptions, OpenOptions};
+use mirx::extension::SourcePolicy;
+use mirx::image::{ColorDescription, RawImageAsset, Region, SampleLayout, SurfaceDescriptor};
 
 #[test]
 fn editor_roundtrip_keeps_primary_atlas_and_ordered_empty_layers() {

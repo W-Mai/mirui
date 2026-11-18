@@ -1,13 +1,17 @@
-use super::*;
-use crate::core::reactive::Signal;
-use crate::prelude::*;
-use alloc::boxed::Box;
+#![cfg(feature = "widget")]
+
+use mirui::core::cache::Handle;
+use mirui::prelude::*;
+use mirui::ui::OffscreenRender;
+use mirui_sprite_stack::{SpriteStack, SpriteStackAsset, format::StackDescriptor, view};
 use mirx::Document;
 use mirx::document::EncodeOptions;
-use mirx::extension::sprite_stack::StackDescriptor;
 use mirx::image::{
     AtlasMap, ColorDescription, RawImageAsset, Region, SampleLayout, SurfaceDescriptor,
 };
+
+#[path = "support/allocations.rs"]
+mod allocations;
 
 const RED: [u8; 4] = [255, 0, 0, 255];
 const BLUE: [u8; 4] = [0, 0, 255, 255];
@@ -41,7 +45,7 @@ fn asset(colors: [[u8; 4]; 8]) -> Handle<SpriteStackAsset> {
     Handle::new(SpriteStackAsset::from_mirx(bytes).unwrap())
 }
 
-#[crate::compose]
+#[mirui::compose]
 fn pair(
     first: Signal<Handle<SpriteStackAsset>>,
     second: Handle<SpriteStackAsset>,
@@ -118,14 +122,80 @@ fn two_sprites_share_input_and_repaint_independent_poses() {
     let sprite = app.world.get::<SpriteStack>(first).unwrap();
     assert!(sprite.asset.as_ref().unwrap().ptr_eq(&all_blue));
     assert_eq!(sprite.yaw, Fixed::from_int(90));
-    assert_eq!(sprite.layer_spacing.0, Some(Fixed::from_int(2)));
+    assert!(sprite.layer_spacing == Fixed::from_int(2).into());
     pitch.set(Fixed::from_int(45));
     app.render_dirty().unwrap();
     yaw.set(Fixed::from_int(30));
     app.render_dirty().unwrap();
-    let hot_allocations = crate::test_support::tracked_allocations(|| {
+    let hot_allocations = allocations::tracked_allocations(|| {
         yaw.set(Fixed::from_int(31));
         app.render_dirty().unwrap();
     });
     assert_eq!(hot_allocations, 0);
+    scale.set(-Fixed::ONE);
+    assert_eq!(
+        app.render_dirty(),
+        Err(mirui::render::RenderError::InvalidGeometry)
+    );
+    scale.set(Fixed::ONE);
+    app.render_dirty().unwrap();
+    app.world
+        .widget_mut(first)
+        .unwrap()
+        .set::<mirui_sprite_stack::prop::SpriteYaw>(Fixed::from_int(180));
+    assert_eq!(
+        app.world.get::<SpriteStack>(first).unwrap().yaw,
+        Fixed::from_int(180)
+    );
+}
+
+#[mirui::compose]
+fn conditional(shown: Signal<bool>, angle: prop!(Fixed)) -> Entity {
+    ui! {
+        Column () {
+            if ${ shown.get() } {
+                SpriteStack (yaw: ${ angle })
+            }
+        }
+    }
+}
+
+#[test]
+fn hidden_sprite_resumes_its_display_property_at_the_latest_angle() {
+    use mirui::core::reactive::flush_signal_dirty;
+    use std::{cell::Cell, rc::Rc};
+
+    let mut app = App::headless(16, 16);
+    app.with_widget(view());
+    let root = app.spawn_root().id();
+    let shown = Signal::new(true);
+    let angle = Signal::new(Fixed::from_int(10));
+    let reads = Rc::new(Cell::new(0));
+    let getter = {
+        let reads = Rc::clone(&reads);
+        let angle = angle.clone();
+        Prop::new(move || {
+            reads.set(reads.get() + 1);
+            angle.get()
+        })
+    };
+    app.compose(root, conditional(shown.clone(), getter));
+    let (sprite, _) = app.world.query::<SpriteStack>().iter().next().unwrap();
+    shown.set(false);
+    flush_signal_dirty(&mut app.world);
+    let before = reads.get();
+    angle.set(Fixed::from_int(45));
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(reads.get(), before);
+    assert_eq!(
+        app.world.get::<SpriteStack>(sprite).unwrap().yaw,
+        Fixed::from_int(10)
+    );
+    shown.set(true);
+    flush_signal_dirty(&mut app.world);
+    assert!(reads.get() > before);
+    assert_eq!(
+        app.world.get::<SpriteStack>(sprite).unwrap().yaw,
+        Fixed::from_int(45)
+    );
 }

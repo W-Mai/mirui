@@ -14,12 +14,16 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
     reject_attribute_arguments(attr)?;
     let mut item = syn::parse2::<Item>(item)?;
     let dependencies = lower_output_dependencies(&mut item)?;
+    let mut properties = Vec::new();
     let (name, generics, clone_impl) = match &mut item {
         Item::Struct(item) => {
             let clone_impl = match &mut item.fields {
                 Fields::Named(fields) => {
                     let mut model_fields = Vec::new();
                     for field in &mut fields.named {
+                        if let Some(property) = lower_property(field)? {
+                            properties.push(property);
+                        }
                         if lower_model_field(field, &mut item.generics)? {
                             model_fields.push(field.ident.clone().expect("named field"));
                         }
@@ -115,14 +119,50 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
         Item::Enum(item) => cfg_attrs(&item.attrs),
         _ => unreachable!("component shape was checked"),
     };
-    Ok(component_output(
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let property_impl = (!properties.is_empty()).then(|| {
+        quote! {
+            #(#conditional)*
+            impl #impl_generics #name #ty_generics #where_clause {
+                #(#properties)*
+            }
+        }
+    });
+    let component = component_output(
         item,
         &name,
         &generics,
         clone_impl,
         &conditional,
         &dependencies,
-    ))
+    );
+    Ok(quote!(#component #property_impl))
+}
+
+fn lower_property(field: &mut Field) -> syn::Result<Option<TokenStream>> {
+    let Some(index) = field
+        .attrs
+        .iter()
+        .position(|a| a.path().is_ident("property"))
+    else {
+        return Ok(None);
+    };
+    let attr = field.attrs.remove(index);
+    let property: Type = attr.parse_args()?;
+    if let Some(other) = field.attrs.iter().find(|a| a.path().is_ident("property")) {
+        return Err(syn::Error::new_spanned(other, "duplicate field property"));
+    }
+    let name = field.ident.as_ref().expect("named component field");
+    let marker = quote::format_ident!("__mirui_property_{name}");
+    let vis = &field.vis;
+    let cfg = cfg_attrs(&field.attrs);
+    Ok(Some(quote! {
+        #(#cfg)*
+        #[doc(hidden)]
+        #vis fn #marker(&self) -> ::mirui::__macro_support::FieldProperty<#property> {
+            ::mirui::__macro_support::FieldProperty::MARKER
+        }
+    }))
 }
 
 fn component_output(

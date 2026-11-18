@@ -3,6 +3,47 @@ use crate::ecs::{Entity, World};
 use super::{Children, IdMap, NamedId, Parent, Style, Widget};
 
 #[doc(hidden)]
+pub struct ForwardProp;
+
+impl ForwardProp {
+    pub fn __mirui_prepare_field<V: 'static, T: From<super::Prop<V>>, F: Fn() -> V + 'static>(
+        self,
+        field: &mut T,
+        _once: bool,
+        read: F,
+    ) -> impl FnOnce(&mut World, Entity) + use<V, T, F> {
+        *field = super::Prop::new(read).into();
+        |_, _| {}
+    }
+}
+
+#[doc(hidden)]
+pub struct FieldProperty<P>(core::marker::PhantomData<fn() -> P>);
+
+impl<P: super::property::Property> FieldProperty<P> {
+    pub const MARKER: Self = Self(core::marker::PhantomData);
+
+    pub fn __mirui_prepare_field<T, F: Fn() -> P::Value + 'static>(
+        self,
+        _field: &mut T,
+        once: bool,
+        read: F,
+    ) -> impl FnOnce(&mut World, Entity) + use<P, T, F> {
+        move |world, entity| {
+            use crate::core::reactive::{BindingRole, widget_binding::prepare_widget_effect};
+            let effect = prepare_widget_effect(entity, BindingRole::Display, move || {
+                super::property::apply::<P>(entity, read());
+            });
+            if once {
+                effect.install_once(world);
+            } else {
+                effect.install(world);
+            }
+        }
+    }
+}
+
+#[doc(hidden)]
 pub fn component_type<C: crate::ecs::Component>(_: &C) -> core::marker::PhantomData<fn() -> C> {
     core::marker::PhantomData
 }
