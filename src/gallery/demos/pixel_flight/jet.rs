@@ -194,11 +194,19 @@ pub struct Voxel {
 
 impl Voxel {
     pub fn a(self) -> Fixed {
-        Fixed::from_ratio(i32::from(self.x) * 2 - (WIDTH - 1) as i32, 2)
+        lateral(self.x)
     }
     pub fn b(self) -> Fixed {
-        PIVOT[0] - Fixed::from_int(i32::from(self.y))
+        longitudinal(self.y)
     }
+}
+
+fn lateral(x: u8) -> Fixed {
+    Fixed::from_ratio(i32::from(x) * 2 - (WIDTH - 1) as i32, 2)
+}
+
+fn longitudinal(y: u8) -> Fixed {
+    PIVOT[0] - Fixed::from_int(i32::from(y))
 }
 
 const fn voxel_count() -> usize {
@@ -386,7 +394,49 @@ pub(super) enum Detail {
     Coarse,
 }
 
+// Rows already follow increasing y. Only the two x extrema need extra storage.
+const fn layer_widths(voxels: &[Voxel], starts: &[usize; LAYERS + 1]) -> [[[u8; 2]; 2]; LAYERS] {
+    let mut widths = [[[u8::MAX, 0]; 2]; LAYERS];
+    let mut layer = 0;
+    while layer < LAYERS {
+        let mut i = starts[layer];
+        let mid = i + (starts[layer + 1] - i) / 2;
+        while i < starts[layer + 1] {
+            let half = (i >= mid) as usize;
+            let x = voxels[i].x;
+            if x < widths[layer][half][0] {
+                widths[layer][half][0] = x;
+            }
+            if x > widths[layer][half][1] {
+                widths[layer][half][1] = x;
+            }
+            i += 1;
+        }
+        layer += 1;
+    }
+    widths
+}
+
 impl Detail {
+    pub(super) fn band_bounds(self, layer: usize, half: usize) -> Option<[[Fixed; 2]; 2]> {
+        static FULL: [[[u8; 2]; 2]; LAYERS] = layer_widths(&VOXELS, &STARTS);
+        static COARSE: [[[u8; 2]; 2]; LAYERS] = layer_widths(&COARSE_VOXELS, &COARSE_STARTS);
+        let voxels = self.slice(layer);
+        let (first, second) = voxels.split_at(voxels.len() / 2);
+        let voxels = if half == 0 { first } else { second };
+        let x = match self {
+            Self::Full => FULL[layer][half],
+            Self::Coarse => COARSE[layer][half],
+        };
+        Some([
+            x.map(lateral),
+            [
+                longitudinal(voxels.last()?.y),
+                longitudinal(voxels.first()?.y),
+            ],
+        ])
+    }
+
     pub(super) fn for_scale(scale: Fixed) -> Self {
         if scale > Fixed::ZERO && scale <= Fixed::from_ratio(3, 2) {
             Self::Coarse

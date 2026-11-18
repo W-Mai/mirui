@@ -1324,7 +1324,7 @@ fn draw_smoke(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection,
 struct PreparedLayer {
     camera: [Fixed; 3],
     drop: Fixed,
-    bounds: Option<[i32; 4]>,
+    bounds: Option<[[i16; 4]; 2]>,
 }
 
 struct PreparedJet {
@@ -1533,15 +1533,26 @@ impl PreparedJet {
                 let Some(layer) = &self.layers[index] else {
                     continue;
                 };
-                if layer.bounds.is_some_and(|b| {
-                    b[0] >= canvas.color.clip[2]
-                        || b[2] <= canvas.color.clip[0]
-                        || b[1] >= canvas.color.clip[3]
-                        || b[3] <= canvas.color.clip[1]
-                }) {
-                    continue;
-                }
-                for voxel in self.detail.slice(index) {
+                let voxels = self.detail.slice(index);
+                let voxels = if let Some(bands) = layer.bounds {
+                    let [left, top, right, bottom] = canvas.color.clip;
+                    let visible = bands.map(|[x0, y0, x1, y1]| {
+                        i32::from(x0) < right
+                            && i32::from(x1) > left
+                            && i32::from(y0) < bottom
+                            && i32::from(y1) > top
+                    });
+                    let mid = voxels.len() / 2;
+                    match visible {
+                        [false, false] => continue,
+                        [true, false] => &voxels[..mid],
+                        [false, true] => &voxels[mid..],
+                        [true, true] => voxels,
+                    }
+                } else {
+                    voxels
+                };
+                for voxel in voxels {
                     let Some([x, y, m, depth]) = self.project(layer, voxel, p) else {
                         continue;
                     };
@@ -1644,19 +1655,80 @@ impl PreparedJet {
             let Some(layer) = self.layers[index] else {
                 continue;
             };
-            let mut bounds = [i32::MAX, i32::MAX, i32::MIN, i32::MIN];
-            for voxel in self.detail.slice(index) {
-                let Some([x, y, scale, _]) = self.project(&layer, voxel, p) else {
-                    continue;
-                };
-                for (axis, position) in [x, y].into_iter().enumerate() {
-                    let ends = self.sample_ends(position, axis, scale);
-                    bounds[axis] = bounds[axis].min(ends[0].min(ends[1]));
-                    bounds[axis + 2] = bounds[axis + 2].max(ends[0].max(ends[1]).saturating_add(1));
-                }
-            }
-            self.layers[index].as_mut().unwrap().bounds = Some(bounds);
+            let bounds = core::array::from_fn(|half| {
+                self.detail
+                    .band_bounds(index, half)
+                    .map_or(Self::EMPTY_BAND, |coords| {
+                        self.project_band(&layer, p, coords)
+                    })
+            });
+            self.layers[index] = Some(PreparedLayer {
+                bounds: Some(bounds),
+                ..layer
+            });
         }
+    }
+
+    const EMPTY_BAND: [i16; 4] = [i16::MAX, i16::MAX, i16::MIN, i16::MIN];
+
+    fn project_band(
+        &self,
+        layer: &PreparedLayer,
+        p: &Projection,
+        [a, b]: [[Fixed; 2]; 2],
+    ) -> [i16; 4] {
+        let a = a.map(|x| x + self.cell_offset);
+        let b = b.map(|y| y - self.cell_offset);
+        let axis_range = |axis: usize| {
+            let [a0, a1] = a.map(|x| x * self.right[axis]);
+            let [b0, b1] = b.map(|y| y * self.forward[axis]);
+            [
+                layer.camera[axis] + a0.min(a1) + b0.min(b1),
+                layer.camera[axis] + a0.max(a1) + b0.max(b1),
+            ]
+        };
+        let depth = axis_range(1);
+        let den = depth.map(|d| Fixed::ONE + p.apply_perspective(d));
+        let near = Fixed::from_ratio(2, 10);
+        if den[1] < near {
+            return Self::EMPTY_BAND;
+        }
+        // A layer crossing the near plane keeps per-voxel clipping.
+        if den[0] < near {
+            return [i16::MIN, i16::MIN, i16::MAX, i16::MAX];
+        }
+        let scale = [p.scale / den[1], p.scale / den[0]];
+        // Scale stays positive; signs select which endpoint gives each extreme.
+        let scaled = |[lo, hi]: [Fixed; 2]| {
+            [
+                lo * scale[usize::from(lo < Fixed::ZERO)],
+                hi * scale[usize::from(hi >= Fixed::ZERO)],
+            ]
+        };
+        let u = scaled(axis_range(0));
+        let z = axis_range(2);
+        let [s0, s1] = depth.map(|d| p.slope * d);
+        let v = scaled([z[0] + s0.min(s1), z[1] + s0.max(s1)]);
+        let position = [
+            [p.center[0] + u[0], p.center[0] + u[1]],
+            [
+                p.center[1] - v[1] + layer.drop,
+                p.center[1] - v[0] + layer.drop,
+            ],
+        ];
+        let mut bounds = [0; 4];
+        for axis in 0..2 {
+            let offset = scaled(self.sample_bounds.map(|bound| bound[axis]));
+            let ends = core::array::from_fn::<_, 2, _>(|i| {
+                (position[axis][i] + offset[i] / self.center[2])
+                    .round()
+                    .trunc_to_int()
+            });
+            bounds[axis] = ends[0];
+            bounds[axis + 2] = ends[1].saturating_add(1);
+        }
+        // Coordinates outside i16 are outside every supported scene clip.
+        bounds.map(|x| x.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16)
     }
 
     fn project(
@@ -1929,6 +2001,7 @@ mod tests {
     }
     #[test]
     fn prepared_regions_cover_all_samples_without_allocating() {
+        assert!(core::mem::size_of::<PreparedLayer>() <= 36);
         let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
         let mut flight = Flight::new(&world, Settings::default());
         let palette = Palette::new(Daylight::Day);
@@ -1945,20 +2018,26 @@ mod tests {
                         .expect("visible aircraft");
                 details[usize::from(prepared.detail == jet::Detail::Coarse)] = true;
                 assert!(prepared.layers.iter().flatten().all(|l| l.bounds.is_none()));
+                let original = prepared.layers;
                 assert_eq!(
                     crate::test_support::tracked_allocations(|| {
                         prepared.prepare_regions(&projection)
                     }),
                     0
                 );
-                for (index, layer) in prepared.layers.iter().enumerate() {
+                for (index, layer) in original.iter().enumerate() {
                     let Some(layer) = layer else { continue };
-                    let bounds = layer.bounds.expect("prepared region");
-                    for voxel in prepared.detail.slice(index) {
+                    let voxels = prepared.detail.slice(index);
+                    for (i, voxel) in voxels.iter().enumerate() {
                         let Some([x, y, scale, _]) = prepared.project(layer, voxel, &projection)
                         else {
                             continue;
                         };
+                        let bounds = prepared.layers[index]
+                            .expect("visible layer")
+                            .bounds
+                            .expect("prepared layer")[usize::from(i >= voxels.len() / 2)]
+                        .map(i32::from);
                         for offset in &prepared.offsets[..prepared.samples * prepared.samples] {
                             for (axis, position) in [x, y].into_iter().enumerate() {
                                 let at = (position + offset[axis] * scale / prepared.center[2])
@@ -1972,6 +2051,34 @@ mod tests {
             }
         }
         assert!(details.into_iter().all(|seen| seen));
+    }
+    #[test]
+    fn near_plane_rejects_only_wholly_hidden_model_bands() {
+        let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
+        let mut flight = Flight::new(&world, Settings::default());
+        for _ in 0..180 {
+            flight.step(&world, 16, 128, 128);
+        }
+        let mut p = flight.projection(128, 128);
+        let palette = Palette::new(Daylight::Day);
+        let mut jet = PreparedJet::new(&flight, 0, &p, &palette, [128, 128]).unwrap();
+        p.perspective = Fixed64::from_ratio(1, 64);
+        jet.right = [Fixed::ZERO, Fixed::ONE, Fixed::ZERO];
+        jet.forward = [Fixed::ZERO; 3];
+        let coords = [[-Fixed::from_int(8), Fixed::from_int(8)], [Fixed::ZERO; 2]];
+        let bounds = |depth| {
+            let layer = PreparedLayer {
+                camera: [Fixed::ZERO, Fixed::from_int(depth), Fixed::ZERO],
+                drop: Fixed::ZERO,
+                bounds: None,
+            };
+            jet.project_band(&layer, &p, coords)
+        };
+        assert_eq!(bounds(-80), PreparedJet::EMPTY_BAND);
+        assert_eq!(bounds(-51), [i16::MIN, i16::MIN, i16::MAX, i16::MAX]);
+        let [left, top, right, bottom] = bounds(0);
+        assert!(left < right && top < bottom);
+        assert!(left > i16::MIN && right < i16::MAX);
     }
     #[test]
     fn sample_bounds_never_reject_a_sample_inside_the_region() {
