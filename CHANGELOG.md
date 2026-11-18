@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Reuse terrain depth to identify uncovered Pixel Flight pixels and fill the remaining sky directly.
+
 - Project aircraft layer bounds from static model geometry and skip clipped voxel ranges during compact Pixel Flight rendering.
 
 - Draw one- and two-pixel aircraft footprints directly from their sample extrema in Pixel Flight.

@@ -441,7 +441,7 @@ impl SceneCanvas<'_, '_> {
     fn fill_depth(&mut self, x: usize, y0: i32, y1: i32, color: u32, depth: Fixed) {
         for y in y0.max(self.color.clip[1])..y1.min(self.color.clip[3]) {
             let at = self.color.index(x as i32, y);
-            if self.get(at) == 0 {
+            if self.depth[at] == Fixed::MAX {
                 self.put(at, color);
                 self.depth[at] = depth;
             }
@@ -453,20 +453,19 @@ impl SceneCanvas<'_, '_> {
                 continue;
             }
             let at = self.color.index(x as i32, y);
-            if self.get(at) == 0 {
+            if self.depth[at] == Fixed::MAX {
                 self.put(at, color);
                 self.depth[at] = depth;
             }
         }
     }
-    fn clear(&mut self) {
+    fn reset_depth(&mut self) {
         if self.color.clip[0] >= self.color.clip[2] || self.color.clip[1] >= self.color.clip[3] {
             return;
         }
         for y in self.color.clip[1]..self.color.clip[3] {
             let start = self.color.index(self.color.clip[0], y);
             let end = start + (self.color.clip[2] - self.color.clip[0]) as usize;
-            self.color.bytes[start * 4..end * 4].fill(0);
             self.depth[start..end].fill(Fixed::MAX);
         }
         self.columns.fill(self.color.clip[3]);
@@ -857,7 +856,8 @@ fn draw_world(
     prepared: &PreparedTerrain,
 ) {
     crate::trace_span!("flight.terrain");
-    canvas.clear();
+    // Terrain and clouds claim depth first. Sky fills every remaining color pixel.
+    canvas.reset_depth();
     let [left, clip_top, right, bottom] = canvas.color.clip;
     if left >= right || clip_top >= bottom {
         return;
@@ -1140,7 +1140,7 @@ fn draw_sky(canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette, fra
         });
         for x in left..right {
             let at = canvas.color.index(x, y);
-            if canvas.get(at) != 0 {
+            if canvas.depth[at] != Fixed::MAX {
                 continue;
             }
             let mut color = pal.haze;
@@ -2248,7 +2248,8 @@ mod tests {
         assert_eq!(frame.bytes(), 8 * 8 * 4);
         assert_eq!(workspace.bytes(), 8 * 8 * 5 + 8 * 4);
         workspace.with_canvas(&mut frame, |canvas| {
-            canvas.clear();
+            canvas.color.bytes.fill(0xa5);
+            canvas.reset_depth();
             canvas.fill_depth(
                 3,
                 2,
