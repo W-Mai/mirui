@@ -2,6 +2,9 @@
 //!
 //! The optional chunk identifies the file's primary IMAGE by role. Moving the
 //! chunk table leaves its payload valid. Layer zero is the bottom layer.
+#![no_std]
+
+extern crate alloc;
 
 use alloc::vec;
 use mirx::extension::{Extension, Policy, Relocation};

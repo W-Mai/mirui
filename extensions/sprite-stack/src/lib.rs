@@ -6,7 +6,7 @@
 
 extern crate alloc;
 
-pub mod format;
+pub use mirui_sprite_stack_format as format;
 
 #[cfg(feature = "widget")]
 mod asset;

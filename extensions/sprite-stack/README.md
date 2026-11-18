@@ -53,4 +53,4 @@ app.compose(root, vehicle(car, heading));
 
 `yaw` and `pitch` use degrees. Positive pitch looks down on the layers; zero shows their edges. Omit `layer_spacing` to use the distance saved with the asset. The sprite uses the App's shared offscreen budget. A 96×80 RGBA output at 1× scale uses 30,720 bytes for its pixels.
 
-Tools that read or write the descriptor can depend on `mirui-sprite-stack` with `default-features = false` and use `format::StackDescriptor`. That configuration depends only on `mirx`.
+Tools and build scripts can depend directly on [mirui-sprite-stack-format](format) and use `StackDescriptor` to read or write layer placement. The format crate depends only on `mirx`. The widget exposes the same types in its `format` module.
