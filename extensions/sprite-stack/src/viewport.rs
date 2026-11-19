@@ -1,6 +1,6 @@
 use crate::{Geometry, Object, StackScene, StackSceneHandle};
 use alloc::boxed::Box;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use mirui::{
     __macro_support::{BindingRole, OwnedEffects, prepare_widget_effect, with_owned_effects},
     app::{App, RendererFactory, plugin::Plugin},
@@ -56,7 +56,7 @@ impl Camera {
 }
 
 /// Paints one view of shared game state. The painter and its workspace belong to that viewport.
-/// The revision changes on scene, camera or live geometry edits. Dimensions come from the paint rectangle.
+/// The revision changes on scene, camera or live geometry edits. Dimensions come from the paint rectangle. The camera center passed to the painter is the resolved world position including its target offset.
 pub trait ScenePainter: 'static {
     fn paint(
         &mut self,
@@ -75,7 +75,9 @@ pub struct StackViewport {
     pub camera: Camera,
     bindings: Option<(ModelSubscription, OwnedEffects)>,
     painter: RefCell<Box<dyn ScenePainter>>,
-    stamp: u64,
+    stamp: Cell<u64>,
+    seen_scene: Cell<u64>,
+    tracked: Cell<Option<[Fixed; 3]>>,
 }
 
 impl Default for StackViewport {
@@ -85,7 +87,9 @@ impl Default for StackViewport {
             camera: Camera::default(),
             bindings: None,
             painter: RefCell::new(Box::new(draw::DefaultPainter::default())),
-            stamp: 0,
+            stamp: Cell::new(0),
+            seen_scene: Cell::new(0),
+            tracked: Cell::new(None),
         }
     }
 }
@@ -102,8 +106,34 @@ impl StackViewport {
             camera,
             bindings: None,
             painter: RefCell::new(Box::new(painter)),
-            stamp: 0,
+            stamp: Cell::new(0),
+            seen_scene: Cell::new(0),
+            tracked: Cell::new(None),
         }
+    }
+
+    fn advance_stamp(&self) {
+        self.stamp.set(self.stamp.get().wrapping_add(1));
+    }
+
+    fn paint_scene(&self, scene: &StackScene, paint: &mut PaintCtx<'_>) -> Result<(), RenderError> {
+        let revision = scene.revision();
+        if self.seen_scene.replace(revision) != revision {
+            self.advance_stamp();
+        }
+        let mut camera = self.camera;
+        if let Some(target) = camera.target {
+            let position = scene
+                .pose(target)
+                .map(|p| p.position)
+                .or_else(|| self.tracked.get())
+                .ok_or(RenderError::InvalidGeometry)?;
+            self.tracked.set(Some(position));
+            camera.center = core::array::from_fn(|i| position[i] + camera.center[i]);
+        }
+        self.painter
+            .borrow_mut()
+            .paint(scene, camera, self.stamp.get(), paint)
     }
 
     fn bind(world: &mut World, entity: Entity) {
@@ -143,6 +173,8 @@ impl Property for ViewportScene {
             return PropertyChange::Unchanged;
         };
         view.bindings = None;
+        view.tracked.set(None);
+        view.advance_stamp();
         view.scene = Some(scene);
         StackViewport::bind(world, entity);
         PropertyChange::Visual
@@ -159,8 +191,11 @@ impl Property for ViewportCamera {
         if view.camera == camera {
             return PropertyChange::Unchanged;
         }
+        if camera.target != view.camera.target {
+            view.tracked.set(None);
+        }
         view.camera = camera;
-        view.stamp = view.stamp.wrapping_add(1);
+        view.advance_stamp();
         PropertyChange::Visual
     }
 }
@@ -172,7 +207,7 @@ impl Property for SourceChanged {
         let Some(view) = world.get_mut::<StackViewport>(entity) else {
             return PropertyChange::Unchanged;
         };
-        view.stamp = view.stamp.wrapping_add(1);
+        view.advance_stamp();
         PropertyChange::Visual
     }
 }
@@ -198,13 +233,7 @@ fn attach(entity: entity!(), commands: commands!()) {
 #[mirui::view(component=StackViewport, name="StackViewport", priority=60, invalidation=Visual, attach=attach::callback())]
 fn viewport(component: component!(), paint: paint!()) {
     if let Some(scene) = &component.scene {
-        let stamp = component.stamp.wrapping_add(scene.revision());
-        let result = scene.read(|scene| {
-            component
-                .painter
-                .borrow_mut()
-                .paint(scene, component.camera, stamp, paint)
-        });
+        let result = scene.read(|scene| component.paint_scene(scene, paint));
         if let Err(e) = result {
             paint.fail(e);
         }

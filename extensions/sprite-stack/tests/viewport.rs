@@ -12,7 +12,7 @@ const COLORS: [Color; 2] = [RED, GREEN];
 fn views(source: model!(StackScene), camera: Camera) -> Entity {
     ui! {
         Row(width:32,height:16) {
-            StackViewport(width:16,height:16,scene:source.clone(),camera:camera)
+            StackViewport(id:"left",width:16,height:16,scene:source.clone(),camera:camera)
             StackViewport(width:16,height:16,scene:source,camera:Camera{center:[Fixed::from_int(1),Fixed::ZERO,Fixed::ZERO],..camera})
         }
     }
@@ -84,39 +84,69 @@ fn two_cameras_repaint_a_live_field_and_release_retired_sources() {
 }
 
 #[test]
-fn translated_finite_source_uses_the_same_local_cell_for_height_and_drawing() {
+fn replacing_the_scene_invalidates_the_frame_and_releases_the_old_camera_target() {
+    use mirui_sprite_stack::{ViewportCamera, ViewportScene};
     let mut app = App::headless(32, 16);
     app.with_default_widgets().add_plugin(SpriteStackPlugin);
-    let grid = TerrainGrid::finite([1, 1], Fixed::from_int(2)).unwrap();
-    let field = HeightField::generate(grid, &COLORS, |_| TerrainCell {
-        level: 0,
-        material: 0,
-    })
-    .unwrap()
-    .with_coordinate_map(|[x, z]| [x + Fixed::from_int(2), z]);
-    let mut scene = StackScene::bounded(1);
-    let ground = scene.place(field, Pose::default()).unwrap();
-    assert_eq!(
-        scene.height_at(ground, -Fixed::ONE, Fixed::ONE),
-        Ok(Some(Fixed::ZERO))
-    );
-    assert_eq!(scene.height_at(ground, Fixed::ONE, Fixed::ONE), Ok(None));
-    let scene = app.add_model(scene).finish();
+    let make = |material| {
+        let grid = TerrainGrid::finite([1, 1], Fixed::from_int(2)).unwrap();
+        let mut scene = StackScene::bounded(1);
+        let target = scene
+            .place(
+                HeightField::generate(grid, &COLORS, |_| TerrainCell { level: 0, material })
+                    .unwrap(),
+                Pose::default(),
+            )
+            .unwrap();
+        (scene, target)
+    };
+    let (mut old, target) = make(0);
+    old.invalidate();
+    let old = app.add_model(old).finish();
+    let (new, _) = make(1);
+    let new = app.add_model(new).finish();
     let root = app.spawn_root().id();
-    app.compose(
-        root,
-        views(
-            scene,
-            Camera {
-                scale: Fixed::from_int(2),
-                ..Camera::overhead()
-            },
-        ),
+    app.compose(root, views(old.clone(), Camera::overhead()));
+    assert_eq!(
+        app.snapshot()
+            .unwrap()
+            .unwrap()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(8, 7),
+        RED
     );
-    let frame = app.snapshot().unwrap().unwrap();
-    let pixels = frame.read_pixels().unwrap();
-    assert_eq!(pixels.get_pixel(6, 6), RED);
-    assert_ne!(pixels.get_pixel(9, 6), RED);
+    let left = app.world.find_by_id("left").unwrap();
+    app.world
+        .widget_mut(left)
+        .unwrap()
+        .set::<ViewportScene>(new.clone());
+    assert_eq!(
+        app.snapshot()
+            .unwrap()
+            .unwrap()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(8, 7),
+        GREEN
+    );
+    app.world
+        .widget_mut(left)
+        .unwrap()
+        .set::<ViewportScene>(old);
+    app.world
+        .widget_mut(left)
+        .unwrap()
+        .set::<ViewportCamera>(Camera::chase(target));
+    app.snapshot().unwrap();
+    app.world
+        .widget_mut(left)
+        .unwrap()
+        .set::<ViewportScene>(new);
+    assert!(matches!(
+        app.snapshot(),
+        Err(mirui::render::RenderError::InvalidGeometry)
+    ));
 }
 
 #[test]
@@ -242,4 +272,40 @@ fn edge_on_camera_draws_the_nearest_slice_cells_for_atlases_and_prepared_levels(
         assert_eq!(pixels.get_pixel(x, 9), RED);
         assert_ne!(pixels.get_pixel(x, 10), RED);
     }
+}
+
+#[test]
+fn translated_finite_source_uses_the_same_local_cell_for_height_and_drawing() {
+    let mut app = App::headless(32, 16);
+    app.with_default_widgets().add_plugin(SpriteStackPlugin);
+    let grid = TerrainGrid::finite([1, 1], Fixed::from_int(2)).unwrap();
+    let field = HeightField::generate(grid, &COLORS, |_| TerrainCell {
+        level: 0,
+        material: 0,
+    })
+    .unwrap()
+    .with_coordinate_map(|[x, z]| [x + Fixed::from_int(2), z]);
+    let mut scene = StackScene::bounded(1);
+    let ground = scene.place(field, Pose::default()).unwrap();
+    assert_eq!(
+        scene.height_at(ground, -Fixed::ONE, Fixed::ONE),
+        Ok(Some(Fixed::ZERO))
+    );
+    assert_eq!(scene.height_at(ground, Fixed::ONE, Fixed::ONE), Ok(None));
+    let scene = app.add_model(scene).finish();
+    let root = app.spawn_root().id();
+    app.compose(
+        root,
+        views(
+            scene,
+            Camera {
+                scale: Fixed::from_int(2),
+                ..Camera::overhead()
+            },
+        ),
+    );
+    let frame = app.snapshot().unwrap().unwrap();
+    let pixels = frame.read_pixels().unwrap();
+    assert_eq!(pixels.get_pixel(6, 6), RED);
+    assert_ne!(pixels.get_pixel(9, 6), RED);
 }

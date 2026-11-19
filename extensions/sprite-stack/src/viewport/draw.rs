@@ -19,7 +19,6 @@ const BAND: usize = 16;
 pub(super) struct DefaultPainter {
     output: Option<(Frame, Workspace)>,
     revision: Option<u64>,
-    tracked: Option<(crate::Object, V3)>,
 }
 
 impl ScenePainter for DefaultPainter {
@@ -51,22 +50,7 @@ impl ScenePainter for DefaultPainter {
         }
         let (frame, work) = self.output.as_mut().expect("viewport storage");
         if self.revision != Some(revision) {
-            let target = match camera.target {
-                None => {
-                    self.tracked = None;
-                    camera.center
-                }
-                Some(id) => {
-                    let position = scene
-                        .pose(id)
-                        .map(|p| p.position)
-                        .or_else(|| self.tracked.filter(|(last, _)| *last == id).map(|(_, p)| p))
-                        .ok_or(RenderError::InvalidGeometry)?;
-                    self.tracked = Some((id, position));
-                    core::array::from_fn(|i| position[i] + camera.center[i])
-                }
-            };
-            let projection = ViewProjection::new(camera, target, [w, h]);
+            let projection = ViewProjection::new(camera, camera.center, [w, h]);
             for y in (0..h).step_by(BAND) {
                 work.with_rows(frame, y, BAND.min(h - y), |tile| {
                     tile.color.bytes.fill(0);
