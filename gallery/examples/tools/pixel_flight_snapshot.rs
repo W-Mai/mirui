@@ -37,17 +37,18 @@ fn advance<B: Surface, F: RendererFactory<B>>(
     for _ in 0..frames {
         let start = Instant::now();
         model.advance(16, size.0, size.1, None);
-        times.push(start.elapsed().as_secs_f64() * 1000.0);
+
         // Drive the actual backend every frame, not only the final readback.
         match app.render_dirty() {
             Ok(_) => {}
             Err(RenderError::SurfaceUnavailable) => {}
             Err(e) => panic!("flight replay: {e:?}"),
         }
+        times.push(start.elapsed().as_secs_f64() * 1000.0);
     }
     let mean = times[first..].iter().sum::<f64>() / frames as f64;
     println!(
-        "target {:?}, {frames} frames: simulation+raster wall mean {mean:.3} ms",
+        "target {:?}, {frames} frames: simulation and render_dirty wall mean {mean:.3} ms",
         model.view()
     );
 }
@@ -139,14 +140,14 @@ fn capture<B: Surface, F: RendererFactory<B>>(
     times.sort_by(f64::total_cmp);
     let sum: f64 = times.iter().sum();
     println!(
-        "{} simulation+raster wall samples: mean {:.3} ms, p95 {:.3} ms, p99 {:.3} ms; CPU resident {} bytes",
+        "{} simulation and render_dirty wall samples: mean {:.3} ms, p95 {:.3} ms, p99 {:.3} ms; CPU resident {} bytes",
         times.len(),
         sum / times.len() as f64,
         times[times.len() * 95 / 100],
         times[times.len() * 99 / 100],
         model.resident_bytes()
     );
-    println!("backend submission, presentation and readback are outside these timing samples");
+    println!("render_dirty includes backend submission and any synchronous display waits");
     if let Some(control) = app.backend.size_control() {
         for target in [(128, 128), (320, 240), (256, 128), (128, 256), size] {
             control

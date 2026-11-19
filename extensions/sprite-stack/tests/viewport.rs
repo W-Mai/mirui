@@ -118,3 +118,43 @@ fn translated_finite_source_uses_the_same_local_cell_for_height_and_drawing() {
     assert_eq!(pixels.get_pixel(6, 6), RED);
     assert_ne!(pixels.get_pixel(9, 6), RED);
 }
+
+#[test]
+fn chase_keeps_the_last_live_target_position() {
+    let mut app = App::headless(32, 16);
+    app.with_default_widgets().add_plugin(SpriteStackPlugin);
+    let grid = TerrainGrid::finite([1, 1], Fixed::ONE).unwrap();
+    let make = |material| {
+        HeightField::generate(grid, &COLORS, |_| TerrainCell { level: 0, material }).unwrap()
+    };
+    let mut scene = StackScene::bounded(2);
+    let follow = scene.place(make(0), Pose::at(30, 0, 0)).unwrap();
+    scene.place(make(1), Pose::at(32, 0, 0)).unwrap();
+    let scene = app.add_model(scene).finish();
+    let root = app.spawn_root().id();
+    app.compose(
+        root,
+        views(
+            scene.clone(),
+            Camera {
+                target: Some(follow),
+                scale: Fixed::from_int(2),
+                ..Camera::overhead()
+            },
+        ),
+    );
+    let initial = app.snapshot().unwrap().unwrap();
+    assert_eq!(initial.read_pixels().unwrap().get_pixel(12, 7), GREEN);
+    scene.remove(follow).unwrap();
+    let removed = app.snapshot().unwrap().unwrap();
+    assert_eq!(removed.read_pixels().unwrap().get_pixel(12, 7), GREEN);
+    let mut next = App::headless(32, 16);
+    next.with_default_widgets().add_plugin(SpriteStackPlugin);
+    let scene = next.add_model(StackScene::new()).finish();
+    let root = next.spawn_root().id();
+    next.compose(root, views(scene, Camera::chase(follow)));
+    assert!(matches!(
+        next.snapshot(),
+        Err(mirui::render::RenderError::InvalidGeometry)
+    ));
+}

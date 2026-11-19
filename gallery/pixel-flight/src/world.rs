@@ -391,6 +391,10 @@ impl World {
         }
         world
     }
+    pub(crate) fn uses_field(&self, field: &Handle<HeightField>) -> bool {
+        self.ground.ptr_eq(field)
+    }
+
     /// Shares the generated ground with scene objects and additional viewports.
     pub fn field(&self) -> Handle<HeightField> {
         self.ground.clone()

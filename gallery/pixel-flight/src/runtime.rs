@@ -6,6 +6,13 @@ use super::{
     raster::{Palette, Raster},
     world::World as Terrain,
 };
+use core::cell::Cell;
+use mirui::core::model::{ModelHandle, OwnedModel};
+use mirui::render::RenderError;
+use mirui_sprite_stack::{Camera, ScenePainter, SpriteStackPlugin, StackScene, StackViewport};
+mod objects;
+use objects::FlightObjects;
+
 use mirui::ecs::DeltaTimeMs;
 use mirui::input::event::{
     PointerCursor,
@@ -23,10 +30,10 @@ pub struct FlightModel {
     profile: Profile,
     terrain: Terrain,
     flight: Flight,
-    raster: Option<Raster>,
-    cockpit: Option<Cockpit>,
-    flames: Option<Flames>,
-    viewport: (u16, u16),
+    pub scene: model!(owned StackScene),
+    objects: FlightObjects,
+    day: super::raster::Daylight,
+    display_bytes: Cell<usize>,
     revision: u64,
     hint_time: Fixed,
     focused: bool,
@@ -38,94 +45,28 @@ impl FlightModel {
     fn new(width: u16, height: u16) -> Self {
         Self::with_profile(width, height, Profile::Desktop)
     }
-    fn with_profile(width: u16, height: u16, profile: Profile) -> Self {
+    fn with_profile(_width: u16, _height: u16, profile: Profile) -> Self {
         let terrain = match profile {
             Profile::Desktop => Terrain::new(7, Fixed::from_ratio(33, 100)),
             Profile::Compact => Terrain::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16),
         };
         let flight = Flight::new(&terrain, Settings::default());
-        let mut state = Self {
+        let (scene, objects) = FlightObjects::new(&terrain, &flight);
+        Self {
             profile,
             terrain,
             flight,
-            raster: None,
-            cockpit: None,
-            flames: if profile == Profile::Desktop {
-                Some(Flames::new().expect("flight flame storage"))
-            } else {
-                None
-            },
-            viewport: (width, height),
+            scene: scene.into(),
+            objects,
+            display_bytes: Cell::new(0),
+            day: super::raster::Daylight::default(),
             revision: 0,
             hint_time: Fixed::ZERO,
             focused: true,
             visible: true,
             autoplay: false,
             view_elapsed_ms: 0,
-        };
-        state.prepare(width, height);
-        state.render_frame();
-        state
-    }
-    fn prepare(&mut self, width: u16, height: u16) {
-        let (w, h, _) = self.profile.scene_size(width, height);
-        self.viewport = (width, height);
-        if self
-            .raster
-            .as_ref()
-            .is_some_and(|r| r.frame.width == w && r.frame.height == h)
-        {
-            return;
         }
-        let day = self
-            .raster
-            .as_ref()
-            .map(|raster| raster.palette.day)
-            .unwrap_or_default();
-        self.rebuild(w, h, day);
-    }
-    fn rebuild(&mut self, width: usize, height: usize, day: super::raster::Daylight) {
-        self.cockpit = None;
-        self.raster = None;
-        let palette = Palette::new(day);
-        let cockpit = match self.profile {
-            Profile::Desktop => Cockpit::new(width, height, &palette),
-            Profile::Compact => Cockpit::new_compact(width, height, &palette),
-        };
-        let mut raster = match self.profile {
-            Profile::Desktop => Raster::new(width, height),
-            Profile::Compact => Raster::new_compact(width, height),
-        }
-        .expect("bounded flight frame");
-        raster.palette = palette;
-        self.cockpit = Some(cockpit);
-        self.raster = Some(raster);
-    }
-    fn render_frame(&mut self) {
-        let Some(raster) = &mut self.raster else {
-            return;
-        };
-        if let Some(cockpit) = &self.cockpit {
-            raster.render_with_cockpit(
-                &self.terrain,
-                &self.flight,
-                cockpit,
-                &crate::raster::PlacedAircraft::from_flight(&self.flight),
-            );
-        }
-        let (_, _, scale) = self.profile.scene_size(self.viewport.0, self.viewport.1);
-        if let Some(flames) = &mut self.flames {
-            flames
-                .prepare(
-                    &raster.flames[..raster.flame_count],
-                    self.flight.time,
-                    Fixed::from_int((scale) as i32),
-                    [raster.frame.width, raster.frame.height],
-                )
-                .expect("prepared flame textures");
-        }
-        self.revision = self.revision.wrapping_add(1);
-        raster.frame.texture.cache_revision = self.revision;
     }
 }
 #[mirui::model]
@@ -143,6 +84,16 @@ impl FlightModel {
         self.view_elapsed_ms = 0;
         self.flight.controls.release_all();
     }
+    /// Flight dynamics and cloud sampling share a fixed terrain origin. Removing or moving this ground suspends the flight simulation.
+    pub fn ground(&self) -> mirui_sprite_stack::Object {
+        self.objects.ground()
+    }
+
+    /// Returns the scene object used by the pilot and chase cameras.
+    pub fn player(&self) -> mirui_sprite_stack::Object {
+        self.objects.player()
+    }
+
     #[observe]
     pub fn autoplay(&self) -> bool {
         self.autoplay
@@ -239,17 +190,8 @@ impl FlightModel {
                 self.flight.set_wingmen(self.flight.count % 3);
             }
             PhysicalKey::KeyT => {
-                if let Some((width, height, day, seen)) = self.raster.as_ref().map(|raster| {
-                    (
-                        raster.frame.width,
-                        raster.frame.height,
-                        raster.palette.day.next(),
-                        raster.seen,
-                    )
-                }) {
-                    self.rebuild(width, height, day);
-                    self.raster.as_mut().expect("rebuilt flight scene").seen = seen;
-                }
+                self.day = self.day.next();
+                self.scene.invalidate();
             }
             _ => {}
         }
@@ -264,7 +206,12 @@ impl FlightModel {
         if width == 0 || height == 0 || !self.focused || !self.visible {
             return;
         }
-        self.prepare(width, height);
+        if !self
+            .scene
+            .read(|scene| self.objects.supports_terrain(scene, &self.terrain))
+        {
+            return;
+        }
         let (scene_width, scene_height, scale) = self.profile.scene_size(width, height);
         let milliseconds = milliseconds.min(50) as u16;
         if self.autoplay {
@@ -294,17 +241,106 @@ impl FlightModel {
             self.flight.controls.pointer = None;
             self.flight.release_pointer(true);
         }
-        let raster = self.raster.as_ref().expect("prepared flight raster");
-        self.flight.step(
-            &self.terrain,
-            milliseconds,
-            raster.frame.width,
-            raster.frame.height,
-        );
+        self.flight
+            .step(&self.terrain, milliseconds, scene_width, scene_height);
         self.hint_time += Fixed::from_int(milliseconds.into()) / Fixed::from_int(1000);
-        self.render_frame();
+        self.objects.sync(&mut self.scene, &mut self.flight);
+        self.scene.invalidate();
+        self.revision = self.revision.wrapping_add(1);
     }
-    pub fn paint(&self, paint: &mut PaintCtx<'_>) {
+    pub fn resident_bytes(&self) -> usize {
+        self.terrain.bytes() + core::mem::size_of::<Self>() + self.flight.bytes()
+            - core::mem::size_of::<Flight>()
+            + self.display_bytes.get()
+    }
+}
+struct FlightOutput {
+    profile: Profile,
+    raster: Option<Raster>,
+    cockpit: Option<Cockpit>,
+    flames: Option<Flames>,
+    viewport: (u16, u16),
+    cache_revision: u64,
+    last: Option<u64>,
+}
+impl FlightOutput {
+    fn new(profile: Profile) -> Self {
+        Self {
+            profile,
+            raster: None,
+            cockpit: None,
+            flames: if profile == Profile::Desktop {
+                Some(Flames::new().expect("flight flame storage"))
+            } else {
+                None
+            },
+            viewport: (0, 0),
+            cache_revision: 0,
+            last: None,
+        }
+    }
+    fn prepare(&mut self, width: u16, height: u16, day: super::raster::Daylight) {
+        let (w, h, _) = self.profile.scene_size(width, height);
+        self.viewport = (width, height);
+        if self
+            .raster
+            .as_ref()
+            .is_some_and(|r| r.frame.width == w && r.frame.height == h && r.palette.day == day)
+        {
+            return;
+        }
+        let seen = self
+            .raster
+            .as_ref()
+            .and_then(|r| ((r.frame.width, r.frame.height) == (w, h)).then_some(r.seen));
+        self.rebuild(w, h, day);
+        if let Some(seen) = seen {
+            self.raster.as_mut().expect("prepared raster").seen = seen;
+        }
+        self.last = None;
+    }
+    fn rebuild(&mut self, width: usize, height: usize, day: super::raster::Daylight) {
+        self.cockpit = None;
+        self.raster = None;
+        let palette = Palette::new(day);
+        let cockpit = match self.profile {
+            Profile::Desktop => Cockpit::new(width, height, &palette),
+            Profile::Compact => Cockpit::new_compact(width, height, &palette),
+        };
+        let mut raster = match self.profile {
+            Profile::Desktop => Raster::new(width, height),
+            Profile::Compact => Raster::new_compact(width, height),
+        }
+        .expect("bounded flight frame");
+        raster.palette = palette;
+        self.cockpit = Some(cockpit);
+        self.raster = Some(raster);
+    }
+    fn render_frame(&mut self, model: &FlightModel, scene: &StackScene, stamp: u64) {
+        let Some(raster) = &mut self.raster else {
+            return;
+        };
+        if let Some(cockpit) = &self.cockpit {
+            let placed = model.objects.placed(scene);
+            raster.render_with_cockpit(&model.terrain, &model.flight, cockpit, &placed);
+        }
+        let (_, _, scale) = self.profile.scene_size(self.viewport.0, self.viewport.1);
+        if let Some(flames) = &mut self.flames {
+            flames
+                .prepare(
+                    &raster.flames[..raster.flame_count],
+                    model.flight.time,
+                    Fixed::from_int((scale) as i32),
+                    [raster.frame.width, raster.frame.height],
+                )
+                .expect("prepared flame textures");
+        }
+        self.cache_revision = self.cache_revision.wrapping_add(1);
+        raster.frame.texture.cache_revision = self.cache_revision;
+        self.last = Some(stamp);
+        model.display_bytes.set(self.bytes());
+    }
+    fn paint(&self, paint: &mut PaintCtx<'_>) {
         let Some(raster) = &self.raster else {
             return;
         };
@@ -331,9 +367,9 @@ impl FlightModel {
             flames.paint(paint, origin, scale);
         }
     }
-    pub fn resident_bytes(&self) -> usize {
-        self.terrain.bytes() + core::mem::size_of::<Self>() + self.flight.bytes()
-            - core::mem::size_of::<Flight>()
+
+    fn bytes(&self) -> usize {
+        core::mem::size_of::<Self>()
             + self
                 .raster
                 .as_ref()
@@ -346,19 +382,62 @@ impl FlightModel {
                 .as_ref()
                 .map_or(0, |flames| flames.bytes() - core::mem::size_of::<Flames>())
     }
+    fn update(
+        &mut self,
+        model: &FlightModel,
+        scene: &StackScene,
+        stamp: u64,
+        width: u16,
+        height: u16,
+    ) {
+        self.prepare(width, height, model.day);
+        if self.last != Some(stamp) {
+            self.render_frame(model, scene, stamp);
+        }
+    }
+}
+struct FlightPainter {
+    model: FlightModelHandle,
+    output: FlightOutput,
+}
+impl ScenePainter for FlightPainter {
+    fn paint(
+        &mut self,
+        scene: &StackScene,
+        _camera: Camera,
+        stamp: u64,
+        paint: &mut PaintCtx<'_>,
+    ) -> Result<(), RenderError> {
+        let rect = paint.rect();
+        let (w, h) = (
+            rect.w.to_int().clamp(0, 65535) as u16,
+            rect.h.to_int().clamp(0, 65535) as u16,
+        );
+        if w == 0 || h == 0 {
+            return Ok(());
+        }
+        self.model.read(|model| {
+            if model.objects.supports_terrain(scene, &model.terrain) {
+                self.output.update(model, scene, stamp, w, h);
+            }
+        });
+        if self.output.raster.is_some() {
+            paint.set_background_handled(true);
+            self.output.paint(paint);
+        }
+        Ok(())
+    }
 }
 #[mirui::component]
-pub(super) struct Stage {
+struct FlightInput {
     pub model: model!(FlightModel),
 }
-# [mirui :: view (component = Stage , name = "Pixel Flight" , priority = 60)]
-fn flight_scene(model: model!(component.model, watch(revision)), paint: paint!()) {
-    paint.set_background_handled(true);
-    model.paint(paint);
-}
+#[mirui::view(component = FlightInput, name = "Flight controls",systems = [animate::system()])]
+fn flight_input() {}
+
 # [mirui :: system (order = Animation)]
 fn animate(
-    stages: query!(Stage, ComputedRect),
+    stages: query!(FlightInput, ComputedRect),
     cursor: res!(PointerCursor),
     delta: res!(DeltaTimeMs),
 ) {
@@ -435,6 +514,15 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
     if !res!(optional MonoClock).with(|clock| clock.is_some()) {
         res!().insert(MonoClock::from_time_source());
     }
+    let viewport = StackViewport::with_painter(
+        model.scene(),
+        Camera::default(),
+        FlightPainter {
+            model: model.clone(),
+            output: FlightOutput::new(profile),
+        },
+    );
+
     ui! {
         View (
             grow: 1.0,
@@ -448,7 +536,8 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
                 ..Padding::all(0)
             }
         ) [
-            Stage { model: model.clone() },
+            FlightInput { model: model.clone() },
+            viewport,
             mirui::input::event::scroll::TouchAction::None,
         ] {
             Text (
@@ -531,8 +620,8 @@ fn setup_profile<B: Surface, F: RendererFactory<B>>(
             FlightModel::with_profile(width, height, profile)
         })
         .finish();
-    app.with_widget(flight_scene::view());
-    app.add_system(animate::system());
+    app.add_plugin(SpriteStackPlugin);
+    app.with_widget(flight_input::view());
     app.on_event(Key::EVENT, key::callback(model.clone()));
     app.on_event(HostFocusChanged::EVENT, focus::callback(model.clone()));
     app.on_event(
@@ -555,15 +644,69 @@ mod tests {
     }
 
     #[test]
+    fn additional_scene_viewports_share_one_simulation_step() {
+        #[mirui::compose]
+        fn minimap(scene: model!(StackScene), player: mirui_sprite_stack::Object) -> Entity {
+            ui! { StackViewport(width:16,height:16,scene:scene,camera:Camera{target:Some(player),range:Fixed::from_int(8),..Camera::overhead()}) }
+        }
+        let mut app = App::headless(40, 64);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        let game = setup_compact_app(&mut app, root);
+        app.compose(root, minimap(game.scene(), game.player()));
+        app.prepare_text_layout().unwrap();
+        app.snapshot().unwrap();
+        let rev = game.revision();
+        app.tick();
+        assert_eq!(game.revision(), rev + 1);
+        app.snapshot().unwrap();
+        assert_eq!(game.revision(), rev + 1);
+    }
+
+    #[test]
+    fn losing_the_flight_ground_holds_the_last_view_without_blocking_rendering() {
+        let mut app = App::headless(32, 32);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        let game = setup_compact_app(&mut app, root);
+        let original = app.snapshot().unwrap().unwrap();
+        let rev = game.revision();
+        let ground = game.ground();
+        game.scene()
+            .set_pose(ground, mirui_sprite_stack::Pose::at(1, 0, 0))
+            .unwrap();
+        game.advance(16, 32, 32, None);
+        assert_eq!(game.revision(), rev);
+        app.render_dirty().unwrap();
+        let frozen = app.snapshot().unwrap().unwrap();
+        assert_eq!(
+            original.read_pixels().unwrap().bytes(),
+            frozen.read_pixels().unwrap().bytes()
+        );
+        game.scene()
+            .set_pose(ground, mirui_sprite_stack::Pose::default())
+            .unwrap();
+        game.advance(16, 32, 32, None);
+        app.render_dirty().unwrap();
+        assert_eq!(game.revision(), rev + 1);
+        game.scene().remove(ground).unwrap();
+        game.advance(16, 32, 32, None);
+        app.render_dirty().unwrap();
+        assert_eq!(game.revision(), rev + 1);
+    }
+    #[test]
     fn output_revisions_survive_storage_rebuilds() {
         let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
-        let mut previous = scene.raster.as_ref().unwrap().frame.texture.cache_revision;
+        let mut output = FlightOutput::new(Profile::Compact);
+        let mut previous = 0;
         for (width, height) in [(128, 128), (320, 240), (128, 128), (128, 160)] {
             for _ in 0..3 {
                 scene.key(PhysicalKey::KeyT, true, false);
                 scene.advance(16, width, height, None);
-                let revision = scene.raster.as_ref().unwrap().frame.texture.cache_revision;
-                assert_eq!(revision, scene.revision);
+                scene
+                    .scene
+                    .read(|shared| output.update(&scene, shared, scene.revision, width, height));
+                let revision = output.raster.as_ref().unwrap().frame.texture.cache_revision;
                 assert!(revision > previous);
                 previous = revision;
             }
@@ -639,13 +782,17 @@ mod tests {
     #[test]
     fn compact_keeps_all_views_and_bounds_workspaces_across_resizes() {
         let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
+        let mut output = FlightOutput::new(Profile::Compact);
+        scene
+            .scene
+            .read(|shared| output.update(&scene, shared, scene.revision, 128, 128));
         eprintln!("compact scene bytes: {}", scene.resident_bytes());
         assert!(scene.resident_bytes() < 128 * 1024);
         assert_eq!(Profile::Compact.scene_size(128, 128), (128, 128, 1));
         assert_eq!(
             (
-                scene.raster.as_ref().unwrap().frame.width,
-                scene.raster.as_ref().unwrap().frame.height
+                output.raster.as_ref().unwrap().frame.width,
+                output.raster.as_ref().unwrap().frame.height
             ),
             (128, 128)
         );
@@ -660,13 +807,19 @@ mod tests {
             for view in [CameraView::Overhead, CameraView::Chase, CameraView::Cockpit] {
                 scene.select_view(view);
                 scene.advance(16, width, height, None);
+                scene
+                    .scene
+                    .read(|shared| output.update(&scene, shared, scene.revision, width, height));
                 let allocations = crate::test_support::tracked_allocations(|| {
                     for _ in 0..8 {
                         scene.advance(16, width, height, None);
+                        scene.scene.read(|shared| {
+                            output.update(&scene, shared, scene.revision, width, height)
+                        });
                     }
                 });
                 assert_eq!(allocations, 0);
-                let raster = scene.raster.as_ref().unwrap();
+                let raster = output.raster.as_ref().unwrap();
                 assert!(raster.frame.width <= 128 && raster.frame.height <= 128);
                 assert!(scene.resident_bytes() < 128 * 1024);
                 assert!(
@@ -754,10 +907,10 @@ mod tests {
         let mut scene = FlightModel::new(640, 360);
         scene.select_view(CameraView::Cockpit);
         scene.key(PhysicalKey::KeyT, true, false);
-        let day = scene.raster.as_ref().unwrap().palette.day;
+        let day = scene.day;
         scene.advance(16, 960, 600, None);
         assert_eq!(scene.view(), CameraView::Cockpit);
-        assert_eq!(scene.raster.as_ref().unwrap().palette.day, day);
+        assert_eq!(scene.day, day);
         assert!(scene.resident_bytes() < 16 * 1024 * 1024);
     }
 }

@@ -19,6 +19,7 @@ const BAND: usize = 16;
 pub(super) struct DefaultPainter {
     output: Option<(Frame, Workspace)>,
     revision: Option<u64>,
+    tracked: Option<(crate::Object, V3)>,
 }
 
 impl ScenePainter for DefaultPainter {
@@ -43,17 +44,28 @@ impl ScenePainter for DefaultPainter {
             .as_ref()
             .is_none_or(|(f, _)| (f.width, f.height) != (w, h))
         {
-            self.output = Some((Frame::new(w, h)?, Workspace::new(w, BAND.min(h))?));
+            let mut frame = Frame::new(w, h)?;
+            frame.texture.alpha_mode = mirui::render::texture::AlphaMode::Blend;
+            self.output = Some((frame, Workspace::new(w, BAND.min(h))?));
             self.revision = None;
         }
         let (frame, work) = self.output.as_mut().expect("viewport storage");
         if self.revision != Some(revision) {
-            let target = camera
-                .target
-                .and_then(|id| scene.pose(id))
-                .map_or(camera.center, |p| {
-                    core::array::from_fn(|i| p.position[i] + camera.center[i])
-                });
+            let target = match camera.target {
+                None => {
+                    self.tracked = None;
+                    camera.center
+                }
+                Some(id) => {
+                    let position = scene
+                        .pose(id)
+                        .map(|p| p.position)
+                        .or_else(|| self.tracked.filter(|(last, _)| *last == id).map(|(_, p)| p))
+                        .ok_or(RenderError::InvalidGeometry)?;
+                    self.tracked = Some((id, position));
+                    core::array::from_fn(|i| position[i] + camera.center[i])
+                }
+            };
             let projection = ViewProjection::new(camera, target, [w, h]);
             for y in (0..h).step_by(BAND) {
                 work.with_rows(frame, y, BAND.min(h - y), |tile| {
@@ -160,8 +172,8 @@ impl<'a> ObjectProjection<'a> {
         let (sr, cr) = self.roll;
         let (sp, cp) = self.pitch;
         let (sy, cy) = self.yaw;
-        let (x, y) = (x * cr - y * sr, x * sr + y * cr);
         let (y, z) = (y * cp + z * sp, -y * sp + z * cp);
+        let (x, y) = (x * cr - y * sr, x * sr + y * cr);
         self.camera.point([
             self.pose.position[0] + x * cy + z * sy,
             self.pose.position[1] + y,
@@ -258,10 +270,10 @@ fn draw_atlas(
                     [
                         Fixed::from_int(x) - px,
                         spacing * i as i32,
-                        Fixed::from_int(y) - pz,
+                        pz - Fixed::from_int(y),
                     ],
                     Fixed::ONE,
-                    Fixed::ONE,
+                    -Fixed::ONE,
                     u32::from_le_bytes([c.r, c.g, c.b, c.a]),
                 );
             }
@@ -292,10 +304,10 @@ fn draw_sparse(
                 [
                     Fixed::from(x) - px,
                     (Fixed::from(i) - ph) * spacing,
-                    Fixed::from(y) - pz,
+                    pz - Fixed::from(y),
                 ],
                 Fixed::from(level.step().min(w - x)),
-                Fixed::from(level.step().min(h - y)),
+                -Fixed::from(level.step().min(h - y)),
                 u32::from_le_bytes(asset.palette()[usize::from(s.color)]),
             );
         }

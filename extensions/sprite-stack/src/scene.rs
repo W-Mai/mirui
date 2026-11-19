@@ -137,6 +137,14 @@ impl StackScene {
         Ok(Object(id))
     }
 
+    /// Borrows one object without scanning other instances.
+    pub fn with_object<R>(&self, id: Object, read: impl FnOnce(&Geometry, Pose) -> R) -> Option<R> {
+        self.entries
+            .0
+            .get_by_id(id.0)
+            .map(|entry| entry.read(|value| read(&value.geometry, value.pose)))
+    }
+
     /// Visits shared geometry in insertion order without copying the assets.
     pub fn for_each(&self, mut visit: impl FnMut(Object, &Geometry, Pose)) {
         for (id, value) in self.entries.0.entries() {
@@ -154,6 +162,11 @@ impl StackScene {
     #[observe]
     pub(crate) fn membership(&self) -> u64 {
         self.membership
+    }
+
+    /// Publishes a visual change in game-provided scene materials or effects.
+    pub fn invalidate(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
     }
 
     fn place_into(

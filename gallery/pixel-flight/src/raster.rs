@@ -266,6 +266,7 @@ pub(crate) struct PlacedAircraft {
     pub(crate) rotation: V3,
     pub(crate) model: &'static mirui_sprite_stack::format::PreparedSpriteStack<'static>,
 }
+#[cfg(test)]
 impl PlacedAircraft {
     pub(crate) fn from_flight(flight: &Flight) -> [Option<Self>; 3] {
         core::array::from_fn(|i| {
