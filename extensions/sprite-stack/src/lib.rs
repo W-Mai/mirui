@@ -12,6 +12,8 @@ pub use mirui_sprite_stack_format as format;
 #[cfg(feature = "widget")]
 mod asset;
 #[cfg(feature = "widget")]
+pub mod raster;
+#[cfg(feature = "widget")]
 mod widget;
 
 #[cfg(feature = "widget")]
