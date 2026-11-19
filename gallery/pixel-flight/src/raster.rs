@@ -6,12 +6,12 @@ use super::{
     jet,
     world::{self, World},
 };
-use crate::render::{
+use alloc::{vec, vec::Vec};
+use mirui::render::{
     renderer::RenderError,
     texture::{ColorFormat, Texture},
 };
-use crate::types::{Color, Fixed, Fixed64, GridBasis};
-use alloc::{vec, vec::Vec};
+use mirui::types::{Color, Fixed, Fixed64, GridBasis};
 pub const MAX_WIDTH: usize = 480;
 pub const MAX_HEIGHT: usize = 300;
 pub const BAYER: [u8; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
@@ -303,7 +303,7 @@ impl Frame {
         bounds: [i32; 4],
         f: impl FnOnce(&mut Canvas<'_>) -> R,
     ) -> R {
-        assert_eq!(self.texture.format, ColorFormat::RGBA8888);
+        assert_eq!(self.texture.format(), ColorFormat::RGBA8888);
         let mut pixels = self.texture.pixels_mut().expect("owned flight frame");
         let bytes = &mut pixels.bytes_mut()[..extent[0] * extent[1] * 4];
         let mut canvas = Canvas {
@@ -320,7 +320,7 @@ impl Frame {
         f(&mut canvas)
     }
     pub fn bytes(&self) -> usize {
-        self.width * self.height * self.texture.format.bytes_per_pixel()
+        self.width * self.height * self.texture.format().bytes_per_pixel()
     }
 }
 impl Workspace {
@@ -855,7 +855,7 @@ fn draw_world(
     pal: &Palette,
     prepared: &PreparedTerrain,
 ) {
-    crate::trace_span!("flight.terrain");
+    mirui::trace_span!("flight.terrain");
     // Terrain and clouds claim depth first. Sky fills every remaining color pixel.
     canvas.reset_depth();
     let [left, clip_top, right, bottom] = canvas.color.clip;
@@ -1088,7 +1088,7 @@ fn draw_world(
     }
 }
 fn draw_sky(canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette, frame_height: usize) {
-    crate::trace_span!("flight.sky");
+    mirui::trace_span!("flight.sky");
     let [left, top, right, bottom] = canvas.color.clip;
     if left >= right || top >= bottom {
         return;
@@ -1181,7 +1181,7 @@ fn draw_sky(canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette, fra
     }
 }
 fn draw_trails(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection, pal: &Palette) {
-    crate::trace_span!("flight.trails");
+    mirui::trace_span!("flight.trails");
     let first = usize::from(p.jet_alpha < Fixed::HALF).min(flight.count);
     let jets = &flight.jets[first..flight.count];
     if jets.is_empty() {
@@ -1264,7 +1264,7 @@ fn draw_trails(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection
     }
 }
 fn draw_smoke(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection, day: Daylight) {
-    crate::trace_span!("flight.smoke");
+    mirui::trace_span!("flight.smoke");
     for smoke in &flight.smoke {
         let age = flight.time - smoke.born;
         if smoke.life <= Fixed::ZERO || age < Fixed::ZERO || age >= smoke.life {
@@ -1358,7 +1358,7 @@ impl PreparedJet {
         pal: &Palette,
         size: [usize; 2],
     ) -> Option<Self> {
-        crate::trace_span!("flight.aircraft.prepare");
+        mirui::trace_span!("flight.aircraft.prepare");
         let jet = &flight.jets[index];
         let fade = if index == 0 { p.jet_alpha } else { Fixed::ONE };
         if fade < Fixed::from_ratio(4, 1000) {
@@ -1438,7 +1438,7 @@ impl PreparedJet {
             }
         };
         let lights = {
-            crate::trace_span!("flight.aircraft.light");
+            mirui::trace_span!("flight.aircraft.light");
             [light(-Fixed::ONE), light(Fixed::ONE)]
         };
         let big = sc * p.scale
@@ -1528,7 +1528,7 @@ impl PreparedJet {
         })
     }
     fn draw(&self, canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette) {
-        crate::trace_span!("flight.aircraft");
+        mirui::trace_span!("flight.aircraft");
         let center = self.center;
         let fade = self.fade;
         let samples = self.samples;
@@ -1541,7 +1541,7 @@ impl PreparedJet {
             -1,
         ];
         {
-            crate::trace_span!("flight.aircraft.samples");
+            mirui::trace_span!("flight.aircraft.samples");
             for index in self.order {
                 let Some(layer) = &self.layers[index] else {
                     continue;
@@ -1633,7 +1633,7 @@ impl PreparedJet {
             }
         }
         {
-            crate::trace_span!("flight.aircraft.outline");
+            mirui::trace_span!("flight.aircraft.outline");
             let [left, top, right, bottom] = canvas.color.clip;
             for y in (bounds[1] - 1).max(top)..=(bounds[3] + 1).min(bottom - 1) {
                 for x in (bounds[0] - 1).max(left)..=(bounds[2] + 1).min(right - 1) {
@@ -1662,7 +1662,7 @@ impl PreparedJet {
     }
 
     fn prepare_regions(&mut self, p: &Projection) {
-        crate::trace_span!("flight.aircraft.regions");
+        mirui::trace_span!("flight.aircraft.regions");
         for index in 0..jet::LAYERS {
             let Some(layer) = self.layers[index] else {
                 continue;

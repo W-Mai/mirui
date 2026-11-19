@@ -1,46 +1,44 @@
 macro_rules! split_demo_sources {
+    (@root $demo:literal) => { concat!("../../src/gallery/demos/", $demo) };
+    (@root $demo:literal, $root:literal) => { $root };
+    (@entry $demo:literal) => { concat!("../../src/gallery/demos/", $demo, ".rs") };
+    (@entry $demo:literal, $root:literal) => { concat!($root, "/lib.rs") };
+    (@source $entry:expr, $root:expr, $demo:literal, [$($part:literal),+ $(,)?]) => {
+        concat!(include_str!($entry), $(
+            "\n\n// ", $demo, "/", $part, "\n", include_str!(concat!($root, "/", $part)),
+        )+)
+    };
+    (@parts [$($part:literal),+ $(,)?]) => { &[$($part),+] };
     (
         $(
             $name:ident => {
                 demo: $demo:literal,
+                $(root: $root:literal,)?
                 marker: $marker:literal,
-                parts: [$($part:literal),+ $(,)?]
+                parts: $parts:tt
             }
         ),+ $(,)?
     ) => {
         $(
-            pub(crate) const $name: &str = concat!(
-                include_str!(concat!(
-                    "../../src/gallery/demos/",
-                    $demo,
-                    ".rs"
-                )),
-                $(
-                    "\n\n// ",
-                    $demo,
-                    "/",
-                    $part,
-                    "\n",
-                    include_str!(concat!(
-                        "../../src/gallery/demos/",
-                        $demo,
-                        "/",
-                        $part
-                    )),
-                )+
+            pub(crate) const $name: &str = split_demo_sources!(@source
+                split_demo_sources!(@entry $demo $(, $root)?),
+                split_demo_sources!(@root $demo $(, $root)?), $demo, $parts
             );
         )+
 
         #[cfg(test)]
         pub(crate) const CASES: &[(&str, &[&str], &str, &str)] = &[
-            $(($demo, &[$($part),+], $marker, $name),)+
+            $(($demo, split_demo_sources!(@parts $parts), $marker, $name),)+
         ];
+        #[cfg(test)]
+        const ROOTS: &[&str] = &[$(split_demo_sources!(@root $demo $(, $root)?)),+];
     };
 }
 
 split_demo_sources! {
     PIXEL_FLIGHT => {
         demo: "pixel_flight",
+        root: "../pixel-flight/src",
         marker: "fn flight_scene",
         parts: ["world.rs", "jet.rs", "flight.rs", "raster.rs", "raster/compact.rs", "cockpit.rs", "flame.rs", "math.rs", "runtime.rs"]
     },
@@ -686,7 +684,10 @@ mod tests {
                     .map(|part| part.to_str().unwrap())
                     .collect::<Vec<_>>()
                     .join("/");
-                assert!(parts.contains(&name.as_str()), "{demo} source omits {name}");
+                assert!(
+                    parts.contains(&name.as_str()) || name == "lib.rs",
+                    "{demo} source omits {name}"
+                );
                 let content = std::fs::read_to_string(&path).expect("split module source");
                 assert!(
                     source.contains(&content),
@@ -695,12 +696,18 @@ mod tests {
             }
         }
         let mut registered = BTreeSet::new();
-        for &(demo, parts, _, source) in super::CASES {
+        for (&(demo, parts, _, source), root) in super::CASES.iter().zip(super::ROOTS) {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src")
+                .join(root);
+            check_directory(demo, &root, &root, parts, source);
+            if root.canonicalize().unwrap().parent() != Some(&demos.canonicalize().unwrap()) {
+                continue;
+            }
             assert!(
                 registered.insert(demo.to_owned()),
                 "duplicate source: {demo}"
             );
-            check_directory(demo, &demos.join(demo), &demos.join(demo), parts, source);
         }
         let split_directories: BTreeSet<_> = std::fs::read_dir(&demos)
             .expect("demo directory")

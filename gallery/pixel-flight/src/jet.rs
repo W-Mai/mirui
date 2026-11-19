@@ -1,5 +1,5 @@
 //! Static aircraft slices prepared from the indexed MIRX atlas at build time.
-use crate::types::Fixed;
+use mirui::types::Fixed;
 
 use asset::{COARSE_STARTS, PIVOT_Q8, STARTS};
 pub use asset::{LAYERS, LENGTH, PALETTE, WIDTH};

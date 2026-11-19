@@ -1,5 +1,16 @@
 //! A pixel flight scene with a wrapped height field and layered aircraft.
 
+#![no_std]
+
+extern crate alloc;
+#[cfg(test)]
+#[macro_use]
+extern crate std;
+
+#[cfg(test)]
+#[path = "../../../tests/support/tracking_allocator.rs"]
+mod test_support;
+
 pub mod cockpit;
 pub mod flame;
 pub mod flight;
@@ -34,4 +45,4 @@ impl Profile {
 }
 
 pub const VIEWPORT: (u16, u16) = (1280, 720);
-pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_least(128, 128);
+pub const COMPACT_VIEWPORT: (u16, u16) = (128, 128);

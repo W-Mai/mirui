@@ -123,6 +123,24 @@ pub fn extract_focus(src: &str) -> String {
     out
 }
 
+#[doc(hidden)]
+pub mod demos {
+    pub use mirui::gallery::demos::*;
+
+    #[cfg(feature = "pixel-flight")]
+    pub mod pixel_flight {
+        pub use mirui_pixel_flight::setup_app;
+        pub const DEMO_SIZE: mirui::gallery::DemoSize =
+            mirui::gallery::DemoSize::at_least(128, 128);
+    }
+
+    #[cfg(feature = "pixel-flight")]
+    pub mod pixel_flight_compact {
+        pub use mirui_pixel_flight::setup_compact_app as setup_app;
+        pub const DEMO_SIZE: mirui::gallery::DemoSize = mirui::gallery::DemoSize::at_least(64, 64);
+    }
+}
+
 #[macro_export]
 macro_rules! register_demos {
     (@preferred) => { None };
@@ -145,11 +163,11 @@ macro_rules! register_demos {
                     slug: $slug,
                     label: $label,
                     category: $category,
-                    size: $crate::mirui::gallery::demos::$module::DEMO_SIZE,
+                    size: $crate::demos::$module::DEMO_SIZE,
                     preferred_size: $crate::register_demos!(@preferred $($preferred)?),
                     setup: |setup| {
                         let parent = setup.app.spawn_root().id();
-                        $crate::mirui::gallery::demos::$module::setup_app(setup.app, parent);
+                        $crate::demos::$module::setup_app(setup.app, parent);
                         parent
                     },
                     source: $crate::register_demos!(@source $module $(, $source)?),
@@ -173,7 +191,7 @@ macro_rules! register_demos {
                 $(
                     $slug => {
                         let parent = app.spawn_root().id();
-                        $crate::mirui::gallery::demos::$module::setup_app(app, parent);
+                        $crate::demos::$module::setup_app(app, parent);
                         Some(parent)
                     }
                 )*
@@ -195,8 +213,8 @@ register_demos! {
     ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab, source = demo_sources::INTERACTION_LAB),
     ("editor_lab",           "Editor Lab",           "Components",  editor_lab, source = demo_sources::EDITOR_LAB),
     ("glass_light_toggle",    "Glass Light Toggle",    "Showcase",    glass_light_toggle, source = demo_sources::GLASS_LIGHT_TOGGLE),
-    ("pixel_flight",          "Pixel Flight",          "Play",        pixel_flight, source = demo_sources::PIXEL_FLIGHT, preferred_size = mirui::gallery::demos::pixel_flight::VIEWPORT),
-    ("pixel_flight_compact",  "Pixel Flight Compact",  "Play",        pixel_flight_compact, source = demo_sources::PIXEL_FLIGHT, preferred_size = mirui::gallery::demos::pixel_flight_compact::VIEWPORT),
+    ("pixel_flight",          "Pixel Flight",          "Play",        pixel_flight, source = demo_sources::PIXEL_FLIGHT, preferred_size = mirui_pixel_flight::VIEWPORT),
+    ("pixel_flight_compact",  "Pixel Flight Compact",  "Play",        pixel_flight_compact, source = demo_sources::PIXEL_FLIGHT, preferred_size = mirui_pixel_flight::COMPACT_VIEWPORT),
     ("page_studio",          "Page Studio",          "Showcase",    page_studio, source = demo_sources::PAGE_STUDIO),
     ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console, source = demo_sources::KINETIC_CONSOLE),
 

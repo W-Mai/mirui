@@ -21,9 +21,10 @@ linux-drm = ["mirui/linux-drm"]
 perf = ["mirui/perf"]
 persistence = ["mirui/persistence"]
 snapshot = ["mirui/std", "persistence", "pixel-flight"]
-pixel-flight = ["mirui/pixel-flight"]
+pixel-flight = ["dep:mirui-pixel-flight"]
 
 [dependencies]
+mirui-pixel-flight = { path = "pixel-flight", optional = true }
 mirui = { path = "..", default-features = false, features = ["quad-aa", "gallery"] }
 mirui-macros = { path = "../mirui-macros" }
 mirx = { path = "../mirx" }

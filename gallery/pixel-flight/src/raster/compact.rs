@@ -1,6 +1,6 @@
 use super::*;
-use crate::render::texture::TexturePixelsMut;
-use crate::types::Color;
+use mirui::render::texture::TexturePixelsMut;
+use mirui::types::Color;
 
 // A rotated 32-pixel core spans at most 45 samples; retain two halo pixels per side.
 pub(super) const TILE_SIDE: usize = 32;
@@ -31,7 +31,7 @@ impl Raster {
         flight: &Flight,
         cockpit: &super::super::cockpit::Cockpit,
     ) {
-        crate::trace_span!("flight.native_frame");
+        mirui::trace_span!("flight.native_frame");
         let Self {
             frame,
             sheet,
@@ -233,7 +233,7 @@ impl Raster {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gallery::demos::pixel_flight::{
+    use crate::{
         cockpit::Cockpit,
         flight::{Settings, View},
     };

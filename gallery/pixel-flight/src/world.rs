@@ -1,7 +1,7 @@
 #![doc = " Seeded, wrapping terrain and cloud fields. Map generation is a cold path."]
 use super::math::FixedMath as _;
-use crate::types::Fixed;
 use alloc::{vec, vec::Vec};
+use mirui::types::Fixed;
 pub const SIDE: usize = 1024;
 pub const CLOUD_SIDE: usize = 512;
 pub const CLOUD_ALT: Fixed = Fixed::from_int(40);

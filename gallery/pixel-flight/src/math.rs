@@ -1,6 +1,6 @@
 //! Fixed-point scalar operations used by the flight scene.
 
-use crate::types::{Fixed, Fixed64};
+use mirui::types::{Fixed, Fixed64};
 
 pub const PI: Fixed = Fixed::PI;
 pub const TAU: Fixed = Fixed::from_ratio(1608, 256);

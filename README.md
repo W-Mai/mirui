@@ -19,7 +19,7 @@ Pixel Flight has overhead, chase and cockpit views, procedural islands and live 
 
 Pixel Flight Compact renders at native 128×128 into RGB565, using bounded scene tiles and lossless MIRX cockpit rows. Run `cargo run -p gallery --example pixel_flight_compact_demo --profile release-opt --no-default-features --features sdl-gpu,pixel-flight`. Both flight demos support window resizing and the same controls.
 
-Append `-- --auto` to either flight example for unattended flight with automatic camera changes every twelve simulation seconds. Embedded applications enable Mirui's `pixel-flight` Cargo feature and call `set_autoplay(true)` on the Model returned by `pixel_flight::setup_compact_app`. Passing `false` restores manual control without restarting the flight.
+Append `-- --auto` to either flight example for unattended flight with automatic camera changes every twelve simulation seconds. Embedded applications use the [no_std game package](gallery/pixel-flight) and call `set_autoplay(true)` on the Model returned by `mirui_pixel_flight::setup_compact_app`. Passing `false` restores manual control without restarting the flight.
 
 ## Features
 

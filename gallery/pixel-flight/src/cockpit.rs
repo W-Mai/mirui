@@ -7,8 +7,8 @@ use super::{
     raster::{BAYER, Canvas, Palette, blend, rgba},
     world::{World, hash8},
 };
-use crate::types::Fixed;
 use alloc::{vec, vec::Vec};
+use mirui::types::Fixed;
 const GREEN: [u32; 6] = [
     0xff0d1403, 0xff162205, 0xff28420a, 0xff4e9616, 0xff7ee246, 0xffd2ffba,
 ];
@@ -1467,7 +1467,7 @@ impl Cockpit {
         prepared: &PreparedCockpit,
         mask: &mut [u8],
     ) -> bool {
-        crate::trace_span!("flight.cockpit.coverage");
+        mirui::trace_span!("flight.cockpit.coverage");
         let [left, top, right, bottom] = clip;
         if left >= right || top >= bottom {
             return false;
@@ -1512,7 +1512,7 @@ impl Cockpit {
         flight: &Flight,
         prepared: &PreparedCockpit,
     ) {
-        crate::trace_span!("flight.cockpit");
+        mirui::trace_span!("flight.cockpit");
         let p = prepared.projection;
         let [canopy, glass, panel, deck, lever, stick, rear] = prepared.offsets;
         let light = prepared.light;

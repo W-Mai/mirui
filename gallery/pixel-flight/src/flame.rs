@@ -1,7 +1,7 @@
 #![doc = " Continuous curved flame shading with ordinary SourceOver and Add textures."]
 use super::math::FixedMath as _;
 use super::{flight::smooth, raster::Flame};
-use crate::{
+use mirui::{
     render::{
         command::{CompositeMode, DrawCommand},
         renderer::RenderError,
@@ -133,7 +133,7 @@ struct Prepared {
 }
 impl Prepared {
     fn new(flame: Flame, time: Fixed) -> Self {
-        crate::trace_span!("flight.flame_prepare");
+        mirui::trace_span!("flight.flame_prepare");
         let direction = normalize([
             flame.points[1][0] - flame.points[0][0],
             flame.points[1][1] - flame.points[0][1],
@@ -482,7 +482,7 @@ fn encode_sample(value: [Fixed; 4]) -> (Color, Color) {
     )
 }
 pub(super) fn composite_native(pixels: &mut TexturePixelsMut<'_>, flames: &[Flame], time: Fixed) {
-    crate::trace_span!("flight.flames");
+    mirui::trace_span!("flight.flames");
     for mut flame in flames.iter().copied() {
         if flame.radius <= Fixed::ZERO || flame.alpha <= Fixed::ZERO {
             continue;
@@ -534,9 +534,9 @@ pub(super) fn composite_native(pixels: &mut TexturePixelsMut<'_>, flames: &[Flam
                 let value = prepared
                     .shade_row::<true>(Fixed::from_int(x) + Fixed::from_ratio(1, 2), &candidates);
                 let (base, emission) = encode_sample(value);
-                pixels.composite_pixel_int(x, y, &base, base.a, CompositeMode::SourceOver);
+                pixels.composite_pixel(x, y, &base, CompositeMode::SourceOver);
                 if emission.r != 0 || emission.g != 0 || emission.b != 0 {
-                    pixels.composite_pixel_int(x, y, &emission, 255, CompositeMode::Add);
+                    pixels.composite_pixel(x, y, &emission, CompositeMode::Add);
                 }
             }
         }

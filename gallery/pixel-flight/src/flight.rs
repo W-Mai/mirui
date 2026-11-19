@@ -5,11 +5,11 @@ use super::{
     jet,
     world::{CLOUD_ALT, MAX_HEIGHT, World},
 };
-use crate::{
+use alloc::{boxed::Box, vec::Vec};
+use mirui::{
     anim::Spring,
     types::{Fixed, Fixed64},
 };
-use alloc::{boxed::Box, vec::Vec};
 pub const TRAIL_CAPACITY: usize = 160;
 pub const SMOKE_CAPACITY: usize = 96;
 pub type V3 = [Fixed; 3];

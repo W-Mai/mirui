@@ -1,0 +1,17 @@
+[package]
+name = "mirui-pixel-flight"
+version = "0.56.0"
+edition = "2024"
+publish = false
+
+[features]
+std = ["mirui/std"]
+
+[dependencies]
+mirui = { path = "../..", default-features = false }
+mirui-macros = { path = "../../mirui-macros" }
+mirui-pixel-flight-assets = { path = "../pixel-flight-assets" }
+mirx = { path = "../../mirx" }
+
+[dev-dependencies]
+mirui = { path = "../..", default-features = false, features = ["std", "gallery"] }

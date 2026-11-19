@@ -1,10 +1,7 @@
 mod backend_snapshot_support;
 
-use mirui::{
-    gallery::demos::pixel_flight::{self, FlightModelHandle, flight::View},
-    prelude::*,
-    render::RenderError,
-};
+use mirui::{prelude::*, render::RenderError};
+use mirui_pixel_flight::{self as pixel_flight, FlightModelHandle, flight::View};
 use std::{
     env,
     path::{Path, PathBuf},
