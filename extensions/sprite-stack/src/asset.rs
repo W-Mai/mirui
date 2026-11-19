@@ -1,3 +1,4 @@
+use crate::format::lod::{LodError, StackLods};
 use crate::format::{StackDescriptor, StackError};
 use mirui::render::RenderError;
 use mirui::render::texture::{ColorFormat, MirxLoadError, MirxTextureOptions, Texture};
@@ -11,12 +12,15 @@ pub struct SpriteStackAsset {
     descriptor: StackDescriptor<'static>,
     atlas: Texture<'static>,
     file: &'static [u8],
+    // Indexed levels retain the source palette even if the requested base texture was converted.
+    pub(crate) levels: Option<(StackLods<'static>, &'static [u8])>,
 }
 
 /// Reports malformed placement, unsupported atlas data or nonbinary alpha.
 #[derive(Debug, PartialEq, Eq)]
 pub enum SpriteStackError {
     Placement(StackError),
+    Levels(LodError),
     Atlas(MirxLoadError),
     Pixels(RenderError),
     PartialAlpha { x: u16, y: u16, alpha: u8 },
@@ -26,6 +30,7 @@ impl core::fmt::Display for SpriteStackError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Placement(error) => core::fmt::Display::fmt(error, f),
+            Self::Levels(error) => core::fmt::Display::fmt(error, f),
             Self::Atlas(error) => write!(f, "invalid sprite atlas: {error:?}"),
             Self::Pixels(error) => write!(f, "sprite atlas pixel access failed: {error:?}"),
             Self::PartialAlpha { x, y, alpha } => write!(
@@ -57,8 +62,18 @@ impl SpriteStackReaderExt for mirx::Reader<'static> {
     ) -> Result<SpriteStackAsset, SpriteStackError> {
         let (descriptor, image) =
             StackDescriptor::from_reader_with_atlas(self).map_err(SpriteStackError::Placement)?;
+        let levels = StackLods::from_reader(self, descriptor, image)
+            .map_err(SpriteStackError::Levels)?
+            .map(|levels| {
+                (
+                    levels,
+                    image
+                        .color_table()
+                        .map_or(&[][..], |table| table.as_bytes()),
+                )
+            });
         let atlas = Texture::from_mirx_image(image, options).map_err(SpriteStackError::Atlas)?;
-        SpriteStackAsset::from_atlas(descriptor, atlas, self.source())
+        SpriteStackAsset::from_atlas(descriptor, atlas, self.source(), levels)
     }
 }
 
@@ -82,6 +97,7 @@ impl SpriteStackAsset {
         descriptor: StackDescriptor<'static>,
         atlas: Texture<'static>,
         bytes: &'static [u8],
+        levels: Option<(StackLods<'static>, &'static [u8])>,
     ) -> Result<Self, SpriteStackError> {
         let check_alpha = match atlas.indexed_color_table() {
             Some(table) => table.iter().any(|color| !matches!(color.a, 0 | 255)),
@@ -105,6 +121,7 @@ impl SpriteStackAsset {
             descriptor,
             atlas,
             file: bytes,
+            levels,
         })
     }
 

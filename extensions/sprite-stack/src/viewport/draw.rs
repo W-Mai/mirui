@@ -279,6 +279,40 @@ impl<'a, 'b> SliceProjection<'a, 'b> {
     }
 }
 
+// The camera scale is positive. Checking it first bounds the product for every u16 grid step.
+fn fits_pixel(scale: Fixed, step: u16) -> bool {
+    scale <= Fixed::ONE && scale * i32::from(step) <= Fixed::ONE
+}
+
+#[derive(Clone, Copy)]
+struct LayerGrid {
+    size: [u16; 2],
+    pivot: [Fixed; 2],
+}
+impl LayerGrid {
+    fn cell(
+        self,
+        slice: &SliceProjection<'_, '_>,
+        tile: &mut SceneCanvas<'_, '_>,
+        at: [u16; 2],
+        elevation: Fixed,
+        step: u16,
+        color: u32,
+    ) {
+        let [x, z] = at;
+        slice.cell(
+            tile,
+            [
+                Fixed::from(x) - self.pivot[0],
+                elevation,
+                self.pivot[1] - Fixed::from(z),
+            ],
+            Fixed::from(step.min(self.size[0] - x)),
+            -Fixed::from(step.min(self.size[1] - z)),
+            color,
+        );
+    }
+}
 fn draw_atlas(
     tile: &mut SceneCanvas<'_, '_>,
     t: &ObjectProjection<'_>,
@@ -288,6 +322,43 @@ fn draw_atlas(
     let d = asset.descriptor();
     let [px, pz] = d.pivot_q8().map(|n| Fixed::from_ratio(n, 256));
     let spacing = Fixed::from_ratio(d.spacing_q8(), 256);
+    let (w, h) = d.canvas();
+    let grid = LayerGrid {
+        size: [w, h],
+        pivot: [px, pz],
+    };
+    if let Some((levels, palette)) = asset.levels {
+        let scale = t.camera.projection.scale;
+        if let Some(level) = (0..levels.len())
+            .rev()
+            .filter_map(|i| levels.level(i))
+            .find(|l| fits_pixel(scale, l.step()))
+        {
+            for i in 0..d.layers().len() {
+                let elevation = spacing * i as i32;
+                for sample in level.layer(i).expect("validated layer") {
+                    let rgba = match sample.color {
+                        crate::format::lod::LodColor::Rgba(rgba) => rgba,
+                        crate::format::lod::LodColor::Indexed(index) => {
+                            let start = usize::from(index) * 4;
+                            palette[start..start + 4]
+                                .try_into()
+                                .expect("validated palette index")
+                        }
+                    };
+                    grid.cell(
+                        &slice,
+                        tile,
+                        [sample.x, sample.y],
+                        elevation,
+                        level.step(),
+                        u32::from_le_bytes(rgba),
+                    );
+                }
+            }
+            return Ok(());
+        }
+    }
     let image = asset.atlas().read_pixels()?;
     for i in 0..d.layers().len() {
         let region = d.layers().get(i).expect("validated layer");
@@ -297,15 +368,12 @@ fn draw_atlas(
                 if c.a == 0 {
                     continue;
                 }
-                slice.cell(
+                grid.cell(
+                    &slice,
                     tile,
-                    [
-                        Fixed::from_int(x) - px,
-                        spacing * i as i32,
-                        pz - Fixed::from_int(y),
-                    ],
-                    Fixed::ONE,
-                    -Fixed::ONE,
+                    [x as u16, y as u16],
+                    spacing * i as i32,
+                    1,
                     u32::from_le_bytes([c.r, c.g, c.b, c.a]),
                 );
             }
@@ -322,24 +390,25 @@ fn draw_sparse(
     let [w, h, layers] = asset.extent();
     let [px, pz, ph] = asset.pivot_q8().map(|v| Fixed::from_ratio(v, 256));
     let spacing = Fixed::from_ratio(asset.spacing_q8(), 256);
+    let grid = LayerGrid {
+        size: [w, h],
+        pivot: [px, pz],
+    };
     let level = asset
         .levels()
         .iter()
         .rev()
-        .find(|level| t.camera.projection.scale * i32::from(level.step()) <= Fixed::ONE)
+        .find(|level| fits_pixel(t.camera.projection.scale, level.step()))
         .unwrap_or(&asset.levels()[0]);
     for i in 0..layers {
         for s in level.layer(usize::from(i)).expect("validated layer") {
             let (x, y) = (u16::from(s.x), u16::from(s.y));
-            slice.cell(
+            grid.cell(
+                &slice,
                 tile,
-                [
-                    Fixed::from(x) - px,
-                    (Fixed::from(i) - ph) * spacing,
-                    pz - Fixed::from(y),
-                ],
-                Fixed::from(level.step().min(w - x)),
-                -Fixed::from(level.step().min(h - y)),
+                [x, y],
+                (Fixed::from(i) - ph) * spacing,
+                level.step(),
                 u32::from_le_bytes(asset.palette()[usize::from(s.color)]),
             );
         }

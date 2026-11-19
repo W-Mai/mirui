@@ -76,6 +76,8 @@ fn screens(scene: model!(StackScene), player: Object) -> Entity {
 
 `StackScene::bounded(n)` prepares instance slots. `place` accepts a shared sprite, a static prepared model, a height field, or a registered editable height field. A failed placement preserves existing objects. `set_pose`, `remove` and `height_at` use the returned `Object`. Each viewport retains its output texture and reuses up to sixteen rows of depth and coverage. A game can install a per-viewport `ScenePainter` for its own materials and effects.
 
+`StackViewport` selects detail separately for each camera. It uses the coarsest stored grid step that projects to at most one screen pixel, and draws the base atlas at closer scales. Optional `SLOD` records borrow sparse cells and their original RGBA colors or palette indices from the MIRX file. A coarse cell on the edge stops at the original layer bounds.
+
 [Passing Lane](examples/passing_lane.rs) places two cars from one asset. Press **Drive** to pass the other car. A chase camera and an overhead camera follow the same driver, and the game Model counts each pass once.
 
 ```sh
