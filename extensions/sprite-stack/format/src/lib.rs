@@ -6,6 +6,7 @@
 
 extern crate alloc;
 
+pub mod lod;
 mod prepared;
 pub use prepared::{PreparedSpriteStack, SparseLevel, StackSample};
 

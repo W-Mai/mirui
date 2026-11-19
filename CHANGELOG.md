@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Share Pixel Flight's generated terrain between the flight simulation and scene instances. Height fields accept a coordinate mapping for indexed maps with custom axes and sampling rules.
+- Read optional sparse sprite levels from MIRX with shared base coordinates, ordered layers and original palette indices or RGBA values.
 
 - Composite a color into a writable texture with `TexturePixelsMut::composite_pixel`.
 
