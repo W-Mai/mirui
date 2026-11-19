@@ -324,23 +324,38 @@ impl SceneCanvas<'_, '_> {
             Some(self.depth[self.color.index(x, y)])
         }
     }
+    #[inline]
     pub fn fill_depth(&mut self, x: usize, y0: i32, y1: i32, color: u32, depth: Fixed) {
         self.fill_span(x, y0, y1, color, depth, false);
     }
     /// Fills unoccupied samples in a vertical span, optionally alternating pixels in a checker pattern.
+    #[inline]
     pub fn fill_span(&mut self, x: usize, y0: i32, y1: i32, color: u32, depth: Fixed, thin: bool) {
-        if x >= self.color.clip[2].max(0) as usize || x < self.color.clip[0].max(0) as usize {
+        let [left, top, right, bottom] = self.color.clip;
+        let mut first = y0.max(top);
+        let end = y1.min(bottom);
+        if x >= right.max(0) as usize || x < left.max(0) as usize || first >= end {
             return;
         }
-        for y in y0.max(self.color.clip[1])..y1.min(self.color.clip[3]) {
-            if thin && (x + y as usize) & 1 == 0 {
-                continue;
+        if thin && (x ^ first as usize) & 1 == 0 {
+            first += 1;
+            if first == end {
+                return;
             }
-            let at = self.color.index(x as i32, y);
+        }
+        let mut at = self.color.index(x as i32, first);
+        let pixels = self.color.bytes.as_chunks_mut::<4>().0;
+        let mut remaining = (end - first - 1) as usize >> usize::from(thin);
+        loop {
             if self.depth[at] == Fixed::MAX {
-                self.put(at, color);
+                pixels[at] = color.to_le_bytes();
                 self.depth[at] = depth;
             }
+            if remaining == 0 {
+                break;
+            }
+            remaining -= 1;
+            at += self.color.pitch << usize::from(thin);
         }
     }
     pub fn clear_depth(&mut self) {
@@ -384,6 +399,39 @@ mod tests {
             assert_eq!(tile.sample_depth(3, 2), Some(Fixed::MAX));
         });
         assert_eq!(workspace.bytes(), bytes);
+    }
+
+    #[test]
+    fn checker_spans_keep_global_parity_at_clipped_tile_edges() {
+        let mut frame = Frame::new(3, 5).unwrap();
+        let mut workspace = Workspace::new(3, 5).unwrap();
+        let end = i32::MAX;
+        workspace.with_region(
+            &mut frame,
+            [10, end as usize],
+            [2, end - 5],
+            [1, end - 4, 4, end],
+            |tile| {
+                let old = 0xff00ff00;
+                let new = 0xff0000ff;
+                assert!(tile.write_visible(2, end - 2, Fixed::ONE, old));
+                for x in [usize::MAX, 1, 2, 3, 4] {
+                    tile.fill_span(x, end - 7, end, new, Fixed::from_int(2), true);
+                }
+                for x in 2..5 {
+                    for y in end - 5..end {
+                        let expected = if (x, y) == (2, end - 2) {
+                            old
+                        } else if tile.color.contains(x, y) && (x ^ y) & 1 != 0 {
+                            new
+                        } else {
+                            0
+                        };
+                        assert_eq!(tile.get(tile.color.index(x, y)), expected);
+                    }
+                }
+            },
+        );
     }
 
     #[test]
