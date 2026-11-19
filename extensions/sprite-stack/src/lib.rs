@@ -6,6 +6,7 @@
 
 extern crate alloc;
 
+pub use format::{PreparedSpriteStack, SparseLevel, StackSample};
 pub use mirui_sprite_stack_format as format;
 
 #[cfg(feature = "widget")]

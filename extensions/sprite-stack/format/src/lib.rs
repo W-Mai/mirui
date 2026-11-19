@@ -6,6 +6,9 @@
 
 extern crate alloc;
 
+mod prepared;
+pub use prepared::{PreparedSpriteStack, SparseLevel, StackSample};
+
 use alloc::vec;
 use mirx::extension::{Extension, Policy, Relocation};
 use mirx::image::{AtlasMap, AtlasMapError, ImageReadError};

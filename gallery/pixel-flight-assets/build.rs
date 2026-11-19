@@ -82,12 +82,12 @@ impl Level {
     fn write(&self, out: &mut String, prefix: &str) {
         writeln!(
             out,
-            "pub const {prefix}VOXELS: [[u8; 3]; {}] = [",
+            "pub static {prefix}VOXELS: [StackSample; {}] = [",
             self.voxels.len()
         )
         .unwrap();
         for [x, y, color] in &self.voxels {
-            writeln!(out, "[{x}, {y}, {color}],").unwrap();
+            writeln!(out, "StackSample {{ x: {x}, y: {y}, color: {color} }},").unwrap();
         }
         writeln!(
             out,

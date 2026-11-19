@@ -6,6 +6,9 @@ license = "MIT"
 repository = "https://github.com/W-Mai/mirui"
 description = "Static aircraft geometry and material tables for the Pixel Flight demo"
 
+[dependencies]
+mirui-sprite-stack-format = { version = "0.56.0", path = "../../extensions/sprite-stack/format" }
+
 [build-dependencies]
 mirui-sprite-stack-format = { version = "0.56.0", path = "../../extensions/sprite-stack/format" }
 mirx = { version = "0.56.0", path = "../../mirx" }

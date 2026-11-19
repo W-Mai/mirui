@@ -1,8 +1,9 @@
 //! Static aircraft slices prepared from the indexed MIRX atlas at build time.
 use mirui::types::Fixed;
 
-use asset::{COARSE_STARTS, PIVOT_Q8, STARTS};
+use asset::{COARSE_STARTS, COARSE_VOXELS, PIVOT_Q8, STARTS, VOXELS};
 pub use asset::{LAYERS, LENGTH, PALETTE, WIDTH};
+pub use asset::{MODEL, StackSample as Voxel};
 use mirui_pixel_flight_assets as asset;
 
 pub(super) const PIVOT_X: Fixed = Fixed::from_ratio(PIVOT_Q8[0], 256);
@@ -10,9 +11,6 @@ pub const PIVOT: [Fixed; 2] = [
     Fixed::from_ratio(PIVOT_Q8[1], 256),
     Fixed::from_ratio(PIVOT_Q8[2], 256),
 ];
-
-static VOXELS: [Voxel; asset::VOXELS.len()] = model_voxels(&asset::VOXELS);
-static COARSE_VOXELS: [Voxel; asset::COARSE_VOXELS.len()] = model_voxels(&asset::COARSE_VOXELS);
 
 /// Expands the full-detail slices into caller-owned material indices.
 pub fn decode(out: &mut [u8; WIDTH * LENGTH * LAYERS]) {
@@ -25,37 +23,6 @@ pub fn decode(out: &mut [u8; WIDTH * LENGTH * LAYERS]) {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Voxel {
-    pub x: u8,
-    pub y: u8,
-    pub color: u8,
-}
-
-const fn model_voxels<const N: usize>(samples: &[[u8; 3]; N]) -> [Voxel; N] {
-    let mut voxels = [Voxel {
-        x: 0,
-        y: 0,
-        color: 0,
-    }; N];
-    let mut i = 0;
-    while i < N {
-        let [x, y, color] = samples[i];
-        voxels[i] = Voxel { x, y, color };
-        i += 1;
-    }
-    voxels
-}
-
-impl Voxel {
-    pub fn a(self) -> Fixed {
-        lateral(self.x)
-    }
-    pub fn b(self) -> Fixed {
-        longitudinal(self.y)
-    }
-}
-
 pub(super) fn lateral(x: u8) -> Fixed {
     Fixed::from_int(i32::from(x)) - PIVOT_X
 }
@@ -65,7 +32,7 @@ pub(super) fn longitudinal(y: u8) -> Fixed {
 }
 
 pub fn slices() -> [&'static [Voxel]; LAYERS] {
-    core::array::from_fn(|i| &VOXELS[STARTS[i]..STARTS[i + 1]])
+    core::array::from_fn(|i| Detail::Full.slice(i))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,10 +101,9 @@ impl Detail {
     }
 
     pub(super) fn slice(self, layer: usize) -> &'static [Voxel] {
-        match self {
-            Self::Full => &VOXELS[STARTS[layer]..STARTS[layer + 1]],
-            Self::Coarse => &COARSE_VOXELS[COARSE_STARTS[layer]..COARSE_STARTS[layer + 1]],
-        }
+        MODEL.levels()[self as usize]
+            .layer(layer)
+            .expect("valid aircraft layer")
     }
 }
 
