@@ -140,22 +140,27 @@ impl Aircraft {
     }
     #[doc = " Right wing, nose and dorsal axes; a positive bank lowers the right wing."]
     pub fn axes(&self) -> [V3; 3] {
-        let (sn, cs) = self.yaw.sin_cos();
-        let (sr, cr) = (self.roll + self.spin()).sin_cos();
-        let (sp, cp) = self.pitch.sin_cos();
-        [
-            [cs * cr, sn * cr, -sr],
-            [sn * cp + cs * sr * sp, -cs * cp + sn * sr * sp, cr * sp],
-            [cs * sr * cp - sn * sp, sn * sr * cp + cs * sp, cr * cp],
-        ]
+        aircraft_axes([self.yaw, self.pitch, self.roll + self.spin()])
     }
     pub fn local(&self, local: V3, scale: Fixed) -> V3 {
-        let [right, forward, up] = self.axes();
-        core::array::from_fn(|i| {
-            self.position[i]
-                + scale * (local[0] * right[i] + local[1] * forward[i] + local[2] * up[i])
-        })
+        aircraft_point(self.position, self.axes(), local, scale)
     }
+}
+pub(crate) fn aircraft_axes([yaw, pitch, roll]: V3) -> [V3; 3] {
+    let (sn, cs) = yaw.sin_cos();
+    let (sr, cr) = roll.sin_cos();
+    let (sp, cp) = pitch.sin_cos();
+    [
+        [cs * cr, sn * cr, -sr],
+        [sn * cp + cs * sr * sp, -cs * cp + sn * sr * sp, cr * sp],
+        [cs * sr * cp - sn * sp, sn * sr * cp + cs * sp, cr * cp],
+    ]
+}
+pub(crate) fn aircraft_point(position: V3, axes: [V3; 3], local: V3, scale: Fixed) -> V3 {
+    let [right, forward, up] = axes;
+    core::array::from_fn(|i| {
+        position[i] + scale * (local[0] * right[i] + local[1] * forward[i] + local[2] * up[i])
+    })
 }
 #[derive(Clone, Copy, Default)]
 pub struct Smoke {

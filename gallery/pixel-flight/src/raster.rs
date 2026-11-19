@@ -2,7 +2,7 @@
 mod compact;
 use super::math::FixedMath as _;
 use super::{
-    flight::{Aircraft, Flight, Projection, TRAIL_CAPACITY},
+    flight::{Flight, Projection, TRAIL_CAPACITY, V3, aircraft_axes, aircraft_point},
     jet,
     world::{self, World},
 };
@@ -259,7 +259,30 @@ pub struct Raster {
     pub flame_count: usize,
     pub(super) seen: [[Fixed; 3]; 6],
 }
+/// Render pose and baked geometry of one aircraft placed in the scene.
+#[derive(Clone, Copy)]
+pub(crate) struct PlacedAircraft {
+    pub(crate) position: V3,
+    pub(crate) rotation: V3,
+    pub(crate) model: &'static mirui_sprite_stack::format::PreparedSpriteStack<'static>,
+}
+impl PlacedAircraft {
+    pub(crate) fn from_flight(flight: &Flight) -> [Option<Self>; 3] {
+        core::array::from_fn(|i| {
+            (i < flight.count).then(|| {
+                let jet = &flight.jets[i];
+                Self {
+                    position: jet.position,
+                    rotation: [jet.yaw, jet.pitch, jet.roll + jet.spin()],
+                    model: &jet::MODEL,
+                }
+            })
+        })
+    }
+}
+pub(crate) type Placements = [Option<PlacedAircraft>; 3];
 struct Scene<'a> {
+    placed: &'a Placements,
     world: &'a World,
     flight: &'a Flight,
     palette: &'a Palette,
@@ -275,9 +298,14 @@ impl Scene<'_> {
     }
     fn prepare(&self, projection: Projection, size: [usize; 2]) -> [Option<PreparedJet>; 3] {
         core::array::from_fn(|index| {
-            (index < self.flight.count)
-                .then(|| PreparedJet::new(self.flight, index, &projection, self.palette, size))
-                .flatten()
+            PreparedJet::new(
+                self.flight,
+                index,
+                self.placed[index]?,
+                &projection,
+                self.palette,
+                size,
+            )
         })
     }
     fn order(&self, projection: Projection) -> [usize; 3] {
@@ -285,8 +313,10 @@ impl Scene<'_> {
         let (sn, cs) = projection.yaw.sin_cos();
         order[..self.flight.count].sort_unstable_by(|a, b| {
             let depth = |i: usize| {
-                (self.flight.jets[i].position[0] - projection.position[0]) * sn
-                    + (self.flight.jets[i].position[1] - projection.position[1]) * cs
+                self.placed[i].map_or(Fixed::MAX, |jet| {
+                    (jet.position[0] - projection.position[0]) * sn
+                        + (jet.position[1] - projection.position[1]) * cs
+                })
             };
             depth(*a).cmp(&depth(*b))
         });
@@ -306,6 +336,7 @@ impl Scene<'_> {
             &projection,
             self.palette,
             &self.terrain,
+            self.placed,
         );
         draw_sky(canvas, &projection, self.palette, self.frame_height);
         draw_trails(canvas, self.flight, &projection, self.palette);
@@ -396,7 +427,7 @@ impl Raster {
             + self.output_band.as_ref().map_or(0, Frame::bytes)
             + core::mem::size_of::<Self>()
     }
-    pub fn render(&mut self, world: &World, flight: &Flight) {
+    pub(crate) fn render(&mut self, world: &World, flight: &Flight, placed: &Placements) {
         assert!(
             self.output_band.is_none(),
             "compact rendering requires its cockpit pass"
@@ -416,16 +447,27 @@ impl Raster {
         let frame_height = frame.height;
         let mapping = Mapping::new(p, frame.width, frame.height);
         let scene = Scene {
+            placed,
             world,
             flight,
             palette,
             frame_height,
-            terrain: PreparedTerrain::new(world, flight, &mapping.projection, palette),
+            terrain: PreparedTerrain::new(world, flight, &mapping.projection, palette, placed),
         };
         let mut draw = |canvas: &mut SceneCanvas<'_, '_>, projection: Projection| {
             let order = scene.draw(canvas, projection);
             for i in &order[..flight.count] {
-                record_flames(canvas, flight, *i, &projection, flames, flame_count, seen);
+                if let Some(jet) = placed[*i] {
+                    record_flames(
+                        canvas,
+                        flight,
+                        (*i, jet),
+                        &projection,
+                        flames,
+                        flame_count,
+                        seen,
+                    );
+                }
             }
         };
         if mapping.rolled {
@@ -457,11 +499,12 @@ impl Raster {
         world: &World,
         flight: &Flight,
         cockpit: &super::cockpit::Cockpit,
+        placed: &Placements,
     ) {
         if self.output_band.is_some() {
-            self.render_compact(world, flight, cockpit);
+            self.render_compact(world, flight, cockpit, placed);
         } else {
-            self.render(world, flight);
+            self.render(world, flight, placed);
             self.frame
                 .with_canvas(|canvas| cockpit.draw(canvas, world, flight, &self.palette));
         }
@@ -507,7 +550,13 @@ struct PreparedTerrain {
     rank: u8,
 }
 impl PreparedTerrain {
-    fn new(world: &World, flight: &Flight, p: &Projection, pal: &Palette) -> Self {
+    fn new(
+        world: &World,
+        flight: &Flight,
+        p: &Projection,
+        pal: &Palette,
+        placed: &Placements,
+    ) -> Self {
         let period = Fixed::from_int(world.period() as i32);
         let base = [
             p.position[0].rem_euclid(period) + period * Fixed::from_int(2),
@@ -520,7 +569,10 @@ impl PreparedTerrain {
         let displacement = pal.sun.map(|sun| sun * world::MAX_HEIGHT as i32);
         let mut shadow_bounds = [i32::MAX, i32::MAX, i32::MIN, i32::MIN];
         let mut shadows = [[Fixed::ZERO; 2]; 3];
-        for (center, jet) in shadows.iter_mut().zip(&flight.jets[..flight.count]) {
+        for (i, center) in shadows.iter_mut().enumerate() {
+            let Some(jet) = placed[i] else {
+                continue;
+            };
             *center = core::array::from_fn(|axis| {
                 base[axis] + jet.position[axis] - p.position[axis] + pal.sun[axis] * jet.position[2]
             });
@@ -559,6 +611,7 @@ fn draw_world(
     p: &Projection,
     pal: &Palette,
     prepared: &PreparedTerrain,
+    placed: &Placements,
 ) {
     mirui::trace_span!("flight.terrain");
     // Terrain and clouds claim depth first. Sky fills every remaining color pixel.
@@ -728,17 +781,21 @@ fn draw_world(
                 shaded = c & 15 > 1 && c >> 4 < rank;
             }
             if !shaded && cast_shadows {
-                for (jet, center) in flight.jets[..flight.count].iter().zip(&prepared.shadows) {
+                for (index, center) in prepared.shadows.iter().enumerate() {
+                    let Some(jet) = placed[index] else {
+                        continue;
+                    };
                     let dx =
                         Fixed::from_int(gx) - center[0] + pal.sun[0] * Fixed::from_int((h) as i32);
                     let dy =
                         Fixed::from_int(gy) - center[1] + pal.sun[1] * Fixed::from_int((h) as i32);
                     let reach = prepared.reach;
                     if dx.abs() < reach && dy.abs() < reach {
-                        let (s, c) = jet.yaw.sin_cos();
-                        let a = (dx * c + dy * s)
-                            / (jet.roll.cos().abs().max(Fixed::from_ratio(3, 10))
-                                * flight.settings.jet_scale);
+                        let (s, c) = jet.rotation[0].sin_cos();
+                        let bank = jet.rotation[2] - flight.jets[index].spin();
+                        let span = bank.cos().abs().max(Fixed::from_ratio(3, 10))
+                            * flight.settings.jet_scale;
+                        let a = (dx * c + dy * s) / span;
                         let b = (dx * s - dy * c) / flight.settings.jet_scale;
                         let i = (a + (jet::PIVOT_X + Fixed::HALF)).floor().trunc_to_int();
                         let k =
@@ -1053,18 +1110,20 @@ struct PreparedJet {
     offsets: [[Fixed; 2]; 64],
     sample_bounds: [[Fixed; 2]; 2],
     detail: jet::Detail,
+    level: mirui_sprite_stack::format::SparseLevel<'static>,
+    baked_bounds: bool,
     right_side_x: u8,
 }
 impl PreparedJet {
     fn new(
         flight: &Flight,
         index: usize,
+        jet: PlacedAircraft,
         p: &Projection,
         pal: &Palette,
         size: [usize; 2],
     ) -> Option<Self> {
         mirui::trace_span!("flight.aircraft.prepare");
-        let jet = &flight.jets[index];
         let fade = if index == 0 { p.jet_alpha } else { Fixed::ONE };
         if fade < Fixed::from_ratio(4, 1000) {
             return None;
@@ -1082,7 +1141,7 @@ impl PreparedJet {
         {
             return None;
         }
-        let axes = jet.axes();
+        let axes = aircraft_axes(jet.rotation);
         let (sn, cs) = p.yaw.sin_cos();
         let sc = flight.settings.jet_scale;
         let project_axis = |a: [Fixed; 3]| {
@@ -1152,7 +1211,11 @@ impl PreparedJet {
                     Fixed::from_int(jet::LENGTH as i32) * Fixed::from_ratio(6, 10) * sc,
                 ))
             .max(Fixed::from_ratio(2, 10));
-        let detail = jet::Detail::for_scale(big);
+        let mut detail = jet::Detail::for_scale(big);
+        if jet.model.levels().len() == 1 {
+            detail = jet::Detail::Full;
+        }
+        let level = jet.model.levels()[detail as usize];
         let cell_scale = detail.cell_scale();
         // Coarse cells reuse the existing grid over a larger footprint at lower density.
         let samples = ((big * Fixed::from_int(2) - Fixed::from_ratio(24, 100))
@@ -1186,7 +1249,7 @@ impl PreparedJet {
             }
         }
         let first_slice = (0..jet::LAYERS)
-            .position(|layer| !detail.slice(layer).is_empty())
+            .position(|layer| level.layer(layer).is_some_and(|slice| !slice.is_empty()))
             .unwrap_or(jet::LAYERS);
         // All cells share a fractional pivot. Project that fraction once;
         // whole-cell steps along either axis are exact integer products.
@@ -1229,6 +1292,8 @@ impl PreparedJet {
             offsets,
             sample_bounds,
             detail,
+            level,
+            baked_bounds: core::ptr::eq(jet.model, &jet::MODEL),
             right_side_x: (-grid_x).ceil().to_int() as u8,
         })
     }
@@ -1251,7 +1316,7 @@ impl PreparedJet {
                 let Some(layer) = &self.layers[index] else {
                     continue;
                 };
-                let voxels = self.detail.slice(index);
+                let voxels = self.level.layer(index).unwrap_or_default();
                 let voxels = if let Some(bands) = layer.bounds {
                     let [left, top, right, bottom] = canvas.color.clip;
                     let visible = bands.map(|[x0, y0, x1, y1]| {
@@ -1366,6 +1431,23 @@ impl PreparedJet {
         }
     }
 
+    fn band_bounds(&self, index: usize, half: usize) -> Option<[[u8; 2]; 2]> {
+        if self.baked_bounds {
+            return self.detail.band_bounds(index, half);
+        }
+        let voxels = self.level.layer(index)?;
+        let (first, second) = voxels.split_at(voxels.len() / 2);
+        let mut samples = if half == 0 { first } else { second }.iter();
+        let first = samples.next()?;
+        let mut bounds = [[first.x; 2], [first.y; 2]];
+        for v in samples {
+            for (axis, point) in bounds.iter_mut().zip([v.x, v.y]) {
+                axis[0] = axis[0].min(point);
+                axis[1] = axis[1].max(point);
+            }
+        }
+        Some(bounds)
+    }
     fn prepare_regions(&mut self, p: &Projection) {
         mirui::trace_span!("flight.aircraft.regions");
         for index in 0..jet::LAYERS {
@@ -1373,8 +1455,7 @@ impl PreparedJet {
                 continue;
             };
             let bounds = core::array::from_fn(|half| {
-                self.detail
-                    .band_bounds(index, half)
+                self.band_bounds(index, half)
                     .map_or(Self::EMPTY_BAND, |coords| {
                         self.project_band(&layer, p, coords)
                     })
@@ -1539,7 +1620,7 @@ impl PendingFlame {
 fn record_flames(
     canvas: &SceneCanvas<'_, '_>,
     flight: &Flight,
-    index: usize,
+    instance: (usize, PlacedAircraft),
     p: &Projection,
     out: &mut [Flame; 6],
     count: &mut usize,
@@ -1547,7 +1628,7 @@ fn record_flames(
 ) {
     let mut pending = [PendingFlame::default(); 2];
     let mut length = 0;
-    project_flames(flight, index, p, &mut pending, &mut length);
+    project_flames(flight, instance, p, &mut pending, &mut length);
     for mut value in pending[..length].iter().copied() {
         value.resolve(canvas);
         assert!(value.missing().is_none());
@@ -1557,12 +1638,11 @@ fn record_flames(
 }
 fn project_flames(
     flight: &Flight,
-    index: usize,
+    (index, jet): (usize, PlacedAircraft),
     p: &Projection,
     out: &mut [PendingFlame],
     count: &mut usize,
 ) {
-    let jet: &Aircraft = &flight.jets[index];
     let alpha = if index == 0 { p.jet_alpha } else { Fixed::ONE } * (Fixed::ONE - p.cockpit_in());
     let flick = Fixed::from_ratio(82, 100)
         + Fixed::from_ratio(18, 100)
@@ -1583,6 +1663,7 @@ fn project_flames(
     let width = Fixed::from_ratio(163, 100)
         * (Fixed::ONE + Fixed::from_ratio(12, 100) * flight.boost)
         * Fixed::from_ratio(15, 10);
+    let axes = aircraft_axes(jet.rotation);
     for side in [-Fixed::ONE, Fixed::ONE] {
         if *count == out.len() {
             break;
@@ -1600,7 +1681,12 @@ fn project_flames(
                     * flight.spread
                     + flight.climb_tilt * Fixed::from_ratio(35, 100) * curl,
             ];
-            if let Some(value) = p.project(jet.local(local, flight.settings.jet_scale)) {
+            if let Some(value) = p.project(aircraft_point(
+                jet.position,
+                axes,
+                local,
+                flight.settings.jet_scale,
+            )) {
                 *target = value;
             } else {
                 visible = false;
@@ -1635,6 +1721,36 @@ mod tests {
     use super::super::flight::{Settings, View};
     use super::*;
     #[test]
+    fn placement_selects_the_visible_object_position_and_its_sparse_level() {
+        use mirui_sprite_stack::format::{PreparedSpriteStack, SparseLevel};
+        const EMPTY: SparseLevel<'static> = SparseLevel::new(1, &[0, 0], &[]).unwrap();
+        static MODEL: PreparedSpriteStack<'static> =
+            PreparedSpriteStack::new([1, 1, 1], [0; 3], 256, &[[0; 4]], &[EMPTY]).unwrap();
+        let world = World::with_size(7, Fixed::HALF, 64, 32, 16);
+        let flight = Flight::new(&world, Settings::default());
+        let projection = flight.projection(128, 128);
+        let palette = Palette::new(Daylight::Day);
+        let mut placed = PlacedAircraft::from_flight(&flight);
+        let mut active = placed[0].unwrap();
+        active.position[0] += Fixed::from_int(5);
+        active.model = &MODEL;
+        placed[0] = Some(active);
+        placed[1] = None;
+        let scene = Scene {
+            placed: &placed,
+            world: &world,
+            flight: &flight,
+            palette: &palette,
+            frame_height: 128,
+            terrain: PreparedTerrain::new(&world, &flight, &projection, &palette, &placed),
+        };
+        let prepared = scene.prepare(projection, [128; 2]);
+        let jet = prepared[0].as_ref().unwrap();
+        assert_eq!(jet.center, projection.project(active.position).unwrap());
+        assert!(jet.level.layer(0).unwrap().is_empty());
+        assert!(prepared[1].is_none());
+    }
+    #[test]
     fn terrain_frame_preparation_keeps_every_active_shadow_caster() {
         let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
         let mut flight = Flight::new(&world, Settings::default());
@@ -1646,7 +1762,13 @@ mod tests {
         ];
         let palette = Palette::new(Daylight::Sunset);
         let projection = flight.projection(128, 128);
-        let prepared = PreparedTerrain::new(&world, &flight, &projection, &palette);
+        let prepared = PreparedTerrain::new(
+            &world,
+            &flight,
+            &projection,
+            &palette,
+            &PlacedAircraft::from_flight(&flight),
+        );
         for (index, jet) in flight.jets[..flight.count].iter().enumerate() {
             for axis in 0..2 {
                 let base = projection.position[axis]
@@ -1671,7 +1793,13 @@ mod tests {
         }
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
-                let _ = PreparedTerrain::new(&world, &flight, &projection, &palette);
+                let _ = PreparedTerrain::new(
+                    &world,
+                    &flight,
+                    &projection,
+                    &palette,
+                    &PlacedAircraft::from_flight(&flight),
+                );
             }),
             0
         );
@@ -1713,9 +1841,15 @@ mod tests {
                     flight.step(&world, 16, 128, 128);
                 }
                 let projection = flight.projection(size, size);
-                let mut prepared =
-                    PreparedJet::new(&flight, 0, &projection, &palette, [size, size])
-                        .expect("visible aircraft");
+                let mut prepared = PreparedJet::new(
+                    &flight,
+                    0,
+                    PlacedAircraft::from_flight(&flight)[0].unwrap(),
+                    &projection,
+                    &palette,
+                    [size, size],
+                )
+                .expect("visible aircraft");
                 details[usize::from(prepared.detail == jet::Detail::Coarse)] = true;
                 assert!(prepared.layers.iter().flatten().all(|l| l.bounds.is_none()));
                 let original = prepared.layers;
@@ -1761,7 +1895,15 @@ mod tests {
         }
         let mut p = flight.projection(128, 128);
         let palette = Palette::new(Daylight::Day);
-        let mut jet = PreparedJet::new(&flight, 0, &p, &palette, [128, 128]).unwrap();
+        let mut jet = PreparedJet::new(
+            &flight,
+            0,
+            PlacedAircraft::from_flight(&flight)[0].unwrap(),
+            &p,
+            &palette,
+            [128, 128],
+        )
+        .unwrap();
         p.perspective = Fixed64::from_ratio(1, 64);
         jet.grid = GridBasis::new([Fixed::ZERO, Fixed::ONE, Fixed::ZERO], [Fixed::ZERO; 3]);
         let coords = [[0, 16], [0; 2]];
@@ -1790,8 +1932,15 @@ mod tests {
                 flight.step(&world, 16, 128, 128);
             }
             let projection = flight.projection(128, 128);
-            let prepared = PreparedJet::new(&flight, 0, &projection, &palette, [128, 128])
-                .expect("visible aircraft");
+            let prepared = PreparedJet::new(
+                &flight,
+                0,
+                PlacedAircraft::from_flight(&flight)[0].unwrap(),
+                &projection,
+                &palette,
+                [128, 128],
+            )
+            .expect("visible aircraft");
             for scale in [1, 63, 256, 512, 1024] {
                 let scale = Fixed::from_ratio(scale, 256);
                 for axis in 0..2 {
@@ -1855,7 +2004,9 @@ mod tests {
                 View::Chase => Fixed::from_ratio(1, 16),
                 View::Cockpit => Fixed::ONE,
             };
+            let placed = PlacedAircraft::from_flight(&flight);
             let scene = Scene {
+                placed: &placed,
                 world: &world,
                 flight: &flight,
                 palette: &raster.palette,
@@ -1865,6 +2016,7 @@ mod tests {
                     &flight,
                     &flight.projection(128, 128),
                     &raster.palette,
+                    &placed,
                 ),
             };
             let projection = flight.projection(128, 128);
@@ -1932,14 +2084,15 @@ mod tests {
             for _ in 0..240 {
                 flight.step(&world, 16, 240, 150);
             }
-            raster.render(&world, &flight);
+            raster.render(&world, &flight, &PlacedAircraft::from_flight(&flight));
             let pixels = raster.frame.texture.read_pixels().unwrap();
             assert!(pixels.bytes().chunks_exact(4).all(|c| c[3] == 255));
             let first = &pixels.bytes()[..4];
             assert!(pixels.bytes().chunks_exact(4).any(|c| c != first));
         }
-        let allocation =
-            crate::test_support::tracked_allocations(|| raster.render(&world, &flight));
+        let allocation = crate::test_support::tracked_allocations(|| {
+            raster.render(&world, &flight, &PlacedAircraft::from_flight(&flight))
+        });
         assert_eq!(allocation, 0);
         let max = Raster::new(MAX_WIDTH, MAX_HEIGHT).unwrap();
         assert!(max.sheet.width <= 628);

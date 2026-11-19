@@ -106,7 +106,12 @@ impl FlightModel {
             return;
         };
         if let Some(cockpit) = &self.cockpit {
-            raster.render_with_cockpit(&self.terrain, &self.flight, cockpit);
+            raster.render_with_cockpit(
+                &self.terrain,
+                &self.flight,
+                cockpit,
+                &crate::raster::PlacedAircraft::from_flight(&self.flight),
+            );
         }
         let (_, _, scale) = self.profile.scene_size(self.viewport.0, self.viewport.1);
         if let Some(flames) = &mut self.flames {

@@ -2908,7 +2908,11 @@ mod tests {
         assert!(art.layers.iter().all(|layer| {
             (0..layer.width * layer.height).any(|at| layer.color_at(at as usize) != 0)
         }));
-        raster.render(&world, &flight);
+        raster.render(
+            &world,
+            &flight,
+            &crate::raster::PlacedAircraft::from_flight(&flight),
+        );
         let allocations = crate::test_support::tracked_allocations(|| {
             raster
                 .frame

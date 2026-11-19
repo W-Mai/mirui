@@ -30,6 +30,7 @@ impl Raster {
         world: &World,
         flight: &Flight,
         cockpit: &super::super::cockpit::Cockpit,
+        placed: &Placements,
     ) {
         mirui::trace_span!("flight.native_frame");
         let Self {
@@ -46,11 +47,12 @@ impl Raster {
         let height = frame.height;
         let mapping = Mapping::new(flight.projection(width, height), width, height);
         let scene = Scene {
+            placed,
             world,
             flight,
             palette,
             frame_height: height,
-            terrain: PreparedTerrain::new(world, flight, &mapping.projection, palette),
+            terrain: PreparedTerrain::new(world, flight, &mapping.projection, palette, placed),
         };
         let prepared_cockpit = cockpit.prepare(flight, palette);
         let order = scene.order(mapping.projection);
@@ -61,9 +63,12 @@ impl Raster {
         let mut pending = [PendingFlame::default(); 6];
         let mut count = 0;
         for index in &order[..flight.count] {
+            let Some(jet) = placed[*index] else {
+                continue;
+            };
             project_flames(
                 flight,
-                *index,
+                (*index, jet),
                 &mapping.projection,
                 &mut pending,
                 &mut count,
@@ -212,6 +217,7 @@ impl Raster {
                     &mapping.projection,
                     palette,
                     &scene.terrain,
+                    scene.placed,
                 );
                 for query in &mut pending[..count] {
                     query.resolve(canvas);
@@ -312,7 +318,12 @@ mod tests {
                     }
                     flight.jets[0].roll =
                         Fixed::from_int(degrees) * super::super::super::math::PI / 180;
-                    full.render_with_cockpit(&world, &flight, &cockpit);
+                    full.render_with_cockpit(
+                        &world,
+                        &flight,
+                        &cockpit,
+                        &PlacedAircraft::from_flight(&flight),
+                    );
                     let rgba = full.frame.texture.read_pixels().unwrap();
                     {
                         let mut target = expected.texture.pixels_mut().unwrap();
@@ -330,7 +341,12 @@ mod tests {
                         );
                     }
                     let allocations = crate::test_support::tracked_allocations(|| {
-                        native.render_with_cockpit(&world, &flight, &cockpit)
+                        native.render_with_cockpit(
+                            &world,
+                            &flight,
+                            &cockpit,
+                            &PlacedAircraft::from_flight(&flight),
+                        )
                     });
                     assert_eq!(allocations, 0);
                     let a = expected.texture.read_pixels().unwrap();
