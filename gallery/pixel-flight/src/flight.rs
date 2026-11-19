@@ -170,23 +170,24 @@ pub struct Smoke {
 pub struct Projection {
     pub position: V3,
     pub yaw: Fixed,
-    #[doc = " Reciprocal camera distance needs fractions below one Q24.8 unit."]
-    pub perspective: Fixed64,
-    pub slope: Fixed,
-    pub scale: Fixed,
-    pub center: [Fixed; 2],
+    pub camera: mirui_sprite_stack::raster::Projection,
     pub roll: Fixed,
     pub jet_alpha: Fixed,
     pub cockpit: Fixed,
     pub steer_y: Fixed,
 }
+impl core::ops::Deref for Projection {
+    type Target = mirui_sprite_stack::raster::Projection;
+    fn deref(&self) -> &Self::Target {
+        &self.camera
+    }
+}
+impl core::ops::DerefMut for Projection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.camera
+    }
+}
 impl Projection {
-    pub fn apply_perspective(&self, value: Fixed) -> Fixed {
-        (self.perspective * Fixed64::from_fixed(value)).to_fixed()
-    }
-    pub fn divide_perspective(&self, value: Fixed) -> Fixed {
-        (Fixed64::from_fixed(value) / self.perspective).to_fixed()
-    }
     #[doc = " Returns screen x/y, scale and camera depth. Points behind the eye are rejected."]
     pub fn project(&self, point: V3) -> Option<[Fixed; 4]> {
         self.project_with_yaw(point, self.yaw.sin_cos())
@@ -199,17 +200,8 @@ impl Projection {
         let dx = point[0] - self.position[0];
         let dy = point[1] - self.position[1];
         let depth = -(dx * sn + dy * cs);
-        let den = Fixed::ONE + self.apply_perspective(depth);
-        if den < Fixed::from_ratio(12, 100) {
-            return None;
-        }
-        let m = self.scale / den;
-        Some([
-            self.center[0] + m * (dx * cs - dy * sn),
-            self.center[1] - m * (point[2] - self.position[2] + self.slope * depth),
-            m,
-            depth,
-        ])
+        self.camera
+            .project_camera(dx * cs - dy * sn, point[2] - self.position[2], depth)
     }
     pub fn cockpit_in(&self) -> Fixed {
         let t = ((self.cockpit - Fixed::from_ratio(16, 100)) / Fixed::from_ratio(84, 100))
@@ -423,13 +415,15 @@ impl Flight {
         let mut p = Projection {
             position: self.follow,
             yaw: self.camera_yaw,
-            perspective: Fixed64::ZERO,
-            slope: Fixed::ONE,
-            scale: viewport_scale,
-            center: [
-                Fixed::from_int((width / 2) as i32),
-                Fixed::from_int((height / 2) as i32),
-            ],
+            camera: mirui_sprite_stack::raster::Projection {
+                perspective: Fixed64::ZERO,
+                slope: Fixed::ONE,
+                scale: viewport_scale,
+                center: [
+                    Fixed::from_int((width / 2) as i32),
+                    Fixed::from_int((height / 2) as i32),
+                ],
+            },
             roll: Fixed::ZERO,
             jet_alpha: Fixed::ONE,
             cockpit: k,

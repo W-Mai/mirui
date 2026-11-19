@@ -1468,37 +1468,24 @@ impl Cockpit {
         mask: &mut [u8],
     ) -> bool {
         mirui::trace_span!("flight.cockpit.coverage");
-        let [left, top, right, bottom] = clip;
-        if left >= right || top >= bottom {
-            return false;
-        }
-        let count = ((right - left) * (bottom - top)) as usize;
-        let mask = &mut mask[..count];
-        mask.fill(0);
-        let width = (right - left) as usize;
         let mut row_scratch = [0; ROW_PIXELS];
         let mut above_scratch = [0; ROW_PIXELS];
-        for y in top..bottom {
-            let start = (y - top) as usize * width;
-            let row_mask = &mut mask[start..start + width];
+        mirui_sprite_stack::raster::fully_covered(clip, mask, |y, row_mask| {
             let mut covered = 0;
             for (layer, offset) in self.layers.iter().zip([0, 2, 3, 6]) {
                 covered += layer.mark_coverage(
-                    [left, y, right, y + 1],
+                    [clip[0], y, clip[2], y + 1],
                     prepared.offsets[offset],
                     row_mask,
                     &mut row_scratch,
                     &mut above_scratch,
                 );
-                if covered == width {
+                if covered == row_mask.len() {
                     break;
                 }
             }
-            if covered != width {
-                return false;
-            }
-        }
-        true
+            covered
+        })
     }
     pub fn draw(&self, canvas: &mut Canvas<'_>, world: &World, flight: &Flight, palette: &Palette) {
         if let Some(prepared) = self.prepare(flight, palette) {

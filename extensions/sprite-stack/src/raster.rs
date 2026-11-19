@@ -1,4 +1,9 @@
 //! Fixed-point scene projection and reusable color, coverage and depth tiles.
+mod mapping;
+mod visibility;
+pub use mapping::{RollMapping, sheet_side};
+pub use visibility::{DepthSamples, fully_covered};
+
 use alloc::vec::Vec;
 use mirui::render::{
     renderer::RenderError,
@@ -148,6 +153,10 @@ fn reserved<T: Clone>(len: usize, value: T) -> Result<Vec<T>, RenderError> {
 }
 
 impl Workspace {
+    /// Borrows coverage storage between draws for foreground coverage tests.
+    pub fn coverage_scratch(&mut self) -> &mut [u8] {
+        &mut self.mask
+    }
     pub fn new(width: usize, height: usize) -> Result<Self, RenderError> {
         if width == 0 || height == 0 || width > u16::MAX as usize || height > u16::MAX as usize {
             return Err(RenderError::InvalidGeometry);

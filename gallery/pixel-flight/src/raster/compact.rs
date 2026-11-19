@@ -101,7 +101,11 @@ impl Raster {
                     continue;
                 }
                 let covered = prepared_cockpit.as_ref().is_some_and(|prepared| {
-                    cockpit.covers([x, y, right, bottom], prepared, &mut workspace.mask)
+                    cockpit.covers(
+                        [x, y, right, bottom],
+                        prepared,
+                        workspace.coverage_scratch(),
+                    )
                 });
                 let origin = if covered {
                     [0, 0]
@@ -198,7 +202,7 @@ impl Raster {
         while let Some(origin) = pending[..count].iter().find_map(PendingFlame::missing) {
             let before: u32 = pending[..count]
                 .iter()
-                .map(|p| p.resolved.count_ones())
+                .map(|p| p.samples.resolved_count())
                 .sum();
             workspace.with_region(sheet, mapping.size, origin, mapping.bounds, |canvas| {
                 draw_world(
@@ -215,7 +219,7 @@ impl Raster {
             });
             let after: u32 = pending[..count]
                 .iter()
-                .map(|p| p.resolved.count_ones())
+                .map(|p| p.samples.resolved_count())
                 .sum();
             assert!(after > before, "flame visibility region made no progress");
         }

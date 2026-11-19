@@ -10,6 +10,7 @@ std = ["mirui/std"]
 [dependencies]
 mirui = { path = "../..", default-features = false }
 mirui-macros = { path = "../../mirui-macros" }
+mirui-sprite-stack = { path = "../../extensions/sprite-stack" }
 mirui-pixel-flight-assets = { path = "../pixel-flight-assets" }
 mirx = { path = "../../mirx" }
 

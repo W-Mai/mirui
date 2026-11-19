@@ -6,12 +6,10 @@ use super::{
     jet,
     world::{self, World},
 };
-use alloc::{vec, vec::Vec};
-use mirui::render::{
-    renderer::RenderError,
-    texture::{ColorFormat, Texture},
-};
+use mirui::render::{renderer::RenderError, texture::ColorFormat};
 use mirui::types::{Color, Fixed, Fixed64, GridBasis};
+pub use mirui_sprite_stack::raster::{Canvas, Frame};
+use mirui_sprite_stack::raster::{DepthSamples, RollMapping, SceneCanvas, Workspace};
 pub const MAX_WIDTH: usize = 480;
 pub const MAX_HEIGHT: usize = 300;
 pub const BAYER: [u8; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
@@ -240,237 +238,6 @@ impl Palette {
         }
     }
 }
-pub struct Frame {
-    pub texture: Texture<'static>,
-    pub width: usize,
-    pub height: usize,
-}
-struct Workspace {
-    depth: Vec<Fixed>,
-    mask: Vec<u8>,
-    columns: Vec<i32>,
-}
-#[doc = " A short mutable borrow. No texture or allocator borrow survives the call."]
-pub struct Canvas<'a> {
-    pub bytes: &'a mut [u8],
-    pub width: usize,
-    pub height: usize,
-    pub bounds: [i32; 4],
-    pub(super) clip: [i32; 4],
-    pitch: usize,
-    origin: [i32; 2],
-    extent: [usize; 2],
-}
-struct SceneCanvas<'a, 'b> {
-    color: &'a mut Canvas<'b>,
-    depth: &'a mut [Fixed],
-    mask: &'a mut [u8],
-    columns: &'a mut [i32],
-}
-impl Frame {
-    pub fn new(width: usize, height: usize) -> Result<Self, RenderError> {
-        Self::with_format(width, height, ColorFormat::RGBA8888)
-    }
-    fn with_format(width: usize, height: usize, format: ColorFormat) -> Result<Self, RenderError> {
-        Ok(Self {
-            texture: Texture::owned(width as u16, height as u16, format)?.with_cache_revision(0),
-            width,
-            height,
-        })
-    }
-    pub fn with_canvas<R>(&mut self, f: impl FnOnce(&mut Canvas<'_>) -> R) -> R {
-        self.with_region(
-            [self.width, self.height],
-            [0, 0],
-            [0, 0, self.width as i32, self.height as i32],
-            f,
-        )
-    }
-    pub(super) fn with_region<R>(
-        &mut self,
-        virtual_size: [usize; 2],
-        origin: [i32; 2],
-        bounds: [i32; 4],
-        f: impl FnOnce(&mut Canvas<'_>) -> R,
-    ) -> R {
-        self.with_extent([self.width, self.height], virtual_size, origin, bounds, f)
-    }
-    fn with_extent<R>(
-        &mut self,
-        extent: [usize; 2],
-        virtual_size: [usize; 2],
-        origin: [i32; 2],
-        bounds: [i32; 4],
-        f: impl FnOnce(&mut Canvas<'_>) -> R,
-    ) -> R {
-        assert_eq!(self.texture.format(), ColorFormat::RGBA8888);
-        let mut pixels = self.texture.pixels_mut().expect("owned flight frame");
-        let bytes = &mut pixels.bytes_mut()[..extent[0] * extent[1] * 4];
-        let mut canvas = Canvas {
-            bytes,
-            width: virtual_size[0],
-            height: virtual_size[1],
-            bounds,
-            clip: bounds,
-            pitch: extent[0],
-            origin,
-            extent,
-        };
-        canvas.set_bounds(bounds);
-        f(&mut canvas)
-    }
-    pub fn bytes(&self) -> usize {
-        self.width * self.height * self.texture.format().bytes_per_pixel()
-    }
-}
-impl Workspace {
-    fn new(width: usize, height: usize) -> Self {
-        let count = width * height;
-        Self {
-            depth: vec![Fixed::MAX; count],
-            mask: vec![0; count],
-            columns: vec![height as i32; width],
-        }
-    }
-    fn bytes(&self) -> usize {
-        self.depth.capacity() * 4 + self.mask.capacity() + self.columns.capacity() * 4
-    }
-    fn with_canvas<R>(
-        &mut self,
-        frame: &mut Frame,
-        draw: impl FnOnce(&mut SceneCanvas<'_, '_>) -> R,
-    ) -> R {
-        self.with_region(
-            frame,
-            [frame.width, frame.height],
-            [0, 0],
-            [0, 0, frame.width as i32, frame.height as i32],
-            draw,
-        )
-    }
-    fn with_region<R>(
-        &mut self,
-        frame: &mut Frame,
-        virtual_size: [usize; 2],
-        origin: [i32; 2],
-        bounds: [i32; 4],
-        draw: impl FnOnce(&mut SceneCanvas<'_, '_>) -> R,
-    ) -> R {
-        self.with_extent(
-            frame,
-            [frame.width, frame.height],
-            virtual_size,
-            origin,
-            bounds,
-            draw,
-        )
-    }
-    fn with_extent<R>(
-        &mut self,
-        frame: &mut Frame,
-        extent: [usize; 2],
-        virtual_size: [usize; 2],
-        origin: [i32; 2],
-        bounds: [i32; 4],
-        draw: impl FnOnce(&mut SceneCanvas<'_, '_>) -> R,
-    ) -> R {
-        let count = extent[0] * extent[1];
-        frame.with_extent(extent, virtual_size, origin, bounds, |color| {
-            draw(&mut SceneCanvas {
-                color,
-                depth: &mut self.depth[..count],
-                mask: &mut self.mask[..count],
-                columns: &mut self.columns[..extent[0]],
-            })
-        })
-    }
-}
-impl Canvas<'_> {
-    pub(super) fn index(&self, x: i32, y: i32) -> usize {
-        ((y - self.origin[1]) * self.pitch as i32 + x - self.origin[0]) as usize
-    }
-    pub(super) fn contains(&self, x: i32, y: i32) -> bool {
-        x >= self.clip[0] && y >= self.clip[1] && x < self.clip[2] && y < self.clip[3]
-    }
-    fn set_bounds(&mut self, bounds: [i32; 4]) {
-        self.bounds = bounds;
-        self.clip = [
-            bounds[0].max(self.origin[0]).max(0),
-            bounds[1].max(self.origin[1]).max(0),
-            bounds[2]
-                .min(self.origin[0] + self.extent[0] as i32)
-                .min(self.width as i32),
-            bounds[3]
-                .min(self.origin[1] + self.extent[1] as i32)
-                .min(self.height as i32),
-        ];
-    }
-    pub fn get(&self, index: usize) -> u32 {
-        u32::from_le_bytes(
-            self.bytes[index * 4..index * 4 + 4]
-                .try_into()
-                .expect("RGBA pixel"),
-        )
-    }
-    pub fn put(&mut self, index: usize, color: u32) {
-        self.bytes[index * 4..index * 4 + 4].copy_from_slice(&color.to_le_bytes());
-    }
-    pub fn point(&mut self, x: i32, y: i32, color: u32) {
-        if self.contains(x, y) {
-            self.put(self.index(x, y), color);
-        }
-    }
-}
-impl SceneCanvas<'_, '_> {
-    fn get(&self, index: usize) -> u32 {
-        self.color.get(index)
-    }
-    fn put(&mut self, index: usize, color: u32) {
-        self.color.put(index, color);
-    }
-    fn sample_depth(&self, x: i32, y: i32) -> Option<Fixed> {
-        let [left, top, right, bottom] = self.color.bounds;
-        if x < left || y < top || x >= right || y >= bottom {
-            Some(Fixed::MAX)
-        } else if !self.color.contains(x, y) {
-            None
-        } else {
-            Some(self.depth[self.color.index(x, y)])
-        }
-    }
-    fn fill_depth(&mut self, x: usize, y0: i32, y1: i32, color: u32, depth: Fixed) {
-        for y in y0.max(self.color.clip[1])..y1.min(self.color.clip[3]) {
-            let at = self.color.index(x as i32, y);
-            if self.depth[at] == Fixed::MAX {
-                self.put(at, color);
-                self.depth[at] = depth;
-            }
-        }
-    }
-    fn cloud_span(&mut self, x: usize, y0: i32, y1: i32, color: u32, depth: Fixed, thin: bool) {
-        for y in y0.max(self.color.clip[1])..y1.min(self.color.clip[3]) {
-            if thin && (x + y as usize) & 1 == 0 {
-                continue;
-            }
-            let at = self.color.index(x as i32, y);
-            if self.depth[at] == Fixed::MAX {
-                self.put(at, color);
-                self.depth[at] = depth;
-            }
-        }
-    }
-    fn reset_depth(&mut self) {
-        if self.color.clip[0] >= self.color.clip[2] || self.color.clip[1] >= self.color.clip[3] {
-            return;
-        }
-        for y in self.color.clip[1]..self.color.clip[3] {
-            let start = self.color.index(self.color.clip[0], y);
-            let end = start + (self.color.clip[2] - self.color.clip[0]) as usize;
-            self.depth[start..end].fill(Fixed::MAX);
-        }
-        self.columns.fill(self.color.clip[3]);
-    }
-}
 #[derive(Clone, Copy, Default)]
 pub struct Flame {
     pub points: [[Fixed; 2]; 3],
@@ -550,97 +317,35 @@ impl Scene<'_> {
         }
     }
 }
-fn sheet_side(width: usize, height: usize) -> usize {
-    let pivot = (Fixed::from_int(height as i32) * Fixed::from_ratio(34, 100)).round();
-    let tall = pivot.max(Fixed::from_int(height as i32) - pivot);
-    (((Fixed::from_int(width as i32) / 2).powi(2) + tall * tall)
-        .sqrt()
-        .ceil()
-        .to_int() as usize
-        + 2)
-        * 2
+fn roll_pivot(height: usize) -> Fixed {
+    (Fixed::from_int(height as i32) * Fixed::from_ratio(34, 100)).round()
 }
+
 struct Mapping {
     projection: Projection,
-    size: [usize; 2],
-    bounds: [i32; 4],
-    rolled: bool,
-    half: Fixed,
-    cx: Fixed,
-    pivot: Fixed,
-    sine: Fixed,
-    cosine: Fixed,
+    roll: RollMapping,
 }
+
+impl core::ops::Deref for Mapping {
+    type Target = RollMapping;
+    fn deref(&self) -> &RollMapping {
+        &self.roll
+    }
+}
+
 impl Mapping {
     fn new(mut projection: Projection, width: usize, height: usize) -> Self {
-        let rolled = projection.cockpit > Fixed::ZERO || projection.roll != Fixed::ZERO;
-        let cx = Fixed::from_int(width as i32) / 2;
-        let pivot = (Fixed::from_int(height as i32) * Fixed::from_ratio(34, 100)).round();
-        let (sine, cosine) = projection.roll.sin_cos();
-        let mut mapping = Self {
-            projection,
-            size: [width, height],
-            bounds: [0, 0, width as i32, height as i32],
-            rolled,
-            half: Fixed::ZERO,
-            cx,
-            pivot,
-            sine,
-            cosine,
-        };
-        if rolled {
-            let side = sheet_side(width, height);
-            let half = Fixed::from_int((side / 2) as i32);
-            let tall = pivot.max(Fixed::from_int(height as i32) - pivot);
-            let x = (cosine.abs() * Fixed::from_int(width as i32) / 2 + sine.abs() * tall).ceil()
-                + Fixed::from_int(2);
-            let (above, below) = if cosine < Fixed::ZERO {
-                (Fixed::from_int(height as i32) - pivot, pivot)
-            } else {
-                (pivot, Fixed::from_int(height as i32) - pivot)
-            };
-            let top = (cosine.abs() * above + sine.abs() * Fixed::from_int(width as i32) / 2)
-                .ceil()
-                + Fixed::from_int(2);
-            let bottom = (cosine.abs() * below + sine.abs() * Fixed::from_int(width as i32) / 2)
-                .ceil()
-                + Fixed::from_int(2);
-            projection.center = [half, half + (projection.center[1] - pivot)];
-            mapping.projection = projection;
-            mapping.size = [side, side];
-            mapping.half = half;
-            mapping.bounds = [
-                (half - x).max(Fixed::ZERO).to_int(),
-                (half - top).max(Fixed::ZERO).to_int(),
-                (half + x).min(Fixed::from_int(side as i32)).to_int(),
-                (half + bottom).min(Fixed::from_int(side as i32)).to_int(),
-            ];
+        let rotation = (projection.cockpit > Fixed::ZERO || projection.roll != Fixed::ZERO)
+            .then(|| projection.roll.sin_cos());
+        let roll = RollMapping::new([width, height], roll_pivot(height), rotation);
+        if roll.rolled {
+            let axis = Fixed::from_int(width as i32) / 2;
+            projection.center = roll.projection_center([axis, projection.center[1]]);
         }
-        mapping
-    }
-    fn source_at(&self, x: i32, y: i32) -> [i32; 2] {
-        if !self.rolled {
-            return [x, y];
-        }
-        let dx = Fixed::from_int(x) - self.cx;
-        let dy = Fixed::from_int(y) - self.pivot;
-        [
-            (self.half + self.cosine * dx - self.sine * dy + Fixed::from_ratio(1, 2)).to_int(),
-            (self.half + self.sine * dx + self.cosine * dy + Fixed::from_ratio(1, 2)).to_int(),
-        ]
-    }
-    fn unroll(&self, point: [Fixed; 2]) -> [Fixed; 2] {
-        if !self.rolled {
-            return point;
-        }
-        let dx = point[0] - self.half;
-        let dy = point[1] - self.half;
-        [
-            self.cx + self.cosine * dx + self.sine * dy,
-            self.pivot - self.sine * dx + self.cosine * dy,
-        ]
+        Self { projection, roll }
     }
 }
+
 #[doc = " Integral scaling preserves hard scene pixels and caps CPU work independently of window size."]
 pub fn scene_size(width: u16, height: u16) -> (usize, usize, usize) {
     super::Profile::Desktop.scene_size(width, height)
@@ -659,7 +364,7 @@ impl Raster {
         let side = if compact {
             compact::SOURCE_SIDE
         } else {
-            sheet_side(width, height)
+            mirui_sprite_stack::raster::sheet_side(width, height, roll_pivot(height))
         };
         Ok(Self {
             frame: Frame::with_format(
@@ -672,7 +377,7 @@ impl Raster {
                 },
             )?,
             sheet: Frame::new(side, side)?,
-            workspace: Workspace::new(side, side),
+            workspace: Workspace::new(side, side)?,
             output_band: if compact {
                 Some(Frame::new(width, height.min(compact::TILE_SIDE))?)
             } else {
@@ -857,7 +562,7 @@ fn draw_world(
 ) {
     mirui::trace_span!("flight.terrain");
     // Terrain and clouds claim depth first. Sky fills every remaining color pixel.
-    canvas.reset_depth();
+    canvas.clear_depth();
     let [left, clip_top, right, bottom] = canvas.color.clip;
     if left >= right || clip_top >= bottom {
         return;
@@ -976,7 +681,7 @@ fn draw_world(
                 let thick = usize::from(cloud & 15);
                 if thick > 0 && cloud >> 4 < rank {
                     let top = (world::CLOUD_ALT).trunc_to_int() as usize + thick - 1;
-                    canvas.cloud_span(
+                    canvas.fill_span(
                         x,
                         row.at(top),
                         previous.at(top),
@@ -984,7 +689,7 @@ fn draw_world(
                         v,
                         thick == 1,
                     );
-                    canvas.cloud_span(
+                    canvas.fill_span(
                         x,
                         previous.at((world::CLOUD_ALT).trunc_to_int() as usize),
                         row.at((world::CLOUD_ALT).trunc_to_int() as usize),
@@ -1773,8 +1478,7 @@ struct PendingFlame {
     flame: Flame,
     projected: [[Fixed; 4]; 3],
     slot: usize,
-    resolved: u16,
-    open: u16,
+    samples: DepthSamples<15>,
 }
 impl PendingFlame {
     fn query(&self, index: usize) -> (i32, i32, Fixed) {
@@ -1803,36 +1507,28 @@ impl PendingFlame {
         )
     }
     fn resolve(&mut self, canvas: &SceneCanvas<'_, '_>) {
-        for index in 0..15 {
-            let bit = 1 << index;
-            if self.resolved & bit != 0 {
-                continue;
-            }
-            let (x, y, depth) = self.query(index);
-            if let Some(value) = canvas.sample_depth(x, y) {
-                self.resolved |= bit;
-                if value >= depth - Fixed::ONE {
-                    self.open |= bit;
-                }
-            }
-        }
+        let mut samples = self.samples;
+        samples.resolve(canvas, Fixed::ONE, |i| self.query(i));
+        self.samples = samples;
     }
     fn missing(&self) -> Option<[i32; 2]> {
-        (0..15)
-            .find(|index| self.resolved & (1 << index) == 0)
-            .map(|index| {
-                let (x, y, _) = self.query(index);
-                [x, y]
-            })
+        self.samples.next_missing().map(|i| {
+            let (x, y, _) = self.query(i);
+            [x, y]
+        })
     }
+
     fn finish(mut self, seen: &mut [[Fixed; 3]; 6]) -> Flame {
-        assert_eq!(self.resolved, 0x7fff, "unresolved flame visibility");
+        let visible = self
+            .samples
+            .visibility()
+            .expect("unresolved flame visibility");
         for (n, (value, target)) in seen[self.slot]
             .iter_mut()
             .zip(self.flame.visibility.iter_mut())
             .enumerate()
         {
-            let open = ((self.open >> (n * 5)) & 31).count_ones() as i32;
+            let open = ((visible >> (n * 5)) & 31).count_ones() as i32;
             *value +=
                 (Fixed::from_int(open) / Fixed::from_int(5) - *value) * Fixed::from_ratio(3, 10);
             *target = *value;
@@ -1929,8 +1625,7 @@ fn project_flames(
             },
             projected,
             slot,
-            resolved: 0,
-            open: 0,
+            samples: DepthSamples::default(),
         };
         *count += 1;
     }
@@ -2145,9 +1840,9 @@ mod tests {
         flight.controls.key(0, true);
         let raster = Raster::new(128, 128).unwrap();
         let mut full = Frame::new(128, 128).unwrap();
-        let mut full_workspace = Workspace::new(128, 128);
+        let mut full_workspace = Workspace::new(128, 128).unwrap();
         let mut region = Frame::new(40, 40).unwrap();
-        let mut region_workspace = Workspace::new(40, 40);
+        let mut region_workspace = Workspace::new(40, 40).unwrap();
         let bounds = [3, 2, 126, 124];
         for view in [View::Overhead, View::Chase, View::Cockpit] {
             flight.view = view;
@@ -2173,9 +1868,11 @@ mod tests {
                 ),
             };
             let projection = flight.projection(128, 128);
-            full_workspace.with_region(&mut full, [128, 128], [0, 0], bounds, |canvas| {
-                scene.draw(canvas, projection);
-            });
+            let reference_depth =
+                full_workspace.with_region(&mut full, [128, 128], [0, 0], bounds, |canvas| {
+                    scene.draw(canvas, projection);
+                    canvas.depth.to_vec()
+                });
             for origin in [
                 [-42, -42],
                 [-2, -2],
@@ -2185,22 +1882,29 @@ mod tests {
                 [104, 90],
                 [128, 128],
             ] {
-                region_workspace.with_region(&mut region, [128, 128], origin, bounds, |canvas| {
-                    assert_eq!(
-                        canvas.sample_depth(80, 80),
-                        if canvas.color.contains(80, 80) {
-                            Some(canvas.depth[canvas.color.index(80, 80)])
-                        } else {
-                            None
+                let local_depth = region_workspace.with_region(
+                    &mut region,
+                    [128, 128],
+                    origin,
+                    bounds,
+                    |canvas| {
+                        assert_eq!(
+                            canvas.sample_depth(80, 80),
+                            if canvas.color.contains(80, 80) {
+                                Some(canvas.depth[canvas.color.index(80, 80)])
+                            } else {
+                                None
+                            }
+                        );
+                        scene.draw(canvas, projection);
+                        if canvas.color.clip[0] < canvas.color.clip[2]
+                            && canvas.color.clip[1] < canvas.color.clip[3]
+                        {
+                            assert!(canvas.columns.iter().all(|y| *y <= canvas.color.clip[3]));
                         }
-                    );
-                    scene.draw(canvas, projection);
-                    if canvas.color.clip[0] < canvas.color.clip[2]
-                        && canvas.color.clip[1] < canvas.color.clip[3]
-                    {
-                        assert!(canvas.columns.iter().all(|y| *y <= canvas.color.clip[3]));
-                    }
-                });
+                        canvas.depth.to_vec()
+                    },
+                );
                 let reference = full.texture.read_pixels().unwrap();
                 let local = region.texture.read_pixels().unwrap();
                 for y in (origin[1] + 1).max(bounds[1])..(origin[1] + 39).min(bounds[3]) {
@@ -2212,7 +1916,7 @@ mod tests {
                             &local.bytes()[b * 4..b * 4 + 4],
                             "view {view:?} origin {origin:?} at {x},{y}"
                         );
-                        assert_eq!(full_workspace.depth[a], region_workspace.depth[b]);
+                        assert_eq!(reference_depth[a], local_depth[b]);
                     }
                 }
             }
@@ -2248,12 +1952,12 @@ mod tests {
     #[test]
     fn foreground_depth_blocks_background_writes() {
         let mut frame = Frame::new(8, 8).unwrap();
-        let mut workspace = Workspace::new(8, 8);
+        let mut workspace = Workspace::new(8, 8).unwrap();
         assert_eq!(frame.bytes(), 8 * 8 * 4);
         assert_eq!(workspace.bytes(), 8 * 8 * 5 + 8 * 4);
         workspace.with_canvas(&mut frame, |canvas| {
             canvas.color.bytes.fill(0xa5);
-            canvas.reset_depth();
+            canvas.clear_depth();
             canvas.fill_depth(
                 3,
                 2,
