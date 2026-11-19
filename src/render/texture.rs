@@ -1387,13 +1387,9 @@ mod tests {
             let mut tex =
                 Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
             tex.alpha_mode = AlphaMode::Blend;
-            tex.pixels_mut().unwrap().composite_pixel_int(
-                0,
-                0,
-                &Color::rgba(200, 80, 40, 128),
-                128,
-                mode,
-            );
+            tex.pixels_mut()
+                .unwrap()
+                .composite_pixel(0, 0, &Color::rgba(200, 80, 40, 128), mode);
             assert_eq!(
                 tex.read_pixels().unwrap().get_pixel(0, 0),
                 Color::rgba(200, 80, 40, 128),
@@ -1413,11 +1409,10 @@ mod tests {
         tex.pixels_mut()
             .unwrap()
             .set_pixel(0, 0, &Color::rgba(255, 0, 0, 128));
-        tex.pixels_mut().unwrap().composite_pixel_int(
+        tex.pixels_mut().unwrap().composite_pixel(
             0,
             0,
             &Color::rgba(0, 0, 255, 128),
-            128,
             CompositeMode::Multiply,
         );
         let pixel = tex.read_pixels().unwrap().get_pixel(0, 0);

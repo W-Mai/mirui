@@ -314,6 +314,19 @@ impl<'a> TexturePixelsMut<'a> {
         };
         self.format().write_pixel(self.bytes, offset, color);
     }
+
+    /// Composites a color at an integer pixel using its alpha and the target's alpha mode.
+    /// Coordinates outside the writable area leave the target untouched.
+    #[inline]
+    pub fn composite_pixel(
+        &mut self,
+        x: i32,
+        y: i32,
+        color: &Color,
+        mode: crate::render::command::CompositeMode,
+    ) {
+        self.composite_pixel_int(x, y, color, color.a, mode);
+    }
 }
 
 impl TexturePixelsMut<'_> {
