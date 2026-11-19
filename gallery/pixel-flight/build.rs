@@ -10,9 +10,9 @@ use std::fmt::Write;
 use std::path::Path;
 
 fn main() {
-    println!("cargo:rerun-if-changed=jet.mirx");
+    println!("cargo:rerun-if-changed=assets/jet.mirx");
     let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
-    prepare(include_bytes!("jet.mirx"), &output)
+    prepare(include_bytes!("assets/jet.mirx"), &output)
         .expect("invalid Pixel Flight jet.mirx or unwritable build output");
 }
 

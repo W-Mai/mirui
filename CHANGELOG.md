@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Render I1, I2, I4 and I8 MIRX textures with their original palettes. Software rendering samples packed indices, and GPU uploads resolve the requested regions to color. Read-only pixel views expose the sample encoding, palette and bit offset.
 
-- Build Pixel Flight's full and coarse aircraft geometry in a dedicated asset package from a single indexed MIRX atlas. The independent `mirui-pixel-flight` package provides both desktop and compact scenes. The gallery's `pixel-flight` feature selects its desktop examples.
+- The `mirui-pixel-flight` package builds full and coarse aircraft geometry from a single indexed MIRX atlas and provides the desktop and compact scenes. The gallery's `pixel-flight` feature selects its desktop examples.
 
 - Add the standalone `mirui-sprite-stack` extension with an atlas descriptor and a reactive widget. Applications opt in with a Cargo dependency. Format tools can disable the widget feature.
 

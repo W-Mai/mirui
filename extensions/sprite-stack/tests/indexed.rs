@@ -7,7 +7,7 @@ use mirx::document::EncodeOptions;
 use mirx::image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor};
 use mirx::{Document, Reader};
 
-const JET: &[u8] = include_bytes!("../../../gallery/pixel-flight-assets/jet.mirx");
+const JET: &[u8] = include_bytes!("../../../gallery/pixel-flight/assets/jet.mirx");
 
 fn direct_jet() -> &'static [u8] {
     let image = Reader::open(JET)

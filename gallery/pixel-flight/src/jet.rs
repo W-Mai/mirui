@@ -1,10 +1,40 @@
 //! Static aircraft slices prepared from the indexed MIRX atlas at build time.
 use mirui::types::Fixed;
 
-use asset::{COARSE_STARTS, COARSE_VOXELS, PIVOT_Q8, STARTS, VOXELS};
-pub use asset::{LAYERS, LENGTH, PALETTE, WIDTH};
-pub use asset::{MODEL, StackSample as Voxel};
-use mirui_pixel_flight_assets as asset;
+use baked::{COARSE_STARTS, COARSE_VOXELS, PIVOT_Q8, STARTS, VOXELS};
+pub use baked::{LAYERS, LENGTH, PALETTE, WIDTH};
+pub use mirui_sprite_stack::StackSample as Voxel;
+use mirui_sprite_stack::{PreparedSpriteStack, SparseLevel};
+
+mod baked {
+    use mirui_sprite_stack::StackSample;
+
+    include!(concat!(env!("OUT_DIR"), "/pixel_flight_jet.rs"));
+}
+
+const fn rgba_palette() -> [[u8; 4]; 65] {
+    let mut rgba = [[0; 4]; 65];
+    let mut index = 0;
+    while index < PALETTE.len() {
+        let [color, r, g, b, _] = PALETTE[index];
+        rgba[color as usize] = [r, g, b, 255];
+        index += 1;
+    }
+    rgba
+}
+
+/// Both detail levels reference the samples generated from the same indexed MIRX file.
+pub static MODEL: PreparedSpriteStack<'static> = PreparedSpriteStack::new(
+    [WIDTH as u16, LENGTH as u16, LAYERS as u16],
+    PIVOT_Q8,
+    256,
+    &rgba_palette(),
+    &[
+        SparseLevel::new(1, &STARTS, &VOXELS).expect("invalid aircraft slices"),
+        SparseLevel::new(2, &COARSE_STARTS, &COARSE_VOXELS).expect("invalid coarse slices"),
+    ],
+)
+.expect("invalid aircraft model");
 
 pub(super) const PIVOT_X: Fixed = Fixed::from_ratio(PIVOT_Q8[0], 256);
 pub const PIVOT: [Fixed; 2] = [
