@@ -189,6 +189,10 @@ impl HeightField {
     pub fn grid(&self) -> TerrainGrid {
         self.grid
     }
+
+    pub(crate) fn has_finite_local_bounds(&self) -> bool {
+        self.coordinate_map.is_none() && !self.grid.repeats
+    }
     #[inline]
     pub fn levels(&self) -> &[u8] {
         &self.levels

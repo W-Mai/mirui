@@ -316,7 +316,7 @@ fn draw_field(tile: &mut SceneCanvas<'_, '_>, t: &ObjectProjection<'_>, field: &
         };
         let mut low = to_cell(center[i] - radius);
         let mut high = to_cell(center[i] + radius);
-        if !g.repeats {
+        if field.has_finite_local_bounds() {
             low = low.max(0);
             high = high.min(i32::from(g.size()[i]) - 1);
         }
@@ -325,10 +325,7 @@ fn draw_field(tile: &mut SceneCanvas<'_, '_>, t: &ObjectProjection<'_>, field: &
     for row in span(1) {
         for col in span(0) {
             let (x, z) = (cell * col, cell * row);
-            let Some(index) = g
-                .cell_at(x + cell / 2, z + cell / 2)
-                .and_then(|c| g.address(c))
-            else {
+            let Some(index) = field.address_at(x + cell / 2, z + cell / 2) else {
                 continue;
             };
             let y = g.elevation(field.levels()[index]);
