@@ -257,7 +257,7 @@ pub struct Raster {
     pub palette: Palette,
     pub flames: [Flame; 6],
     pub flame_count: usize,
-    pub(super) seen: [[Fixed; 3]; 6],
+    seen: [[Fixed; 3]; 6],
 }
 /// Render pose and baked geometry of one aircraft placed in the scene.
 #[derive(Clone, Copy)]

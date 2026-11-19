@@ -142,22 +142,34 @@ struct Layer {
     pad: i32,
 }
 const ROW_PIXELS: usize = 160;
+// Baked pixels use the aircraft palette's body and hot-metal slots. The remaining
+// slots are fixed instrument colors. A lighting change only updates this table.
+const BODY_INKS: [u32; 9] = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+const HOT_INKS: [u32; 6] = [17, 18, 19, 20, 21, 22];
+const GLINT_INK: u32 = 23;
+const SCREEN_INK: u32 = 24;
+const BRASS_INKS: [u32; 3] = [25, 26, 27];
+const KEY_INK: u32 = 28;
+const WHITE_INK: u32 = 29;
+type Inks = [u32; 30];
+const INSTRUMENT_INKS: Inks = {
+    let mut inks = [0; 30];
+    inks[GLINT_INK as usize] = GLINT;
+    inks[SCREEN_INK as usize] = GREEN[0];
+    inks[BRASS_INKS[0] as usize] = u32::from_le_bytes([120, 86, 26, 255]);
+    inks[BRASS_INKS[1] as usize] = u32::from_le_bytes([206, 158, 54, 255]);
+    inks[BRASS_INKS[2] as usize] = u32::from_le_bytes([255, 222, 120, 255]);
+    inks[KEY_INK as usize] = u32::from_le_bytes([255, 206, 84, 255]);
+    inks[WHITE_INK as usize] = WHITE;
+    inks
+};
+
 enum LayerPixels {
-    Rgba(Vec<u32>),
-    Indexed {
-        data: Vec<u8>,
-        colors: [u32; 32],
-        used: usize,
-    },
-    Encoded {
-        data: Vec<u8>,
-        rows: Vec<u32>,
-        colors: [u32; 32],
-    },
+    Indexed(Vec<u8>),
+    Encoded { data: Vec<u8>, rows: Vec<u32> },
 }
 enum RowPixels<'a> {
-    Rgba(&'a [u32]),
-    Indexed(&'a [u8], &'a [u32; 32]),
+    Indexed(&'a [u8], &'a Inks),
     Empty,
 }
 #[derive(Clone, Copy)]
@@ -201,7 +213,6 @@ impl RadarCell {
 impl RowPixels<'_> {
     fn color(&self, x: usize) -> u32 {
         match self {
-            Self::Rgba(row) => row[x],
             Self::Indexed(row, colors) => colors[usize::from(row[x])],
             Self::Empty => 0,
         }
@@ -227,17 +238,11 @@ impl RowPixels<'_> {
 }
 impl Layer {
     fn new(width: i32, height: i32, pad: i32, compact: bool) -> Self {
+        if compact {
+            assert!((width + pad * 2) as usize <= ROW_PIXELS);
+        }
         Self {
-            pixels: if compact {
-                assert!((width + pad * 2) as usize <= ROW_PIXELS);
-                LayerPixels::Indexed {
-                    data: Vec::new(),
-                    colors: [0; 32],
-                    used: 1,
-                }
-            } else {
-                LayerPixels::Rgba(Vec::new())
-            },
+            pixels: LayerPixels::Indexed(Vec::new()),
             width: width + pad * 2,
             height: height + pad * 2,
             pad,
@@ -248,6 +253,7 @@ impl Layer {
         clip: [i32; 4],
         offset: [Fixed; 3],
         mask: &mut [u8],
+        inks: &Inks,
         row_scratch: &mut [u8; ROW_PIXELS],
         above_scratch: &mut [u8; ROW_PIXELS],
     ) -> usize {
@@ -259,9 +265,9 @@ impl Layer {
         let mut marked = 0;
         for y in top.max(dy)..bottom.min(dy + self.height) {
             let sy = (y - dy) as usize;
-            let row = self.row(sy, row_scratch);
+            let row = self.row(sy, row_scratch, inks);
             let above = (fraction > Fixed::from_ratio(4, 1000) && sy > 0)
-                .then(|| self.row(sy - 1, above_scratch));
+                .then(|| self.row(sy - 1, above_scratch, inks));
             if matches!(row, RowPixels::Empty)
                 && above
                     .as_ref()
@@ -285,57 +291,31 @@ impl Layer {
     }
     fn bytes(&self) -> usize {
         match &self.pixels {
-            LayerPixels::Rgba(data) => data.capacity() * 4,
-            LayerPixels::Indexed { data, .. } => data.capacity(),
-            LayerPixels::Encoded { data, rows, .. } => data.capacity() + rows.capacity() * 4,
+            LayerPixels::Indexed(data) => data.capacity(),
+            LayerPixels::Encoded { data, rows } => data.capacity() + rows.capacity() * 4,
         }
     }
-    fn color_at(&self, at: usize) -> u32 {
+    fn ink_at(&self, at: usize) -> u32 {
         match &self.pixels {
-            LayerPixels::Rgba(data) => data.get(at).copied().unwrap_or(0),
-            LayerPixels::Indexed { data, colors, .. } => {
-                data.get(at).map_or(0, |index| colors[usize::from(*index)])
-            }
-            LayerPixels::Encoded { .. } => {
-                let mut scratch = [0; ROW_PIXELS];
-                self.row(at / self.width as usize, &mut scratch)
-                    .color(at % self.width as usize)
-            }
-        }
-    }
-    fn set_color_at(&mut self, at: usize, color: u32) {
-        let count = (self.width * self.height) as usize;
-        match &mut self.pixels {
-            LayerPixels::Rgba(data) => {
-                if data.is_empty() {
-                    data.resize(count, 0);
-                }
-                data[at] = color;
-            }
-            LayerPixels::Indexed { data, colors, used } => {
-                let index = colors[..*used]
-                    .iter()
-                    .position(|value| *value == color)
-                    .unwrap_or_else(|| {
-                        assert!(*used < colors.len(), "procedural cockpit palette overflow");
-                        let index = *used;
-                        colors[index] = color;
-                        *used += 1;
-                        index
-                    });
-                if data.is_empty() {
-                    data.resize(count, 0);
-                }
-                data[at] = index as u8;
-            }
+            LayerPixels::Indexed(data) => u32::from(data.get(at).copied().unwrap_or(0)),
             LayerPixels::Encoded { .. } => panic!("completed cockpit layer is immutable"),
         }
     }
-    fn seal(&mut self) {
-        let LayerPixels::Indexed { data, colors, .. } = &self.pixels else {
-            return;
+    fn set_ink_at(&mut self, at: usize, ink: u32) {
+        let LayerPixels::Indexed(data) = &mut self.pixels else {
+            panic!("completed cockpit layer is immutable")
         };
         if data.is_empty() {
+            data.resize((self.width * self.height) as usize, 0);
+        }
+        assert!(ink < INSTRUMENT_INKS.len() as u32, "cockpit material index");
+        data[at] = ink as u8;
+    }
+    fn seal(&mut self, compact: bool) {
+        let LayerPixels::Indexed(data) = &self.pixels else {
+            return;
+        };
+        if !compact || data.is_empty() {
             return;
         }
         let codec = mirx::coding::Rle::new();
@@ -365,10 +345,14 @@ impl Layer {
         self.pixels = LayerPixels::Encoded {
             data: encoded,
             rows,
-            colors: *colors,
         };
     }
-    fn row<'a>(&'a self, y: usize, scratch: &'a mut [u8; ROW_PIXELS]) -> RowPixels<'a> {
+    fn row<'a>(
+        &'a self,
+        y: usize,
+        scratch: &'a mut [u8; ROW_PIXELS],
+        inks: &'a Inks,
+    ) -> RowPixels<'a> {
         let width = self.width as usize;
         if let LayerPixels::Encoded { data, rows, .. } = &self.pixels {
             let encoded = &data[rows[y] as usize..rows[y + 1] as usize];
@@ -380,20 +364,22 @@ impl Layer {
                     .expect("cockpit row workspace");
             }
         }
-        self.row_view(y, scratch)
+        self.row_view(y, scratch, inks)
     }
     // Encoded scratch must already contain this row; transparent rows do not read it.
-    fn row_view<'a>(&'a self, y: usize, scratch: &'a [u8; ROW_PIXELS]) -> RowPixels<'a> {
+    fn row_view<'a>(
+        &'a self,
+        y: usize,
+        scratch: &'a [u8; ROW_PIXELS],
+        inks: &'a Inks,
+    ) -> RowPixels<'a> {
         let width = self.width as usize;
         match &self.pixels {
-            LayerPixels::Rgba(data) if !data.is_empty() => {
-                RowPixels::Rgba(&data[y * width..(y + 1) * width])
+            LayerPixels::Indexed(data) if !data.is_empty() => {
+                RowPixels::Indexed(&data[y * width..(y + 1) * width], inks)
             }
-            LayerPixels::Indexed { data, colors, .. } if !data.is_empty() => {
-                RowPixels::Indexed(&data[y * width..(y + 1) * width], colors)
-            }
-            LayerPixels::Encoded { rows, colors, .. } if rows[y] != rows[y + 1] => {
-                RowPixels::Indexed(&scratch[..width], colors)
+            LayerPixels::Encoded { rows, .. } if rows[y] != rows[y + 1] => {
+                RowPixels::Indexed(&scratch[..width], inks)
             }
             _ => RowPixels::Empty,
         }
@@ -412,14 +398,14 @@ impl Ink for Layer {
         let x = x + self.pad;
         let y = y + self.pad;
         if x >= 0 && y >= 0 && x < self.width && y < self.height {
-            self.set_color_at((y * self.width + x) as usize, color);
+            self.set_ink_at((y * self.width + x) as usize, color);
         }
     }
     fn get(&self, x: i32, y: i32) -> u32 {
         let x = x + self.pad;
         let y = y + self.pad;
         if x >= 0 && y >= 0 && x < self.width && y < self.height {
-            self.color_at((y * self.width + x) as usize)
+            self.ink_at((y * self.width + x) as usize)
         } else {
             0
         }
@@ -459,8 +445,7 @@ pub struct Cockpit {
     scale: Fixed,
     pad: i32,
     layers: [Layer; 4],
-    body: [u32; 9],
-    hot: [u32; 6],
+    inks: Inks,
     panel_top: i32,
     deck_top: i32,
     rear_bottom: i32,
@@ -495,16 +480,15 @@ impl Cockpit {
         let r = |v: i32| scaled_pixel(v, s);
         let x = |u: i32| cx + r(u);
         let pad = ((Fixed::from_int(14) * s).ceil()).trunc_to_int() + 3;
-        let b = core::array::from_fn(|i| palette.jets[0][i + 1]);
-        let a = core::array::from_fn(|i| palette.jets[0][i + 17]);
+        let b = BODY_INKS;
+        let a = HOT_INKS;
         let mut art = Self {
             width: w,
             height: h,
             scale: s,
             pad,
             layers: core::array::from_fn(|_| Layer::new(w, h, pad, compact)),
-            body: b,
-            hot: a,
+            inks: INSTRUMENT_INKS,
             panel_top: h,
             deck_top: h,
             rear_bottom: 0,
@@ -578,7 +562,7 @@ impl Cockpit {
                 art.layers[3].bolt(xx, yy, b[5], b[0]);
             }
         }
-        art.layers[3].seal();
+        art.layers[3].seal(compact);
         let bar = (Fixed::from_int(13) * s).max(Fixed::from_int(6));
         let rx = Fixed::from_int(226) * s;
         let ry = Fixed::from_int(228) * s;
@@ -733,13 +717,13 @@ impl Cockpit {
                         if art.layers[0].get(xx, yy) == 0
                             && ((k == 0 && i.min(n - i) >= 2) || (xx + yy) & 1 == 0)
                         {
-                            art.layers[0].put(xx, yy, GLINT);
+                            art.layers[0].put(xx, yy, GLINT_INK);
                         }
                     }
                 }
             }
         }
-        art.layers[0].seal();
+        art.layers[0].seal(compact);
         let top_of = |u: Fixed| {
             let u = u.abs();
             if u <= Fixed::from_int(58) {
@@ -882,7 +866,7 @@ impl Cockpit {
                 screen.y,
                 screen.x + screen.w,
                 screen.y + screen.h,
-                GREEN[0],
+                SCREEN_INK,
             );
             art.screens[i] = screen;
             for (bx, by) in [
@@ -953,23 +937,7 @@ impl Cockpit {
                 art.layers[1].put(ball.x + dx, ball.y + dy, color);
             }
         }
-        let brass = [
-            rgba(
-                Fixed::from_int(120),
-                Fixed::from_int(86),
-                Fixed::from_int(26),
-            ),
-            rgba(
-                Fixed::from_int(206),
-                Fixed::from_int(158),
-                Fixed::from_int(54),
-            ),
-            rgba(
-                Fixed::from_int(255),
-                Fixed::from_int(222),
-                Fixed::from_int(120),
-            ),
-        ];
+        let brass = BRASS_INKS;
         let rb = ball.r + r(5).max(r(3).max(1));
         for sx in [-1, 1] {
             for sy in [-1, 1] {
@@ -1170,24 +1138,7 @@ impl Cockpit {
                 art.layers[2].put(xx, yy, color);
             }
         }
-        let key_colors = [
-            a[3],
-            a[3],
-            b[4],
-            rgba(
-                Fixed::from_int(255),
-                Fixed::from_int(206),
-                Fixed::from_int(84),
-            ),
-            rgba(
-                Fixed::from_int(255),
-                Fixed::from_int(206),
-                Fixed::from_int(84),
-            ),
-            b[4],
-            b[4],
-            a[3],
-        ];
+        let key_colors = [a[3], a[3], b[4], KEY_INK, KEY_INK, b[4], b[4], a[3]];
         for j in 0..3 {
             for i in 0..3 {
                 for side in [-1, 1] {
@@ -1246,7 +1197,7 @@ impl Cockpit {
                 r(if up { 273 } else { 290 }),
                 tx + r(3).max(r(2).max(1)),
                 r(if up { 275 } else { 293 }),
-                WHITE,
+                WHITE_INK,
             );
         }
         for (u, v, radius, color) in [
@@ -1314,7 +1265,7 @@ impl Cockpit {
             for yy in top + pad..pixels.height - 1 {
                 for xx in 1..pixels.width - 1 {
                     let at = (yy * pixels.width + xx) as usize;
-                    if !plate(pixels.color_at(at))
+                    if !plate(pixels.ink_at(at))
                         || hash8(((xx >> 3) * 31 + (yy >> 2) * 17 + salt) as u32) < 234
                     {
                         continue;
@@ -1326,7 +1277,7 @@ impl Cockpit {
                         at + pixels.width as usize,
                     ]
                     .into_iter()
-                    .any(|i| edge(pixels.color_at(i)))
+                    .any(|i| edge(pixels.ink_at(i)))
                         && hash8((xx * 7 + yy * 13) as u32) > 96
                     {
                         worn.push(at);
@@ -1335,7 +1286,7 @@ impl Cockpit {
             }
             for at in worn {
                 let n = hash8(at as u32);
-                pixels.set_color_at(
+                pixels.set_ink_at(
                     at,
                     if n > 170 {
                         a[3]
@@ -1346,7 +1297,7 @@ impl Cockpit {
                     },
                 );
             }
-            pixels.seal();
+            pixels.seal(compact);
         }
         let radar = art.screens[0];
         if radar.w > 0 && radar.h > 0 {
@@ -1357,7 +1308,12 @@ impl Cockpit {
                 }
             }
         }
+        art.set_palette(palette);
         art
+    }
+    pub(super) fn set_palette(&mut self, palette: &Palette) {
+        self.inks[1..=9].copy_from_slice(&palette.jets[0][1..=9]);
+        self.inks[17..=22].copy_from_slice(&palette.jets[0][17..=22]);
     }
     pub(super) fn prepare(&self, flight: &Flight, palette: &Palette) -> Option<PreparedCockpit> {
         let p = flight.projection(self.width as usize, self.height as usize);
@@ -1477,6 +1433,7 @@ impl Cockpit {
                     [clip[0], y, clip[2], y + 1],
                     prepared.offsets[offset],
                     row_mask,
+                    &self.inks,
                     &mut row_scratch,
                     &mut above_scratch,
                 );
@@ -1507,8 +1464,8 @@ impl Cockpit {
         let r = |v: i32| scaled_pixel(v, s);
         let cx = self.width / 2;
         let j = &flight.jets[0];
-        let b = self.body;
-        let a = self.hot;
+        let b = &self.inks[1..=9];
+        let a = &self.inks[17..=22];
         self.lay(
             canvas,
             0,
@@ -2171,12 +2128,12 @@ impl Cockpit {
             if reuse_above {
                 core::mem::swap(&mut row_bytes, &mut above_bytes);
             }
-            let row = source.row(sy as usize, row_bytes);
+            let row = source.row(sy as usize, row_bytes, &self.inks);
             let above = (fractional && sy > 0).then(|| {
                 if reuse_above {
-                    source.row_view(sy as usize - 1, above_bytes)
+                    source.row_view(sy as usize - 1, above_bytes, &self.inks)
                 } else {
-                    source.row(sy as usize - 1, above_bytes)
+                    source.row(sy as usize - 1, above_bytes, &self.inks)
                 }
             });
             previous_y = Some(sy);
@@ -2232,6 +2189,7 @@ impl Cockpit {
         if alpha <= Fixed::ZERO {
             return;
         }
+        let body = &self.inks[1..=9];
         let r = |v: i32| scaled_pixel(v, self.scale);
         let cx = self.width / 2;
         let pivot =
@@ -2288,7 +2246,7 @@ impl Cockpit {
                     at,
                     blend(
                         canvas.get(at),
-                        self.body[5],
+                        body[5],
                         Fixed::from_int(120) / Fixed::from_int(256) * alpha,
                     ),
                 );
@@ -2301,7 +2259,7 @@ impl Cockpit {
                     let xx = x + side * i;
                     if canvas.contains(xx, y) {
                         let at = canvas.index(xx, y);
-                        let color = self.body[if i == 0 { 6 } else { 2 }];
+                        let color = body[if i == 0 { 6 } else { 2 }];
                         canvas.put(at, blend(canvas.get(at), color, alpha));
                     }
                 }
@@ -2691,8 +2649,9 @@ mod tests {
     #[test]
     fn transparent_encoded_rows_do_not_read_or_clear_the_workspace() {
         let mut layer = Layer::new(8, 4, 0, true);
-        layer.put(3, 1, WHITE);
-        layer.seal();
+        let inks = INSTRUMENT_INKS;
+        layer.put(3, 1, WHITE_INK);
+        layer.seal(true);
         let LayerPixels::Encoded { rows, .. } = &layer.pixels else {
             panic!("sealed indexed rows");
         };
@@ -2701,17 +2660,26 @@ mod tests {
         assert_eq!(rows[2], rows[3]);
         assert_eq!(rows[3], rows[4]);
         let mut scratch = [0xa5; ROW_PIXELS];
-        assert!(matches!(layer.row(0, &mut scratch), RowPixels::Empty));
+        assert!(matches!(
+            layer.row(0, &mut scratch, &inks),
+            RowPixels::Empty
+        ));
         assert!(scratch.iter().all(|v| *v == 0xa5));
-        assert_eq!(layer.row(1, &mut scratch).color(3), WHITE);
+        assert_eq!(layer.row(1, &mut scratch, &inks).color(3), WHITE);
         let saved = scratch;
-        assert!(matches!(layer.row(2, &mut scratch), RowPixels::Empty));
+        assert!(matches!(
+            layer.row(2, &mut scratch, &inks),
+            RowPixels::Empty
+        ));
         assert_eq!(scratch, saved);
     }
     #[test]
     fn opaque_coverage_requires_full_fractional_sample_coverage() {
-        let row = RowPixels::Rgba(&[WHITE, 0, WHITE, 0]);
-        let above = RowPixels::Rgba(&[0, BLACK, BLACK, 0]);
+        let mut inks = [0; 30];
+        inks[1] = WHITE;
+        inks[2] = BLACK;
+        let row = RowPixels::Indexed(&[1, 0, 1, 0], &inks);
+        let above = RowPixels::Indexed(&[0, 2, 2, 0], &inks);
         let fraction = Fixed::from_ratio(1, 4);
         let samples = core::array::from_fn::<_, 4, _>(|x| row.sample(Some(&above), x, fraction));
         assert_eq!(samples[0], (WHITE, Fixed::from_ratio(3, 4)));
@@ -2856,8 +2824,8 @@ mod tests {
                     let mut a = [0; ROW_PIXELS];
                     let mut b = [0; ROW_PIXELS];
                     for y in 0..plain.height as usize {
-                        let left = plain.row(y, &mut a);
-                        let right = encoded.row(y, &mut b);
+                        let left = plain.row(y, &mut a, &dense.inks);
+                        let right = encoded.row(y, &mut b, &compact.inks);
                         for x in 0..plain.width as usize {
                             assert_eq!(left.color(x), right.color(x));
                         }
@@ -2906,7 +2874,7 @@ mod tests {
         let art = Cockpit::new(480, 300, &raster.palette);
         assert!(art.bytes() < 3 * 1024 * 1024);
         assert!(art.layers.iter().all(|layer| {
-            (0..layer.width * layer.height).any(|at| layer.color_at(at as usize) != 0)
+            (0..layer.width * layer.height).any(|at| layer.ink_at(at as usize) != 0)
         }));
         raster.render(
             &world,

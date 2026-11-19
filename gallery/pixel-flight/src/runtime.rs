@@ -282,20 +282,19 @@ impl FlightOutput {
     fn prepare(&mut self, width: u16, height: u16, day: super::raster::Daylight) {
         let (w, h, _) = self.profile.scene_size(width, height);
         self.viewport = (width, height);
-        if self
-            .raster
-            .as_ref()
-            .is_some_and(|r| r.frame.width == w && r.frame.height == h && r.palette.day == day)
+        if let Some(raster) = self.raster.as_mut()
+            && (raster.frame.width, raster.frame.height) == (w, h)
         {
-            return;
-        }
-        let seen = self
-            .raster
-            .as_ref()
-            .and_then(|r| ((r.frame.width, r.frame.height) == (w, h)).then_some(r.seen));
-        self.rebuild(w, h, day);
-        if let Some(seen) = seen {
-            self.raster.as_mut().expect("prepared raster").seen = seen;
+            if raster.palette.day == day {
+                return;
+            }
+            raster.palette = Palette::new(day);
+            self.cockpit
+                .as_mut()
+                .expect("prepared cockpit")
+                .set_palette(&raster.palette);
+        } else {
+            self.rebuild(w, h, day);
         }
         self.last = None;
     }
@@ -693,6 +692,23 @@ mod tests {
         game.advance(16, 32, 32, None);
         app.render_dirty().unwrap();
         assert_eq!(game.revision(), rev + 1);
+    }
+    #[test]
+    fn lighting_changes_reuse_view_storage() {
+        use crate::raster::Daylight;
+        for profile in [Profile::Desktop, Profile::Compact] {
+            let mut output = FlightOutput::new(profile);
+            output.prepare(128, 128, Daylight::Day);
+            let bytes = output.bytes();
+            for day in [Daylight::Sunset, Daylight::Night, Daylight::Day] {
+                assert_eq!(
+                    crate::test_support::tracked_allocations(|| output.prepare(128, 128, day)),
+                    0
+                );
+                assert_eq!(output.bytes(), bytes);
+                assert_eq!(output.raster.as_ref().unwrap().palette.day, day);
+            }
+        }
     }
     #[test]
     fn output_revisions_survive_storage_rebuilds() {
