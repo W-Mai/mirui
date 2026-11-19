@@ -3268,23 +3268,22 @@ fn counter_panel(counter: model!(Counter)) {
 
         function splitSourceFiles(slug, text) {
           const lines = text.replace(/\r\n/g, "\n").split("\n");
-          let module = null;
-          let file = { name: `${slug}.rs`, path: `src/gallery/demos/${slug}.rs`, lines: [] };
+          const pathMarker = /^\/\/ ((?:[\w-]+\/)+[\w-]+\.rs)$/;
+          const entry = pathMarker.exec(lines[0]);
+          const entryPath = entry ? entry[1] : `src/gallery/demos/${slug}.rs`;
+          const directory = entryPath.replace(/(?:\/lib)?\.rs$/, "/");
+          let file = { name: entryPath.split("/").pop(), path: entryPath, lines: [] };
           const files = [file];
-          lines.forEach((line, index) => {
-            const part = /^\/\/ ([a-z0-9_]+)\/([A-Za-z0-9_/]+\.rs)$/.exec(line);
-            if (part && lines[index - 1] === "" && (module === null || part[1] === module)) {
-              if (module === null) {
-                module = part[1];
-                files[0].name = `${module}.rs`;
-                files[0].path = `src/gallery/demos/${module}.rs`;
-              }
-              file = { name: part[2], path: `src/gallery/demos/${module}/${part[2]}`, lines: [] };
+          for (let index = entry ? 1 : 0; index < lines.length; index++) {
+            const line = lines[index];
+            const next = entry && lines[index - 1] === "" && pathMarker.exec(line);
+            if (next && next[1].startsWith(directory)) {
+              file = { name: next[1].slice(directory.length), path: next[1], lines: [] };
               files.push(file);
-              return;
+            } else {
+              file.lines.push(line);
             }
-            file.lines.push(line);
-          });
+          }
           for (const each of files) {
             while (each.lines.length && each.lines[each.lines.length - 1] === "") each.lines.pop();
           }

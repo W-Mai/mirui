@@ -16,6 +16,9 @@ open = false
 watch = [
     ".",
     "../src",
+    "../pixel-flight",
+    "../pixel-flight-assets",
+    "../../extensions/sprite-stack",
     "../Cargo.toml",
     "../../src",
     "../../Cargo.toml",

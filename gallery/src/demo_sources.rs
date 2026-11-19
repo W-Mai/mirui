@@ -1,11 +1,11 @@
 macro_rules! split_demo_sources {
-    (@root $demo:literal) => { concat!("../../src/gallery/demos/", $demo) };
+    (@root $demo:literal) => { concat!("src/gallery/demos/", $demo) };
     (@root $demo:literal, $root:literal) => { $root };
-    (@entry $demo:literal) => { concat!("../../src/gallery/demos/", $demo, ".rs") };
+    (@entry $demo:literal) => { concat!("src/gallery/demos/", $demo, ".rs") };
     (@entry $demo:literal, $root:literal) => { concat!($root, "/lib.rs") };
-    (@source $entry:expr, $root:expr, $demo:literal, [$($part:literal),+ $(,)?]) => {
-        concat!(include_str!($entry), $(
-            "\n\n// ", $demo, "/", $part, "\n", include_str!(concat!($root, "/", $part)),
+    (@source $entry:expr, $root:expr, [$($part:literal),+ $(,)?]) => {
+        concat!("// ", $entry, "\n", include_str!(concat!("../../", $entry)), $(
+            "\n\n// ", $root, "/", $part, "\n", include_str!(concat!("../../", $root, "/", $part)),
         )+)
     };
     (@parts [$($part:literal),+ $(,)?]) => { &[$($part),+] };
@@ -22,7 +22,7 @@ macro_rules! split_demo_sources {
         $(
             pub(crate) const $name: &str = split_demo_sources!(@source
                 split_demo_sources!(@entry $demo $(, $root)?),
-                split_demo_sources!(@root $demo $(, $root)?), $demo, $parts
+                split_demo_sources!(@root $demo $(, $root)?), $parts
             );
         )+
 
@@ -38,9 +38,9 @@ macro_rules! split_demo_sources {
 split_demo_sources! {
     PIXEL_FLIGHT => {
         demo: "pixel_flight",
-        root: "../pixel-flight/src",
-        marker: "fn flight_scene",
-        parts: ["world.rs", "jet.rs", "flight.rs", "raster.rs", "raster/compact.rs", "cockpit.rs", "flame.rs", "math.rs", "runtime.rs"]
+        root: "gallery/pixel-flight/src",
+        marker: "StackViewport::with_painter",
+        parts: ["world.rs", "jet.rs", "flight.rs", "raster.rs", "raster/compact.rs", "cockpit.rs", "flame.rs", "math.rs", "runtime.rs", "runtime/objects.rs"]
     },
     CHORD_PROMPTER => {
         demo: "chord_prompter",
@@ -698,7 +698,7 @@ mod tests {
         let mut registered = BTreeSet::new();
         for (&(demo, parts, _, source), root) in super::CASES.iter().zip(super::ROOTS) {
             let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("src")
+                .join("..")
                 .join(root);
             check_directory(demo, &root, &root, parts, source);
             if root.canonicalize().unwrap().parent() != Some(&demos.canonicalize().unwrap()) {
