@@ -330,15 +330,7 @@ impl Scene<'_> {
         order: &[usize; 3],
         prepared: &[Option<PreparedJet>; 3],
     ) {
-        draw_world(
-            canvas,
-            self.world,
-            self.flight,
-            &projection,
-            self.palette,
-            &self.terrain,
-            self.placed,
-        );
+        draw_world(canvas, self.world, &projection, self.palette, &self.terrain);
         draw_sky(canvas, &projection, self.palette, self.frame_height);
         draw_trails(canvas, self.flight, &projection, self.palette);
         draw_smoke(canvas, self.flight, &projection, self.palette.day);
@@ -540,11 +532,20 @@ impl HeightProjection {
         })
     }
 }
+#[derive(Clone, Copy, Default)]
+struct AircraftShadow {
+    center: [Fixed; 2],
+    sin: Fixed,
+    cos: Fixed,
+    span: Fixed,
+}
 struct PreparedTerrain {
     base: [Fixed; 2],
     drift: [Fixed; 2],
     cloud_sun: [Fixed; 2],
-    shadows: [[Fixed; 2]; 3],
+    shadows: [AircraftShadow; 3],
+    shadow_count: u8,
+    jet_scale: Fixed,
     shadow_bounds: [i32; 4],
     reach: Fixed,
     water: [u16; 3],
@@ -569,14 +570,25 @@ impl PreparedTerrain {
             + Fixed::from_int(3);
         let displacement = pal.sun.map(|sun| sun * world::MAX_HEIGHT as i32);
         let mut shadow_bounds = [i32::MAX, i32::MAX, i32::MIN, i32::MIN];
-        let mut shadows = [[Fixed::ZERO; 2]; 3];
-        for (i, center) in shadows.iter_mut().enumerate() {
-            let Some(jet) = placed[i] else {
+        let mut shadows = [AircraftShadow::default(); 3];
+        let mut shadow_count = 0;
+        for (index, placed) in placed.iter().enumerate() {
+            let Some(jet) = placed else {
                 continue;
             };
-            *center = core::array::from_fn(|axis| {
+            let center = core::array::from_fn(|axis| {
                 base[axis] + jet.position[axis] - p.position[axis] + pal.sun[axis] * jet.position[2]
             });
+            let (sin, cos) = jet.rotation[0].sin_cos();
+            let bank = jet.rotation[2] - flight.jets[index].spin();
+            let span = bank.cos().abs().max(Fixed::from_ratio(3, 10)) * flight.settings.jet_scale;
+            shadows[shadow_count] = AircraftShadow {
+                center,
+                sin,
+                cos,
+                span,
+            };
+            shadow_count += 1;
             for axis in 0..2 {
                 let far = center[axis] - displacement[axis];
                 shadow_bounds[axis] =
@@ -595,6 +607,8 @@ impl PreparedTerrain {
             ],
             cloud_sun: pal.sun.map(|value| value * world::CLOUD_ALT),
             shadows,
+            shadow_count: shadow_count as u8,
+            jet_scale: flight.settings.jet_scale,
             shadow_bounds,
             reach,
             water: [36, 6, 4]
@@ -608,11 +622,9 @@ impl PreparedTerrain {
 fn draw_world(
     canvas: &mut SceneCanvas<'_, '_>,
     world: &World,
-    flight: &Flight,
     p: &Projection,
     pal: &Palette,
     prepared: &PreparedTerrain,
-    placed: &Placements,
 ) {
     mirui::trace_span!("flight.terrain");
     // Terrain and clouds claim depth first. Sky fills every remaining color pixel.
@@ -782,22 +794,14 @@ fn draw_world(
                 shaded = c & 15 > 1 && c >> 4 < rank;
             }
             if !shaded && cast_shadows {
-                for (index, center) in prepared.shadows.iter().enumerate() {
-                    let Some(jet) = placed[index] else {
-                        continue;
-                    };
-                    let dx =
-                        Fixed::from_int(gx) - center[0] + pal.sun[0] * Fixed::from_int((h) as i32);
-                    let dy =
-                        Fixed::from_int(gy) - center[1] + pal.sun[1] * Fixed::from_int((h) as i32);
-                    let reach = prepared.reach;
-                    if dx.abs() < reach && dy.abs() < reach {
-                        let (s, c) = jet.rotation[0].sin_cos();
-                        let bank = jet.rotation[2] - flight.jets[index].spin();
-                        let span = bank.cos().abs().max(Fixed::from_ratio(3, 10))
-                            * flight.settings.jet_scale;
-                        let a = (dx * c + dy * s) / span;
-                        let b = (dx * s - dy * c) / flight.settings.jet_scale;
+                for shadow in &prepared.shadows[..usize::from(prepared.shadow_count)] {
+                    let dx = Fixed::from_int(gx) - shadow.center[0]
+                        + pal.sun[0] * Fixed::from_int(h as i32);
+                    let dy = Fixed::from_int(gy) - shadow.center[1]
+                        + pal.sun[1] * Fixed::from_int(h as i32);
+                    if dx.abs() < prepared.reach && dy.abs() < prepared.reach {
+                        let a = (dx * shadow.cos + dy * shadow.sin) / shadow.span;
+                        let b = (dx * shadow.sin - dy * shadow.cos) / prepared.jet_scale;
                         let i = (a + (jet::PIVOT_X + Fixed::HALF)).floor().trunc_to_int();
                         let k =
                             ((jet::PIVOT[0] - b + Fixed::from_ratio(5, 10)).floor()).trunc_to_int();
@@ -1776,12 +1780,12 @@ mod tests {
                     .rem_euclid(Fixed::from_int(world.period() as i32))
                     + Fixed::from_int(world.period() as i32) * Fixed::from_int(2);
                 assert_eq!(
-                    prepared.shadows[index][axis],
+                    prepared.shadows[index].center[axis],
                     base + jet.position[axis] - projection.position[axis]
                         + palette.sun[axis] * jet.position[2]
                 );
                 for h in 0..=world::MAX_HEIGHT as i32 {
-                    let center = prepared.shadows[index][axis] - palette.sun[axis] * h;
+                    let center = prepared.shadows[index].center[axis] - palette.sun[axis] * h;
                     assert!(
                         Fixed::from_int(prepared.shadow_bounds[axis]) <= center - prepared.reach
                     );
@@ -1804,7 +1808,19 @@ mod tests {
             }),
             0
         );
-        assert!(core::mem::size_of::<PreparedTerrain>() <= 80);
+        assert!(core::mem::size_of::<PreparedTerrain>() <= 120);
+        let mut placed = PlacedAircraft::from_flight(&flight);
+        placed[1] = None;
+        let jet = placed[2].as_mut().unwrap();
+        jet.rotation[0] = Fixed::from_ratio(1, 3);
+        jet.rotation[2] = Fixed::from_ratio(1, 5);
+        let (sin, cos) = jet.rotation[0].sin_cos();
+        let bank = jet.rotation[2] - flight.jets[2].spin();
+        let span = bank.cos().abs().max(Fixed::from_ratio(3, 10)) * flight.settings.jet_scale;
+        let prepared = PreparedTerrain::new(&world, &flight, &projection, &palette, &placed);
+        assert_eq!(prepared.shadow_count, 2);
+        let shadow = prepared.shadows[1];
+        assert_eq!((shadow.sin, shadow.cos, shadow.span), (sin, cos, span));
     }
 
     #[test]

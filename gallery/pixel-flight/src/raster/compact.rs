@@ -210,15 +210,7 @@ impl Raster {
                 .map(|p| p.samples.resolved_count())
                 .sum();
             workspace.with_region(sheet, mapping.size, origin, mapping.bounds, |canvas| {
-                draw_world(
-                    canvas,
-                    world,
-                    flight,
-                    &mapping.projection,
-                    palette,
-                    &scene.terrain,
-                    scene.placed,
-                );
+                draw_world(canvas, world, &mapping.projection, palette, &scene.terrain);
                 for query in &mut pending[..count] {
                     query.resolve(canvas);
                 }
