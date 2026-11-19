@@ -247,11 +247,60 @@ fn top(
         color,
     );
 }
+/// At zero elevation a layer has one model pixel of thickness. Pick its visible side faces once per instance.
+struct SliceProjection<'a, 'b> {
+    object: &'a ObjectProjection<'b>,
+    edge: Option<[Fixed; 2]>,
+}
+
+impl<'a, 'b> SliceProjection<'a, 'b> {
+    fn new(object: &'a ObjectProjection<'b>) -> Self {
+        let origin = object.point([Fixed::ZERO; 3])[2];
+        let depth = |axis: usize| {
+            let mut point = [Fixed::ZERO; 3];
+            point[axis] = Fixed::ONE;
+            object.point(point)[2] - origin
+        };
+        Self {
+            object,
+            edge: depth(1).is_zero().then(|| [depth(0), depth(2)]),
+        }
+    }
+
+    fn cell(&self, tile: &mut SceneCanvas<'_, '_>, at: V3, dx: Fixed, dz: Fixed, color: u32) {
+        let Some([depth_x, depth_z]) = self.edge else {
+            return top(self.object, tile, at, dx, dz, color);
+        };
+        let [x, y, z] = at;
+        let mut side = |a: [Fixed; 2], b: [Fixed; 2]| {
+            self.object.quad(
+                tile,
+                [
+                    [a[0], y - Fixed::HALF, a[1]],
+                    [b[0], y - Fixed::HALF, b[1]],
+                    [b[0], y + Fixed::HALF, b[1]],
+                    [a[0], y + Fixed::HALF, a[1]],
+                ],
+                color,
+            );
+        };
+        if !depth_x.is_zero() {
+            let near = if depth_x.is_negative() { x + dx } else { x };
+            side([near, z], [near, z + dz]);
+        }
+        if !depth_z.is_zero() {
+            let near = if depth_z.is_positive() { z + dz } else { z };
+            side([x, near], [x + dx, near]);
+        }
+    }
+}
+
 fn draw_atlas(
     tile: &mut SceneCanvas<'_, '_>,
     t: &ObjectProjection<'_>,
     asset: &SpriteStackAsset,
 ) -> Result<(), RenderError> {
+    let slice = SliceProjection::new(t);
     let d = asset.descriptor();
     let [px, pz] = d.pivot_q8().map(|n| Fixed::from_ratio(n, 256));
     let spacing = Fixed::from_ratio(d.spacing_q8(), 256);
@@ -264,8 +313,7 @@ fn draw_atlas(
                 if c.a == 0 {
                     continue;
                 }
-                top(
-                    t,
+                slice.cell(
                     tile,
                     [
                         Fixed::from_int(x) - px,
@@ -286,6 +334,7 @@ fn draw_sparse(
     t: &ObjectProjection<'_>,
     asset: &PreparedSpriteStack<'_>,
 ) {
+    let slice = SliceProjection::new(t);
     let [w, h, layers] = asset.extent();
     let [px, pz, ph] = asset.pivot_q8().map(|v| Fixed::from_ratio(v, 256));
     let spacing = Fixed::from_ratio(asset.spacing_q8(), 256);
@@ -298,8 +347,7 @@ fn draw_sparse(
     for i in 0..layers {
         for s in level.layer(usize::from(i)).expect("validated layer") {
             let (x, y) = (u16::from(s.x), u16::from(s.y));
-            top(
-                t,
+            slice.cell(
                 tile,
                 [
                     Fixed::from(x) - px,
