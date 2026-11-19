@@ -22,3 +22,14 @@ pub use asset::{SpriteStackAsset, SpriteStackError, SpriteStackReaderExt};
 pub use widget::props as prop;
 #[cfg(feature = "widget")]
 pub use widget::{LayerSpacing, SpriteStack, view};
+
+#[cfg(feature = "widget")]
+mod scene;
+#[cfg(feature = "widget")]
+mod terrain;
+#[cfg(feature = "widget")]
+pub use scene::{Geometry, Object, Pose, StackScene, StackSceneHandle, StackSceneOwned};
+#[cfg(feature = "widget")]
+pub use terrain::{
+    HeightField, HeightFieldHandle, HeightFieldOwned, TerrainCell, TerrainError, TerrainGrid,
+};
