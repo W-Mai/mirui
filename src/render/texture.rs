@@ -776,6 +776,15 @@ impl Texture<'static> {
         let request = options.decode_request();
         request.validate_reconstruction()?;
         let image = open_mirx_image(bytes)?;
+        Self::plan_image(image, options, group_slots)
+    }
+
+    fn plan_image<'source, 'groups>(
+        image: mirx::image::ImageRef<'source>,
+        options: MirxTextureOptions,
+        group_slots: &'groups mut [Option<mirx::image::UnitGroup<'source>>],
+    ) -> Result<MirxTexturePlan<'source, 'groups>, MirxLoadError> {
+        let request = options.decode_request();
         let memory = image.surface().memory_plan(request.requirements())?;
         // Reject unsupported render layouts during planning, before any output
         // or workspace allocation is requested.
@@ -836,6 +845,21 @@ impl Texture<'static> {
         bytes: &'static [u8],
         options: MirxTextureOptions,
     ) -> Result<Self, MirxLoadError> {
+        Self::load_image(options, || open_mirx_image(bytes))
+    }
+
+    /// Creates a texture from an image in an already open MIRX container.
+    pub fn from_mirx_image(
+        image: mirx::image::ImageRef<'static>,
+        options: MirxTextureOptions,
+    ) -> Result<Self, MirxLoadError> {
+        Self::load_image(options, || Ok(image))
+    }
+
+    fn load_image(
+        options: MirxTextureOptions,
+        image: impl FnOnce() -> Result<mirx::image::ImageRef<'static>, MirxLoadError>,
+    ) -> Result<Self, MirxLoadError> {
         let request = options.decode_request();
         request.validate_reconstruction()?;
         if request.output() != mirx::image::MemoryPlacement::Cpu
@@ -843,7 +867,7 @@ impl Texture<'static> {
         {
             return Err(MirxLoadError::ExternalMemoryRequired);
         }
-        let image = open_mirx_image(bytes)?;
+        let image = image()?;
         if request == mirx::image::DecodeRequest::default() {
             if let mirx::image::ImageRef::Raw(surface) = image {
                 return texture_from_surface(surface).map(|texture| texture.with_transient(false));
@@ -851,7 +875,7 @@ impl Texture<'static> {
         }
         let group_count = image.encoded().map_or(0, |image| image.group_count());
         let mut group_slots = alloc::vec![None; group_count];
-        let plan = Self::plan_mirx(bytes, options, &mut group_slots)?;
+        let plan = Self::plan_image(image, options, &mut group_slots)?;
         let output_len = plan.output_len();
         let output_alignment = plan.output_alignment();
         let workspace_len = plan.workspace_len();

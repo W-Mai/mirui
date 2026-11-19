@@ -38,6 +38,30 @@ impl core::fmt::Display for SpriteStackError {
 
 impl core::error::Error for SpriteStackError {}
 
+/// Interprets an open MIRX container as a sprite stack using its optional placement descriptor.
+pub trait SpriteStackReaderExt {
+    fn sprite_stack(&self) -> Result<SpriteStackAsset, SpriteStackError> {
+        self.sprite_stack_with(MirxTextureOptions::new())
+    }
+
+    fn sprite_stack_with(
+        &self,
+        options: MirxTextureOptions,
+    ) -> Result<SpriteStackAsset, SpriteStackError>;
+}
+
+impl SpriteStackReaderExt for mirx::Reader<'static> {
+    fn sprite_stack_with(
+        &self,
+        options: MirxTextureOptions,
+    ) -> Result<SpriteStackAsset, SpriteStackError> {
+        let (descriptor, image) =
+            StackDescriptor::from_reader_with_atlas(self).map_err(SpriteStackError::Placement)?;
+        let atlas = Texture::from_mirx_image(image, options).map_err(SpriteStackError::Atlas)?;
+        SpriteStackAsset::from_atlas(descriptor, atlas, self.source())
+    }
+}
+
 impl SpriteStackAsset {
     /// Opens a MIRX sprite using embedded image decoding limits.
     pub fn from_mirx(bytes: &'static [u8]) -> Result<Self, SpriteStackError> {
@@ -49,8 +73,16 @@ impl SpriteStackAsset {
         bytes: &'static [u8],
         options: MirxTextureOptions,
     ) -> Result<Self, SpriteStackError> {
-        let descriptor = StackDescriptor::from_mirx(bytes).map_err(SpriteStackError::Placement)?;
-        let atlas = Texture::from_mirx_with(bytes, options).map_err(SpriteStackError::Atlas)?;
+        mirx::Reader::open(bytes)
+            .map_err(|err| SpriteStackError::Placement(StackError::Container(err)))?
+            .sprite_stack_with(options)
+    }
+
+    fn from_atlas(
+        descriptor: StackDescriptor<'static>,
+        atlas: Texture<'static>,
+        bytes: &'static [u8],
+    ) -> Result<Self, SpriteStackError> {
         let check_alpha = match atlas.indexed_color_table() {
             Some(table) => table.iter().any(|color| !matches!(color.a, 0 | 255)),
             None => matches!(
@@ -156,7 +188,7 @@ mod tests {
     #[test]
     fn sprite_and_standard_image_borrow_the_same_atlas() {
         let bytes = file(&[22, 33, 44, 255, 0, 0, 0, 0], true);
-        let asset = SpriteStackAsset::from_mirx(bytes).unwrap();
+        let asset = mirx::Reader::open(bytes).unwrap().sprite_stack().unwrap();
         let plain = Texture::from_mirx(bytes).unwrap();
         let sprite_pixels = asset.atlas().read_pixels().unwrap();
         assert_eq!(

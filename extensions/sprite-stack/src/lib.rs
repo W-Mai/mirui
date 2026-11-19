@@ -15,7 +15,7 @@ mod asset;
 mod widget;
 
 #[cfg(feature = "widget")]
-pub use asset::{SpriteStackAsset, SpriteStackError};
+pub use asset::{SpriteStackAsset, SpriteStackError, SpriteStackReaderExt};
 #[cfg(feature = "widget")]
 pub use widget::props as prop;
 #[cfg(feature = "widget")]

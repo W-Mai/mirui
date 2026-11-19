@@ -107,6 +107,13 @@ impl<'a> StackDescriptor<'a> {
 
     /// Reuses an open container and obtains atlas dimensions from its primary image.
     pub fn from_reader(reader: &Reader<'a>) -> Result<Self, StackError> {
+        Self::from_reader_with_atlas(reader).map(|(descriptor, _)| descriptor)
+    }
+
+    /// Returns the validated placement and its primary image from one lookup.
+    pub fn from_reader_with_atlas(
+        reader: &Reader<'a>,
+    ) -> Result<(Self, mirx::image::ImageRef<'a>), StackError> {
         let mut matching = reader
             .chunks()
             .filter(|chunk| chunk.chunk_type() == CHUNK_TYPE);
@@ -124,11 +131,12 @@ impl<'a> StackDescriptor<'a> {
             .image()
             .map_err(StackError::Image)?
             .ok_or(StackError::MissingPrimaryImage)?;
-        Self::open(
+        let descriptor = Self::open(
             image.surface().width(),
             image.surface().height(),
             chunk.payload(),
-        )
+        )?;
+        Ok((descriptor, image))
     }
 
     /// Opens one extension payload against the provided atlas extent.

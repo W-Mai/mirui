@@ -103,7 +103,8 @@ impl Level {
 
 fn prepare(bytes: &[u8], output: &Path) -> Result<(), String> {
     let reader = Reader::open(bytes).map_err(|e| format!("{e:?}"))?;
-    let stack = StackDescriptor::from_reader(&reader).map_err(|e| e.to_string())?;
+    let (stack, image) =
+        StackDescriptor::from_reader_with_atlas(&reader).map_err(|e| e.to_string())?;
     let (width, length) = stack.canvas();
     if width > 256 || length > 256 || width % 2 != 0 || length % 2 != 0 || stack.spacing_q8() != 256
     {
@@ -112,14 +113,7 @@ fn prepare(bytes: &[u8], output: &Path) -> Result<(), String> {
         );
     }
     let (width, length) = (usize::from(width), usize::from(length));
-    let image = reader
-        .primary()
-        .map_err(|e| format!("{e:?}"))?
-        .ok_or("missing atlas")?
-        .image()
-        .map_err(|e| format!("{e:?}"))?
-        .and_then(|image| image.raw())
-        .ok_or("expected a RAW atlas")?;
+    let image = image.raw().ok_or("expected a RAW atlas")?;
     if image.surface().sample_layout() != SampleLayout::I8 {
         return Err("expected an I8 aircraft material atlas".into());
     }
