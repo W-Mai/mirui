@@ -1,4 +1,6 @@
 //! Optional SLOD chunk containing sparse levels in base atlas coordinates.
+pub mod bake;
+
 use crate::StackDescriptor;
 use mirx::{
     ChunkFlags, ChunkType, Reader,
@@ -72,7 +74,7 @@ impl<'a> StackLods<'a> {
         }
         Self::open(chunk.payload(), stack, image).map(Some)
     }
-    fn open(
+    pub fn open(
         p: &'a [u8],
         stack: StackDescriptor<'a>,
         image: ImageRef<'a>,

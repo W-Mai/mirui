@@ -1,4 +1,7 @@
-use mirui_sprite_stack_format::StackDescriptor;
+use mirui_sprite_stack_format::{
+    StackDescriptor,
+    lod::{LodColor, LodError, StackLods, bake},
+};
 use mirx::image::SampleLayout;
 use mirx::meta::MetaValueRef;
 use mirx::reader::PayloadLimits;
@@ -43,23 +46,6 @@ fn vertical_pivot(reader: &Reader<'_>) -> Result<i32, String> {
         }
     }
     pivot.ok_or_else(|| "missing pixel-flight.pivot-z-q8".into())
-}
-
-// Preserve the dominant material in a 2x2 cell, resolving ties toward the higher material.
-fn coarse_color(samples: [u8; 4]) -> u8 {
-    let mut counts = [0u16; 4];
-    let mut sums = [0u16; 4];
-    for color in samples.into_iter().filter(|&c| c != 0) {
-        let index = material(color);
-        counts[index] += 1;
-        sums[index] += u16::from(color);
-    }
-    let (index, &count) = counts
-        .iter()
-        .enumerate()
-        .max_by_key(|&(_, count)| count)
-        .unwrap();
-    (sums[index] + count / 2).checked_div(count).unwrap_or(0) as u8
 }
 
 #[derive(Default)]
@@ -113,8 +99,8 @@ fn prepare(bytes: &[u8], output: &Path) -> Result<(), String> {
         );
     }
     let (width, length) = (usize::from(width), usize::from(length));
-    let image = image.raw().ok_or("expected a RAW atlas")?;
-    if image.surface().sample_layout() != SampleLayout::I8 {
+    let raw = image.raw().ok_or("expected a RAW atlas")?;
+    if raw.surface().sample_layout() != SampleLayout::I8 {
         return Err("expected an I8 aircraft material atlas".into());
     }
     let palette = image.color_table().ok_or("missing atlas palette")?;
@@ -135,42 +121,51 @@ fn prepare(bytes: &[u8], output: &Path) -> Result<(), String> {
         colors.push([color, rgba[0], rgba[1], rgba[2], material(color) as u8]);
     }
 
-    let plane = image.plane(0).ok_or("missing atlas plane")?;
-    let mut cells = vec![0; width * length];
+    let plane = raw.plane(0).ok_or("missing atlas plane")?;
     let mut full = Level::default();
-    let mut coarse = Level::default();
     for region in stack.layers() {
         if region.width() != 0 {
-            for (y, row) in cells.chunks_exact_mut(width).enumerate() {
-                let atlas_row = plane
-                    .row(region.y() + y as u32)
+            for y in 0..region.height() {
+                let row = plane
+                    .row(region.y() + y)
                     .map_err(|e| format!("{e:?}"))?
                     .ok_or("missing atlas row")?;
-                row.copy_from_slice(&atlas_row[region.x() as usize..region.right() as usize]);
-                for (x, &color) in row.iter().enumerate() {
+                for (x, &color) in row[region.x() as usize..region.right() as usize]
+                    .iter()
+                    .enumerate()
+                {
                     if color != 0 && !opaque[usize::from(color)] {
                         return Err(format!("missing material at palette index {color}"));
                     }
-                    full.sample(x, y, color);
-                }
-            }
-            for y in (0..length).step_by(2) {
-                for x in (0..width).step_by(2) {
-                    let at = y * width + x;
-                    let color = coarse_color([
-                        cells[at],
-                        cells[at + 1],
-                        cells[at + width],
-                        cells[at + width + 1],
-                    ]);
-                    if color != 0 && !opaque[usize::from(color)] {
-                        return Err(format!("missing coarse LOD shade at palette index {color}"));
-                    }
-                    coarse.sample(x, y, color);
+                    full.sample(x, y as usize, color);
                 }
             }
         }
         full.finish_layer();
+    }
+    let payload = bake::encode(
+        stack,
+        bake::Samples::Indexed(palette.as_bytes()),
+        &[1, 2],
+        &[[1, 16], [17, 32], [33, 48], [49, 64]],
+        1024 * 1024,
+        |x, y| {
+            let row = plane.row(y).ok().flatten().ok_or(LodError::InvalidSample)?;
+            Ok(LodColor::Indexed(row[x as usize]))
+        },
+    )
+    .map_err(|e| e.to_string())?
+    .ok_or("missing aircraft LOD")?;
+    let lods = StackLods::open(&payload, stack, image).map_err(|e| e.to_string())?;
+    let level = lods.level(0).ok_or("missing aircraft LOD")?;
+    let mut coarse = Level::default();
+    for layer in 0..stack.layers().len() {
+        for cell in level.layer(layer).ok_or("missing aircraft layer")? {
+            let LodColor::Indexed(index) = cell.color else {
+                return Err("expected an indexed aircraft".into());
+            };
+            coarse.sample(usize::from(cell.x), usize::from(cell.y), index);
+        }
         coarse.finish_layer();
     }
 
