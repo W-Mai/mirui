@@ -21,3 +21,7 @@ mirui = { path = "../..", default-features = false, features = ["std"] }
 [[example]]
 name = "turntable"
 required-features = ["widget", "mirui/sdl"]
+
+[[example]]
+name = "passing_lane"
+required-features = ["widget", "mirui/sdl"]

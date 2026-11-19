@@ -13,9 +13,9 @@ cargo run -p mirui-sprite-stack --example turntable --features mirui/sdl
 The [turntable](examples/turntable.rs) includes a [car model](examples/car.obj) and its [prebuilt atlas](examples/car.mirx). To make another asset with ICU:
 
 ```sh
-icu sprite-stack car.obj --resolution 32 --out vehicle.mirx
-icu sprite-stack base.png body.png roof.png --out hand-drawn.mirx
-icu show vehicle.mirx
+icu convert car.obj -F mirx --resolution 32 -O models
+icu convert base.png body.png roof.png -F mirx --layers -O models
+icu show models/car.mirx
 ```
 
 PNG layers are ordered from bottom to top. Each layer uses the same canvas size and fully opaque or fully transparent pixels.
@@ -75,3 +75,11 @@ fn screens(scene: model!(StackScene), player: Object) -> Entity {
 ```
 
 `StackScene::bounded(n)` prepares instance slots. `place` accepts a shared sprite, a static prepared model, a height field, or a registered editable height field. A failed placement preserves existing objects. `set_pose`, `remove` and `height_at` use the returned `Object`. Each viewport retains its output texture and reuses up to sixteen rows of depth and coverage. A game can install a per-viewport `ScenePainter` for its own materials and effects.
+
+[Passing Lane](examples/passing_lane.rs) places two cars from one asset. Press **Drive** to pass the other car. A chase camera and an overhead camera follow the same driver, and the game Model counts each pass once.
+
+```sh
+cargo run -p mirui-sprite-stack --example passing_lane --features mirui/sdl
+```
+
+Procedural games can pass their existing height and material planes to `HeightField::from_planes`. Use `with_coordinate_map` to convert local X/Z coordinates to the source map's axes. `address_at` returns the index for reading both planes.
