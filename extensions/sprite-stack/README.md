@@ -78,7 +78,7 @@ fn screens(scene: model!(StackScene), player: Object) -> Entity {
 
 `StackViewport` selects detail separately for each camera. It uses the coarsest stored grid step that projects to at most one screen pixel, and draws the base atlas at closer scales. Optional `SLOD` records borrow sparse cells and their original RGBA colors or palette indices from the MIRX file. A coarse cell on the edge stops at the original layer bounds.
 
-[Passing Lane](examples/passing_lane.rs) places two cars from one asset. Press **Drive** to pass the other car. A chase camera and an overhead camera follow the same driver, and the game Model counts each pass once.
+[Passing Lane](examples/passing_lane.rs) places two cars from one asset on an editable road. Press **Toggle lift** to raise the amber section under the starting car, then press **Drive** to leave the platform and pass the other car. The game uses `scene.height_at` to keep each car on the road. The chase and overhead cameras show the same edit, and the game counts each pass once.
 
 ```sh
 cargo run -p mirui-sprite-stack --example passing_lane --features mirui/sdl
