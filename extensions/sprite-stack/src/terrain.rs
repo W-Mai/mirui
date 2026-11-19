@@ -110,6 +110,7 @@ pub struct HeightField {
     levels: Cow<'static, [u8]>,
     materials: Cow<'static, [u8]>,
     colors: &'static [Color],
+    coordinate_map: Option<fn([Fixed; 2]) -> [Fixed; 2]>,
     revision: u64,
 }
 
@@ -129,6 +130,7 @@ impl HeightField {
             levels,
             materials,
             colors: &[],
+            coordinate_map: None,
             revision: 0,
         })
     }
@@ -172,12 +174,26 @@ impl HeightField {
         Self::from_planes(grid, levels, materials)?.with_palette(colors)
     }
 
+    /// Maps object-local X/Z into the plane coordinates before cell lookup.
+    pub fn with_coordinate_map(mut self, map: fn([Fixed; 2]) -> [Fixed; 2]) -> Self {
+        self.coordinate_map = Some(map);
+        self
+    }
+
+    /// Returns the shared plane index for a local point. Height and material may be sampled independently.
+    pub fn address_at(&self, x: Fixed, z: Fixed) -> Option<usize> {
+        let [x, z] = self.coordinate_map.map_or([x, z], |map| map([x, z]));
+        self.grid.address(self.grid.cell_at(x, z)?)
+    }
+
     pub fn grid(&self) -> TerrainGrid {
         self.grid
     }
+    #[inline]
     pub fn levels(&self) -> &[u8] {
         &self.levels
     }
+    #[inline]
     pub fn materials(&self) -> &[u8] {
         &self.materials
     }
@@ -188,7 +204,7 @@ impl HeightField {
             .unwrap_or(Color::rgb(material, material, material))
     }
     pub fn height_at(&self, x: Fixed, z: Fixed) -> Option<Fixed> {
-        let i = self.grid.address(self.grid.cell_at(x, z)?)?;
+        let i = self.address_at(x, z)?;
         Some(self.grid.elevation(self.levels[i]))
     }
 }

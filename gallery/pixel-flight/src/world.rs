@@ -1,7 +1,9 @@
 #![doc = " Seeded, wrapping terrain and cloud fields. Map generation is a cold path."]
 use super::math::FixedMath as _;
 use alloc::{vec, vec::Vec};
-use mirui::types::Fixed;
+use mirui::core::cache::Handle;
+use mirui::types::{Color, Fixed};
+use mirui_sprite_stack::{HeightField, TerrainGrid};
 pub const SIDE: usize = 1024;
 pub const CLOUD_SIDE: usize = 512;
 pub const CLOUD_ALT: Fixed = Fixed::from_int(40);
@@ -26,6 +28,17 @@ pub const TOP: [[u8; 3]; 17] = [
     [246, 250, 255],
     [214, 226, 244],
 ];
+const TERRAIN_COLORS: [Color; TOP.len()] = {
+    let mut colors = [Color::rgb(0, 0, 0); TOP.len()];
+    let mut index = 0;
+    while index < colors.len() {
+        let [r, g, b] = TOP[index];
+        colors[index] = Color::rgb(r, g, b);
+        index += 1;
+    }
+    colors
+};
+
 pub const WALL: [[u8; 3]; 17] = [
     [36, 104, 180],
     [44, 124, 198],
@@ -62,8 +75,7 @@ impl Random {
 }
 #[doc = " A unit is one ground pixel. Reducing the map changes repetition distance."]
 pub struct World {
-    pub heights: Vec<u8>,
-    pub materials: Vec<u8>,
+    ground: Handle<HeightField>,
     pub clouds: Vec<u8>,
     pub noise: Vec<u8>,
     pub spawn: [Fixed; 2],
@@ -71,6 +83,11 @@ pub struct World {
     cloud_side: usize,
     noise_side: usize,
     sample_shift: u32,
+}
+// Flight samples integer map coordinates and points its nose toward decreasing map Y.
+fn flight_map_coordinates([x, z]: [Fixed; 2]) -> [Fixed; 2] {
+    let y = (-z.trunc_to_int()).rem_euclid(SIDE as i32);
+    [Fixed::from_int(x.trunc_to_int()), Fixed::from_int(y)]
 }
 fn index(x: i32, y: i32, side: usize) -> usize {
     (y as usize & (side - 1)) * side + (x as usize & (side - 1))
@@ -129,17 +146,8 @@ impl World {
                 noise[(y / stride) * noise_side + x / stride] = value;
             }
         }
-        let mut world = Self {
-            heights: vec![0; side * side],
-            materials: vec![0; side * side],
-            clouds: vec![0; cloud_side * cloud_side],
-            noise,
-            spawn: [Fixed::from_int((side << sample_shift) as i32) / 2; 2],
-            side,
-            cloud_side,
-            noise_side,
-            sample_shift,
-        };
+        let mut heights = vec![0; side * side];
+        let mut materials = vec![0; side * side];
         let mut elevation = vec![Fixed::from_ratio(0, 1); side * side];
         let mut lattice = vec![Fixed::ZERO; 64 * 64];
         let mut blend = vec![Fixed::ZERO; side];
@@ -188,7 +196,7 @@ impl World {
                     let depth = -d
                         + (Fixed::from_int((h) as i32) - Fixed::from_int(128))
                             * Fixed::from_ratio(4, 100000);
-                    world.materials[i] = if depth > Fixed::from_ratio(7, 100) {
+                    materials[i] = if depth > Fixed::from_ratio(7, 100) {
                         0
                     } else if depth > Fixed::from_ratio(3, 100) {
                         1
@@ -198,7 +206,7 @@ impl World {
                         3
                     };
                 } else if d < Fixed::from_ratio(12, 1000) {
-                    world.materials[i] = if h < 34 { 5 } else { 4 };
+                    materials[i] = if h < 34 { 5 } else { 4 };
                 } else {
                     let relative = (d - Fixed::from_ratio(12, 1000)) / span;
                     let level = (if relative < Fixed::from_ratio(5, 10) {
@@ -211,7 +219,7 @@ impl World {
                             .trunc_to_int() as u8)
                     })
                     .min(15);
-                    world.heights[i] = if level <= 8 {
+                    heights[i] = if level <= 8 {
                         level * 2
                     } else {
                         16 + (level - 8) * 3
@@ -220,7 +228,7 @@ impl World {
                         - elevation[index(x as i32 + 2, y as i32 + 2, side)];
                     let lit = gradient < -Fixed::from_ratio(7, 1000);
                     let shaded = gradient > Fixed::from_ratio(7, 1000);
-                    world.materials[i] = if level >= 13 {
+                    materials[i] = if level >= 13 {
                         if shaded { 16 } else { 15 }
                     } else if level >= 9 {
                         if lit {
@@ -248,7 +256,7 @@ impl World {
                 let cx = (gx + usize::from(hs & 3)) as i32;
                 let cy = (gy + usize::from((hs >> 2) & 3)) as i32;
                 let i = index(cx, cy, side);
-                if !(6..=8).contains(&world.materials[i]) || world.heights[i] > 14 {
+                if !(6..=8).contains(&materials[i]) || heights[i] > 14 {
                     continue;
                 }
                 let f = elevation[index(side as i32 - 1 - cx + 911, cy + 613, side)];
@@ -260,7 +268,7 @@ impl World {
                     continue;
                 }
                 let r = 2 + i32::from((hs >> 4) & 1);
-                let base = world.heights[i];
+                let base = heights[i];
                 for dy in -r..=r {
                     for dx in -r..=r {
                         let distance = (Fixed::from_int(dx * dx + dy * dy)).sqrt();
@@ -268,7 +276,7 @@ impl World {
                             continue;
                         }
                         let j = index(cx + dx, cy + dy, side);
-                        if world.materials[j] < 4 {
+                        if materials[j] < 4 {
                             continue;
                         }
                         let height = base
@@ -278,9 +286,9 @@ impl World {
                                 * Fixed::from_int(r + 1))
                             .round())
                             .trunc_to_int() as u8;
-                        if height > world.heights[j] {
-                            world.heights[j] = height;
-                            world.materials[j] = if distance < Fixed::from_ratio(11, 10) {
+                        if height > heights[j] {
+                            heights[j] = height;
+                            materials[j] = if distance < Fixed::from_ratio(11, 10) {
                                 9
                             } else if distance < Fixed::from_int(r) - Fixed::from_ratio(5, 10) {
                                 10
@@ -292,6 +300,22 @@ impl World {
                 }
             }
         }
+        let grid = TerrainGrid::repeating([side as u16; 2], Fixed::from_int(1 << sample_shift))
+            .expect("bounded flight grid");
+        let ground = HeightField::from_planes(grid, heights, materials)
+            .and_then(|field| field.with_palette(&TERRAIN_COLORS))
+            .expect("generated flight materials")
+            .with_coordinate_map(flight_map_coordinates);
+        let mut world = Self {
+            ground: Handle::new(ground),
+            clouds: vec![0; cloud_side * cloud_side],
+            noise,
+            spawn: [Fixed::from_int((side << sample_shift) as i32) / 2; 2],
+            side,
+            cloud_side,
+            noise_side,
+            sample_shift,
+        };
         let mut best = -1;
         for _ in 0..400 {
             let x = (random.next() * Fixed::from_int(side as i32)).trunc_to_int() << sample_shift;
@@ -367,11 +391,16 @@ impl World {
         }
         world
     }
+    /// Shares the generated ground with scene objects and additional viewports.
+    pub fn field(&self) -> Handle<HeightField> {
+        self.ground.clone()
+    }
+
     pub fn height(&self, x: i32, y: i32) -> u8 {
-        self.heights[index(x >> self.sample_shift, y >> self.sample_shift, self.side)]
+        self.ground.levels()[index(x >> self.sample_shift, y >> self.sample_shift, self.side)]
     }
     pub fn material(&self, x: i32, y: i32) -> u8 {
-        self.materials[index(x >> self.sample_shift, y >> self.sample_shift, self.side)]
+        self.ground.materials()[index(x >> self.sample_shift, y >> self.sample_shift, self.side)]
     }
     pub fn cloud(&self, x: i32, y: i32) -> u8 {
         self.clouds[index(
@@ -391,8 +420,10 @@ impl World {
         self.noise[index(x >> shift, y >> shift, self.noise_side)]
     }
     pub fn bytes(&self) -> usize {
-        self.heights.capacity()
-            + self.materials.capacity()
+        core::mem::size_of::<mirui::core::cache::handle::CacheEntry<HeightField>>()
+            + 2 * core::mem::size_of::<usize>()
+            + self.ground.levels().len()
+            + self.ground.materials().len()
             + self.clouds.capacity()
             + self.noise.capacity()
     }
@@ -401,15 +432,71 @@ impl World {
 mod tests {
     use super::*;
     #[test]
+    fn scene_and_simulation_sample_the_same_generated_planes() {
+        use mirui_sprite_stack::{Pose, StackScene};
+        for side in [64, SIDE] {
+            let world = World::with_size(7, Fixed::from_ratio(33, 100), side, 32, 16);
+            let field = world.field();
+            assert!(field.ptr_eq(&world.field()));
+            let mut scene = StackScene::bounded(1);
+            let object = scene.place(field.clone(), Pose::default()).unwrap();
+            let cell_size = (SIDE / side) as i32;
+            for row in 0..side {
+                for col in 0..side {
+                    let index = row * side + col;
+                    let x = col as i32 * cell_size - SIDE as i32;
+                    let y = row as i32 * cell_size + SIDE as i32;
+                    assert_eq!(field.materials()[index], world.material(x, y));
+                    assert_eq!(field.levels()[index], world.height(x, y));
+                    assert_eq!(
+                        scene.height_at(object, Fixed::from_int(x), Fixed::from_int(-y)),
+                        Ok(Some(Fixed::from_int(i32::from(world.height(x, y)))))
+                    );
+                    let [r, g, b] = TOP[usize::from(world.material(x, y))];
+                    assert_eq!(field.color(field.materials()[index]), Color::rgb(r, g, b));
+                }
+            }
+            for x in [-1025, -17, -16, -1, 0, 1, 15, 16, 17, 1023, 1024] {
+                for y in [-1025, -17, -16, -1, 0, 1, 15, 16, 17, 1023, 1024] {
+                    for fraction in [-Fixed::HALF, Fixed::ZERO, Fixed::HALF] {
+                        let x = Fixed::from_int(x) + fraction;
+                        let y = Fixed::from_int(y) - fraction;
+                        let address = field.address_at(x, -y).unwrap();
+                        let (col, row) = (x.trunc_to_int(), y.trunc_to_int());
+                        assert_eq!(field.materials()[address], world.material(col, row));
+                        assert_eq!(
+                            scene.height_at(object, x, -y).unwrap(),
+                            Some(Fixed::from_int(i32::from(world.height(col, row))))
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn seeded_fields_are_bounded_wrapped_and_deterministic() {
         let a = World::new(7, Fixed::from_ratio(33, 100));
         let b = World::new(7, Fixed::from_ratio(33, 100));
-        assert_eq!(a.bytes(), 2_424_832);
-        assert_eq!(a.heights, b.heights);
-        assert_eq!(a.materials, b.materials);
+        assert_eq!(
+            a.ground.levels().len() + a.ground.materials().len() + a.clouds.len() + a.noise.len(),
+            2_424_832
+        );
+        assert_eq!(a.ground.levels(), b.ground.levels());
+        assert_eq!(a.ground.materials(), b.ground.materials());
         assert_eq!(a.clouds, b.clouds);
-        assert!(a.heights.iter().all(|h| usize::from(*h) < MAX_HEIGHT));
-        assert!(a.materials.iter().all(|m| usize::from(*m) < TOP.len()));
+        assert!(
+            a.ground
+                .levels()
+                .iter()
+                .all(|h| usize::from(*h) < MAX_HEIGHT)
+        );
+        assert!(
+            a.ground
+                .materials()
+                .iter()
+                .all(|m| usize::from(*m) < TOP.len())
+        );
         for (x, y) in [(-1, -1), (0, 0), (123, 456), (-99_999, 123_456)] {
             assert_eq!(a.height(x, y), a.height(x + SIDE as i32, y - SIDE as i32));
             assert_eq!(
@@ -417,13 +504,14 @@ mod tests {
                 a.cloud(x - CLOUD_SIDE as i32, y + CLOUD_SIDE as i32)
             );
         }
-        let land = Fixed::from_int((a.materials.iter().filter(|m| **m >= 4).count()) as i32)
-            / Fixed::from_int((SIDE * SIDE) as i32);
+        let land =
+            Fixed::from_int((a.ground.materials().iter().filter(|m| **m >= 4).count()) as i32)
+                / Fixed::from_int((SIDE * SIDE) as i32);
         assert!(
             (land - Fixed::from_ratio(33, 100)).abs() < Fixed::from_ratio(1, 50),
             "land fraction {land}"
         );
-        assert!(a.materials.iter().any(|m| (9..=11).contains(m)));
+        assert!(a.ground.materials().iter().any(|m| (9..=11).contains(m)));
         assert!(a.clouds.iter().any(|c| *c != 0));
         assert!(a.material((a.spawn[0]).trunc_to_int(), (a.spawn[1]).trunc_to_int()) <= 2);
     }

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Share Pixel Flight's generated terrain between the flight simulation and scene instances. Height fields accept a coordinate mapping for indexed maps with custom axes and sampling rules.
+
 - Composite a color into a writable texture with `TexturePixelsMut::composite_pixel`.
 
 - Render I1, I2, I4 and I8 MIRX textures with their original palettes. Software rendering samples packed indices, and GPU uploads resolve the requested regions to color. Read-only pixel views expose the sample encoding, palette and bit offset.
