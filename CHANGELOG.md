@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Keep the Passing Lane driving controls visible and clickable below both camera views.
+- Passing Lane starts both cars automatically, aligns them with the road, and counts overtakes in motion. Pause, resume and road lift controls sit below the two camera views.
 
 - Pixel Flight changes the cockpit and terrain lighting in place. Switching between day, sunset and night reuses the rendered frame, cockpit layers and drawing workspace.
 

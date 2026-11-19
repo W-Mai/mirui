@@ -78,10 +78,10 @@ fn screens(scene: model!(StackScene), player: Object) -> Entity {
 
 `StackViewport` selects detail separately for each camera. It uses the coarsest stored grid step that projects to at most one screen pixel, and draws the base atlas at closer scales. Optional `SLOD` records borrow sparse cells and their original RGBA colors or palette indices from the MIRX file. A coarse cell on the edge stops at the original layer bounds.
 
-[Passing Lane](examples/passing_lane.rs) places two cars from one asset on an editable road. Press **Toggle lift** to raise the amber section under the starting car, then press **Drive** to leave the platform and pass the other car. The game uses `scene.height_at` to keep each car on the road. The chase and overhead cameras show the same edit, and the game counts each pass once.
+[Passing Lane](examples/passing_lane.rs) starts two cars driving in separate lanes. One game timer advances both cars, and each time the faster car overtakes the slower one, the counter goes up. **Pause** and **Resume** control the race. **Toggle lift** raises or lowers a section of the repeating road. Both cameras show the same traffic and terrain, and `scene.height_at` keeps the cars on the road surface.
 
 ```sh
-cargo run -p mirui-sprite-stack --example passing_lane --features mirui/sdl
+cargo run --release -p mirui-sprite-stack --example passing_lane --features mirui/sdl
 ```
 
 Procedural games can pass their existing height and material planes to `HeightField::from_planes`. Use `with_coordinate_map` to convert local X/Z coordinates to the source map's axes. `address_at` returns the index for reading both planes.
