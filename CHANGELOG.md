@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Render Pixel Flight through an independent scene viewport. The simulation publishes aircraft transforms once per tick, and additional cameras share the same terrain and aircraft. Ground shadows reuse each visible aircraft’s projection across terrain samples.
+- Render Pixel Flight through an independent scene viewport. The simulation publishes aircraft transforms once per tick, and additional cameras share the same terrain and aircraft. Ground shadows reuse each placed aircraft’s projection across terrain samples. Terrain rendering shares the cell address for height and material and reads material only for exposed spans.
 - Clip sprite scene depth spans once and write packed pixels at the selected row stride.
 
 - Share Pixel Flight's generated terrain between the flight simulation and scene instances. Height fields accept a coordinate mapping for indexed maps with custom axes and sampling rules.

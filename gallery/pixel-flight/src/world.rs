@@ -400,11 +400,17 @@ impl World {
         self.ground.clone()
     }
 
+    pub(super) fn ground_index(&self, x: i32, y: i32) -> usize {
+        index(x >> self.sample_shift, y >> self.sample_shift, self.side)
+    }
+    pub(super) fn ground_planes(&self) -> (&[u8], &[u8]) {
+        (self.ground.levels(), self.ground.materials())
+    }
     pub fn height(&self, x: i32, y: i32) -> u8 {
-        self.ground.levels()[index(x >> self.sample_shift, y >> self.sample_shift, self.side)]
+        self.ground.levels()[self.ground_index(x, y)]
     }
     pub fn material(&self, x: i32, y: i32) -> u8 {
-        self.ground.materials()[index(x >> self.sample_shift, y >> self.sample_shift, self.side)]
+        self.ground.materials()[self.ground_index(x, y)]
     }
     pub fn cloud(&self, x: i32, y: i32) -> u8 {
         self.clouds[index(

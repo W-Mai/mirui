@@ -644,6 +644,7 @@ fn draw_world(
     let [bx, by] = prepared.base;
     let rank = prepared.rank;
     let drift = prepared.drift;
+    let (ground_levels, ground_materials) = world.ground_planes();
     let below = Fixed::from_int(canvas.color.bounds[3]) - cy;
     let nearest = if q > Fixed64::ZERO {
         -p.divide_perspective(Fixed::from_ratio(85, 100))
@@ -775,7 +776,8 @@ fn draw_world(
                     }
                 }
             }
-            let h = usize::from(world.height(gx, gy));
+            let cell = world.ground_index(gx, gy);
+            let h = usize::from(ground_levels[cell]);
             if h != ground_height {
                 ground_rows = [row.at(h), previous.at(h)];
                 ground_height = h;
@@ -784,7 +786,7 @@ fn draw_world(
             if yt >= column && yr >= column {
                 continue;
             }
-            let material = usize::from(world.material(gx, gy));
+            let material = usize::from(ground_materials[cell]);
             let mut shaded = false;
             if rank > 0 {
                 let c = world.cloud(
