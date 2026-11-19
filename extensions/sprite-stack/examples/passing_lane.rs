@@ -116,7 +116,7 @@ fn course(race: model!(Race)) -> Entity {
                 StackViewport(grow: 2.0, min_width: 0, scene: scene.clone(), camera: chase)
                 StackViewport(grow: 1.0, min_width: 0, scene: scene, camera: overhead)
             }
-            Row(gap: 12, padding: Padding::all(8)) {
+            Row(height: 44, gap: 12, padding: Padding::all(8), align: AlignItems::Center) {
                 Button("Drive") on Tap { race.drive(); }
                 Button("Toggle lift") on Tap { race.toggle_lift(); }
                 Text(text: ${ format!("Passes: {}", race.passes()) })
@@ -146,15 +146,46 @@ fn main() {
 mod tests {
     use super::*;
     use mirui::core::model::ModelHandle;
-    use mirui::surface::FramebufferAccess;
+    use mirui::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
+    use mirui::surface::framebuf::FramebufSurface;
+    use mirui::surface::{FramebufferAccess, InputEvent, PointerKind};
+    use mirui::ui::ComputedRect;
+
+    type TestApp = App<FramebufSurface<fn(&[u8], PhysicalRect)>>;
+
+    fn click_button(app: &mut TestApp, label: &str) {
+        let (button, _) = app
+            .world
+            .query::<Text>()
+            .iter()
+            .find(|(entity, text)| app.world.has::<Button>(*entity) && text.resolve(None) == label)
+            .expect("button with the requested label");
+        let rect = app.world.get::<ComputedRect>(button).unwrap().0;
+        let display = app.backend.display_info();
+        let window = Rect::new(0, 0, display.width, display.height);
+        assert_eq!(
+            rect.intersect(&window),
+            Some(rect),
+            "{label} outside the window"
+        );
+        let x = rect.x + rect.w / Fixed::from_int(2);
+        let y = rect.y + rect.h / Fixed::from_int(2);
+        let kind = PointerKind::Mouse;
+        app.add_resource(SimulatedInput::new(vec![
+            SimCommand::at(0, InputEvent::PointerDown { kind, id: 0, x, y }),
+            SimCommand::at(0, InputEvent::PointerUp { kind, id: 0, x, y }),
+        ]));
+        assert!(!app.tick());
+    }
 
     #[test]
     fn two_views_share_the_drivers_moves_and_one_score() {
         let mut app = App::headless(240, 160);
         let race = setup(&mut app);
+        app.add_system(sim_input_system::system());
         let before = app.snapshot().unwrap().unwrap();
         for _ in 0..4 {
-            race.drive();
+            click_button(&mut app, "Drive");
         }
         let after = app.snapshot().unwrap().unwrap();
         let (a, b) = (before.read_pixels().unwrap(), after.read_pixels().unwrap());
@@ -164,8 +195,13 @@ mod tests {
             );
         }
         assert_eq!(race.passes(), 0);
-        race.drive();
+        click_button(&mut app, "Drive");
         assert_eq!(race.passes(), 1);
+        click_button(&mut app, "Toggle lift");
+        assert_eq!(
+            race.read(|race| race.road_height(Fixed::ZERO, Fixed::ZERO)),
+            Fixed::from_int(8)
+        );
     }
 
     #[test]

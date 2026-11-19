@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Keep the Passing Lane driving controls visible and clickable below both camera views.
+
 - Pixel Flight changes the cockpit and terrain lighting in place. Switching between day, sunset and night reuses the rendered frame, cockpit layers and drawing workspace.
 
 - Render Pixel Flight through an independent scene viewport. The simulation publishes aircraft transforms once per tick, and additional cameras share the same terrain and aircraft. Ground shadows reuse each placed aircraft’s projection across terrain samples. Terrain rendering shares the cell address for height and material and reads material only for exposed spans.
