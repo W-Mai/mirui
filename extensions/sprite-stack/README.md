@@ -54,3 +54,24 @@ app.compose(root, vehicle(car, heading));
 `yaw` and `pitch` use degrees. Positive pitch looks down on the layers; zero shows their edges. Omit `layer_spacing` to use the distance saved with the asset. The sprite uses the App's shared offscreen budget. A 96×80 RGBA output at 1× scale uses 30,720 bytes for its pixels.
 
 Tools and build scripts can depend directly on [mirui-sprite-stack-format](format) and use `StackDescriptor` to read or write layer placement. The format crate depends only on `mirx`. The widget exposes the same types in its `format` module.
+
+## Shared scenes
+
+Register `SpriteStackPlugin`, place shared assets in a `StackScene`, and pass its Model handle to each viewport. The camera uses degrees and world units. A moving object can drive a chase camera while an overhead viewport shows the same game state.
+
+```rust
+use mirui::prelude::*;
+use mirui_sprite_stack::{Camera, Object, StackScene, StackViewport};
+
+#[mirui::compose]
+fn screens(scene: model!(StackScene), player: Object) -> Entity {
+    ui! {
+        Row(grow: 1.0) {
+            StackViewport(scene: scene.clone(), camera: Camera::chase(player), grow: 1.0)
+            StackViewport(scene: scene, camera: Camera::overhead(), width: 80, height: 80)
+        }
+    }
+}
+```
+
+`StackScene::bounded(n)` prepares instance slots. `place` accepts a shared sprite, a static prepared model, a height field, or a registered editable height field. A failed placement preserves existing objects. `set_pose`, `remove` and `height_at` use the returned `Object`. Each viewport retains its output texture and reuses up to sixteen rows of depth and coverage. A game can install a per-viewport `ScenePainter` for its own materials and effects.

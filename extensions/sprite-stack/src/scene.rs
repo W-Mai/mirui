@@ -32,8 +32,15 @@ impl Pose {
 /// Geometry shared by the game and every view of an instance.
 pub enum Geometry {
     Sprite(Handle<SpriteStackAsset>),
+    Prepared(&'static crate::PreparedSpriteStack<'static>),
     Field(Handle<HeightField>),
     LiveField(HeightFieldHandle),
+}
+
+impl From<&'static crate::PreparedSpriteStack<'static>> for Geometry {
+    fn from(s: &'static crate::PreparedSpriteStack<'static>) -> Self {
+        Self::Prepared(s)
+    }
 }
 
 impl From<Handle<SpriteStackAsset>> for Geometry {
@@ -62,7 +69,7 @@ impl Geometry {
         match self {
             Self::Field(field) => Some(read(field.get())),
             Self::LiveField(field) => Some(field.read(read)),
-            Self::Sprite(_) => None,
+            Self::Sprite(_) | Self::Prepared(_) => None,
         }
     }
 }
@@ -82,6 +89,7 @@ struct Objects(ModelList<Instance>);
 #[mirui::model]
 pub struct StackScene {
     entries: Objects,
+    membership: u64,
     revision: u64,
 }
 
@@ -96,6 +104,7 @@ impl StackScene {
         Self {
             entries: Objects(ModelList::new()),
             revision: 0,
+            membership: 0,
         }
     }
     /// Prepares all instance slots. Subsequent placement and movement reuse their storage.
@@ -103,6 +112,7 @@ impl StackScene {
         Self {
             entries: Objects(ModelList::bounded(limit)),
             revision: 0,
+            membership: 0,
         }
     }
 
@@ -123,6 +133,7 @@ impl StackScene {
             })
             .map_err(|(err, _)| err)?;
         self.revision = self.revision.wrapping_add(1);
+        self.membership = self.membership.wrapping_add(1);
         Ok(Object(id))
     }
 
@@ -140,6 +151,11 @@ impl StackScene {
     pub fn revision(&self) -> u64 {
         self.revision
     }
+    #[observe]
+    pub(crate) fn membership(&self) -> u64 {
+        self.membership
+    }
+
     fn place_into(
         &mut self,
         geometry: Geometry,
@@ -155,6 +171,7 @@ impl StackScene {
             .0
             .remove(id.0)
             .ok_or(CollectionError::Missing)?;
+        self.membership = self.membership.wrapping_add(1);
         self.revision = self.revision.wrapping_add(1);
         Ok(())
     }

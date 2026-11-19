@@ -203,6 +203,38 @@ impl Workspace {
             draw,
         )
     }
+    /// Borrows consecutive output rows in place and reuses the depth tile for those rows.
+    pub fn with_rows<R>(
+        &mut self,
+        frame: &mut Frame,
+        y: usize,
+        height: usize,
+        draw: impl FnOnce(&mut SceneCanvas<'_, '_>) -> R,
+    ) -> R {
+        assert_eq!(frame.texture.format(), ColorFormat::RGBA8888);
+        assert!(y <= frame.height && height <= frame.height - y);
+        let width = frame.width;
+        let count = height * width;
+        let start = y * width * 4;
+        let mut pixels = frame.texture.pixels_mut().expect("owned scene frame");
+        let mut color = Canvas {
+            bytes: &mut pixels.bytes_mut()[start..start + count * 4],
+            width,
+            height: frame.height,
+            bounds: [0, 0, width as i32, frame.height as i32],
+            clip: [0, y as i32, width as i32, (y + height) as i32],
+            pitch: width,
+            origin: [0, y as i32],
+            extent: [width, height],
+        };
+        draw(&mut SceneCanvas {
+            color: &mut color,
+            depth: &mut self.depth[..count],
+            mask: &mut self.mask[..count],
+            columns: &mut self.columns[..width],
+        })
+    }
+
     /// Reinterprets the packed prefix of the backing storage as a tile at the virtual origin.
     /// The extent must fit the frame and any associated workspace.
     pub fn with_extent<R>(

@@ -33,3 +33,10 @@ pub use scene::{Geometry, Object, Pose, StackScene, StackSceneHandle, StackScene
 pub use terrain::{
     HeightField, HeightFieldHandle, HeightFieldOwned, TerrainCell, TerrainError, TerrainGrid,
 };
+
+#[cfg(feature = "widget")]
+mod viewport;
+#[cfg(feature = "widget")]
+pub use viewport::{
+    Camera, ScenePainter, SpriteStackPlugin, StackViewport, ViewportCamera, ViewportScene,
+};
