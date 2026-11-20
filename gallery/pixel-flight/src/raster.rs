@@ -233,7 +233,6 @@ struct CockpitOverlay<'a> {
     cockpit: &'a super::cockpit::Cockpit,
     prepared: super::cockpit::PreparedCockpit,
     world: Ground<'a>,
-    flight: &'a Flight,
 }
 
 impl FrameOverlay for CockpitOverlay<'_> {
@@ -243,7 +242,7 @@ impl FrameOverlay for CockpitOverlay<'_> {
 
     fn paint(&self, canvas: &mut Canvas<'_>) {
         self.cockpit
-            .draw_prepared(canvas, self.world, self.flight, &self.prepared);
+            .draw_prepared(canvas, self.world, &self.prepared);
     }
 }
 
@@ -382,7 +381,6 @@ impl Raster {
                     cockpit,
                     prepared,
                     world: ground,
-                    flight,
                 })
         });
         let mut pending = [PendingFlame::default(); 6];

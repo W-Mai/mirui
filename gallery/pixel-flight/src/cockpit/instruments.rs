@@ -1,15 +1,16 @@
 use super::*;
 
 impl Cockpit {
-    pub(super) fn paint_indicators(&self, live: &mut Live<'_, '_>, flight: &Flight) {
+    pub(super) fn paint_indicators(&self, live: &mut Live<'_, '_>, instruments: &Instruments) {
         let b = &self.inks[1..=9];
         let a = &self.inks[17..=22];
         for (i, lamp) in self.lamps.iter().enumerate() {
-            if flight.boost > Fixed::from_ratio(25, 100)
+            if instruments.boost > Fixed::from_ratio(25, 100)
                 || i < 2
-                || (i == 2 && (flight.time * Fixed::from_int(2)).trunc_to_int() % 2 == 0)
+                || (i == 2 && (instruments.time * Fixed::from_int(2)).trunc_to_int() % 2 == 0)
                 || (i == 4
-                    && hash8((flight.time * Fixed::from_int(3)).trunc_to_int() as u32 * 7) > 200)
+                    && hash8((instruments.time * Fixed::from_int(3)).trunc_to_int() as u32 * 7)
+                        > 200)
             {
                 live.rect(lamp.x, lamp.y, lamp.x + lamp.w, lamp.y + lamp.h, a[4]);
                 live.rect(lamp.x, lamp.y, lamp.x + lamp.w, lamp.y + 1, a[5]);
@@ -18,7 +19,7 @@ impl Cockpit {
         for (i, key) in self.panel_keys.iter().enumerate() {
             if hash8(
                 (i * 53) as u32
-                    + (flight.time
+                    + (instruments.time
                         * (Fixed::from_ratio(7, 10)
                             + Fixed::from_int((i) as i32) * Fixed::from_ratio(23, 100)))
                     .trunc_to_int() as u32,
@@ -33,15 +34,15 @@ impl Cockpit {
         &self,
         live: &mut Live<'_, '_>,
         world: Ground<'_>,
-        flight: &Flight,
         prepared: &PreparedCockpit,
     ) {
         let clip = live.clip();
-        let j = &flight.jets[0];
+        let instruments = &prepared.instruments;
+        let [x, y, _] = instruments.position;
         let s = self.scale;
         let radar = self.screens[0];
         let zoom = Fixed::from_int(9) / s;
-        let sweep = (flight.time * Fixed::from_ratio(16, 10)).rem_euclid(TAU);
+        let sweep = (instruments.time * Fixed::from_ratio(16, 10)).rem_euclid(TAU);
         for yy in 0.max(clip[1] - radar.y)..radar.h.min(clip[3] - radar.y) {
             let dy = yy - radar.h / 2;
             let ahead = Fixed::from_int(-dy) * zoom;
@@ -50,10 +51,8 @@ impl Cockpit {
                 let cell = &self.radar[(yy * radar.w + xx) as usize];
                 let right = Fixed::from_int(dx) * zoom;
                 let mat = world.material(
-                    (j.position[0] + right * prepared.heading[0] + ahead * prepared.heading[1])
-                        .trunc_to_int(),
-                    (j.position[1] + right * prepared.heading[1] - ahead * prepared.heading[0])
-                        .trunc_to_int(),
+                    (x + right * prepared.heading[0] + ahead * prepared.heading[1]).trunc_to_int(),
+                    (y + right * prepared.heading[1] - ahead * prepared.heading[0]).trunc_to_int(),
                 );
                 let mut tone = if mat >= 12 {
                     4
@@ -81,9 +80,9 @@ impl Cockpit {
                 live.put(radar.x + xx, radar.y + yy, GREEN[tone]);
             }
         }
-        for other in &flight.jets[1..flight.count] {
-            let ex = other.position[0] - j.position[0];
-            let ey = other.position[1] - j.position[1];
+        for [other_x, other_y] in instruments.wingmen.into_iter().flatten() {
+            let ex = other_x - x;
+            let ey = other_y - y;
             let x = radar.x
                 + radar.w / 2
                 + (((ex * prepared.heading[0] + ey * prepared.heading[1]) / zoom).round())
@@ -125,11 +124,10 @@ impl Cockpit {
         instrument_glass(live, radar);
     }
 
-    pub(super) fn paint_status(&self, live: &mut Live<'_, '_>, flight: &Flight) {
+    pub(super) fn paint_status(&self, live: &mut Live<'_, '_>, instruments: &Instruments) {
         let clip = live.clip();
         let r = |v| scaled_pixel(v, self.scale);
         let a = &self.inks[17..=22];
-        let j = &flight.jets[0];
         let status = self.screens[1];
         for y in 0.max(clip[1] - status.y)..status.h.min(clip[3] - status.y) {
             live.rect(
@@ -187,14 +185,14 @@ impl Cockpit {
                 );
             }
         }
-        if hash8((flight.time * Fixed::from_int(12)).trunc_to_int() as u32) > 60 {
+        if hash8((instruments.time * Fixed::from_int(12)).trunc_to_int() as u32) > 60 {
             for side in [-1, 1] {
                 let xx = jx + jw / 2 + side * 2;
                 live.rect(
                     xx - 1,
                     jy + jh,
                     xx + 1,
-                    jy + jh + 1 + ((flight.boost * Fixed::from_int(3)).round()).trunc_to_int(),
+                    jy + jh + 1 + ((instruments.boost * Fixed::from_int(3)).round()).trunc_to_int(),
                     a[5],
                 );
             }
@@ -209,10 +207,10 @@ impl Cockpit {
             live.rect(bx - 1, by - 1, bx + bw + 1, by + bh + 1, GREEN[3]);
             live.rect(bx, by, bx + bw, by + bh, GREEN[0]);
             let level = (Fixed::from_ratio(5, 10)
-                + Fixed::from_ratio(45, 100) * flight.boost
+                + Fixed::from_ratio(45, 100) * instruments.boost
                 + (Fixed::from_int(
                     (hash8(
-                        (flight.time * Fixed::from_int(9)).trunc_to_int() as u32
+                        (instruments.time * Fixed::from_int(9)).trunc_to_int() as u32
                             + engine as u32 * 31,
                     )) as i32,
                 ) - Fixed::from_int(128))
@@ -237,35 +235,30 @@ impl Cockpit {
         live.number(
             status.x + 3,
             status.y + 3,
-            ((j.position[2] * Fixed::from_int(120)).round()).trunc_to_int() as u32,
+            ((instruments.position[2] * Fixed::from_int(120)).round()).trunc_to_int() as u32,
             5,
             GREEN[4],
         );
         live.number(
             status.x + 3,
             status.y + status.h - 7,
-            ((flight.speed * Fixed::from_ratio(42, 10)).round()).trunc_to_int() as u32,
+            ((instruments.speed * Fixed::from_ratio(42, 10)).round()).trunc_to_int() as u32,
             3,
             GREEN[4],
         );
         instrument_glass(live, status);
     }
 
-    pub(super) fn paint_attitude(
-        &self,
-        live: &mut Live<'_, '_>,
-        flight: &Flight,
-        prepared: &PreparedCockpit,
-    ) {
+    pub(super) fn paint_attitude(&self, live: &mut Live<'_, '_>, prepared: &PreparedCockpit) {
         let clip = live.clip();
-        let j = &flight.jets[0];
         let ball = self.ball;
         let (sn, cs) = prepared.roll;
         let per = Fixed::from_int(ball.r) / Fixed::from_int(34);
-        let pitch = (j.pitch.to_degrees() * per * Fixed::from_ratio(9, 10)).clamp(
-            Fixed::from_int(-ball.r) * Fixed::from_ratio(85, 100),
-            Fixed::from_int(ball.r) * Fixed::from_ratio(85, 100),
-        );
+        let pitch = (prepared.instruments.pitch.to_degrees() * per * Fixed::from_ratio(9, 10))
+            .clamp(
+                Fixed::from_int(-ball.r) * Fixed::from_ratio(85, 100),
+                Fixed::from_int(ball.r) * Fixed::from_ratio(85, 100),
+            );
         let rung = (Fixed::from_int(5) * per * Fixed::from_int(2))
             .round()
             .max(Fixed::from_int(6))
@@ -428,12 +421,12 @@ impl Cockpit {
     pub(super) fn paint_controls(
         &self,
         canvas: &mut Canvas<'_>,
-        flight: &Flight,
+        instruments: &Instruments,
         [deck, lever, stick]: [[Fixed; 3]; 3],
     ) {
-        self.paint_deck_lights(&mut Live::new(canvas, deck), flight.time);
-        self.paint_throttle(&mut Live::new(canvas, lever), flight.boost);
-        self.paint_stick(&mut Live::new(canvas, stick), flight);
+        self.paint_deck_lights(&mut Live::new(canvas, deck), instruments.time);
+        self.paint_throttle(&mut Live::new(canvas, lever), instruments.boost);
+        self.paint_stick(&mut Live::new(canvas, stick), instruments);
     }
 
     fn paint_deck_lights(&self, live: &mut Live<'_, '_>, time: Fixed) {
@@ -503,20 +496,16 @@ impl Cockpit {
         );
     }
 
-    fn paint_stick(&self, live: &mut Live<'_, '_>, flight: &Flight) {
+    fn paint_stick(&self, live: &mut Live<'_, '_>, instruments: &Instruments) {
         let r = |v| scaled_pixel(v, self.scale);
         let cx = self.width / 2;
         let b = &self.inks[1..=9];
         let a = &self.inks[17..=22];
         let top = r(253)
-            - (((flight.climb_tilt / Fixed::from_ratio(5, 10)).clamp(-Fixed::ONE, Fixed::ONE)
-                * Fixed::from_int(r(3)))
-            .round())
-            .trunc_to_int();
-        let lean = (flight.jets[0].yaw_rate
-            / flight.settings.agility.max(Fixed::from_ratio(1, 10)))
-        .clamp(-Fixed::ONE, Fixed::ONE)
-            * Fixed::from_int(r(9));
+            - (instruments.climb * Fixed::from_int(r(3)))
+                .round()
+                .trunc_to_int();
+        let lean = instruments.rudder * Fixed::from_int(r(9));
         let reach = self.height + r(40) - top;
         let head_height = r(14).max(r(7).max(1));
         let grip_height = r(17).max(r(8).max(1));
@@ -645,7 +634,7 @@ impl Cockpit {
                 top + r(7),
                 r(3).max(r(2).max(1)),
                 if side > 0 {
-                    if flight.boost > Fixed::from_ratio(3, 10) {
+                    if instruments.boost > Fixed::from_ratio(3, 10) {
                         a[5]
                     } else {
                         a[3]

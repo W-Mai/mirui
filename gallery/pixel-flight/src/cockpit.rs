@@ -2,7 +2,7 @@
 use super::math::FixedMath as _;
 use super::math::{PI, SQRT_2, TAU};
 use super::{
-    flight::{Flight, Projection, cockpit_center},
+    flight::{Flight, Projection, V3, cockpit_center},
     jet,
     raster::{BAYER, Canvas, Palette, blend, rgba},
     world::{Ground, World, hash8},
@@ -183,6 +183,43 @@ pub(super) struct PreparedCockpit {
     offsets: [[Fixed; 3]; 7],
     light: Light,
     heading: [Fixed; 2],
+    instruments: Instruments,
+}
+
+#[derive(Clone, Copy)]
+struct Instruments {
+    time: Fixed,
+    speed: Fixed,
+    boost: Fixed,
+    position: V3,
+    yaw: Fixed,
+    pitch: Fixed,
+    climb: Fixed,
+    rudder: Fixed,
+    wingmen: [Option<[Fixed; 2]>; 2],
+}
+
+impl Instruments {
+    fn new(flight: &Flight) -> Self {
+        let jet = &flight.jets[0];
+        Self {
+            time: flight.time,
+            speed: flight.speed,
+            boost: flight.boost,
+            position: jet.position,
+            yaw: jet.yaw,
+            pitch: jet.pitch,
+            climb: (flight.climb_tilt / Fixed::from_ratio(5, 10)).clamp(-Fixed::ONE, Fixed::ONE),
+            rudder: (jet.yaw_rate / flight.settings.agility.max(Fixed::from_ratio(1, 10)))
+                .clamp(-Fixed::ONE, Fixed::ONE),
+            wingmen: core::array::from_fn(|i| {
+                (i + 1 < flight.count).then(|| {
+                    let [x, y, _] = flight.jets[i + 1].position;
+                    [x, y]
+                })
+            }),
+        }
+    }
 }
 struct RadarCell {
     bearing: Fixed,
@@ -602,6 +639,7 @@ impl Cockpit {
             offsets: [canopy, glass, panel, deck, lever, stick, rear],
             light,
             heading,
+            instruments: Instruments::new(flight),
         })
     }
     fn needle_ends(&self, flight: &Flight) -> [[Fixed; 2]; 4] {
@@ -667,19 +705,13 @@ impl Cockpit {
     pub fn draw(&self, canvas: &mut Canvas<'_>, world: &World, flight: &Flight, palette: &Palette) {
         let projection = flight.projection(self.width as usize, self.height as usize);
         if let Some(prepared) = self.prepare(flight, projection, palette) {
-            self.draw_prepared(
-                canvas,
-                world.at(Some(Default::default())),
-                flight,
-                &prepared,
-            );
+            self.draw_prepared(canvas, world.at(Some(Default::default())), &prepared);
         }
     }
     pub(super) fn draw_prepared(
         &self,
         canvas: &mut Canvas<'_>,
         world: Ground<'_>,
-        flight: &Flight,
         prepared: &PreparedCockpit,
     ) {
         mirui::trace_span!("flight.cockpit");
@@ -694,16 +726,17 @@ impl Cockpit {
                 ..light
             }),
         );
-        self.hud(canvas, flight, &prepared.projection, glass);
+        let instruments = &prepared.instruments;
+        self.hud(canvas, instruments, &prepared.projection, glass);
         self.lay(canvas, 1, panel, Some(light));
         let mut panel = Live::new(canvas, panel);
-        self.paint_indicators(&mut panel, flight);
-        self.paint_radar(&mut panel, world, flight, prepared);
-        self.paint_status(&mut panel, flight);
-        self.paint_attitude(&mut panel, flight, prepared);
+        self.paint_indicators(&mut panel, instruments);
+        self.paint_radar(&mut panel, world, prepared);
+        self.paint_status(&mut panel, instruments);
+        self.paint_attitude(&mut panel, prepared);
         self.paint_dials(&mut panel, prepared);
         self.lay(canvas, 2, deck, Some(light));
-        self.paint_controls(canvas, flight, [deck, lever, stick]);
+        self.paint_controls(canvas, instruments, [deck, lever, stick]);
         self.lay(canvas, 3, rear, None);
     }
     fn lay(&self, canvas: &mut Canvas<'_>, layer: usize, offset: [Fixed; 3], light: Option<Light>) {
@@ -780,7 +813,13 @@ impl Cockpit {
             }
         }
     }
-    fn hud(&self, canvas: &mut Canvas<'_>, flight: &Flight, p: &Projection, offset: [Fixed; 3]) {
+    fn hud(
+        &self,
+        canvas: &mut Canvas<'_>,
+        instruments: &Instruments,
+        p: &Projection,
+        offset: [Fixed; 3],
+    ) {
         let alpha = super::flight::smooth(
             (p.cockpit - Fixed::from_ratio(72, 100)) / Fixed::from_ratio(28, 100),
         );
@@ -958,9 +997,9 @@ impl Cockpit {
                 HUD,
             );
             let value = if side < 0 {
-                flight.speed * Fixed::from_ratio(6, 10)
+                instruments.speed * Fixed::from_ratio(6, 10)
             } else {
-                flight.jets[0].position[2] * Fixed::from_ratio(8, 10)
+                instruments.position[2] * Fixed::from_ratio(8, 10)
             };
             let off = value.rem_euclid(Fixed::from_int(step * 4));
             for yy in (-half - step * 4..=half).step_by(step as usize) {
@@ -1000,21 +1039,21 @@ impl Cockpit {
         hud.number(
             cx - r(62) - 6,
             pivot - half - 8,
-            ((flight.speed * Fixed::from_ratio(42, 10)).round()).trunc_to_int() as u32,
+            ((instruments.speed * Fixed::from_ratio(42, 10)).round()).trunc_to_int() as u32,
             3,
             HUD,
         );
         hud.number(
             cx + r(62) - 10,
             pivot - half - 8,
-            ((flight.jets[0].position[2] * Fixed::from_int(120)).round()).trunc_to_int() as u32,
+            ((instruments.position[2] * Fixed::from_int(120)).round()).trunc_to_int() as u32,
             5,
             HUD,
         );
         for i in 0..3 {
             let y = pivot - r(22) + i * r(4);
             let w = r(if i == 1 { 6 } else { 9 });
-            if flight.boost > Fixed::from_int(2 - i) * Fixed::from_ratio(33, 100) {
+            if instruments.boost > Fixed::from_int(2 - i) * Fixed::from_ratio(33, 100) {
                 hud.line(
                     [Fixed::from_int(cx - w), Fixed::from_int(y)],
                     [Fixed::from_int(cx + w), Fixed::from_int(y)],
@@ -1032,7 +1071,7 @@ impl Cockpit {
             [Fixed::from_int(cx + span), Fixed::from_int(by)],
             HUD,
         );
-        let heading = flight.jets[0]
+        let heading = instruments
             .yaw
             .to_degrees()
             .rem_euclid(Fixed::from_int(360));
@@ -1335,7 +1374,6 @@ mod tests {
                                     art.draw_prepared(
                                         canvas,
                                         world.at(Some(Default::default())),
-                                        &flight,
                                         &prepared,
                                     );
                                 });
