@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="970" viewBox="0 0 1120 970" role="img" aria-labelledby="title desc">
+  <title id="title">Add a tracking minimap to Pixel Flight</title>
+  <desc id="desc">The minimap example composes a second StackViewport using the flight game's scene handle and the player object. A built-in overhead camera follows the player's position. The flight animation system advances the game and writes aircraft poses. Both the main flight camera and the minimap draw that updated scene. Switch the main flight view to see the map continue tracking from above.</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .title { fill: #f3f0dc; font-weight: 700; font-size: 42px; }
+      .lead { fill: #c4d8db; font-size: 22px; }
+      .heading { fill: #f3f0dc; font-weight: 650; font-size: 24px; }
+      .label { fill: #a5e0c6; font-weight: 650; font-size: 20px; }
+      .note { fill: #d7e4e3; font-size: 19px; }
+      .source, .rust text, .symbol { font-family: ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+      .source { fill: #a1bbbf; font-size: 16px; }
+      .rust { fill: #e1ece9; font-size: 19px; }
+      .symbol { fill: #ffd28b; font-size: 20px; }
+      .kw { fill: #9fcbef; }
+      .value { fill: #ffd28b; }
+      .mint { fill: #a5e0c6; }
+      .wire { fill: none; stroke: #86adad; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+    <g id="plane">
+      <path fill="#172a33" d="M-2-14h4v7h2v7h3v2h5v4H3v4h3v3H2v-2h-4v2h-4v-3h3V6h-9V2h5V0h3v-7h2z"/>
+      <path fill="#f3f0dc" d="M-1-12h2v8h2v6h3v1h4v2H2v5H1V7h-2v3h-1V5h-8V3h4V2h3v-6h2z"/>
+    </g>
+  </defs>
+  <rect width="1120" height="970" fill="#101e26" rx="18"/>
+  <text class="title" x="40" y="64">Add a tracking minimap</text>
+  <text class="lead" x="40" y="101">Give the player a second view of the island using the flight game's existing scene.</text>
+
+  <rect x="40" y="136" width="614" height="600" rx="9" fill="#152731" stroke="#425b65"/>
+  <text class="heading" x="62" y="174">Write a compose function</text>
+  <text class="source" x="63" y="202">gallery/pixel-flight/examples/minimap.rs</text>
+  <path d="M40 219h614" stroke="#425b65"/>
+  <g class="rust" id="minimap">
+    <text x="64" y="248"><tspan class="kw">use</tspan> mirui::prelude::*;</text>
+    <text x="64" y="270"><tspan class="kw">use</tspan> mirui::ui::IgnoreHitTest;</text>
+    <text x="64" y="292"><tspan class="kw">use</tspan> mirui_sprite_stack::{</text>
+    <text x="88" y="314">Camera, Object, StackScene, StackViewport,</text>
+    <text x="64" y="336">};</text>
+    <text x="64" y="368" class="mint">#[compose]</text>
+    <text x="64" y="390"><tspan class="kw">fn</tspan> minimap(</text>
+    <text x="88" y="412">scene: model!(StackScene), player: Object,</text>
+    <text x="64" y="434">) -&gt; Entity {</text>
+    <text x="88" y="456">ui! {</text>
+    <text x="112" y="478">StackViewport (</text>
+    <text x="136" y="500">position: Position::Absolute,</text>
+    <text x="136" y="522">top: <tspan class="value">8</tspan>, left: <tspan class="value">8</tspan>,</text>
+    <text x="136" y="544">width: <tspan class="value">160</tspan>, height: <tspan class="value">160</tspan>,</text>
+    <text x="136" y="566">scene: <tspan class="mint">scene</tspan>,</text>
+    <text x="136" y="588">camera: Camera {</text>
+    <text x="160" y="610">target: Some(<tspan class="value">player</tspan>),</text>
+    <text x="160" y="632">..Camera::overhead()</text>
+    <text x="136" y="654">}</text>
+    <text x="112" y="676">) [IgnoreHitTest]</text>
+    <text x="88" y="698">}</text>
+    <text x="64" y="720">}</text>
+  </g>
+
+  <g>
+    <text class="label" x="693" y="171">Keep the simulation in the game</text>
+    <text class="note" x="693" y="202">Each animation tick advances FlightModel</text>
+    <text class="note" x="693" y="227">and updates the aircraft in StackScene.</text>
+    <text class="source" x="693" y="257">runtime/objects.rs</text>
+    <rect x="692" y="271" width="386" height="68" rx="6" fill="#21353c"/>
+    <text class="symbol" x="706" y="298">let _ = scene.set_pose(</text>
+    <text class="symbol" x="730" y="324">id, pose(&amp;flight.jets[i]));</text>
+    <path class="wire" d="M885 340v16m-104 22v-22h205v22m-210-6 5 6 5-6m195 0 5 6 5-6"/>
+    <g aria-hidden="true">
+      <rect x="692" y="386" width="182" height="94" rx="5" fill="#83babe"/>
+      <path d="M692 418h182v62H692z" fill="#357799"/>
+      <path d="M692 418h128v-3h54v7H692z" fill="#a3d3cd"/>
+      <path d="M699 411h34v-4h19v-4h19v5h18v4h24v5H699z" fill="#598b70"/>
+      <path d="m735 450 29-5 11-5 7-7 7 7 11 5 32 6-32 2-6-1-9 4-9-4-8 1z" fill="#192f3a"/>
+      <path d="m750 450 23-5 10-8 10 8 25 5-24-2-5 4h-12l-6-4z" fill="#dbe9dd"/>
+      <path d="M778 450h5v4h-5zm7 0h5v4h-5z" fill="#ffd28b"/>
+      <rect x="897" y="386" width="181" height="94" rx="5" fill="#357799"/>
+      <path d="M897 386h82v6h-24v10h-15v11h-17v13h-16v11h-10zM1078 480h-68v-8h8v-12h16v-10h19v-8h25z" fill="#e4c988"/>
+      <path d="M897 386h60v6h-15v9h-13v12h-18v12h-14zM1078 480h-56v-10h14v-9h17v-9h25z" fill="#608e72"/>
+      <path d="M988 401v8m0 47v8m-31-31h8m46 0h8" class="wire" stroke-dasharray="4 2"/>
+      <use href="#plane" transform="translate(988 432) rotate(30)"/>
+    </g>
+    <text class="note" x="784" y="508" text-anchor="middle">Flight camera</text>
+    <text class="note" x="987" y="508" text-anchor="middle">Tracking minimap</text>
+    <text class="label" x="693" y="563">Give each view its own camera</text>
+    <text class="note" x="693" y="595">The main view uses FlightCamera.</text>
+    <text class="note" x="693" y="621">The map looks down at the current</text>
+    <text class="note" x="693" y="647">position of the player Object.</text>
+    <text class="note" x="693" y="697">IgnoreHitTest lets the flight controls</text>
+    <text class="note" x="693" y="722">receive pointer input through the map.</text>
+  </g>
+
+  <rect x="40" y="754" width="1038" height="147" rx="9" fill="#18332f" stroke="#477769"/>
+  <text class="heading" x="62" y="791">Mount both views during app setup</text>
+  <g class="rust" id="install">
+    <text x="64" y="824"><tspan class="kw">let</tspan> root = app.spawn_root().id();</text>
+    <text x="64" y="853"><tspan class="kw">let</tspan> game = mirui_pixel_flight::setup_app(&amp;mut app, root);</text>
+    <text x="64" y="882">app.compose(root, minimap(<tspan class="mint">game.scene()</tspan>, <tspan class="value">game.player()</tspan>));</text>
+  </g>
+  <text class="note" x="41" y="939">Press Space to switch the flight camera. The map keeps following the aircraft from above.</text>
+</svg>

@@ -28,6 +28,21 @@ Append `-- --auto` to either flight example for unattended flight with automatic
 
 </details>
 
+<details>
+<summary>Add a tracking minimap to Pixel Flight</summary>
+
+![Rust code for a second StackViewport. The main camera and the overhead map read the same StackScene. The map targets the existing player and lets pointer input reach the flight controls.](gallery/pixel-flight/docs/authoring.svg)
+
+Run the [minimap example](gallery/pixel-flight/examples/minimap.rs) from the checkout:
+
+```sh
+cargo run -p mirui-pixel-flight --example minimap --features mirui/sdl --profile release-opt
+```
+
+Press Space to switch the main camera. The inset keeps tracking the aircraft from above. In `minimap`, set the entire `camera` property to `Camera::chase(player)` to try an angled view of the same scene. The [flight update](gallery/pixel-flight/src/runtime.rs) advances the simulation, and [the scene objects](gallery/pixel-flight/src/runtime/objects.rs) publish aircraft poses for both cameras.
+
+</details>
+
 ## Features
 
 - **ECS architecture** — entities, components, systems, resources, queries; system scheduler with named priority slots

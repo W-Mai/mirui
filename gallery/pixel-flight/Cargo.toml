@@ -19,3 +19,7 @@ mirx = { path = "../../mirx" }
 
 [dev-dependencies]
 mirui = { path = "../..", default-features = false, features = ["std", "gallery"] }
+
+[[example]]
+name = "minimap"
+required-features = ["mirui/sdl"]
