@@ -93,6 +93,8 @@ For a perspective chase view, set `Camera { focal_distance: Some(96.into()), ..C
 
 [Passing Lane](examples/passing_lane.rs) starts two cars driving in separate lanes. One game timer advances both cars, and each time the faster car overtakes the slower one, the counter goes up. **Pause** and **Resume** control the race. **Toggle lift** raises or lowers a section of the repeating road. Both cameras show the same traffic and terrain, and `scene.height_at` keeps the cars on the road surface.
 
+`StackViewport(...) [ViewportOverlay::new(input, painter)]` composites a layer into one viewport's output. Implement `raster::FrameOverlay<T>` for the painter. Supply a value or a `Prop<T>` for observed inputs. The viewport prepares the painter for the output pixel size, then borrows it across the scene's render regions.
+
 ```sh
 cargo run -p mirui-sprite-stack --example passing_lane --features mirui/sdl
 ```

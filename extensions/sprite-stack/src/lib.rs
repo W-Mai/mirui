@@ -5,6 +5,8 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
 
 pub use format::{PreparedSpriteStack, SparseLevel, StackSample};
 pub use mirui_sprite_stack_format as format;
@@ -39,5 +41,5 @@ mod viewport;
 #[cfg(feature = "widget")]
 pub use viewport::{
     Camera, ObjectPass, ProjectedObjects, SceneRenderer, SpriteStackPlugin, StackViewport,
-    ViewProjection, ViewportCamera, ViewportScene,
+    ViewProjection, ViewportCamera, ViewportOverlay, ViewportScene,
 };

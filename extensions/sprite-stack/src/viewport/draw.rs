@@ -1,7 +1,7 @@
 use super::{Camera, SceneRenderer};
 use crate::{
     StackScene,
-    raster::{Frame, Workspace},
+    raster::{Frame, FrameOverlay, Workspace},
 };
 mod objects;
 mod projection;
@@ -25,6 +25,18 @@ impl SceneRenderer for DefaultRenderer {
         _: [u16; 2],
         frame: &mut Frame,
     ) -> Result<bool, RenderError> {
+        self.render_with_overlay(scene, frame, None)?;
+        Ok(true)
+    }
+}
+
+impl DefaultRenderer {
+    pub(super) fn render_with_overlay(
+        &mut self,
+        scene: &StackScene,
+        frame: &mut Frame,
+        overlay: Option<&dyn FrameOverlay>,
+    ) -> Result<(), RenderError> {
         let camera = self.camera;
         let [w, h] = [frame.width, frame.height];
         let projection = ViewProjection::from_camera(camera, [w, h])?;
@@ -38,11 +50,10 @@ impl SceneRenderer for DefaultRenderer {
         }
         let (_, work) = self.workspace.as_mut().expect("viewport storage");
         let objects = self.objects.prepare(scene, projection, |_| true)?;
-        work.render_rows(frame, |tile| {
+        work.render_rows_with_overlay(frame, overlay, |tile| {
             tile.color.bytes.fill(0);
             tile.clear_depth();
             objects.draw(tile)
-        })?;
-        Ok(true)
+        })
     }
 }

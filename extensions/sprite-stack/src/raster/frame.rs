@@ -30,7 +30,11 @@ enum FrameLayout<'a> {
 }
 
 /// Optional screen-space foreground. Fully covered tiles can omit their scene pass.
-pub trait FrameOverlay {
+pub trait FrameOverlay<T = ()> {
+    fn prepare(&mut self, _size: [usize; 2], _input: &T) -> Result<(), RenderError> {
+        Ok(())
+    }
+
     fn covers(&self, _rect: [i32; 4], _scratch: &mut [u8]) -> bool {
         false
     }
@@ -185,7 +189,16 @@ impl Workspace {
         output: &mut Frame,
         scene: impl FnMut(&mut SceneCanvas<'_, '_>) -> Result<(), RenderError>,
     ) -> Result<(), RenderError> {
-        self.render_frame(output, FrameLayout::Rows, None, scene, |_| Ok(()))
+        self.render_rows_with_overlay(output, None, scene)
+    }
+
+    pub(crate) fn render_rows_with_overlay(
+        &mut self,
+        output: &mut Frame,
+        overlay: Option<&dyn FrameOverlay>,
+        scene: impl FnMut(&mut SceneCanvas<'_, '_>) -> Result<(), RenderError>,
+    ) -> Result<(), RenderError> {
+        self.render_frame(output, FrameLayout::Rows, overlay, scene, |_| Ok(()))
     }
 
     /// Renders the complete output with the existing depth and coverage storage. The callback receives one clipped region at a time. A failed scene pass aborts the frame before later regions run.

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- SpriteStack viewports accept an attached overlay component with reactive inputs and in-frame composition.
+
 - Pixel Flight registers its hint font alongside the host's fonts and passes unused keys to other App handlers.
 - Pixel Flight uses the displayed frame placement for pointer steering at fractional view sizes. Camera, aircraft and instrument calculations are shared across scene regions.
 - Copy ready texture regions between pixel formats with `TexturePixelsMut::copy_region_from`.

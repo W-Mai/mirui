@@ -20,7 +20,9 @@ use mirui::{
 };
 
 mod draw;
+mod overlay;
 pub use draw::{ObjectPass, ProjectedObjects, ViewProjection};
+pub use overlay::ViewportOverlay;
 
 /// Camera around a world point or a moving object. Positive pitch looks down.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -97,6 +99,15 @@ enum Renderer {
     Directed(Box<dyn SceneRenderer>),
 }
 
+impl Renderer {
+    fn producer(&mut self) -> &mut dyn SceneRenderer {
+        match self {
+            Self::Camera(renderer) => renderer.as_mut(),
+            Self::Directed(renderer) => renderer.as_mut(),
+        }
+    }
+}
+
 struct Output {
     renderer: Renderer,
     frame: Option<Frame>,
@@ -111,6 +122,7 @@ impl Output {
         camera: Camera,
         stamp: u64,
         paint: &mut PaintCtx<'_>,
+        overlay: Option<&ViewportOverlay>,
     ) -> Result<(), RenderError> {
         let rect = paint.rect();
         if !rect.w.is_positive() || !rect.h.is_positive() {
@@ -119,14 +131,11 @@ impl Output {
         let dimension =
             |v: Fixed| u16::try_from(v.ceil().to_int()).map_err(|_| RenderError::InvalidGeometry);
         let size = [dimension(rect.w)?, dimension(rect.h)?];
-        let renderer: &mut dyn SceneRenderer = match &mut self.renderer {
-            Renderer::Camera(r) => {
-                r.camera = camera;
-                r.as_mut()
-            }
-            Renderer::Directed(r) => r.as_mut(),
-        };
+        if let Renderer::Camera(renderer) = &mut self.renderer {
+            renderer.camera = camera;
+        }
         if self.ready != Some((stamp, size)) {
+            let renderer = self.renderer.producer();
             let [width, height] = renderer.frame_size(size).map(usize::from);
             if width == 0 || height == 0 {
                 return Err(RenderError::InvalidGeometry);
@@ -149,7 +158,18 @@ impl Output {
                 self.frame = Some(frame);
             }
             let frame = self.frame.as_mut().expect("viewport frame");
-            if renderer.render(scene, size, frame)? {
+            let rendered = match &mut self.renderer {
+                Renderer::Camera(renderer) => {
+                    let overlay = overlay
+                        .map(|layer| layer.prepare([width, height]))
+                        .transpose()?;
+                    self.ready = None;
+                    renderer.render_with_overlay(scene, frame, overlay.as_deref())?;
+                    true
+                }
+                Renderer::Directed(renderer) => renderer.render(scene, size, frame)?,
+            };
+            if rendered {
                 self.texture_revision = self.texture_revision.wrapping_add(1);
                 frame.texture.cache_revision = self.texture_revision;
             } else if self.ready.is_none() {
@@ -160,6 +180,7 @@ impl Output {
         let Some(frame) = self.frame.as_ref() else {
             return Ok(());
         };
+        let renderer = self.renderer.producer();
         let (origin, dimensions, scale) = if let Some(scale) = renderer.pixel_scale() {
             let scale = Fixed::from(scale.get());
             let dimensions = Point::new(
@@ -245,7 +266,12 @@ impl StackViewport {
         self.stamp.set(self.stamp.get().wrapping_add(1));
     }
 
-    fn paint_scene(&self, scene: &StackScene, paint: &mut PaintCtx<'_>) -> Result<(), RenderError> {
+    fn paint_scene(
+        &self,
+        scene: &StackScene,
+        paint: &mut PaintCtx<'_>,
+        overlay: Option<&ViewportOverlay>,
+    ) -> Result<(), RenderError> {
         let revision = scene.revision();
         if self.seen_scene.replace(revision) != revision {
             self.advance_stamp();
@@ -262,7 +288,7 @@ impl StackViewport {
         }
         self.output
             .borrow_mut()
-            .paint(scene, camera, self.stamp.get(), paint)
+            .paint(scene, camera, self.stamp.get(), paint, overlay)
     }
 
     fn bind(world: &mut World, entity: Entity) {
@@ -356,6 +382,7 @@ impl Property for Mount {
         {
             StackViewport::bind(world, entity);
         }
+        ViewportOverlay::attach(world, entity);
         PropertyChange::Unchanged
     }
 }
@@ -365,9 +392,16 @@ fn attach(entity: entity!(), commands: commands!()) {
 }
 
 #[mirui::view(component=StackViewport, name="StackViewport", priority=60, invalidation=Visual, attach=attach::callback())]
-fn viewport(component: component!(), paint: paint!()) {
+fn viewport(
+    rows: query!(StackViewport, optional ViewportOverlay),
+    entity: entity!(),
+    paint: paint!(),
+) {
+    let Some((component, overlay)) = rows.get(entity) else {
+        return;
+    };
     if let Some(scene) = &component.scene {
-        let result = scene.read(|scene| component.paint_scene(scene, paint));
+        let result = scene.read(|scene| component.paint_scene(scene, paint, overlay));
         if let Err(e) = result {
             paint.fail(e);
         }
