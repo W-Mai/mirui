@@ -1322,8 +1322,12 @@ impl Cockpit {
         self.inks[1..=9].copy_from_slice(&palette.jets[0][1..=9]);
         self.inks[17..=22].copy_from_slice(&palette.jets[0][17..=22]);
     }
-    pub(super) fn prepare(&self, flight: &Flight, palette: &Palette) -> Option<PreparedCockpit> {
-        let p = flight.projection(self.width as usize, self.height as usize);
+    pub(super) fn prepare(
+        &self,
+        flight: &Flight,
+        p: Projection,
+        palette: &Palette,
+    ) -> Option<PreparedCockpit> {
         let amount = p.cockpit_in();
         if amount <= Fixed::ZERO {
             return None;
@@ -1452,7 +1456,8 @@ impl Cockpit {
         })
     }
     pub fn draw(&self, canvas: &mut Canvas<'_>, world: &World, flight: &Flight, palette: &Palette) {
-        if let Some(prepared) = self.prepare(flight, palette) {
+        let projection = flight.projection(self.width as usize, self.height as usize);
+        if let Some(prepared) = self.prepare(flight, projection, palette) {
             self.draw_prepared(
                 canvas,
                 world.at(Some(Default::default())),
@@ -2720,7 +2725,11 @@ mod tests {
                 }
                 flight.head[0].position = Fixed::from_ratio(steps % 5 - 2, 4);
                 flight.head[1].position = -flight.head[0].position;
-                let Some(prepared) = art.prepare(&flight, &palette) else {
+                let Some(prepared) = art.prepare(
+                    &flight,
+                    flight.projection(art.width as usize, art.height as usize),
+                    &palette,
+                ) else {
                     continue;
                 };
                 for y in (0..128).step_by(32) {

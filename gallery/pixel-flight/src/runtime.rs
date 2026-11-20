@@ -1,17 +1,15 @@
 use super::{
     Profile,
-    cockpit::Cockpit,
-    flame::Flames,
     flight::{Flight, Settings, View as CameraView},
-    raster::{Palette, Raster},
+    raster::Daylight,
     world::World as Terrain,
 };
 use core::cell::Cell;
-use mirui::core::model::ModelHandle;
-use mirui::render::RenderError;
-use mirui_sprite_stack::{SceneRenderer, SpriteStackPlugin, StackScene, StackViewport};
+use mirui_sprite_stack::{SpriteStackPlugin, StackScene, StackViewport};
 mod objects;
 use objects::FlightObjects;
+mod renderer;
+use renderer::FlightRenderer;
 
 use mirui::ecs::DeltaTimeMs;
 use mirui::input::event::{
@@ -22,8 +20,8 @@ use mirui::input::event::{
 };
 use mirui::prelude::*;
 use mirui::render::font::{Font, FontManager};
+use mirui::ui::ComputedRect;
 use mirui::ui::widgets::{ParagraphStyle, Text, TextAlign};
-use mirui::ui::{ComputedRect, view::PaintCtx};
 #[mirui::model]
 pub struct FlightModel {
     profile: Profile,
@@ -31,7 +29,7 @@ pub struct FlightModel {
     flight: Flight,
     pub scene: model!(owned StackScene),
     objects: FlightObjects,
-    day: super::raster::Daylight,
+    day: Daylight,
     display_bytes: Cell<usize>,
     revision: u64,
     hint_time: Fixed,
@@ -58,7 +56,7 @@ impl FlightModel {
             scene: scene.into(),
             objects,
             display_bytes: Cell::new(0),
-            day: super::raster::Daylight::default(),
+            day: Daylight::default(),
             revision: 0,
             hint_time: Fixed::ZERO,
             focused: true,
@@ -202,10 +200,23 @@ impl FlightModel {
         height: u16,
         pointer: Option<[Fixed; 2]>,
     ) {
-        if width == 0 || height == 0 || !self.focused || !self.visible {
+        self.advance_viewport(
+            milliseconds,
+            [Fixed::from(width), Fixed::from(height)],
+            pointer,
+        );
+    }
+
+    fn advance_viewport(
+        &mut self,
+        milliseconds: u32,
+        dimensions: [Fixed; 2],
+        pointer: Option<[Fixed; 2]>,
+    ) {
+        if !self.focused || !self.visible || dimensions.iter().any(|value| !value.is_positive()) {
             return;
         }
-        let (scene_width, scene_height, scale) = self.profile.scene_size(width, height);
+        let ([scene_width, scene_height], pointer) = self.profile.frame_input(dimensions, pointer);
         let milliseconds = milliseconds.min(50) as u16;
         if self.autoplay {
             self.view_elapsed_ms += milliseconds;
@@ -214,22 +225,7 @@ impl FlightModel {
                 self.cycle_view();
             }
         } else if let Some(point) = pointer {
-            self.flight.controls.point([
-                (point[0]
-                    - ((Fixed::from_int((width) as i32)
-                        - Fixed::from_int((scene_width * scale) as i32))
-                        / Fixed::from_int(2)
-                        + Fixed::from_ratio(5, 10))
-                    .floor())
-                    / Fixed::from_int((scale) as i32),
-                (point[1]
-                    - ((Fixed::from_int((height) as i32)
-                        - Fixed::from_int((scene_height * scale) as i32))
-                        / Fixed::from_int(2)
-                        + Fixed::from_ratio(5, 10))
-                    .floor())
-                    / Fixed::from_int((scale) as i32),
-            ]);
+            self.flight.controls.point(point);
         } else {
             self.flight.controls.pointer = None;
             self.flight.release_pointer(true);
@@ -249,176 +245,6 @@ impl FlightModel {
         self.terrain.bytes() + core::mem::size_of::<Self>() + self.flight.bytes()
             - core::mem::size_of::<Flight>()
             + self.display_bytes.get()
-    }
-}
-struct FlightOutput {
-    profile: Profile,
-    raster: Option<Raster>,
-    cockpit: Option<Cockpit>,
-    flames: Option<Flames>,
-    viewport: (u16, u16),
-}
-impl FlightOutput {
-    fn new(profile: Profile) -> Self {
-        Self {
-            profile,
-            raster: None,
-            cockpit: None,
-            flames: if profile == Profile::Desktop {
-                Some(Flames::new().expect("flight flame storage"))
-            } else {
-                None
-            },
-            viewport: (0, 0),
-        }
-    }
-    fn prepare(&mut self, width: u16, height: u16, day: super::raster::Daylight) {
-        let (w, h, _) = self.profile.scene_size(width, height);
-        self.viewport = (width, height);
-        if let Some(raster) = self.raster.as_mut()
-            && raster.size == [w, h]
-        {
-            if raster.palette.day == day {
-                return;
-            }
-            raster.palette = Palette::new(day);
-            self.cockpit
-                .as_mut()
-                .expect("prepared cockpit")
-                .set_palette(&raster.palette);
-        } else {
-            self.rebuild(w, h, day);
-        }
-    }
-    fn rebuild(&mut self, width: usize, height: usize, day: super::raster::Daylight) {
-        let compact = self.profile == Profile::Compact;
-        self.prepare_cockpit(width, height);
-        let palette = Palette::new(day);
-        self.cockpit
-            .as_mut()
-            .expect("prepared cockpit")
-            .set_palette(&palette);
-        let mut raster = Raster::new([width, height], compact).expect("bounded flight workspace");
-        raster.palette = palette;
-        self.raster = Some(raster);
-    }
-    fn prepare_cockpit(&mut self, width: usize, height: usize) {
-        if self
-            .cockpit
-            .as_ref()
-            .is_some_and(|c| c.size() == [width, height])
-        {
-            return;
-        }
-        self.cockpit = None;
-        self.raster = None;
-        self.cockpit = Some(Cockpit::with_storage(
-            width,
-            height,
-            self.profile == Profile::Compact,
-        ));
-    }
-    fn render_frame(
-        &mut self,
-        model: &FlightModel,
-        scene: &StackScene,
-        frame: &mut super::raster::Frame,
-    ) -> Result<(), RenderError> {
-        let Some(raster) = &mut self.raster else {
-            return Ok(());
-        };
-        if let Some(cockpit) = &self.cockpit {
-            let placed = model.objects.placed(scene);
-            let ground = model.terrain.at(scene.pose(model.objects.ground()));
-            let managed = model.objects.managed(ground.draws_surface());
-            let extra = (scene.len()
-                > usize::from(ground.draws_surface()) + placed.iter().flatten().count())
-            .then_some((scene, managed.as_slice()));
-            raster.render_scene(frame, ground, &model.flight, Some(cockpit), &placed, extra)?;
-        }
-        let (_, _, scale) = self.profile.scene_size(self.viewport.0, self.viewport.1);
-        if let Some(flames) = &mut self.flames {
-            flames
-                .prepare(
-                    &raster.flames[..raster.flame_count],
-                    model.flight.time,
-                    Fixed::from_int((scale) as i32),
-                    [frame.width, frame.height],
-                )
-                .expect("prepared flame textures");
-        }
-        model.display_bytes.set(self.bytes() + frame.bytes());
-        Ok(())
-    }
-    fn bytes(&self) -> usize {
-        core::mem::size_of::<Self>()
-            + self
-                .raster
-                .as_ref()
-                .map_or(0, |raster| raster.bytes() - core::mem::size_of::<Raster>())
-            + self.cockpit.as_ref().map_or(0, |cockpit| {
-                cockpit.bytes() - core::mem::size_of::<Cockpit>()
-            })
-            + self
-                .flames
-                .as_ref()
-                .map_or(0, |flames| flames.bytes() - core::mem::size_of::<Flames>())
-    }
-    fn update(
-        &mut self,
-        model: &FlightModel,
-        scene: &StackScene,
-        width: u16,
-        height: u16,
-        frame: &mut super::raster::Frame,
-    ) -> Result<(), RenderError> {
-        self.prepare(width, height, model.day);
-        self.render_frame(model, scene, frame)
-    }
-}
-
-struct FlightCamera {
-    model: FlightModelHandle,
-    output: FlightOutput,
-}
-
-impl SceneRenderer for FlightCamera {
-    fn frame_size(&self, [width, height]: [u16; 2]) -> [u16; 2] {
-        let (width, height, _) = self.output.profile.scene_size(width, height);
-        [width as u16, height as u16]
-    }
-
-    fn opaque_frame_byte_limit(&self) -> Option<usize> {
-        (self.output.profile == Profile::Compact).then_some(2)
-    }
-
-    fn prepare_frame(&mut self, [width, height]: [u16; 2]) -> Result<(), RenderError> {
-        let (width, height, _) = self.output.profile.scene_size(width, height);
-        self.output.prepare_cockpit(width, height);
-        Ok(())
-    }
-
-    fn render(
-        &mut self,
-        scene: &StackScene,
-        [width, height]: [u16; 2],
-        frame: &mut super::raster::Frame,
-    ) -> Result<bool, RenderError> {
-        frame.texture.alpha_mode = mirui::render::texture::AlphaMode::Opaque;
-        self.model
-            .read(|model| self.output.update(model, scene, width, height, frame))?;
-        Ok(true)
-    }
-
-    fn pixel_scale(&self) -> Option<core::num::NonZeroU16> {
-        let (w, h) = self.output.viewport;
-        core::num::NonZeroU16::new(self.output.profile.scene_size(w, h).2 as u16)
-    }
-
-    fn overlay(&self, paint: &mut PaintCtx<'_>, origin: Point, scale: Fixed) {
-        if let Some(flames) = &self.output.flames {
-            flames.paint(paint, origin, scale);
-        }
     }
 }
 #[mirui::component]
@@ -442,12 +268,9 @@ fn animate(
             && cursor.x < rect.x + rect.w
             && cursor.y < rect.y + rect.h)
             .then(|| [(cursor.x - rect.x), (cursor.y - rect.y)]);
-        stage.model.advance(
-            delta.0.into(),
-            rect.w.to_int().clamp(0, 65535) as u16,
-            rect.h.to_int().clamp(0, 65535) as u16,
-            pointer,
-        );
+        stage
+            .model
+            .advance_viewport(delta.0.into(), [rect.w, rect.h], pointer);
     }
 }
 #[mirui::event]
@@ -507,13 +330,8 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
     if !res!(optional MonoClock).with(|clock| clock.is_some()) {
         res!().insert(MonoClock::from_time_source());
     }
-    let viewport = StackViewport::with_renderer(
-        model.scene(),
-        FlightCamera {
-            model: model.clone(),
-            output: FlightOutput::new(profile),
-        },
-    );
+    let viewport =
+        StackViewport::with_renderer(model.scene(), FlightRenderer::new(model.clone(), profile));
 
     ui! {
         View (
@@ -628,8 +446,9 @@ fn setup_profile<B: Surface, F: RendererFactory<B>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mirui::core::model::OwnedModel;
+    use mirui::core::model::{ModelHandle, OwnedModel};
     use mirui_sprite_stack::Camera;
+    use renderer::FlightOutput;
 
     fn assert_hint_fits(world: &mirui::ecs::World) {
         let fits = mirui::gallery::demos::text_fits(world);
@@ -637,6 +456,15 @@ mod tests {
         for fit in fits {
             assert!(!fit.overflows(0), "{} exceeds its text bounds", fit.text);
         }
+    }
+
+    #[test]
+    fn pointer_uses_the_presented_frame_at_a_fractional_scale_boundary() {
+        let dimensions = [Fixed::from_ratio(257, 2), Fixed::from_int(128)];
+        let point = [Fixed::from_int(39), Fixed::from_int(64)];
+        let (size, pointer) = Profile::Compact.frame_input(dimensions, Some(point));
+        assert_eq!(size, [65, 64]);
+        assert_eq!(pointer, Some([Fixed::from_int(20), Fixed::from_int(32)]));
     }
 
     #[test]
@@ -746,15 +574,17 @@ mod tests {
         use crate::raster::Daylight;
         for profile in [Profile::Desktop, Profile::Compact] {
             let mut output = FlightOutput::new(profile);
-            output.prepare(128, 128, Daylight::Day);
+            output.prepare([128, 128], Daylight::Day).unwrap();
             let bytes = output.bytes();
             for day in [Daylight::Sunset, Daylight::Night, Daylight::Day] {
                 assert_eq!(
-                    crate::test_support::tracked_allocations(|| output.prepare(128, 128, day)),
+                    crate::test_support::tracked_allocations(|| {
+                        let (_, raster) = output.prepare([128, 128], day).unwrap();
+                        assert_eq!(raster.palette.day, day);
+                    }),
                     0
                 );
                 assert_eq!(output.bytes(), bytes);
-                assert_eq!(output.raster.as_ref().unwrap().palette.day, day);
             }
         }
     }
@@ -833,13 +663,14 @@ mod tests {
         let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
         let mut output = FlightOutput::new(Profile::Compact);
         let mut frame = Frame::with_format(128, 128, ColorFormat::RGB565).unwrap();
-        scene
-            .scene
-            .read(|shared| output.update(&scene, shared, 128, 128, &mut frame).unwrap());
+        scene.scene.read(|shared| {
+            output
+                .render(&scene, shared, &mut frame, Fixed::ONE)
+                .unwrap()
+        });
         eprintln!("compact scene bytes: {}", scene.resident_bytes());
         assert!(scene.resident_bytes() < 128 * 1024);
         assert_eq!(Profile::Compact.scene_size(128, 128), (128, 128, 1));
-        assert_eq!(output.raster.as_ref().unwrap().size, [128, 128]);
         for (width, height) in [
             (128, 128),
             (160, 128),
@@ -848,29 +679,25 @@ mod tests {
             (64, 64),
             (800, 600),
         ] {
-            let (w, h, _) = Profile::Compact.scene_size(width, height);
+            let (w, h, scale) = Profile::Compact.scene_size(width, height);
+            let scale = Fixed::from_int(scale as i32);
             let mut frame = Frame::with_format(w, h, ColorFormat::RGB565).unwrap();
             for view in [CameraView::Overhead, CameraView::Chase, CameraView::Cockpit] {
                 scene.select_view(view);
                 scene.advance(16, width, height, None);
-                scene.scene.read(|shared| {
-                    output
-                        .update(&scene, shared, width, height, &mut frame)
-                        .unwrap()
-                });
+                scene
+                    .scene
+                    .read(|shared| output.render(&scene, shared, &mut frame, scale).unwrap());
                 let allocations = crate::test_support::tracked_allocations(|| {
                     for _ in 0..8 {
                         scene.advance(16, width, height, None);
                         scene.scene.read(|shared| {
-                            output
-                                .update(&scene, shared, width, height, &mut frame)
-                                .unwrap()
+                            output.render(&scene, shared, &mut frame, scale).unwrap()
                         });
                     }
                 });
                 assert_eq!(allocations, 0);
-                let raster = output.raster.as_ref().unwrap();
-                assert!(raster.size.into_iter().all(|axis| axis <= 128));
+                assert!(frame.width <= 128 && frame.height <= 128);
                 assert!(scene.resident_bytes() < 128 * 1024);
             }
         }

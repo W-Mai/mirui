@@ -256,7 +256,6 @@ pub struct Flame {
     pub length: Fixed,
 }
 pub struct Raster {
-    pub(crate) size: [usize; 2],
     compact: bool,
     workspace: CameraWorkspace,
     objects: mirui_sprite_stack::ObjectPass,
@@ -439,12 +438,19 @@ pub fn scene_size(width: u16, height: u16) -> (usize, usize, usize) {
 }
 impl Raster {
     pub fn new(size: [usize; 2], compact: bool) -> Result<Self, RenderError> {
+        Self::with_palette(size, compact, Palette::new(Daylight::Day))
+    }
+
+    pub(super) fn with_palette(
+        size: [usize; 2],
+        compact: bool,
+        palette: Palette,
+    ) -> Result<Self, RenderError> {
         Ok(Self {
-            size,
             compact,
             workspace: CameraWorkspace::new(size, roll_pivot(size[1]), compact)?,
             objects: Default::default(),
-            palette: Palette::new(Daylight::Day),
+            palette,
             flames: [Flame::default(); 6],
             flame_count: 0,
             seen: [[Fixed::ONE; 3]; 6],
@@ -514,11 +520,8 @@ impl Raster {
             seen,
             ..
         } = self;
-        let mapping = Mapping::new(
-            flight.projection(frame.width, frame.height),
-            frame.width,
-            frame.height,
-        );
+        let screen = flight.projection(frame.width, frame.height);
+        let mapping = Mapping::new(screen, frame.width, frame.height);
         let projection = mapping.projection;
         let extra = if let Some((shared, managed)) = extra {
             let [x, z, altitude] = projection.position;
@@ -552,7 +555,7 @@ impl Raster {
         }
         let overlay = cockpit.and_then(|cockpit| {
             cockpit
-                .prepare(flight, palette)
+                .prepare(flight, screen, palette)
                 .map(|prepared| CockpitOverlay {
                     cockpit,
                     prepared,

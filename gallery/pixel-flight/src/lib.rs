@@ -3,6 +3,7 @@
 #![no_std]
 
 extern crate alloc;
+use mirui::types::Fixed;
 #[cfg(test)]
 #[macro_use]
 extern crate std;
@@ -41,6 +42,25 @@ impl Profile {
             usize::from(height).div_ceil(scale).max(8),
             scale,
         )
+    }
+
+    fn frame_input(
+        self,
+        dimensions: [Fixed; 2],
+        pointer: Option<[Fixed; 2]>,
+    ) -> ([usize; 2], Option<[Fixed; 2]>) {
+        let [w, h] = dimensions.map(|dimension| dimension.ceil().to_int().clamp(0, 65535) as u16);
+        let (w, h, scale) = self.scene_size(w, h);
+        let size = [w, h];
+        let scale = Fixed::from_int(scale as i32);
+        let point = pointer.map(|point| {
+            core::array::from_fn(|axis| {
+                let frame = Fixed::from_int(size[axis] as i32) * scale;
+                let offset = ((dimensions[axis] - frame) / 2).round();
+                (point[axis] - offset) / scale
+            })
+        });
+        (size, point)
     }
 }
 
