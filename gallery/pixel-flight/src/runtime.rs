@@ -11,7 +11,6 @@ use objects::FlightObjects;
 mod renderer;
 use renderer::FlightRenderer;
 
-use mirui::ecs::DeltaTimeMs;
 use mirui::input::event::{
     PointerCursor,
     input::{Key, PhysicalKey},
@@ -19,9 +18,12 @@ use mirui::input::event::{
     press::{PressCancelReason, PressCancelled, Pressed, Released},
 };
 use mirui::prelude::*;
-use mirui::render::font::{Font, FontManager};
+use mirui::render::font::{Font, FontManager, FontToken};
 use mirui::ui::ComputedRect;
 use mirui::ui::widgets::{ParagraphStyle, Text, TextAlign};
+use mirui::{core::model::ModelHandle, ecs::DeltaTimeMs};
+
+const FLIGHT_FONT: FontToken = FontToken::Custom("pixel-flight-ui");
 #[mirui::model]
 pub struct FlightModel {
     profile: Profile,
@@ -144,8 +146,13 @@ impl FlightModel {
         }
     }
     pub fn key(&mut self, physical: PhysicalKey, pressed: bool, repeat: bool) {
-        if self.autoplay {
-            return;
+        self.handle_key(physical, pressed, repeat);
+    }
+
+    #[model(local)]
+    fn handle_key(&mut self, physical: PhysicalKey, pressed: bool, repeat: bool) -> bool {
+        if self.autoplay || !self.focused || !self.visible {
+            return false;
         }
         let bit = match physical {
             PhysicalKey::ArrowLeft => Some(0),
@@ -162,10 +169,10 @@ impl FlightModel {
         };
         if let Some(bit) = bit {
             self.flight.controls.key(bit, pressed);
-            return;
+            return true;
         }
         if !pressed || repeat {
-            return;
+            return false;
         }
         match physical {
             PhysicalKey::Space => self.cycle_view(),
@@ -190,8 +197,9 @@ impl FlightModel {
                 self.day = self.day.next();
                 self.scene.invalidate();
             }
-            _ => {}
+            _ => return false,
         }
+        true
     }
     pub fn advance(
         &mut self,
@@ -275,33 +283,14 @@ fn animate(
 }
 #[mirui::event]
 fn key(event: event!(Key), model: model!(FlightModel)) -> bool {
-    let Some(physical) = event.physical.filter(|key| {
-        matches!(
-            key,
-            PhysicalKey::ArrowLeft
-                | PhysicalKey::ArrowRight
-                | PhysicalKey::ArrowUp
-                | PhysicalKey::ArrowDown
-                | PhysicalKey::KeyA
-                | PhysicalKey::KeyD
-                | PhysicalKey::KeyW
-                | PhysicalKey::KeyS
-                | PhysicalKey::ShiftLeft
-                | PhysicalKey::ShiftRight
-                | PhysicalKey::Space
-                | PhysicalKey::Digit1
-                | PhysicalKey::Digit2
-                | PhysicalKey::Digit3
-                | PhysicalKey::KeyR
-                | PhysicalKey::KeyE
-                | PhysicalKey::KeyF
-                | PhysicalKey::KeyT
-        )
-    }) else {
+    let Some(physical) = event.physical else {
         return false;
     };
-    model.key(physical, event.pressed, event.repeat == Some(true));
-    true
+    let mut handled = false;
+    model.update(|flight| {
+        handled = flight.handle_key(physical, event.pressed, event.repeat == Some(true));
+    });
+    handled
 }
 #[mirui::event]
 fn focus(event: event!(HostFocusChanged), model: model!(FlightModel)) {
@@ -327,6 +316,16 @@ fn cancel(event: event!(PressCancelled), model: model!(FlightModel)) {
 }
 #[mirui::compose]
 fn build_widgets(model: model!(FlightModel), profile: Profile) {
+    if profile == Profile::Desktop {
+        let font = Font::from_mirx(
+            "Flight UI",
+            12,
+            include_bytes!("../../../src/gallery/demos/assets/nearby-menu.mirx"),
+            &mirx::reader::PayloadLimits::HOST,
+        )
+        .expect("bundled pixel UI font");
+        res!(FontManager).with(|fonts| fonts.add_static(FLIGHT_FONT.cache_key(), font));
+    }
     if !res!(optional MonoClock).with(|clock| clock.is_some()) {
         res!().insert(MonoClock::from_time_source());
     }
@@ -355,6 +354,7 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
             Text (
                 ${ hint(model.view(), profile, model.autoplay()) },
                 width: Dimension::percent(100),
+                font: if profile == Profile::Compact { FontToken::Default } else { FLIGHT_FONT },
                 font_size: if profile == Profile::Compact { 8 } else { 12 },
                 text_color: ${ model.hint_color() },
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
@@ -414,16 +414,6 @@ fn setup_profile<B: Surface, F: RendererFactory<B>>(
     parent: Entity,
     profile: Profile,
 ) -> FlightModelHandle {
-    if profile == Profile::Desktop {
-        let font = Font::from_mirx(
-            "Flight UI",
-            12,
-            include_bytes!("../../../src/gallery/demos/assets/nearby-menu.mirx"),
-            &mirx::reader::PayloadLimits::HOST,
-        )
-        .expect("bundled pixel UI font");
-        app.with_fonts(FontManager::new(mirui::core::cache::MaxSize::Unbound, font));
-    }
     let (width, height) = app.viewport().logical_size();
     let model = app
         .add_model(if profile == Profile::Desktop {
@@ -446,7 +436,7 @@ fn setup_profile<B: Surface, F: RendererFactory<B>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mirui::core::model::{ModelHandle, OwnedModel};
+    use mirui::core::model::OwnedModel;
     use mirui_sprite_stack::Camera;
     use renderer::FlightOutput;
 
@@ -456,6 +446,63 @@ mod tests {
         for fit in fits {
             assert!(!fit.overflows(0), "{} exceeds its text bounds", fit.text);
         }
+    }
+
+    #[mirui::event]
+    fn host_key(_event: event!(Key), counter: res!(mut u32)) -> bool {
+        *counter += 1;
+        true
+    }
+
+    #[test]
+    fn flight_shares_the_hosts_font_manager_and_only_consumes_applied_keys() {
+        let mut app = App::headless(128, 128);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        let fonts = app.world.resource::<FontManager>().unwrap();
+        fonts.add_static("host-font", Font::default());
+        let original = fonts.resolve(FontToken::Default.cache_key());
+        let host_font = fonts.resolve("host-font");
+        let model = setup_app(&mut app, root);
+        let fonts = app.world.resource::<FontManager>().unwrap();
+        assert!(
+            fonts
+                .resolve(FontToken::Default.cache_key())
+                .ptr_eq(&original)
+        );
+        assert!(!fonts.resolve(FLIGHT_FONT.cache_key()).ptr_eq(&original));
+        assert!(fonts.resolve("host-font").ptr_eq(&host_font));
+
+        app.add_resource(0u32);
+        app.on_event(Key::EVENT, host_key::callback());
+        let mut send = |physical, pressed, repeat| {
+            let key = Key {
+                physical: Some(physical),
+                code: 0,
+                pressed,
+                modifiers: None,
+                repeat: Some(repeat),
+            };
+            mirui::input::event::dispatch_input(
+                &mut app.world,
+                Some(root),
+                &key.into(),
+                1,
+                128,
+                128,
+            );
+            *app.world.resource::<u32>().unwrap()
+        };
+        model.set_autoplay(true);
+        assert_eq!(send(PhysicalKey::Space, true, false), 1);
+        assert_eq!(model.view(), CameraView::Overhead);
+        model.set_autoplay(false);
+        assert_eq!(send(PhysicalKey::Space, true, false), 1);
+        assert_eq!(model.view(), CameraView::Chase);
+        assert_eq!(send(PhysicalKey::Space, true, true), 2);
+        assert_eq!(send(PhysicalKey::Space, false, false), 3);
+        model.set_visible(false);
+        assert_eq!(send(PhysicalKey::Space, true, false), 4);
     }
 
     #[test]
