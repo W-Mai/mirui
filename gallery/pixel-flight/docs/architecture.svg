@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="834" viewBox="0 0 1120 834" role="img" aria-labelledby="title desc">
+  <title id="title">Pixel Flight architecture</title>
+  <desc id="desc">The build turns jet.mirx into two sparse detail levels. FlightModel advances the aircraft from controls or autopilot and publishes their poses to a StackScene containing the procedural island. One FlightCamera switches between overhead, chase and cockpit. SpriteStack projects the scene, tests visibility and presents the frame. Pixel Flight supplies materials, shadows and effects. Desktop uses RGBA8888 and Compact uses bounded tiles to produce RGB565.</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "DejaVu Sans", sans-serif; }
+      .title { font-size: 44px; font-weight: 750; fill: #f3f0dc; }
+      .lead { font-size: 20px; fill: #bed0d3; }
+      .name { font-size: 25px; font-weight: 700; fill: #f3f0dc; }
+      .code { font-family: ui-monospace, "SFMono-Regular", Menlo, "DejaVu Sans Mono", monospace; font-size: 22px; font-weight: 600; fill: #f3f0dc; }
+      .body { font-size: 18px; fill: #d3dedc; }
+      .caption { font-size: 19px; font-weight: 650; fill: #f3f0dc; }
+      .mint { fill: #84e0bb; }
+      .gold { fill: #ffd080; }
+      .card { fill: #192b34; stroke: #3f5660; stroke-width: 1.5; }
+      .line { fill: none; stroke: #84e0bb; stroke-width: 2.5; stroke-linejoin: round; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" orient="auto" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="8" refY="5">
+      <path d="M1 1l7 4-7 4" fill="none" stroke="#84e0bb" stroke-width="2" stroke-linejoin="round"/>
+    </marker>
+    <g id="jet">
+      <path d="M-2-16h4v7h3v6h3v4h7v6H5v4h4v4H2v-3h-4v3h-7v-4h4V7h-10V1h7v-4h3v-6h3z" fill="#132c3c"/>
+      <path d="M-1-14h2v8h2v9h8v2H3v4H1v-3h-2v3h-2V5h-8V3h8v-9h2z" fill="#d8e4d8"/>
+      <path d="M-1-8h2v7h-2z" fill="#479caa"/>
+      <path d="M-4 10h2v4h-2zm6 0h2v4H2z" fill="#ffd080"/>
+    </g>
+    <clipPath id="cameraCrop"><rect width="320" height="86" rx="4"/></clipPath>
+  </defs>
+
+  <rect width="1120" height="834" rx="18" fill="#101e26"/>
+  <text x="40" y="61" class="title">Pixel Flight</text>
+  <text x="42" y="93" class="lead">One flight simulation drives three camera views.</text>
+  <g aria-hidden="true" transform="translate(1030 62)">
+    <path d="M-110 14h50l17-17h19m-85 29h60l16-16h15" fill="none" stroke="#466b74" stroke-width="2"/>
+    <use href="#jet" transform="rotate(62) scale(1.65)"/>
+  </g>
+
+  <g>
+    <rect class="card" x="40" y="118" width="325" height="102" rx="8"/>
+    <text x="60" y="153" class="code gold">jet.mirx</text>
+    <text x="60" y="182" class="body">At build time, bake the atlas into</text>
+    <text x="60" y="205" class="body">two sparse levels of detail.</text>
+    <rect class="card" x="381" y="118" width="358" height="102" rx="8"/>
+    <text x="401" y="153" class="code gold">FlightModel::advance</text>
+    <text x="401" y="182" class="body">Step flight physics from player</text>
+    <text x="401" y="205" class="body">input or the autopilot.</text>
+    <rect class="card" x="755" y="118" width="325" height="102" rx="8"/>
+    <text x="775" y="153" class="name gold">Procedural island</text>
+    <text x="775" y="182" class="body">Generate a repeating grid of</text>
+    <text x="775" y="205" class="body">heights and surface materials.</text>
+  </g>
+  <path d="M202 220v30m358-30v30m358-30v30" fill="none" stroke="#84e0bb" stroke-width="2.5"/>
+  <g fill="none" stroke="#84e0bb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m197 245 5 5 5-5m348 0 5 5 5-5m348 0 5 5 5-5"/>
+  </g>
+  <rect x="40" y="254" width="1040" height="59" rx="8" fill="#173932" stroke="#528b78" stroke-width="1.5"/>
+  <g fill="none" stroke="#84e0bb" stroke-width="2" aria-hidden="true">
+    <path d="m66 280 14-7 14 7-14 7z"/>
+    <path d="m66 286 14 7 14-7"/>
+  </g>
+  <text x="110" y="292" class="code mint">StackScene</text>
+  <text x="299" y="291" class="body">Holds the terrain and placed models. Each flight tick updates the aircraft poses.</text>
+  <path class="line" d="M560 313v28"/>
+
+  <rect class="card" x="40" y="346" width="1040" height="186" rx="8"/>
+  <text x="60" y="383" class="code">FlightCamera</text>
+  <text x="261" y="382" class="body">Select a view of the same scene.</text>
+
+  <g transform="translate(60 397)" aria-hidden="true">
+    <g clip-path="url(#cameraCrop)">
+      <rect width="320" height="86" fill="#347499"/>
+      <path d="M0 68h26V57h15V45h18V35h22V22h22v-7h21v-8h23V0H0z" fill="#7dbfb6"/>
+      <path d="M0 60h21V49h16V36h20V25h25V16h19V8h19V0H0z" fill="#f4cf8c"/>
+      <path d="M0 54h17V43h16V31h22V19h23V10h21V4h10V0H0z" fill="#6da579"/>
+      <path d="M0 40h12V29h19V18h19V6h18V0H0z" fill="#437b66"/>
+      <path d="M243 86v-7h12V66h16v-9h25V47h24v39z" fill="#7dbfb6"/>
+      <path d="M254 86v-6h12V70h16v-7h25v-9h13v32z" fill="#e5cd91"/>
+      <path d="M263 86v-4h11v-8h15v-7h24v-6h7v25z" fill="#578d70"/>
+      <path d="M146 18h21m-61 36h15m102-18h14m-67 32h14" stroke="#5591a8" stroke-width="2"/>
+      <use href="#jet" transform="translate(164 46) rotate(20) scale(1.16)"/>
+      <use href="#jet" transform="translate(139 64) rotate(20) scale(.82)"/>
+      <use href="#jet" transform="translate(182 73) rotate(20) scale(.82)"/>
+    </g>
+  </g>
+  <g transform="translate(400 397)" aria-hidden="true">
+    <g clip-path="url(#cameraCrop)">
+      <rect width="320" height="86" fill="#a7d5d2"/>
+      <path d="M0 28h20v-3h17v3h24v3h259v55H0z" fill="#77aeb4"/>
+      <path d="M0 39h74v-4h24v-7h27v-5h14v6h23v6h39v5h119v46H0z" fill="#467b7c"/>
+      <path d="M0 44h320v42H0z" fill="#347499"/>
+      <path d="M11 54h58m163-2h40M44 72h51m145 5h53" fill="none" stroke="#67a3b7" stroke-width="2"/>
+      <path d="M108 25h9v-4h14v-3h17v5h9v3h-49zM232 16h10v-4h15v3h9v3h-34z" fill="#e5edda"/>
+      <path d="M105 79l41-21m68 22-38-22" fill="none" stroke="#b9d6c8" stroke-width="2" opacity=".85"/>
+      <path d="M107 58h17v-4h17v-4h7v-5h4V34h4v10h8V34h4v11h4v5h7v4h18v4h16v4h-31v-1h-12v5h-20v-5h-12v1h-31z" fill="#1c3548"/>
+      <path d="M114 58h23v-4h12v-5h7v-8h2v8h4v-8h2v8h8v5h12v4h20v1h-32v-3h-24v3h-34z" fill="#c5dace"/>
+      <path d="M151 59h6v5h-6zm12 0h6v5h-6z" fill="#ffb568"/>
+    </g>
+  </g>
+  <g transform="translate(740 397)" aria-hidden="true">
+    <g clip-path="url(#cameraCrop)">
+      <rect width="320" height="86" fill="#f1d3a0"/>
+      <path d="M0 26h65v4h47v-3h46v-4h40v6h42v3h80v25H0z" fill="#c99384"/>
+      <path d="M0 40h24v-3h18v-5h25v-4h9v4h21v6h57v-5h17v-5h21v-5h12v4h23v6h52v-5h25v6h16v32H0z" fill="#628476"/>
+      <path d="M0 43h320v28H0z" fill="#4f8697"/>
+      <path d="M5 67 28 29 71 0h11L37 34 18 67zm310 0-23-38-43-29h-11l45 34 19 33z" fill="#314459"/>
+      <path d="M0 66h38v-5h79l12 6h61l13-6h79v5h38v20H0z" fill="#1d2d39"/>
+      <path d="M44 71h61v12H44zm170 0h59v12h-59z" fill="#305b58"/>
+      <path d="M49 76h9v3h7v-4h7v1h19m131 0h34m-34 4h19m-107-2h41" fill="none" stroke="#8edaba" stroke-width="2"/>
+      <path d="M136 40h13v3h7m28-3h-13v3h-7m-4-15v7m0 10v3" fill="none" stroke="#b5f0b9" stroke-width="2"/>
+    </g>
+  </g>
+  <text x="220" y="510" class="caption" text-anchor="middle">Overhead</text>
+  <text x="560" y="510" class="caption" text-anchor="middle">Chase</text>
+  <text x="900" y="510" class="caption" text-anchor="middle">Cockpit</text>
+  <path class="line" d="M560 532v29"/>
+
+  <rect x="40" y="566" width="1040" height="125" rx="8" fill="#172e32" stroke="#528b78" stroke-width="1.5"/>
+  <path d="M550 583v90" stroke="#4a6867" stroke-width="1.5"/>
+  <text x="62" y="602" class="name gold">Pixel Flight</text>
+  <text x="62" y="629" class="body">Lights the island and aircraft, draws trails</text>
+  <text x="62" y="652" class="body">and smoke, and supplies the cockpit overlay.</text>
+  <text x="62" y="675" class="body">Samples scene depth for the exhaust glow.</text>
+  <text x="578" y="602" class="name mint">SpriteStack</text>
+  <text x="578" y="629" class="body">Projects layers and tests terrain and model depth.</text>
+  <text x="578" y="652" class="body">Compact skips tiles fully covered by the cockpit.</text>
+  <text x="578" y="675" class="body">StackViewport presents the frame.</text>
+  <path class="line" d="M560 691v16H292v17"/>
+  <path class="line" d="M560 707h268v17"/>
+
+  <g>
+    <rect class="card" x="40" y="729" width="509" height="78" rx="8"/>
+    <g fill="none" stroke="#84e0bb" stroke-width="2" aria-hidden="true">
+      <rect x="61" y="753" width="39" height="23" rx="2"/>
+      <path d="M81 776v6m-11 0h22"/>
+    </g>
+    <text x="119" y="761" class="caption">Desktop</text>
+    <text x="119" y="788" class="body">RGBA8888 · up to 480 × 300 scene pixels</text>
+    <rect class="card" x="571" y="729" width="509" height="78" rx="8"/>
+    <g fill="none" stroke="#84e0bb" stroke-width="2" aria-hidden="true">
+      <rect x="595" y="751" width="32" height="32" rx="2"/>
+      <path d="M611 752v30m-15-15h30"/>
+    </g>
+    <text x="647" y="761" class="caption">Compact</text>
+    <text x="647" y="788" class="body">RGB565 · strips or tiles · up to 128 × 128</text>
+  </g>
+</svg>

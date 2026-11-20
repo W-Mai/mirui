@@ -21,6 +21,13 @@ Pixel Flight Compact renders at native 128×128 into RGB565, using bounded scene
 
 Append `-- --auto` to either flight example for unattended flight with automatic camera changes every twelve simulation seconds. Embedded applications use the [no_std game package](gallery/pixel-flight) and call `set_autoplay(true)` on the Model returned by `mirui_pixel_flight::setup_compact_app`. Passing `false` restores manual control without restarting the flight.
 
+<details>
+<summary>How Pixel Flight draws a frame</summary>
+
+![Pixel Flight updates the aircraft poses once per simulation tick. The active camera projects the island and aircraft into a desktop or Compact frame.](gallery/pixel-flight/docs/architecture.svg)
+
+</details>
+
 ## Features
 
 - **ECS architecture** — entities, components, systems, resources, queries; system scheduler with named priority slots
