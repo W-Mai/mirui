@@ -2,6 +2,8 @@
 
 `mirui-sprite-stack` draws layered pixel art from a MIRX image atlas. Its optional `SSTK` chunk stores the order and spacing of the layers and their common pivot. An ordinary MIRX image viewer can open the same file.
 
+![Eleven slices from the car atlas align around a common pivot. SpriteStack projects one model into a widget, while StackViewport renders models and terrain together with per-camera detail and depth testing.](docs/architecture.svg)
+
 ## Try it
 
 Run the SDL turntable from the Mirui checkout:
