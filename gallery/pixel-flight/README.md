@@ -22,6 +22,8 @@ Append `-- --auto` to either command for automatic flight with camera changes ev
 
 ## How a frame is drawn
 
+The flight model advances controls, aircraft and trail history. The camera follows the player and supplies one projection per view. The scene renderer prepares the landscape, aircraft and exhaust for SpriteStack. The cockpit builds its artwork on resize and reads the current flight state for its live instruments. [Model](src/flight.rs) · [Camera](src/flight/camera.rs) · [Scene](src/raster.rs) · [Artwork](src/cockpit/artwork.rs) · [Instruments](src/cockpit/instruments.rs)
+
 ![Pixel Flight updates the aircraft poses once per simulation tick. The active camera projects the island and aircraft into a desktop or Compact frame.](docs/architecture.svg)
 
 ## Add a tracking minimap

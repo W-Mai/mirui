@@ -14,6 +14,10 @@ use mirui::{
     ui::view::PaintCtx,
 };
 pub const TILE: usize = 256;
+mod sampling;
+
+use sampling::{SampleAxis, ScreenFlame};
+
 const PUFFS: usize = 36;
 // Q24.8 samples of (1 - t)^0.75 at the fixed puff centers.
 const EXTINCTION: [u8; PUFFS] = [
@@ -108,7 +112,8 @@ struct Puff {
 
 struct PuffRow {
     y: Fixed,
-    density_possible: bool,
+    density_mask: u64,
+    halo_mask: u64,
 }
 
 impl Puff {
@@ -254,12 +259,22 @@ impl Prepared {
     }
     fn row_candidates(&self, y: Fixed, warp_y: [Fixed; 2]) -> PuffRow {
         let interval = warp_y.map(|d| y + d);
+        let mut density_mask = 0;
+        let mut halo_mask = 0;
+        for (index, puff) in self.puffs.iter().enumerate() {
+            let bit = 1 << index;
+            if puff.density_row_may_contribute(interval) {
+                density_mask |= bit;
+            }
+            let dy = Fixed64::from_fixed(y - puff.center[1]);
+            if dy * dy < puff.cutoff {
+                halo_mask |= bit;
+            }
+        }
         PuffRow {
             y,
-            density_possible: self
-                .puffs
-                .iter()
-                .any(|puff| puff.density_row_may_contribute(interval)),
+            density_mask,
+            halo_mask,
         }
     }
     #[cfg(test)]
@@ -268,7 +283,8 @@ impl Prepared {
             p[0],
             &PuffRow {
                 y: p[1],
-                density_possible: true,
+                density_mask: (1 << PUFFS) - 1,
+                halo_mask: (1 << PUFFS) - 1,
             },
         )
     }
@@ -288,7 +304,7 @@ impl Prepared {
             (root[0] * self.across[0] + root[1] * self.across[1]) / f.radius,
             (root[0] * self.direction[0] + root[1] * self.direction[1]) / f.radius,
         ];
-        let pw = if row.density_possible {
+        let pw = if row.density_mask != 0 {
             let wq = [
                 q[0] * Fixed::from_ratio(6, 10) + self.warp_origin[0],
                 q[1] * Fixed::from_ratio(6, 10) - self.warp_origin[1],
@@ -315,8 +331,13 @@ impl Prepared {
         let mut halo = Fixed::ZERO;
         let mut sum = Fixed::ZERO;
         let mut weighted = Fixed::ZERO;
-        for puff in &self.puffs {
-            if row.density_possible {
+        let mut active = row.density_mask | row.halo_mask;
+        while active != 0 {
+            let index = active.trailing_zeros() as usize;
+            let bit = 1 << index;
+            active &= active - 1;
+            let puff = &self.puffs[index];
+            if row.density_mask & bit != 0 {
                 let dd = puff.scaled_distance(pw);
                 if dd < Fixed::ONE {
                     let g = (Fixed::ONE - dd).powi(2);
@@ -325,9 +346,11 @@ impl Prepared {
                     weighted += g * puff.t;
                 }
             }
-            let d0 = puff.scaled_distance(p);
-            if d0 < Fixed::from_int(PUFF_DISTANCE_LIMIT) {
-                halo += (-d0 * Fixed::from_ratio(42, 100)).exp() * puff.extinction;
+            if row.halo_mask & bit != 0 {
+                let d0 = puff.scaled_distance(p);
+                if d0 < Fixed::from_int(PUFF_DISTANCE_LIMIT) {
+                    halo += (-d0 * Fixed::from_ratio(42, 100)).exp() * puff.extinction;
+                }
             }
         }
         let per = self.per;
@@ -516,62 +539,26 @@ fn composite_region(
     time: Fixed,
 ) {
     mirui::trace_span!("flight.flames");
-    for mut flame in flames.iter().copied() {
-        if flame.radius <= Fixed::ZERO || flame.alpha <= Fixed::ZERO {
+    for &flame in flames {
+        let Some(screen) = ScreenFlame::new(flame) else {
+            continue;
+        };
+        let [left, top, right, bottom] = screen.native_clip(clip);
+        if left >= right || top >= bottom {
             continue;
         }
-        for point in &mut flame.points {
-            point[0] += Fixed::from_ratio(1, 2);
-            point[1] += Fixed::from_ratio(1, 2);
-        }
-        let margin = flame.radius * flame.tip_scale.max(Fixed::ONE) * Fixed::from_ratio(42, 10)
-            + Fixed::from_int(2);
-        let low: [i32; 2] = core::array::from_fn(|k| {
-            (flame
-                .points
-                .iter()
-                .map(|p| p[k])
-                .fold(Fixed::MAX, Fixed::min)
-                - margin)
-                .floor()
-                .to_int()
-                .max(clip[k])
-        });
-        let high: [i32; 2] = core::array::from_fn(|k| {
-            (flame
-                .points
-                .iter()
-                .map(|p| p[k])
-                .fold(Fixed::MIN, Fixed::max)
-                + margin)
-                .ceil()
-                .to_int()
-                .min(clip[k + 2])
-        });
-        if low[0] >= high[0] || low[1] >= high[1] {
-            continue;
-        }
-        let prepared = Prepared::new(flame, time);
-        let warp_y = prepared.warp_y_interval();
-        for y in low[1]..high[1] {
-            let row_y = Fixed::from_int(y) + Fixed::HALF;
-            let Some([left, right]) = prepared.row_support(row_y) else {
-                continue;
-            };
-            let candidates = prepared.row_candidates(row_y, warp_y);
-            // Keep a pixel halo around the quantized circle/square-root bounds.
-            let start = (left.floor().to_int() - 1).max(low[0]);
-            let end = (right.ceil().to_int() + 1).min(high[0]);
-            for x in start..end {
-                let value = prepared
-                    .shade_row::<true>(Fixed::from_int(x) + Fixed::from_ratio(1, 2), &candidates);
-                let (base, emission) = encode_sample(value);
-                pixels.composite_pixel(
-                    x - origin_x,
-                    y - origin_y,
-                    &base,
-                    CompositeMode::SourceOver,
-                );
+        Prepared::new(screen.flame, time).sample::<false>(
+            [left, top, right, bottom],
+            [SampleAxis::UNIT; 2],
+            |x, y, base, emission| {
+                if base.a != 0 {
+                    pixels.composite_pixel(
+                        x - origin_x,
+                        y - origin_y,
+                        &base,
+                        CompositeMode::SourceOver,
+                    );
+                }
                 if emission.r != 0 || emission.g != 0 || emission.b != 0 {
                     pixels.composite_pixel(
                         x - origin_x,
@@ -580,8 +567,8 @@ fn composite_region(
                         CompositeMode::Add,
                     );
                 }
-            }
-        }
+            },
+        );
     }
 }
 pub struct Tile {
@@ -635,38 +622,12 @@ impl Flames {
     ) -> Result<(), RenderError> {
         for (i, tile) in self.tiles.iter_mut().enumerate() {
             tile.active = false;
-            let Some(mut flame) = flames.get(i).copied() else {
+            let Some(screen) = flames.get(i).copied().and_then(ScreenFlame::new) else {
                 continue;
             };
-            if flame.radius <= Fixed::ZERO || flame.alpha <= Fixed::ZERO {
-                continue;
-            }
-            for point in &mut flame.points {
-                point[0] += Fixed::from_ratio(5, 10);
-                point[1] += Fixed::from_ratio(5, 10);
-            }
-            let margin = flame.radius * flame.tip_scale.max(Fixed::ONE) * Fixed::from_ratio(42, 10)
-                + Fixed::from_int(2);
-            let low = core::array::from_fn::<_, 2, _>(|k| {
-                flame
-                    .points
-                    .iter()
-                    .map(|p| p[k])
-                    .fold(Fixed::MAX, Fixed::min)
-                    - margin
-            });
-            let high = core::array::from_fn::<_, 2, _>(|k| {
-                flame
-                    .points
-                    .iter()
-                    .map(|p| p[k])
-                    .fold(Fixed::MIN, Fixed::max)
-                    + margin
-            });
-            let low = low.map(|v| v.max(Fixed::ZERO));
-            let high = core::array::from_fn::<_, 2, _>(|k| {
-                high[k].min(Fixed::from_int((viewport[k]) as i32))
-            });
+            let low = screen.low.map(|value| value.max(Fixed::ZERO));
+            let high: [Fixed; 2] =
+                core::array::from_fn(|k| screen.high[k].min(Fixed::from_int(viewport[k] as i32)));
             if high[0] <= low[0] || high[1] <= low[1] {
                 continue;
             }
@@ -681,57 +642,28 @@ impl Flames {
                     .clamp(Fixed::ONE, Fixed::from_int(self.limit as i32)))
                 .trunc_to_int() as u16,
             ];
-            let [width, height] = tile.size.map(usize::from);
-            let prepared = Prepared::new(flame, time);
-            let warp_y = prepared.warp_y_interval();
+            let [width, height] = tile.size.map(i32::from);
+            let axes = core::array::from_fn(|k| SampleAxis {
+                origin: low[k],
+                extent: tile.bounds[2 + k],
+                pixels: Fixed::from_int(i32::from(tile.size[k])),
+            });
             let mut base = tile.base.pixels_mut()?;
             let mut emission = tile.emission.pixels_mut()?;
-            base.bytes_mut()[..width * height * 4].fill(0);
-            emission.bytes_mut()[..width * height * 4].fill(0);
-            for y in 0..height {
-                let row_y = low[1]
-                    + (Fixed::from_int((y) as i32) + Fixed::from_ratio(5, 10))
-                        / Fixed::from_int((height) as i32)
-                        * tile.bounds[3];
-                let Some([left, right]) = prepared.row_support(row_y) else {
-                    continue;
-                };
-                if left >= right {
-                    continue;
-                }
-                let candidates = prepared.row_candidates(row_y, warp_y);
-                let start = ((((left - low[0]) / tile.bounds[2] * Fixed::from_int((width) as i32))
-                    .floor())
-                .trunc_to_int() as i32
-                    - 1)
-                .clamp(0, width as i32) as usize;
-                let end = ((((right - low[0]) / tile.bounds[2] * Fixed::from_int((width) as i32))
-                    .ceil())
-                .trunc_to_int() as i32
-                    + 1)
-                .clamp(0, width as i32) as usize;
-                for x in start..end {
-                    let position = low[0]
-                        + (Fixed::from_int((x) as i32) + Fixed::from_ratio(5, 10))
-                            / Fixed::from_int((width) as i32)
-                            * tile.bounds[2];
-                    let value = prepared.shade_row::<true>(position, &candidates);
-                    let (base_color, emission_color) = encode_sample(value);
-                    let at = (y * width + x) * 4;
-                    base.bytes_mut()[at..at + 4].copy_from_slice(&[
-                        base_color.r,
-                        base_color.g,
-                        base_color.b,
-                        base_color.a,
-                    ]);
-                    emission.bytes_mut()[at..at + 4].copy_from_slice(&[
-                        emission_color.r,
-                        emission_color.g,
-                        emission_color.b,
-                        emission_color.a,
-                    ]);
-                }
-            }
+            let bytes = (width * height * 4) as usize;
+            base.bytes_mut()[..bytes].fill(0);
+            emission.bytes_mut()[..bytes].fill(0);
+            Prepared::new(screen.flame, time).sample::<true>(
+                [0, 0, width, height],
+                axes,
+                |x, y, color, glow| {
+                    let at = ((y * width + x) * 4) as usize;
+                    base.bytes_mut()[at..at + 4]
+                        .copy_from_slice(&[color.r, color.g, color.b, color.a]);
+                    emission.bytes_mut()[at..at + 4]
+                        .copy_from_slice(&[glow.r, glow.g, glow.b, glow.a]);
+                },
+            );
             tile.active = true;
         }
         Ok(())
