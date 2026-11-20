@@ -2,12 +2,12 @@ use super::{Canvas, DepthQuery, Frame, RollMapping, SceneCanvas, Workspace};
 use mirui::{
     render::{
         RenderError,
-        texture::{ColorFormat, TexturePixelsMut},
+        texture::{ColorFormat, Region, Texture, TexturePixelsMut},
     },
-    types::{Color, Fixed},
+    types::Fixed,
 };
 
-/// Output tile edge in the bounded RGB565 layout.
+/// Output tile edge in the bounded layout.
 const TILE_SIDE: usize = 32;
 /// Source tile for a rotated output tile and its two-pixel sampling halo.
 const SOURCE_SIDE: usize = 50;
@@ -21,7 +21,7 @@ enum FrameLayout<'a> {
         mapping: &'a RollMapping,
         sheet: &'a mut Frame,
     },
-    /// Produce RGB565 from bounded RGBA tiles. The source sheet is SOURCE_SIDE square. The RGBA band spans the output width and up to TILE_SIDE rows.
+    /// Produce output from bounded RGBA tiles. The source sheet is SOURCE_SIDE square. The RGBA band spans the output width and up to TILE_SIDE rows.
     Tiled {
         mapping: &'a RollMapping,
         sheet: &'a mut Frame,
@@ -37,7 +37,7 @@ pub trait FrameOverlay {
     fn paint(&self, canvas: &mut Canvas<'_>);
 }
 
-/// Reusable depth and color storage for a camera that can roll. RGBA8888 uses a full source sheet. RGB565 uses bounded source tiles and one output band.
+/// Reusable depth and color storage for a camera that can roll.
 pub struct CameraWorkspace {
     workspace: Workspace,
     sheet: Frame,
@@ -45,17 +45,19 @@ pub struct CameraWorkspace {
 }
 
 impl CameraWorkspace {
-    pub fn new(output: &Frame, pivot: Fixed) -> Result<Self, RenderError> {
-        if output.width == 0 || output.height == 0 {
+    /// Bounded rendering reuses small source tiles and an output band.
+    pub fn new(
+        [width, height]: [usize; 2],
+        pivot: Fixed,
+        bounded: bool,
+    ) -> Result<Self, RenderError> {
+        if width == 0 || height == 0 {
             return Err(RenderError::InvalidGeometry);
         }
-        let (side, band) = match output.texture.format() {
-            ColorFormat::RGBA8888 => (super::sheet_side(output.width, output.height, pivot), None),
-            ColorFormat::RGB565 => (
-                SOURCE_SIDE,
-                Some(Frame::new(output.width, output.height.min(TILE_SIDE))?),
-            ),
-            _ => return Err(RenderError::InvalidGeometry),
+        let (side, band) = if bounded {
+            (SOURCE_SIDE, Some(Frame::new(width, height.min(TILE_SIDE))?))
+        } else {
+            (super::sheet_side(width, height, pivot), None)
         };
         Ok(Self {
             workspace: Workspace::new(side, side)?,
@@ -204,9 +206,6 @@ impl Workspace {
                 sheet,
                 band,
             } => {
-                if output.texture.format() != ColorFormat::RGB565 {
-                    return Err(RenderError::InvalidGeometry);
-                }
                 if sheet.texture.format() != ColorFormat::RGBA8888
                     || band.texture.format() != ColorFormat::RGBA8888
                     || [sheet.width, sheet.height] != [SOURCE_SIDE; 2]
@@ -261,8 +260,7 @@ impl Workspace {
                         mapping.bounds,
                         |tile| -> Result<(), RenderError> {
                             scene(tile)?;
-                            write_rgb565(tile.color, &mut target, rect);
-                            Ok(())
+                            write_region(tile.color, &mut target, rect)
                         },
                     )?;
                     continue;
@@ -301,8 +299,8 @@ impl Workspace {
                     if let Some(overlay) = overlay {
                         overlay.paint(canvas);
                     }
-                    write_rgb565(canvas, &mut target, rect);
-                });
+                    write_region(canvas, &mut target, rect)
+                })?;
             }
         }
         Ok(())
@@ -351,21 +349,21 @@ fn sample_sheet(
     }
 }
 
-fn write_rgb565(canvas: &Canvas<'_>, target: &mut TexturePixelsMut<'_>, rect: [i32; 4]) {
-    let [left, top, right, bottom] = rect;
-    let width = (right - left) as usize;
-    let stride = target.stride();
-    let bytes = target.bytes_mut();
-    for y in top..bottom {
-        let src = canvas.index(left, y) * 4;
-        let dst = y as usize * stride + left as usize * 2;
-        let row = &canvas.bytes[src..src + width * 4];
-        let output = &mut bytes[dst..dst + width * 2];
-        for (rgba, out) in row.chunks_exact(4).zip(output.chunks_exact_mut(2)) {
-            let color = Color::rgb(rgba[0], rgba[1], rgba[2]);
-            out.copy_from_slice(&(ColorFormat::RGB565.pack(&color) as u16).to_le_bytes());
-        }
-    }
+fn write_region(
+    canvas: &Canvas<'_>,
+    target: &mut TexturePixelsMut<'_>,
+    [left, top, right, bottom]: [i32; 4],
+) -> Result<(), RenderError> {
+    let [width, height] = canvas.extent.map(|n| n as u16);
+    let source = Texture::from_ref(canvas.bytes, width, height, ColorFormat::RGBA8888)?;
+    let region = Region::new(
+        (left - canvas.origin[0]) as u32,
+        (top - canvas.origin[1]) as u32,
+        (right - left) as u32,
+        (bottom - top) as u32,
+    )
+    .map_err(|_| RenderError::InvalidGeometry)?;
+    target.copy_region_from(&source.read_pixels()?, region, [left as u16, top as u16])
 }
 
 #[cfg(test)]
@@ -480,23 +478,31 @@ mod tests {
                 }
             }
         }
-        let mut output = Frame::with_format(65, 42, ColorFormat::RGB565).unwrap();
         let mapping = RollMapping::new([65, 42], Fixed::ZERO, None);
-        let mut workspace = CameraWorkspace::new(&output, Fixed::ZERO).unwrap();
-        workspace
-            .render(&mut output, &mapping, Some(&Solid), |_| {
-                panic!("covered scene drawn")
-            })
-            .unwrap();
-        assert!(
-            output
-                .texture
-                .read_pixels()
-                .unwrap()
-                .bytes()
-                .chunks_exact(2)
-                .all(|p| p == [0, 0xf8])
-        );
+        let mut workspace = CameraWorkspace::new([65, 42], Fixed::ZERO, true).unwrap();
+        for format in [
+            ColorFormat::RGBA8888,
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+        ] {
+            let mut output = Frame::with_format(65, 42, format).unwrap();
+            workspace
+                .render(&mut output, &mapping, Some(&Solid), |_| {
+                    panic!("covered scene drawn")
+                })
+                .unwrap();
+            let packed = format
+                .pack(&mirui::types::Color::rgb(255, 0, 0))
+                .to_le_bytes();
+            let bpp = format.bytes_per_pixel();
+            let pixels = output.texture.read_pixels().unwrap();
+            assert!(
+                pixels
+                    .bytes()
+                    .chunks_exact(bpp)
+                    .all(|p| p == &packed[..bpp])
+            );
+        }
         let mut queries = [Sample(Some([4, 5])), Sample(Some([40, 39]))];
         let mut fills = 0;
         workspace

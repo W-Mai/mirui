@@ -7,7 +7,7 @@ use super::{
     jet,
     world::{self, Ground, World},
 };
-use mirui::render::{renderer::RenderError, texture::ColorFormat};
+use mirui::render::renderer::RenderError;
 use mirui::types::{Color, Fixed, Fixed64};
 #[cfg(test)]
 use mirui_sprite_stack::raster::Workspace;
@@ -256,7 +256,8 @@ pub struct Flame {
     pub length: Fixed,
 }
 pub struct Raster {
-    pub frame: Frame,
+    pub(crate) size: [usize; 2],
+    compact: bool,
     workspace: CameraWorkspace,
     objects: mirui_sprite_stack::ObjectPass,
     pub palette: Palette,
@@ -417,29 +418,12 @@ pub fn scene_size(width: u16, height: u16) -> (usize, usize, usize) {
     super::Profile::Desktop.scene_size(width, height)
 }
 impl Raster {
-    pub fn new(width: usize, height: usize) -> Result<Self, RenderError> {
-        Self::allocate(width, height, false)
-    }
-    pub(super) fn new_compact(width: usize, height: usize) -> Result<Self, RenderError> {
-        assert!(width <= 128 && height <= 128);
-        Self::allocate(width, height, true)
-    }
-    fn allocate(width: usize, height: usize, compact: bool) -> Result<Self, RenderError> {
-        let width = width.clamp(8, MAX_WIDTH);
-        let height = height.clamp(8, MAX_HEIGHT);
-        let frame = Frame::with_format(
-            width,
-            height,
-            if compact {
-                ColorFormat::RGB565
-            } else {
-                ColorFormat::RGBA8888
-            },
-        )?;
+    pub fn new(size: [usize; 2], compact: bool) -> Result<Self, RenderError> {
         Ok(Self {
-            workspace: CameraWorkspace::new(&frame, roll_pivot(height))?,
+            size,
+            compact,
+            workspace: CameraWorkspace::new(size, roll_pivot(size[1]), compact)?,
             objects: Default::default(),
-            frame,
             palette: Palette::new(Daylight::Day),
             flames: [Flame::default(); 6],
             flame_count: 0,
@@ -447,14 +431,18 @@ impl Raster {
         })
     }
     pub fn bytes(&self) -> usize {
-        self.frame.bytes()
-            + self.workspace.bytes()
-            + self.objects.storage_bytes()
-            + core::mem::size_of::<Self>()
+        self.workspace.bytes() + self.objects.storage_bytes() + core::mem::size_of::<Self>()
     }
     #[cfg(test)]
-    pub(crate) fn render(&mut self, world: &World, flight: &Flight, placed: &Placements) {
+    pub(crate) fn render(
+        &mut self,
+        frame: &mut Frame,
+        world: &World,
+        flight: &Flight,
+        placed: &Placements,
+    ) {
         self.render_scene(
+            frame,
             world.at(Some(Default::default())),
             flight,
             None,
@@ -467,12 +455,14 @@ impl Raster {
     #[cfg(test)]
     pub(super) fn render_with_cockpit(
         &mut self,
+        frame: &mut Frame,
         world: &World,
         flight: &Flight,
         cockpit: &super::cockpit::Cockpit,
         placed: &Placements,
     ) {
         self.render_scene(
+            frame,
             world.at(Some(Default::default())),
             flight,
             Some(cockpit),
@@ -484,6 +474,7 @@ impl Raster {
 
     pub(super) fn render_scene(
         &mut self,
+        frame: &mut Frame,
         ground: Ground<'_>,
         flight: &Flight,
         cockpit: Option<&super::cockpit::Cockpit>,
@@ -494,13 +485,14 @@ impl Raster {
         )>,
     ) -> Result<(), RenderError> {
         let Self {
-            frame,
+            compact,
             workspace,
             objects,
             palette,
             flames,
             flame_count,
             seen,
+            ..
         } = self;
         let mapping = Mapping::new(
             flight.projection(frame.width, frame.height),
@@ -532,7 +524,7 @@ impl Raster {
         };
         let order = scene.order(projection);
         let mut models = scene.prepare(projection, mapping.size);
-        let compact = frame.texture.format() == ColorFormat::RGB565;
+        let compact = *compact;
         if compact {
             for model in models.iter_mut().flatten() {
                 model.prepare_regions(&projection);
@@ -1576,7 +1568,7 @@ mod tests {
         let mut flight = Flight::new(&world, Settings::default());
         flight.set_wingmen(2);
         flight.controls.key(0, true);
-        let raster = Raster::new(128, 128).unwrap();
+        let raster = Raster::new([128, 128], false).unwrap();
         let mut full = Frame::new(128, 128).unwrap();
         let mut full_workspace = Workspace::new(128, 128).unwrap();
         let mut region = Frame::new(40, 40).unwrap();
@@ -1667,24 +1659,35 @@ mod tests {
     fn all_camera_frames_are_opaque_and_storage_is_bounded() {
         let world = World::new(7, Fixed::from_ratio(33, 100));
         let mut flight = Flight::new(&world, Settings::default());
-        let mut raster = Raster::new(240, 150).unwrap();
+        let mut raster = Raster::new([240, 150], false).unwrap();
+        let mut frame = Frame::new(240, 150).unwrap();
         for view in [View::Overhead, View::Chase, View::Cockpit] {
             flight.view = view;
             for _ in 0..240 {
                 flight.step(&world, 16, 240, 150);
             }
-            raster.render(&world, &flight, &PlacedAircraft::from_flight(&flight));
-            let pixels = raster.frame.texture.read_pixels().unwrap();
+            raster.render(
+                &mut frame,
+                &world,
+                &flight,
+                &PlacedAircraft::from_flight(&flight),
+            );
+            let pixels = frame.texture.read_pixels().unwrap();
             assert!(pixels.bytes().chunks_exact(4).all(|c| c[3] == 255));
             let first = &pixels.bytes()[..4];
             assert!(pixels.bytes().chunks_exact(4).any(|c| c != first));
         }
         let allocation = crate::test_support::tracked_allocations(|| {
-            raster.render(&world, &flight, &PlacedAircraft::from_flight(&flight))
+            raster.render(
+                &mut frame,
+                &world,
+                &flight,
+                &PlacedAircraft::from_flight(&flight),
+            )
         });
         assert_eq!(allocation, 0);
-        let max = Raster::new(MAX_WIDTH, MAX_HEIGHT).unwrap();
-        assert!(max.bytes() < 8 * 1024 * 1024);
+        let max = Raster::new([MAX_WIDTH, MAX_HEIGHT], false).unwrap();
+        assert!(max.bytes() + MAX_WIDTH * MAX_HEIGHT * 4 < 8 * 1024 * 1024);
         for size in [(0, 0), (1280, 720), (65535, 65535), (1, 65535), (65535, 1)] {
             let (w, h, _) = scene_size(size.0, size.1);
             assert!(w <= MAX_WIDTH && h <= MAX_HEIGHT);

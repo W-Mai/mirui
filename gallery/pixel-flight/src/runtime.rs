@@ -276,7 +276,7 @@ impl FlightOutput {
         let (w, h, _) = self.profile.scene_size(width, height);
         self.viewport = (width, height);
         if let Some(raster) = self.raster.as_mut()
-            && (raster.frame.width, raster.frame.height) == (w, h)
+            && raster.size == [w, h]
         {
             if raster.palette.day == day {
                 return;
@@ -298,16 +298,18 @@ impl FlightOutput {
             Profile::Desktop => Cockpit::new(width, height, &palette),
             Profile::Compact => Cockpit::new_compact(width, height, &palette),
         };
-        let mut raster = match self.profile {
-            Profile::Desktop => Raster::new(width, height),
-            Profile::Compact => Raster::new_compact(width, height),
-        }
-        .expect("bounded flight frame");
+        let mut raster = Raster::new([width, height], self.profile == Profile::Compact)
+            .expect("bounded flight workspace");
         raster.palette = palette;
         self.cockpit = Some(cockpit);
         self.raster = Some(raster);
     }
-    fn render_frame(&mut self, model: &FlightModel, scene: &StackScene) -> Result<(), RenderError> {
+    fn render_frame(
+        &mut self,
+        model: &FlightModel,
+        scene: &StackScene,
+        frame: &mut super::raster::Frame,
+    ) -> Result<(), RenderError> {
         let Some(raster) = &mut self.raster else {
             return Ok(());
         };
@@ -318,7 +320,7 @@ impl FlightOutput {
             let extra = (scene.len()
                 > usize::from(ground.draws_surface()) + placed.iter().flatten().count())
             .then_some((scene, managed.as_slice()));
-            raster.render_scene(ground, &model.flight, Some(cockpit), &placed, extra)?;
+            raster.render_scene(frame, ground, &model.flight, Some(cockpit), &placed, extra)?;
         }
         let (_, _, scale) = self.profile.scene_size(self.viewport.0, self.viewport.1);
         if let Some(flames) = &mut self.flames {
@@ -327,11 +329,11 @@ impl FlightOutput {
                     &raster.flames[..raster.flame_count],
                     model.flight.time,
                     Fixed::from_int((scale) as i32),
-                    [raster.frame.width, raster.frame.height],
+                    [frame.width, frame.height],
                 )
                 .expect("prepared flame textures");
         }
-        model.display_bytes.set(self.bytes());
+        model.display_bytes.set(self.bytes() + frame.bytes());
         Ok(())
     }
     fn bytes(&self) -> usize {
@@ -354,9 +356,10 @@ impl FlightOutput {
         scene: &StackScene,
         width: u16,
         height: u16,
+        frame: &mut super::raster::Frame,
     ) -> Result<(), RenderError> {
         self.prepare(width, height, model.day);
-        self.render_frame(model, scene)
+        self.render_frame(model, scene, frame)
     }
 }
 
@@ -366,18 +369,25 @@ struct FlightCamera {
 }
 
 impl SceneRenderer for FlightCamera {
+    fn frame_size(&self, [width, height]: [u16; 2]) -> [u16; 2] {
+        let (width, height, _) = self.output.profile.scene_size(width, height);
+        [width as u16, height as u16]
+    }
+
+    fn opaque_frame_byte_limit(&self) -> Option<usize> {
+        (self.output.profile == Profile::Compact).then_some(2)
+    }
+
     fn render(
         &mut self,
         scene: &StackScene,
         [width, height]: [u16; 2],
-    ) -> Result<Option<&mut super::raster::Frame>, RenderError> {
+        frame: &mut super::raster::Frame,
+    ) -> Result<bool, RenderError> {
+        frame.texture.alpha_mode = mirui::render::texture::AlphaMode::Opaque;
         self.model
-            .read(|model| self.output.update(model, scene, width, height))?;
-        Ok(self.output.raster.as_mut().map(|r| &mut r.frame))
-    }
-
-    fn frame(&self) -> Option<&super::raster::Frame> {
-        self.output.raster.as_ref().map(|r| &r.frame)
+            .read(|model| self.output.update(model, scene, width, height, frame))?;
+        Ok(true)
     }
 
     fn pixel_scale(&self) -> Option<core::num::NonZeroU16> {
@@ -797,21 +807,19 @@ mod tests {
     }
     #[test]
     fn compact_keeps_all_views_and_bounds_workspaces_across_resizes() {
+        use super::super::raster::Frame;
+        use mirui::render::texture::ColorFormat;
+
         let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
         let mut output = FlightOutput::new(Profile::Compact);
+        let mut frame = Frame::with_format(128, 128, ColorFormat::RGB565).unwrap();
         scene
             .scene
-            .read(|shared| output.update(&scene, shared, 128, 128).unwrap());
+            .read(|shared| output.update(&scene, shared, 128, 128, &mut frame).unwrap());
         eprintln!("compact scene bytes: {}", scene.resident_bytes());
         assert!(scene.resident_bytes() < 128 * 1024);
         assert_eq!(Profile::Compact.scene_size(128, 128), (128, 128, 1));
-        assert_eq!(
-            (
-                output.raster.as_ref().unwrap().frame.width,
-                output.raster.as_ref().unwrap().frame.height
-            ),
-            (128, 128)
-        );
+        assert_eq!(output.raster.as_ref().unwrap().size, [128, 128]);
         for (width, height) in [
             (128, 128),
             (160, 128),
@@ -820,34 +828,30 @@ mod tests {
             (64, 64),
             (800, 600),
         ] {
+            let (w, h, _) = Profile::Compact.scene_size(width, height);
+            let mut frame = Frame::with_format(w, h, ColorFormat::RGB565).unwrap();
             for view in [CameraView::Overhead, CameraView::Chase, CameraView::Cockpit] {
                 scene.select_view(view);
                 scene.advance(16, width, height, None);
-                scene
-                    .scene
-                    .read(|shared| output.update(&scene, shared, width, height).unwrap());
+                scene.scene.read(|shared| {
+                    output
+                        .update(&scene, shared, width, height, &mut frame)
+                        .unwrap()
+                });
                 let allocations = crate::test_support::tracked_allocations(|| {
                     for _ in 0..8 {
                         scene.advance(16, width, height, None);
-                        scene
-                            .scene
-                            .read(|shared| output.update(&scene, shared, width, height).unwrap());
+                        scene.scene.read(|shared| {
+                            output
+                                .update(&scene, shared, width, height, &mut frame)
+                                .unwrap()
+                        });
                     }
                 });
                 assert_eq!(allocations, 0);
                 let raster = output.raster.as_ref().unwrap();
-                assert!(raster.frame.width <= 128 && raster.frame.height <= 128);
+                assert!(raster.size.into_iter().all(|axis| axis <= 128));
                 assert!(scene.resident_bytes() < 128 * 1024);
-                assert!(
-                    raster
-                        .frame
-                        .texture
-                        .read_pixels()
-                        .unwrap()
-                        .direct_format()
-                        .unwrap()
-                        == mirui::render::texture::ColorFormat::RGB565
-                );
             }
         }
         let mut app = App::headless(128, 128);

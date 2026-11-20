@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Copy ready texture regions between pixel formats with `TexturePixelsMut::copy_region_from`.
+- SpriteStack viewports own their output frames. Custom scene renderers receive a writable frame selected by the viewport.
 
 - Desktop examples in the workspace use optimized SpriteStack rasterization in development builds.
 

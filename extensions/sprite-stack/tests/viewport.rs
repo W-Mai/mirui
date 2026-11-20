@@ -16,35 +16,29 @@ fn directed_camera_publishes_once_per_change_and_an_explicit_camera_takes_over()
 
     struct Directed {
         attempts: Rc<Cell<u32>>,
-        image: Frame,
     }
     impl SceneRenderer for Directed {
+        fn frame_size(&self, _: [u16; 2]) -> [u16; 2] {
+            [4, 4]
+        }
         fn render(
             &mut self,
             _: &StackScene,
             _: [u16; 2],
-        ) -> Result<Option<&mut Frame>, RenderError> {
+            target: &mut Frame,
+        ) -> Result<bool, RenderError> {
             let count = self.attempts.get() + 1;
             self.attempts.set(count);
             if count == 2 {
                 return Err(RenderError::MissingWorkspace);
             }
-            self.image.with_canvas(|canvas| canvas.bytes.fill(255));
-            Ok(Some(&mut self.image))
-        }
-        fn frame(&self) -> Option<&Frame> {
-            Some(&self.image)
+            target.with_canvas(|canvas| canvas.bytes.fill(255));
+            Ok(true)
         }
     }
     #[mirui::compose]
     fn directed(scene: StackSceneHandle, attempts: Rc<Cell<u32>>) -> Entity {
-        let viewport = StackViewport::with_renderer(
-            scene,
-            Directed {
-                attempts,
-                image: Frame::new(4, 4).unwrap(),
-            },
-        );
+        let viewport = StackViewport::with_renderer(scene, Directed { attempts });
         ui! { View(id: "camera", width: 16, height: 16) [viewport] }
     }
 

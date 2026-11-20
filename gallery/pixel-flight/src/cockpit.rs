@@ -2880,24 +2880,24 @@ mod tests {
         for _ in 0..300 {
             flight.step(&world, 16, 480, 300);
         }
-        let mut raster = Raster::new(480, 300).unwrap();
+        let mut raster = Raster::new([480, 300], false).unwrap();
+        let mut frame = crate::raster::Frame::new(480, 300).unwrap();
         let art = Cockpit::new(480, 300, &raster.palette);
         assert!(art.bytes() < 3 * 1024 * 1024);
         assert!(art.layers.iter().all(|layer| {
             (0..layer.width * layer.height).any(|at| layer.ink_at(at as usize) != 0)
         }));
         raster.render(
+            &mut frame,
             &world,
             &flight,
             &crate::raster::PlacedAircraft::from_flight(&flight),
         );
         let allocations = crate::test_support::tracked_allocations(|| {
-            raster
-                .frame
-                .with_canvas(|canvas| art.draw(canvas, &world, &flight, &raster.palette))
+            frame.with_canvas(|canvas| art.draw(canvas, &world, &flight, &raster.palette))
         });
         assert_eq!(allocations, 0);
-        let pixels = raster.frame.texture.read_pixels().unwrap();
+        let pixels = frame.texture.read_pixels().unwrap();
         assert!(pixels.bytes().chunks_exact(4).all(|c| c[3] == 255));
     }
 }

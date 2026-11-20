@@ -65,13 +65,21 @@ impl Camera {
 
 /// Produces the image of a game-directed camera. The viewport handles invalidation, texture revisions, placement and presentation.
 pub trait SceneRenderer: 'static {
-    /// Runs when the scene, its sources or the viewport dimensions change. Return the newly rendered frame, or None to keep the previous image.
+    fn frame_size(&self, viewport: [u16; 2]) -> [u16; 2] {
+        viewport
+    }
+    /// Request opaque output bounded by the given bytes per pixel.
+    /// The default uses an RGBA frame with transparency.
+    fn opaque_frame_byte_limit(&self) -> Option<usize> {
+        None
+    }
+    /// Draw into the viewport's frame. Return false to retain the previous image without changing it.
     fn render(
         &mut self,
         scene: &StackScene,
         size: [u16; 2],
-    ) -> Result<Option<&mut Frame>, RenderError>;
-    fn frame(&self) -> Option<&Frame>;
+        target: &mut Frame,
+    ) -> Result<bool, RenderError>;
     /// Centers native scene pixels at this integer scale. By default the frame fills the viewport.
     fn pixel_scale(&self) -> Option<core::num::NonZeroU16> {
         None
@@ -87,6 +95,7 @@ enum Renderer {
 
 struct Output {
     renderer: Renderer,
+    frame: Option<Frame>,
     ready: Option<(u64, [u16; 2])>,
     texture_revision: u64,
 }
@@ -114,13 +123,36 @@ impl Output {
             Renderer::Directed(r) => r.as_mut(),
         };
         if self.ready != Some((stamp, size)) {
-            if let Some(frame) = renderer.render(scene, size)? {
+            let [width, height] = renderer.frame_size(size).map(usize::from);
+            if width == 0 || height == 0 {
+                return Err(RenderError::InvalidGeometry);
+            }
+            let new_frame = self
+                .frame
+                .as_ref()
+                .is_none_or(|f| [f.width, f.height] != [width, height]);
+            if new_frame {
+                self.ready = None;
+                self.frame = None;
+                let frame = if let Some(limit) = renderer.opaque_frame_byte_limit() {
+                    Frame::with_format(width, height, paint.opaque_output_format(limit)?)?
+                } else {
+                    let mut frame = Frame::new(width, height)?;
+                    frame.texture.alpha_mode = AlphaMode::Blend;
+                    frame
+                };
+                self.frame = Some(frame);
+            }
+            let frame = self.frame.as_mut().expect("viewport frame");
+            if renderer.render(scene, size, frame)? {
                 self.texture_revision = self.texture_revision.wrapping_add(1);
                 frame.texture.cache_revision = self.texture_revision;
+            } else if self.ready.is_none() {
+                return Ok(());
             }
             self.ready = Some((stamp, size));
         }
-        let Some(frame) = renderer.frame() else {
+        let Some(frame) = self.frame.as_ref() else {
             return Ok(());
         };
         let (origin, dimensions, scale) = if let Some(scale) = renderer.pixel_scale() {
@@ -189,6 +221,7 @@ impl StackViewport {
             bindings: None,
             output: RefCell::new(Output {
                 renderer,
+                frame: None,
                 ready: None,
                 texture_revision: 0,
             }),
@@ -279,8 +312,11 @@ impl Property for ViewportCamera {
         let Some(view) = world.get_mut::<StackViewport>(entity) else {
             return PropertyChange::Unchanged;
         };
-        if matches!(&view.output.get_mut().renderer, Renderer::Directed(_)) {
-            view.output.get_mut().renderer = Renderer::Camera(Box::default());
+        let output = view.output.get_mut();
+        if matches!(&output.renderer, Renderer::Directed(_)) {
+            output.renderer = Renderer::Camera(Box::default());
+            output.frame = None;
+            output.ready = None;
         } else if view.camera == camera {
             return PropertyChange::Unchanged;
         }
