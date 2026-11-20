@@ -12,7 +12,16 @@ Run the SDL turntable from the Mirui checkout:
 cargo run -p mirui-sprite-stack --example turntable --features mirui/sdl
 ```
 
-The [turntable](examples/turntable.rs) includes a [car model](examples/car.obj) and its [prebuilt atlas](examples/car.mirx). To make another asset with ICU:
+<details>
+<summary>Build a rotating car from an observed angle</summary>
+
+![Turntable code walkthrough. Load the MIRX atlas once, register the timer, then bind the widget's yaw to the observed heading. Each timer callback advances the model by two degrees.](docs/authoring.svg)
+
+Open [turntable.rs](examples/turntable.rs) and change `+ 2` to `+ 4` in `Turntable::advance`. Run the same command again. The car completes a turn in 90 timer callbacks instead of 180. To change the viewing angle independently, edit `pitch` in `preview`.
+
+</details>
+
+The turntable includes a [car model](examples/car.obj) and its [prebuilt atlas](examples/car.mirx). To make another asset with ICU:
 
 ```sh
 icu convert car.obj -F mirx --resolution 32 -O models
