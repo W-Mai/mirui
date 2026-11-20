@@ -187,6 +187,27 @@ impl<'frame> PaintCtx<'frame> {
         self.renderer.output_scale()
     }
 
+    /// Choose storage for an opaque image within its per-pixel byte limit.
+    /// Use the renderer's preference when it fits. An unsupported limit returns an error.
+    pub fn opaque_output_format(
+        &self,
+        max_bytes_per_pixel: usize,
+    ) -> Result<crate::render::texture::ColorFormat, RenderError> {
+        use crate::render::texture::ColorFormat;
+
+        if let Some(format) = self.renderer.offscreen_format()
+            && format.bytes_per_pixel() <= max_bytes_per_pixel
+        {
+            return Ok(format);
+        }
+        match max_bytes_per_pixel {
+            4.. => Ok(ColorFormat::RGBA8888),
+            3 => Ok(ColorFormat::RGB888),
+            2 => Ok(ColorFormat::RGB565),
+            _ => Err(RenderError::InvalidGeometry),
+        }
+    }
+
     pub fn background_handled(&self) -> bool {
         self.background_handled
     }

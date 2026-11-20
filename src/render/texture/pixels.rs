@@ -146,6 +146,37 @@ impl ColorFormat {
             }
         }
     }
+
+    pub(super) fn copy_row_from(self, destination: &mut [u8], source: Self, samples: &[u8]) {
+        match (source, self) {
+            (a, b) if a == b => destination.copy_from_slice(samples),
+            (Self::RGBA8888, Self::RGB565) => copy_opaque_to_565::<false>(samples, destination),
+            (Self::RGBA8888, Self::RGB565Swapped) => {
+                copy_opaque_to_565::<true>(samples, destination);
+            }
+            _ => {
+                let src_bpp = source.bytes_per_pixel();
+                let dst_bpp = self.bytes_per_pixel();
+                for offset in (0..samples.len()).step_by(src_bpp) {
+                    let color = source.read_pixel(samples, offset);
+                    self.write_pixel(destination, offset / src_bpp * dst_bpp, &color);
+                }
+            }
+        }
+    }
+}
+
+fn copy_opaque_to_565<const SWAPPED: bool>(source: &[u8], destination: &mut [u8]) {
+    let format = if SWAPPED {
+        ColorFormat::RGB565Swapped
+    } else {
+        ColorFormat::RGB565
+    };
+    for (rgba, out) in source.chunks_exact(4).zip(destination.chunks_exact_mut(2)) {
+        out.copy_from_slice(
+            &(format.pack(&Color::rgb(rgba[0], rgba[1], rgba[2])) as u16).to_le_bytes(),
+        );
+    }
 }
 
 fn blend_constant_bytes<const BPP: usize>(bytes: &mut [u8], color: [u8; 3], alpha: u8) {

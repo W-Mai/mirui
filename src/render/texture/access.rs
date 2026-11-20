@@ -1,5 +1,5 @@
 use super::indexed::{IndexLayout, IndexPlane};
-use super::{AlphaMode, ColorFormat, TexBuf, Texture};
+use super::{AlphaMode, ColorFormat, Region, TexBuf, Texture};
 use crate::core::cache::Handle;
 use crate::render::renderer::RenderError;
 use crate::render::scratch::{PlaneLayout, PlaneRequirements};
@@ -315,6 +315,54 @@ impl<'a> TexturePixelsMut<'a> {
         self.format().write_pixel(self.bytes, offset, color);
     }
 
+    /// Overwrite a destination rectangle with ready source samples. Converts to the
+    /// destination format without blending. Both rectangles must fit their pixel views.
+    pub fn copy_region_from(
+        &mut self,
+        source: &TexturePixels<'_>,
+        region: Region,
+        destination: [u16; 2],
+    ) -> Result<(), RenderError> {
+        let [dx, dy] = destination.map(u32::from);
+        if region.right() > u32::from(source.width())
+            || region.bottom() > u32::from(source.height())
+            || dx + region.width() > u32::from(self.width())
+            || dy + region.height() > u32::from(self.height())
+        {
+            return Err(RenderError::InvalidGeometry);
+        }
+        if region.is_empty() {
+            return Ok(());
+        }
+        let [dx, dy] = destination.map(usize::from);
+        let [sx, sy, width, height] =
+            [region.x(), region.y(), region.width(), region.height()].map(|v| v as usize);
+        let format = self.format();
+        let dst_stride = self.stride();
+        let dst_bpp = format.bytes_per_pixel();
+        if let Some(src_format) = source.direct_format() {
+            let src_bpp = src_format.bytes_per_pixel();
+            for y in 0..height {
+                let src_start = (sy + y) * source.stride() + sx * src_bpp;
+                let dst_start = (dy + y) * dst_stride + dx * dst_bpp;
+                format.copy_row_from(
+                    &mut self.bytes[dst_start..dst_start + width * dst_bpp],
+                    src_format,
+                    &source.bytes()[src_start..src_start + width * src_bpp],
+                );
+            }
+        } else {
+            for y in 0..height {
+                let dst_start = (dy + y) * dst_stride + dx * dst_bpp;
+                for x in 0..width {
+                    let color = source.get_pixel((sx + x) as i32, (sy + y) as i32);
+                    format.write_pixel(self.bytes, dst_start + x * dst_bpp, &color);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Composites a color at an integer pixel using its alpha and the target's alpha mode.
     /// Coordinates outside the writable area leave the target untouched.
     #[inline]
@@ -616,6 +664,50 @@ impl Texture<'_> {
 mod tests {
     use super::*;
     use crate::render::texture::TexBuf;
+
+    #[test]
+    fn region_copies_match_pixel_writes_and_leave_padding_intact() {
+        let formats = [
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+            ColorFormat::RGB888,
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+        ];
+        for src_format in formats {
+            let mut storage = [0; 48];
+            let mut source = Texture::new(&mut storage, 3, 3, src_format).unwrap();
+            source.stride = 16;
+            let mut pixels = source.pixels_mut().unwrap();
+            for y in 0..3 {
+                for x in 0..3 {
+                    pixels.set_pixel(x, y, &Color::rgba(29 * x as u8, 103, 97 * y as u8, 61));
+                }
+            }
+            let source = source.read_pixels().unwrap();
+            for format in formats {
+                let mut actual = [0xa5; 48];
+                let mut expected = actual;
+                let mut output = Texture::new(&mut actual, 3, 3, format).unwrap();
+                output.stride = 16;
+                let mut output = output.pixels_mut().unwrap();
+                let region = Region::new(1, 0, 2, 2).unwrap();
+                assert!(output.copy_region_from(&source, region, [2, 1]).is_err());
+                assert!(output.bytes().iter().all(|v| *v == 0xa5));
+                output.copy_region_from(&source, region, [0, 1]).unwrap();
+                for y in 0..2 {
+                    for x in 0..2 {
+                        format.write_pixel(
+                            &mut expected,
+                            (y + 1) * 16 + x * format.bytes_per_pixel(),
+                            &source.get_pixel(x as i32 + 1, y as i32),
+                        );
+                    }
+                }
+                assert_eq!(actual, expected);
+            }
+        }
+    }
 
     #[test]
     fn pixel_borrows_share_storage_without_allocating() {

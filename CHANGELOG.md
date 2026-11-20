@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Copy ready texture regions between pixel formats with `TexturePixelsMut::copy_region_from`.
+
 - Desktop examples in the workspace use optimized SpriteStack rasterization in development builds.
 
 - Pixel Flight and Passing Lane share SpriteStack's frame rendering, object projection and depth buffer. Game-directed cameras support additional scene objects, sampled models, procedural terrain shading and bounded RGB565 rendering.
