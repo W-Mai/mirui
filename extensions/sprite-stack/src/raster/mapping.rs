@@ -1,13 +1,27 @@
-use mirui::types::Fixed;
+use mirui::types::{Fixed, Fixed64};
 
 /// Side of the square sheet that contains the viewport at every roll angle.
 pub fn sheet_side(width: usize, height: usize, pivot: Fixed) -> usize {
+    // Square at the wider precision when the diagonal can exceed Q24.8.
+    if width > 4094
+        || height > 2047
+        || pivot < Fixed::ZERO
+        || pivot > Fixed::from_int(height as i32)
+    {
+        let half = Fixed64::from_int(width as i64) / 2;
+        let pivot = Fixed64::from(pivot);
+        let tall = pivot.max(Fixed64::from_int(height as i64) - pivot);
+        let radius = (half.mul_wide(half) + tall.mul_wide(tall)).sqrt();
+        let whole = radius.to_int();
+        return ((whole + i64::from(radius > Fixed64::from_int(whole)) + 2) * 2) as usize;
+    }
     let tall = pivot.max(Fixed::from_int(height as i32) - pivot);
     let half = Fixed::from_int(width as i32) / 2;
     ((half * half + tall * tall).sqrt().ceil().to_int() as usize + 2) * 2
 }
 /// Sampling transform between an output viewport and the clipped source sheet for its roll.
 pub struct RollMapping {
+    pub(super) output: [usize; 2],
     pub size: [usize; 2],
     pub bounds: [i32; 4],
     pub rolled: bool,
@@ -27,6 +41,7 @@ impl RollMapping {
         let cx = Fixed::from_int(width as i32) / 2;
         let (sine, cosine) = rotation.unwrap_or((Fixed::ZERO, Fixed::ONE));
         let mut mapping = Self {
+            output: [width, height],
             size: [width, height],
             bounds: [0, 0, width as i32, height as i32],
             rolled,

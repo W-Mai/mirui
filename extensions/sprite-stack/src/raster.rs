@@ -1,8 +1,12 @@
 //! Fixed-point scene projection and reusable color, coverage and depth tiles.
+mod frame;
 mod mapping;
+pub use frame::{CameraWorkspace, FrameOverlay};
+pub mod sprites;
+pub mod terrain;
 mod visibility;
 pub use mapping::{RollMapping, sheet_side};
-pub use visibility::{DepthSamples, fully_covered};
+pub use visibility::{DepthQuery, DepthSamples, fully_covered};
 
 use alloc::vec::Vec;
 use mirui::render::{
@@ -20,6 +24,7 @@ pub struct Projection {
     pub center: [Fixed; 2],
 }
 impl Projection {
+    pub(crate) const NEAR_DENOMINATOR: Fixed = Fixed::from_ratio(12, 100);
     pub(super) fn screen_point(&self, right: Fixed, up: Fixed, scale: Fixed) -> [Fixed; 2] {
         [self.center[0] + scale * right, self.center[1] - scale * up]
     }
@@ -32,7 +37,7 @@ impl Projection {
     /// Projects right, up and forward camera coordinates into x, y, pixel scale and depth.
     pub fn project_camera(&self, right: Fixed, up: Fixed, depth: Fixed) -> Option<[Fixed; 4]> {
         let denominator = Fixed::ONE + self.apply_perspective(depth);
-        if denominator < Fixed::from_ratio(12, 100) {
+        if denominator < Self::NEAR_DENOMINATOR {
             return None;
         }
         let scale = self.scale / denominator;
@@ -330,6 +335,18 @@ impl SceneCanvas<'_, '_> {
     /// Fills unoccupied samples in a vertical span, optionally alternating pixels in a checker pattern.
     #[inline]
     pub fn fill_span(&mut self, x: usize, y0: i32, y1: i32, color: u32, depth: Fixed, thin: bool) {
+        self.write_span::<false>(x, y0, y1, color, depth, thin);
+    }
+    #[inline]
+    fn write_span<const TEST_DEPTH: bool>(
+        &mut self,
+        x: usize,
+        y0: i32,
+        y1: i32,
+        color: u32,
+        depth: Fixed,
+        thin: bool,
+    ) {
         let [left, top, right, bottom] = self.color.clip;
         let mut first = y0.max(top);
         let end = y1.min(bottom);
@@ -346,7 +363,12 @@ impl SceneCanvas<'_, '_> {
         let pixels = self.color.bytes.as_chunks_mut::<4>().0;
         let mut remaining = (end - first - 1) as usize >> usize::from(thin);
         loop {
-            if self.depth[at] == Fixed::MAX {
+            let visible = if TEST_DEPTH {
+                depth < self.depth[at]
+            } else {
+                self.depth[at] == Fixed::MAX
+            };
+            if visible {
                 pixels[at] = color.to_le_bytes();
                 self.depth[at] = depth;
             }

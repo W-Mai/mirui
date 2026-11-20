@@ -1,6 +1,12 @@
 use super::SceneCanvas;
 use mirui::types::Fixed;
 
+/// Depth queries for an effect spanning multiple tiles. Resolve every outstanding sample contained in the supplied region, including samples outside the virtual scene.
+pub trait DepthQuery {
+    fn next_point(&self) -> Option<[i32; 2]>;
+    fn resolve(&mut self, tile: &SceneCanvas<'_, '_>);
+}
+
 /// Tests opaque coverage one row at a time. Layers mark newly covered samples in the shared row and return their count.
 pub fn fully_covered(
     [left, top, right, bottom]: [i32; 4],

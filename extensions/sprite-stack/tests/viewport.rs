@@ -8,6 +8,74 @@ const RED: Color = Color::rgb(200, 20, 30);
 const GREEN: Color = Color::rgb(40, 160, 80);
 const COLORS: [Color; 2] = [RED, GREEN];
 
+#[test]
+fn directed_camera_publishes_once_per_change_and_an_explicit_camera_takes_over() {
+    use mirui::render::RenderError;
+    use mirui_sprite_stack::{SceneRenderer, StackSceneHandle, ViewportCamera, raster::Frame};
+    use std::{cell::Cell, rc::Rc};
+
+    struct Directed {
+        attempts: Rc<Cell<u32>>,
+        image: Frame,
+    }
+    impl SceneRenderer for Directed {
+        fn render(
+            &mut self,
+            _: &StackScene,
+            _: [u16; 2],
+        ) -> Result<Option<&mut Frame>, RenderError> {
+            let count = self.attempts.get() + 1;
+            self.attempts.set(count);
+            if count == 2 {
+                return Err(RenderError::MissingWorkspace);
+            }
+            self.image.with_canvas(|canvas| canvas.bytes.fill(255));
+            Ok(Some(&mut self.image))
+        }
+        fn frame(&self) -> Option<&Frame> {
+            Some(&self.image)
+        }
+    }
+    #[mirui::compose]
+    fn directed(scene: StackSceneHandle, attempts: Rc<Cell<u32>>) -> Entity {
+        let viewport = StackViewport::with_renderer(
+            scene,
+            Directed {
+                attempts,
+                image: Frame::new(4, 4).unwrap(),
+            },
+        );
+        ui! { View(id: "camera", width: 16, height: 16) [viewport] }
+    }
+
+    let mut app = App::headless(16, 16);
+    app.with_default_widgets().add_plugin(SpriteStackPlugin);
+    let scene = app.add_model(StackScene::new()).finish();
+    let attempts = Rc::new(Cell::new(0));
+    let root = app.spawn_root().id();
+    app.compose(root, directed(scene.clone(), attempts.clone()));
+    for _ in 0..2 {
+        let frame = app.snapshot().unwrap().unwrap();
+        assert_eq!(
+            frame.read_pixels().unwrap().get_pixel(8, 8),
+            Color::rgb(255, 255, 255)
+        );
+    }
+    assert_eq!(attempts.get(), 1);
+    scene.invalidate();
+    assert!(matches!(app.snapshot(), Err(RenderError::MissingWorkspace)));
+    app.snapshot().unwrap();
+    assert_eq!(attempts.get(), 3);
+    let entity = app.world.find_by_id("camera").unwrap();
+    app.world
+        .widget_mut(entity)
+        .unwrap()
+        .set::<ViewportCamera>(Camera::default());
+    scene.invalidate();
+    app.snapshot().unwrap();
+    assert_eq!(attempts.get(), 3);
+}
+
 #[mirui::compose]
 fn views(source: model!(StackScene), camera: Camera) -> Entity {
     ui! {
@@ -308,4 +376,59 @@ fn translated_finite_source_uses_the_same_local_cell_for_height_and_drawing() {
     let pixels = frame.read_pixels().unwrap();
     assert_eq!(pixels.get_pixel(6, 6), RED);
     assert_ne!(pixels.get_pixel(9, 6), RED);
+}
+
+#[test]
+fn sampled_models_use_all_layers_and_reuse_their_projection_across_viewport_bands() {
+    use mirui_sprite_stack::{Geometry, PreparedSpriteStack, SparseLevel, StackSample};
+    const OFFSETS: [usize; 74] = {
+        let mut offsets = [0; 74];
+        offsets[73] = 2;
+        offsets
+    };
+    const SAMPLES: [StackSample; 2] = [
+        StackSample {
+            x: 0,
+            y: 0,
+            color: 0,
+        },
+        StackSample {
+            x: 0,
+            y: 8,
+            color: 1,
+        },
+    ];
+    static ASSET: PreparedSpriteStack<'static> = PreparedSpriteStack::new(
+        [1, 9, 73],
+        [0; 3],
+        256,
+        &[[200, 20, 30, 255], [40, 160, 80, 255]],
+        &[SparseLevel::new(1, &OFFSETS, &SAMPLES).unwrap()],
+    )
+    .unwrap();
+    #[mirui::compose]
+    fn viewport(scene: model!(StackScene)) -> Entity {
+        ui! { StackViewport(width:32,height:48,scene:scene,camera:Camera{scale:Fixed::from_int(2),..Camera::overhead()}) }
+    }
+    let mut app = App::headless(32, 48);
+    app.with_default_widgets().add_plugin(SpriteStackPlugin);
+    let mut scene = StackScene::bounded(2);
+    let moving = scene
+        .place(Geometry::Sampled(&ASSET), Pose::at(0, 0, 6))
+        .unwrap();
+    let scene = app.add_model(scene).finish();
+    let root = app.spawn_root().id();
+    app.compose(root, viewport(scene.clone()));
+    let check = |app: &mut App<_>, x| {
+        let frame = app.snapshot().unwrap().unwrap();
+        let pixels = frame.read_pixels().unwrap();
+        assert_eq!(pixels.get_pixel(x, 12), RED);
+        assert_eq!(pixels.get_pixel(x, 28), GREEN);
+    };
+    check(&mut app, 16);
+    scene.set_pose(moving, Pose::at(4, 0, 6)).unwrap();
+    check(&mut app, 24);
+    scene.remove(moving).unwrap();
+    let frame = app.snapshot().unwrap().unwrap();
+    assert_ne!(frame.read_pixels().unwrap().get_pixel(24, 28), GREEN);
 }

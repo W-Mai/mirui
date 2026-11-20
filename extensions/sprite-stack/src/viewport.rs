@@ -1,4 +1,4 @@
-use crate::{Geometry, Object, StackScene, StackSceneHandle};
+use crate::{Geometry, Object, StackScene, StackSceneHandle, raster::Frame};
 use alloc::boxed::Box;
 use core::cell::{Cell, RefCell};
 use mirui::{
@@ -6,9 +6,13 @@ use mirui::{
     app::{App, RendererFactory, plugin::Plugin},
     core::model::{ModelHandle, ModelInvalidation, ModelSubscription, SharedValue},
     ecs::{Entity, World},
-    render::RenderError,
+    render::{
+        RenderError,
+        command::{CompositeMode, DrawCommand},
+        texture::AlphaMode,
+    },
     surface::Surface,
-    types::Fixed,
+    types::{Fixed, Point},
     ui::{
         property::{Property, PropertyChange},
         view::PaintCtx,
@@ -16,8 +20,9 @@ use mirui::{
 };
 
 mod draw;
+pub use draw::{ObjectPass, ProjectedObjects, ViewProjection};
 
-/// Orthographic camera around a world point or a moving object. Positive pitch looks down.
+/// Camera around a world point or a moving object. Positive pitch looks down.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Camera {
     pub target: Option<Object>,
@@ -25,6 +30,8 @@ pub struct Camera {
     pub yaw: Fixed,
     pub pitch: Fixed,
     pub scale: Fixed,
+    /// Distance from the eye to the center plane in world units. None uses orthographic projection.
+    pub focal_distance: Option<Fixed>,
     /// Half-extent in world units of the sampled terrain around the target.
     pub range: Fixed,
 }
@@ -36,6 +43,7 @@ impl Default for Camera {
             yaw: Fixed::ZERO,
             pitch: Fixed::from_int(35),
             scale: Fixed::ONE,
+            focal_distance: None,
             range: Fixed::from_int(64),
         }
     }
@@ -55,16 +63,103 @@ impl Camera {
     }
 }
 
-/// Paints one view of shared game state. The painter and its workspace belong to that viewport.
-/// The revision changes on scene, camera or live geometry edits. Dimensions come from the paint rectangle. The camera center passed to the painter is the resolved world position including its target offset.
-pub trait ScenePainter: 'static {
+/// Produces the image of a game-directed camera. The viewport handles invalidation, texture revisions, placement and presentation.
+pub trait SceneRenderer: 'static {
+    /// Runs when the scene, its sources or the viewport dimensions change. Return the newly rendered frame, or None to keep the previous image.
+    fn render(
+        &mut self,
+        scene: &StackScene,
+        size: [u16; 2],
+    ) -> Result<Option<&mut Frame>, RenderError>;
+    fn frame(&self) -> Option<&Frame>;
+    /// Centers native scene pixels at this integer scale. By default the frame fills the viewport.
+    fn pixel_scale(&self) -> Option<core::num::NonZeroU16> {
+        None
+    }
+    /// Adds screen-space effects after the scene image is presented.
+    fn overlay(&self, _paint: &mut PaintCtx<'_>, _origin: Point, _scale: Fixed) {}
+}
+
+enum Renderer {
+    Camera(Box<draw::DefaultRenderer>),
+    Directed(Box<dyn SceneRenderer>),
+}
+
+struct Output {
+    renderer: Renderer,
+    ready: Option<(u64, [u16; 2])>,
+    texture_revision: u64,
+}
+
+impl Output {
     fn paint(
         &mut self,
         scene: &StackScene,
         camera: Camera,
-        revision: u64,
+        stamp: u64,
         paint: &mut PaintCtx<'_>,
-    ) -> Result<(), RenderError>;
+    ) -> Result<(), RenderError> {
+        let rect = paint.rect();
+        if !rect.w.is_positive() || !rect.h.is_positive() {
+            return Ok(());
+        }
+        let dimension =
+            |v: Fixed| u16::try_from(v.ceil().to_int()).map_err(|_| RenderError::InvalidGeometry);
+        let size = [dimension(rect.w)?, dimension(rect.h)?];
+        let renderer: &mut dyn SceneRenderer = match &mut self.renderer {
+            Renderer::Camera(r) => {
+                r.camera = camera;
+                r.as_mut()
+            }
+            Renderer::Directed(r) => r.as_mut(),
+        };
+        if self.ready != Some((stamp, size)) {
+            if let Some(frame) = renderer.render(scene, size)? {
+                self.texture_revision = self.texture_revision.wrapping_add(1);
+                frame.texture.cache_revision = self.texture_revision;
+            }
+            self.ready = Some((stamp, size));
+        }
+        let Some(frame) = renderer.frame() else {
+            return Ok(());
+        };
+        let (origin, dimensions, scale) = if let Some(scale) = renderer.pixel_scale() {
+            let scale = Fixed::from(scale.get());
+            let dimensions = Point::new(
+                Fixed::from_int(frame.width as i32) * scale,
+                Fixed::from_int(frame.height as i32) * scale,
+            );
+            let origin = Point::new(
+                rect.x + ((rect.w - dimensions.x) / 2).round(),
+                rect.y + ((rect.h - dimensions.y) / 2).round(),
+            );
+            (origin, dimensions, scale)
+        } else {
+            (
+                Point::new(rect.x, rect.y),
+                Point::new(rect.w, rect.h),
+                Fixed::ONE,
+            )
+        };
+        if frame.texture.alpha_mode == AlphaMode::Opaque
+            && dimensions.x >= rect.w
+            && dimensions.y >= rect.h
+        {
+            paint.set_background_handled(true);
+        }
+        paint.draw(&DrawCommand::Blit {
+            pos: origin,
+            size: dimensions,
+            transform: paint.transform(),
+            quad: None,
+            texture: &frame.texture,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        });
+        renderer.overlay(paint, origin, scale);
+        Ok(())
+    }
 }
 
 #[mirui::component]
@@ -74,7 +169,7 @@ pub struct StackViewport {
     #[property(ViewportCamera)]
     pub camera: Camera,
     bindings: Option<(ModelSubscription, OwnedEffects)>,
-    painter: RefCell<Box<dyn ScenePainter>>,
+    output: RefCell<Output>,
     stamp: Cell<u64>,
     seen_scene: Cell<u64>,
     tracked: Cell<Option<[Fixed; 3]>>,
@@ -82,34 +177,30 @@ pub struct StackViewport {
 
 impl Default for StackViewport {
     fn default() -> Self {
+        Self::new(None, Renderer::Camera(Box::default()))
+    }
+}
+
+impl StackViewport {
+    fn new(scene: Option<StackSceneHandle>, renderer: Renderer) -> Self {
         Self {
-            scene: None,
+            scene,
             camera: Camera::default(),
             bindings: None,
-            painter: RefCell::new(Box::new(draw::DefaultPainter::default())),
+            output: RefCell::new(Output {
+                renderer,
+                ready: None,
+                texture_revision: 0,
+            }),
             stamp: Cell::new(0),
             seen_scene: Cell::new(0),
             tracked: Cell::new(None),
         }
     }
-}
 
-impl StackViewport {
-    /// Supplies per-viewport drawing state for a game with its own materials and effects.
-    pub fn with_painter(
-        scene: StackSceneHandle,
-        camera: Camera,
-        painter: impl ScenePainter,
-    ) -> Self {
-        Self {
-            scene: Some(scene),
-            camera,
-            bindings: None,
-            painter: RefCell::new(Box::new(painter)),
-            stamp: Cell::new(0),
-            seen_scene: Cell::new(0),
-            tracked: Cell::new(None),
-        }
+    /// Installs a game-directed camera. Assigning the camera property selects an ordinary scene camera for this viewport.
+    pub fn with_renderer(scene: StackSceneHandle, renderer: impl SceneRenderer) -> Self {
+        Self::new(Some(scene), Renderer::Directed(Box::new(renderer)))
     }
 
     fn advance_stamp(&self) {
@@ -131,7 +222,7 @@ impl StackViewport {
             self.tracked.set(Some(position));
             camera.center = core::array::from_fn(|i| position[i] + camera.center[i]);
         }
-        self.painter
+        self.output
             .borrow_mut()
             .paint(scene, camera, self.stamp.get(), paint)
     }
@@ -188,7 +279,9 @@ impl Property for ViewportCamera {
         let Some(view) = world.get_mut::<StackViewport>(entity) else {
             return PropertyChange::Unchanged;
         };
-        if view.camera == camera {
+        if matches!(&view.output.get_mut().renderer, Renderer::Directed(_)) {
+            view.output.get_mut().renderer = Renderer::Camera(Box::default());
+        } else if view.camera == camera {
             return PropertyChange::Unchanged;
         }
         if camera.target != view.camera.target {

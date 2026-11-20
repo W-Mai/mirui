@@ -5,7 +5,7 @@ use super::{
     flight::{Flight, Projection},
     jet,
     raster::{BAYER, Canvas, Palette, blend, rgba},
-    world::{World, hash8},
+    world::{Ground, World, hash8},
 };
 use alloc::{vec, vec::Vec};
 use mirui::types::Fixed;
@@ -1446,13 +1446,18 @@ impl Cockpit {
     }
     pub fn draw(&self, canvas: &mut Canvas<'_>, world: &World, flight: &Flight, palette: &Palette) {
         if let Some(prepared) = self.prepare(flight, palette) {
-            self.draw_prepared(canvas, world, flight, &prepared);
+            self.draw_prepared(
+                canvas,
+                world.at(Some(Default::default())),
+                flight,
+                &prepared,
+            );
         }
     }
     pub(super) fn draw_prepared(
         &self,
         canvas: &mut Canvas<'_>,
-        world: &World,
+        world: Ground<'_>,
         flight: &Flight,
         prepared: &PreparedCockpit,
     ) {
@@ -2731,7 +2736,12 @@ mod tests {
                                             canvas.put(at, background);
                                         }
                                     }
-                                    art.draw_prepared(canvas, &world, &flight, &prepared);
+                                    art.draw_prepared(
+                                        canvas,
+                                        world.at(Some(Default::default())),
+                                        &flight,
+                                        &prepared,
+                                    );
                                 });
                             }
                             let ap = a.texture.read_pixels().unwrap();

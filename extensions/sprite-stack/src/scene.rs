@@ -33,6 +33,8 @@ impl Pose {
 pub enum Geometry {
     Sprite(Handle<SpriteStackAsset>),
     Prepared(&'static crate::PreparedSpriteStack<'static>),
+    /// Samples projected cells of a sparse model and depth-tests them against other scene objects.
+    Sampled(&'static crate::PreparedSpriteStack<'static>),
     Field(Handle<HeightField>),
     LiveField(HeightFieldHandle),
 }
@@ -69,7 +71,7 @@ impl Geometry {
         match self {
             Self::Field(field) => Some(read(field.get())),
             Self::LiveField(field) => Some(field.read(read)),
-            Self::Sprite(_) | Self::Prepared(_) => None,
+            Self::Sprite(_) | Self::Prepared(_) | Self::Sampled(_) => None,
         }
     }
 }
@@ -107,6 +109,21 @@ impl StackScene {
             membership: 0,
         }
     }
+    /// Prepares the initial slots and allows further placements to grow the scene.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            entries: Objects(ModelList::with_capacity(capacity)),
+            revision: 0,
+            membership: 0,
+        }
+    }
+    pub fn len(&self) -> usize {
+        self.entries.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.entries.0.is_empty()
+    }
+
     /// Prepares all instance slots. Subsequent placement and movement reuse their storage.
     pub fn bounded(limit: usize) -> Self {
         Self {

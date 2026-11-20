@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Pixel Flight and Passing Lane share SpriteStack's frame rendering, object projection and depth buffer. Game-directed cameras support additional scene objects, sampled models, procedural terrain shading and bounded RGB565 rendering.
+
 - Passing Lane starts both cars automatically, updates traffic at up to 120 Hz and counts overtakes in motion. Pause, resume and road lift controls sit below the two camera views.
 - SpriteStack skips upright, axis-aligned sprite layers outside the current drawing band and uses the camera scale directly for orthographic projection.
 

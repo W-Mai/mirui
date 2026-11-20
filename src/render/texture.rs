@@ -207,8 +207,9 @@ pub enum AlphaMode {
     Blend,
 }
 
+/// Composites straight RGB over a straight RGBA destination. `alpha` is the effective source alpha, including any opacity or coverage already applied to `source.a`.
 #[inline(always)]
-pub(crate) fn blend_straight_source_over(source: &Color, destination: &Color, alpha: u8) -> Color {
+pub fn blend_straight_source_over(source: &Color, destination: &Color, alpha: u8) -> Color {
     if alpha == 0 {
         return *destination;
     }

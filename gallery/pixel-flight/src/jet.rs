@@ -23,16 +23,22 @@ const fn rgba_palette() -> [[u8; 4]; 65] {
     rgba
 }
 
+const FINE: mirui_sprite_stack::format::IndexedLevel<'static, LAYERS> =
+    SparseLevel::new(1, &STARTS, &VOXELS)
+        .expect("invalid aircraft slices")
+        .indexed();
+const COARSE: mirui_sprite_stack::format::IndexedLevel<'static, LAYERS> =
+    SparseLevel::new(2, &COARSE_STARTS, &COARSE_VOXELS)
+        .expect("invalid coarse slices")
+        .indexed();
+
 /// Both detail levels reference the samples generated from the same indexed MIRX file.
 pub static MODEL: PreparedSpriteStack<'static> = PreparedSpriteStack::new(
     [WIDTH as u16, LENGTH as u16, LAYERS as u16],
     PIVOT_Q8,
     256,
     &rgba_palette(),
-    &[
-        SparseLevel::new(1, &STARTS, &VOXELS).expect("invalid aircraft slices"),
-        SparseLevel::new(2, &COARSE_STARTS, &COARSE_VOXELS).expect("invalid coarse slices"),
-    ],
+    &[FINE.level(), COARSE.level()],
 )
 .expect("invalid aircraft model");
 
@@ -53,88 +59,8 @@ pub fn decode(out: &mut [u8; WIDTH * LENGTH * LAYERS]) {
     }
 }
 
-pub(super) fn lateral(x: u8) -> Fixed {
-    Fixed::from_int(i32::from(x)) - PIVOT_X
-}
-
-pub(super) fn longitudinal(y: u8) -> Fixed {
-    PIVOT[0] - Fixed::from_int(i32::from(y))
-}
-
 pub fn slices() -> [&'static [Voxel]; LAYERS] {
-    core::array::from_fn(|i| Detail::Full.slice(i))
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Detail {
-    Full,
-    Coarse,
-}
-
-// Rows already follow increasing y. Only the two x extrema need extra storage.
-const fn layer_widths(voxels: &[Voxel], starts: &[usize; LAYERS + 1]) -> [[[u8; 2]; 2]; LAYERS] {
-    let mut widths = [[[u8::MAX, 0]; 2]; LAYERS];
-    let mut layer = 0;
-    while layer < LAYERS {
-        let mut i = starts[layer];
-        let mid = i + (starts[layer + 1] - i) / 2;
-        while i < starts[layer + 1] {
-            let half = (i >= mid) as usize;
-            let x = voxels[i].x;
-            if x < widths[layer][half][0] {
-                widths[layer][half][0] = x;
-            }
-            if x > widths[layer][half][1] {
-                widths[layer][half][1] = x;
-            }
-            i += 1;
-        }
-        layer += 1;
-    }
-    widths
-}
-
-impl Detail {
-    pub(super) fn band_bounds(self, layer: usize, half: usize) -> Option<[[u8; 2]; 2]> {
-        static FULL: [[[u8; 2]; 2]; LAYERS] = layer_widths(&VOXELS, &STARTS);
-        static COARSE: [[[u8; 2]; 2]; LAYERS] = layer_widths(&COARSE_VOXELS, &COARSE_STARTS);
-        let voxels = self.slice(layer);
-        let (first, second) = voxels.split_at(voxels.len() / 2);
-        let voxels = if half == 0 { first } else { second };
-        let x = match self {
-            Self::Full => FULL[layer][half],
-            Self::Coarse => COARSE[layer][half],
-        };
-        Some([x, [voxels.first()?.y, voxels.last()?.y]])
-    }
-
-    pub(super) fn for_scale(scale: Fixed) -> Self {
-        if scale > Fixed::ZERO && scale <= Fixed::from_ratio(3, 2) {
-            Self::Coarse
-        } else {
-            Self::Full
-        }
-    }
-
-    pub(super) fn cell_scale(self) -> Fixed {
-        match self {
-            Self::Full => Fixed::ONE,
-            Self::Coarse => Fixed::from_int(2),
-        }
-    }
-
-    pub(super) fn center_offset(self) -> Fixed {
-        match self {
-            Self::Full => Fixed::ZERO,
-            Self::Coarse => Fixed::from_ratio(1, 2),
-        }
-    }
-
-    pub(super) fn slice(self, layer: usize) -> &'static [Voxel] {
-        MODEL.levels()[self as usize]
-            .layer(layer)
-            .expect("valid aircraft layer")
-    }
+    core::array::from_fn(|i| MODEL.levels()[0].layer(i).expect("valid aircraft layer"))
 }
 
 pub(super) struct Projections {
@@ -172,7 +98,7 @@ mod tests {
         decode(&mut cells);
         let allocations = crate::test_support::tracked_allocations(|| {
             for layer in 0..LAYERS {
-                let slice = Detail::Coarse.slice(layer);
+                let slice = MODEL.levels()[1].layer(layer).unwrap();
                 let mut represented = [false; WIDTH * LENGTH / 4];
                 for voxel in slice {
                     let (x, y) = (usize::from(voxel.x), usize::from(voxel.y));
@@ -185,13 +111,16 @@ mod tests {
                         [layer * WIDTH * LENGTH + (y + i / 2) * WIDTH + x + i % 2]
                         != 0));
                 }
-                for voxel in Detail::Full.slice(layer) {
+                for voxel in MODEL.levels()[0].layer(layer).unwrap() {
                     assert!(
                         represented
                             [usize::from(voxel.y) / 2 * (WIDTH / 2) + usize::from(voxel.x) / 2]
                     );
                 }
-                assert_eq!(slice.is_empty(), Detail::Full.slice(layer).is_empty());
+                assert_eq!(
+                    slice.is_empty(),
+                    MODEL.levels()[0].layer(layer).unwrap().is_empty()
+                );
             }
         });
         assert_eq!(allocations, 0);
@@ -201,16 +130,19 @@ mod tests {
     fn detail_uses_the_projected_cell_bound() {
         for raw in -256..=512 {
             let scale = Fixed::from_ratio(raw, 256);
-            let detail = Detail::for_scale(scale);
-            if detail == Detail::Coarse {
-                assert!(scale > Fixed::ZERO);
-                assert!(scale * detail.cell_scale() <= Fixed::from_int(3));
-                assert_eq!(detail.center_offset(), Fixed::from_ratio(1, 2));
-            } else {
-                assert!(scale <= Fixed::ZERO || scale > Fixed::from_ratio(3, 2));
-                assert_eq!(detail.cell_scale(), Fixed::ONE);
-                assert_eq!(detail.center_offset(), Fixed::ZERO);
-            }
+            let level = mirui_sprite_stack::raster::sprites::select_level(
+                &MODEL,
+                scale,
+                Fixed::from_int(3),
+            );
+            assert_eq!(
+                level.step(),
+                if scale > Fixed::ZERO && scale <= Fixed::from_ratio(3, 2) {
+                    2
+                } else {
+                    1
+                }
+            );
         }
     }
 

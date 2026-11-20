@@ -3,7 +3,79 @@ use super::math::FixedMath as _;
 use alloc::{vec, vec::Vec};
 use mirui::core::cache::Handle;
 use mirui::types::{Color, Fixed};
-use mirui_sprite_stack::{HeightField, TerrainGrid};
+use mirui_sprite_stack::{HeightField, Pose, TerrainGrid};
+#[derive(Clone, Copy)]
+enum GroundPose {
+    Original,
+    Placed {
+        origin: [Fixed; 3],
+        rotation: [Fixed; 2],
+    },
+    Absent,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct Ground<'a> {
+    pub(super) world: &'a World,
+    placement: GroundPose,
+}
+
+impl Ground<'_> {
+    pub(super) fn is_original(&self) -> bool {
+        matches!(self.placement, GroundPose::Original)
+    }
+
+    pub(super) fn draws_surface(&self) -> bool {
+        !matches!(self.placement, GroundPose::Absent)
+    }
+    pub(super) fn elevation(&self) -> Fixed {
+        match self.placement {
+            GroundPose::Placed { origin, .. } => origin[1],
+            _ => Fixed::ZERO,
+        }
+    }
+    fn local_address(
+        &self,
+        x: Fixed,
+        y: Fixed,
+        origin: [Fixed; 3],
+        [sin, cos]: [Fixed; 2],
+    ) -> usize {
+        let dx = x - origin[0];
+        let dz = -y - origin[2];
+        self.world
+            .ground
+            .address_at(dx * cos - dz * sin, dx * sin + dz * cos)
+            .expect("flight ground repeats across the map")
+    }
+
+    pub(super) fn placed_sample(&self, [x, y]: [Fixed; 2]) -> Option<(Fixed, usize)> {
+        let GroundPose::Placed { origin, rotation } = self.placement else {
+            return None;
+        };
+        let i = self.local_address(x, y, origin, rotation);
+        Some((
+            Fixed::from_int(i32::from(self.world.ground.levels()[i])) + origin[1],
+            i,
+        ))
+    }
+    pub(super) fn height(&self, x: i32, y: i32) -> Fixed {
+        if self.is_original() {
+            return Fixed::from_int(i32::from(self.world.height(x, y)));
+        }
+        self.placed_sample([x, y].map(Fixed::from_int))
+            .map_or(Fixed::ZERO, |(h, _)| h)
+    }
+    pub(super) fn material(&self, x: i32, y: i32) -> u8 {
+        match self.placement {
+            GroundPose::Original => self.world.material(x, y),
+            GroundPose::Placed { origin, rotation } => self.world.ground.materials()
+                [self.local_address(Fixed::from_int(x), Fixed::from_int(y), origin, rotation)],
+            GroundPose::Absent => 0,
+        }
+    }
+}
+
 pub const SIDE: usize = 1024;
 pub const CLOUD_SIDE: usize = 512;
 pub const CLOUD_ALT: Fixed = Fixed::from_int(40);
@@ -391,8 +463,19 @@ impl World {
         }
         world
     }
-    pub(crate) fn uses_field(&self, field: &Handle<HeightField>) -> bool {
-        self.ground.ptr_eq(field)
+    pub(super) fn at(&self, pose: Option<Pose>) -> Ground<'_> {
+        let placement = match pose {
+            Some(p) if p == Pose::default() => GroundPose::Original,
+            Some(p) if p.pitch.is_zero() && p.roll.is_zero() => GroundPose::Placed {
+                origin: p.position,
+                rotation: [Fixed::sin_deg(p.yaw), Fixed::cos_deg(p.yaw)],
+            },
+            _ => GroundPose::Absent,
+        };
+        Ground {
+            world: self,
+            placement,
+        }
     }
 
     /// Shares the generated ground with scene objects and additional viewports.

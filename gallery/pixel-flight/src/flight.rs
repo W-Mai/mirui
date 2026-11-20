@@ -3,7 +3,7 @@ use super::math::FixedMath as _;
 use super::math::{PI, TAU};
 use super::{
     jet,
-    world::{CLOUD_ALT, MAX_HEIGHT, World},
+    world::{CLOUD_ALT, Ground, MAX_HEIGHT, World},
 };
 use alloc::{boxed::Box, vec::Vec};
 use mirui::{
@@ -490,6 +490,21 @@ impl Flight {
         p
     }
     pub fn step(&mut self, world: &World, milliseconds: u16, width: usize, height: usize) {
+        self.step_above(
+            world.at(Some(Default::default())),
+            milliseconds,
+            width,
+            height,
+        );
+    }
+
+    pub(super) fn step_above(
+        &mut self,
+        world: Ground<'_>,
+        milliseconds: u16,
+        width: usize,
+        height: usize,
+    ) {
         self.elapsed_ms += u64::from(milliseconds.min(50));
         let now = (Fixed64::from_int(self.elapsed_ms as i64) / 1000).to_fixed();
         let dt = now - self.time;
@@ -534,7 +549,7 @@ impl Flight {
         let j = &self.jets[0];
         let rate = s.agility.max(Fixed::from_ratio(1, 10));
         let clearance = s.clearance.clamp(Fixed::from_int(2), Fixed::from_int(60));
-        let mut ground: u8 = 0;
+        let mut ground = Fixed::MIN;
         for i in 0..=4 {
             for side in -1..=1 {
                 let distance = self.speed * Fixed::from_ratio(16, 100) * Fixed::from_int(i);
@@ -551,7 +566,7 @@ impl Flight {
                 );
             }
         }
-        let floor = Fixed::from_int((ground) as i32) + clearance;
+        let floor = ground + clearance;
         if self.floor == Fixed::ZERO {
             self.floor = floor;
         }
@@ -671,12 +686,8 @@ impl Flight {
             * (Fixed::ONE - (-dt * Fixed::from_int(3)).exp()))
         .clamp(-climb_max * dt, climb_max * dt);
         j.position[2] += dz;
-        let hard = Fixed::from_int(
-            (world.height(
-                (j.position[0]).trunc_to_int(),
-                (j.position[1]).trunc_to_int(),
-            )) as i32,
-        ) + clearance * Fixed::from_ratio(7, 10);
+        let hard = world.height(j.position[0].trunc_to_int(), j.position[1].trunc_to_int())
+            + clearance * Fixed::from_ratio(7, 10);
         if j.position[2] < hard {
             follow(&mut j.position[2], hard, Fixed::from_int(22), dt);
         }
@@ -748,12 +759,8 @@ impl Flight {
                 dt,
             );
             j.position[2] = j.position[2].max(
-                Fixed::from_int(
-                    (world.height(
-                        (j.position[0]).trunc_to_int(),
-                        (j.position[1]).trunc_to_int(),
-                    )) as i32,
-                ) + clearance * Fixed::from_ratio(7, 10),
+                world.height(j.position[0].trunc_to_int(), j.position[1].trunc_to_int())
+                    + clearance * Fixed::from_ratio(7, 10),
             );
         }
         for j in &mut self.jets[..self.count] {
@@ -919,7 +926,7 @@ impl Flight {
             let (sn, cs) = old_camera.yaw.sin_cos();
             let x = old_camera.position[0] + sn * back;
             let y = old_camera.position[1] + cs * back;
-            let mut high = 0;
+            let mut high = Fixed::MIN;
             for dy in -1..=1 {
                 for dx in -1..=1 {
                     high = high.max(world.height(
@@ -928,7 +935,7 @@ impl Flight {
                     ));
                 }
             }
-            self.camera_floor = Fixed::from_int((high) as i32) + Fixed::from_int(5);
+            self.camera_floor = high + Fixed::from_int(5);
             let nominal = self.follow[2] + old_camera.slope * back;
             let mut wanted = nominal.max(self.camera_floor);
             if wanted > CLOUD_ALT - Fixed::from_int(3)

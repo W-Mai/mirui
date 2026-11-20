@@ -1,15 +1,21 @@
 #![doc = " Height-field scan conversion into reusable ordinary Texture storage."]
+#[cfg(test)]
 mod compact;
 use super::math::FixedMath as _;
 use super::{
     flight::{Flight, Projection, TRAIL_CAPACITY, V3, aircraft_axes, aircraft_point},
     jet,
-    world::{self, World},
+    world::{self, Ground, World},
 };
 use mirui::render::{renderer::RenderError, texture::ColorFormat};
-use mirui::types::{Color, Fixed, Fixed64, GridBasis};
+use mirui::types::{Color, Fixed, Fixed64};
+#[cfg(test)]
+use mirui_sprite_stack::raster::Workspace;
+use mirui_sprite_stack::raster::sprites::{ProjectedStack, SpritePaint, StackTransform};
+use mirui_sprite_stack::raster::{
+    CameraWorkspace, DepthQuery, DepthSamples, FrameOverlay, RollMapping, SceneCanvas,
+};
 pub use mirui_sprite_stack::raster::{Canvas, Frame};
-use mirui_sprite_stack::raster::{DepthSamples, RollMapping, SceneCanvas, Workspace};
 pub const MAX_WIDTH: usize = 480;
 pub const MAX_HEIGHT: usize = 300;
 pub const BAYER: [u8; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
@@ -251,9 +257,8 @@ pub struct Flame {
 }
 pub struct Raster {
     pub frame: Frame,
-    pub sheet: Frame,
-    workspace: Workspace,
-    output_band: Option<Frame>,
+    workspace: CameraWorkspace,
+    objects: mirui_sprite_stack::ObjectPass,
     pub palette: Palette,
     pub flames: [Flame; 6],
     pub flame_count: usize,
@@ -284,17 +289,27 @@ impl PlacedAircraft {
 pub(crate) type Placements = [Option<PlacedAircraft>; 3];
 struct Scene<'a> {
     placed: &'a Placements,
-    world: &'a World,
+    ground: Ground<'a>,
     flight: &'a Flight,
     palette: &'a Palette,
     frame_height: usize,
     terrain: PreparedTerrain,
 }
 impl Scene<'_> {
+    fn draw_ground(&self, canvas: &mut SceneCanvas<'_, '_>, projection: &Projection) {
+        if self.ground.is_original() {
+            draw_world::<false>(canvas, self.ground, projection, self.palette, &self.terrain);
+        } else {
+            draw_world::<true>(canvas, self.ground, projection, self.palette, &self.terrain);
+        }
+    }
+
+    #[cfg(test)]
     fn draw(&self, canvas: &mut SceneCanvas<'_, '_>, projection: Projection) -> [usize; 3] {
         let order = self.order(projection);
         let prepared = self.prepare(projection, [canvas.color.width, canvas.color.height]);
-        self.draw_ordered(canvas, projection, &order, &prepared);
+        self.draw_ordered::<false>(canvas, projection, &order, &prepared, None)
+            .unwrap();
         order
     }
     fn prepare(&self, projection: Projection, size: [usize; 2]) -> [Option<PreparedJet>; 3] {
@@ -323,24 +338,51 @@ impl Scene<'_> {
         });
         order
     }
-    fn draw_ordered(
+    fn draw_ordered<const DEPTH_ONLY: bool>(
         &self,
         canvas: &mut SceneCanvas<'_, '_>,
         projection: Projection,
         order: &[usize; 3],
         prepared: &[Option<PreparedJet>; 3],
-    ) {
-        draw_world(canvas, self.world, &projection, self.palette, &self.terrain);
-        draw_sky(canvas, &projection, self.palette, self.frame_height);
-        draw_trails(canvas, self.flight, &projection, self.palette);
-        draw_smoke(canvas, self.flight, &projection, self.palette.day);
+        objects: Option<&mirui_sprite_stack::ProjectedObjects<'_>>,
+    ) -> Result<(), RenderError> {
+        self.draw_ground(canvas, &projection);
+        if !DEPTH_ONLY {
+            draw_sky(canvas, &projection, self.palette, self.frame_height);
+        }
+        if let Some(objects) = objects {
+            objects.draw(canvas)?;
+        }
+        if !DEPTH_ONLY {
+            draw_trails(canvas, self.flight, &projection, self.palette);
+            draw_smoke(canvas, self.flight, &projection, self.palette.day);
+        }
         for i in &order[..self.flight.count] {
             if let Some(jet) = &prepared[*i] {
                 jet.draw(canvas, &projection, self.palette);
             }
         }
+        Ok(())
     }
 }
+struct CockpitOverlay<'a> {
+    cockpit: &'a super::cockpit::Cockpit,
+    prepared: super::cockpit::PreparedCockpit,
+    world: Ground<'a>,
+    flight: &'a Flight,
+}
+
+impl FrameOverlay for CockpitOverlay<'_> {
+    fn covers(&self, rect: [i32; 4], scratch: &mut [u8]) -> bool {
+        self.cockpit.covers(rect, &self.prepared, scratch)
+    }
+
+    fn paint(&self, canvas: &mut Canvas<'_>) {
+        self.cockpit
+            .draw_prepared(canvas, self.world, self.flight, &self.prepared);
+    }
+}
+
 fn roll_pivot(height: usize) -> Fixed {
     (Fixed::from_int(height as i32) * Fixed::from_ratio(34, 100)).round()
 }
@@ -385,28 +427,19 @@ impl Raster {
     fn allocate(width: usize, height: usize, compact: bool) -> Result<Self, RenderError> {
         let width = width.clamp(8, MAX_WIDTH);
         let height = height.clamp(8, MAX_HEIGHT);
-        let side = if compact {
-            compact::SOURCE_SIDE
-        } else {
-            mirui_sprite_stack::raster::sheet_side(width, height, roll_pivot(height))
-        };
-        Ok(Self {
-            frame: Frame::with_format(
-                width,
-                height,
-                if compact {
-                    ColorFormat::RGB565
-                } else {
-                    ColorFormat::RGBA8888
-                },
-            )?,
-            sheet: Frame::new(side, side)?,
-            workspace: Workspace::new(side, side)?,
-            output_band: if compact {
-                Some(Frame::new(width, height.min(compact::TILE_SIDE))?)
+        let frame = Frame::with_format(
+            width,
+            height,
+            if compact {
+                ColorFormat::RGB565
             } else {
-                None
+                ColorFormat::RGBA8888
             },
+        )?;
+        Ok(Self {
+            workspace: CameraWorkspace::new(&frame, roll_pivot(height))?,
+            objects: Default::default(),
+            frame,
             palette: Palette::new(Daylight::Day),
             flames: [Flame::default(); 6],
             flame_count: 0,
@@ -415,78 +448,23 @@ impl Raster {
     }
     pub fn bytes(&self) -> usize {
         self.frame.bytes()
-            + self.sheet.bytes()
             + self.workspace.bytes()
-            + self.output_band.as_ref().map_or(0, Frame::bytes)
+            + self.objects.storage_bytes()
             + core::mem::size_of::<Self>()
     }
+    #[cfg(test)]
     pub(crate) fn render(&mut self, world: &World, flight: &Flight, placed: &Placements) {
-        assert!(
-            self.output_band.is_none(),
-            "compact rendering requires its cockpit pass"
-        );
-        let p = flight.projection(self.frame.width, self.frame.height);
-        self.flame_count = 0;
-        let Self {
-            frame,
-            sheet,
-            workspace,
-            palette,
-            flames,
-            flame_count,
-            seen,
-            output_band: _,
-        } = self;
-        let frame_height = frame.height;
-        let mapping = Mapping::new(p, frame.width, frame.height);
-        let scene = Scene {
-            placed,
-            world,
+        self.render_scene(
+            world.at(Some(Default::default())),
             flight,
-            palette,
-            frame_height,
-            terrain: PreparedTerrain::new(world, flight, &mapping.projection, palette, placed),
-        };
-        let mut draw = |canvas: &mut SceneCanvas<'_, '_>, projection: Projection| {
-            let order = scene.draw(canvas, projection);
-            for i in &order[..flight.count] {
-                if let Some(jet) = placed[*i] {
-                    record_flames(
-                        canvas,
-                        flight,
-                        (*i, jet),
-                        &projection,
-                        flames,
-                        flame_count,
-                        seen,
-                    );
-                }
-            }
-        };
-        if mapping.rolled {
-            workspace.with_region(sheet, mapping.size, [0, 0], mapping.bounds, |canvas| {
-                draw(canvas, mapping.projection)
-            });
-            let pixels = sheet.texture.read_pixels().expect("flight roll sheet");
-            frame.with_canvas(|canvas| {
-                for y in 0..canvas.height {
-                    for x in 0..canvas.width {
-                        let [sx, sy] = mapping.source_at(x as i32, y as i32);
-                        let at = (sy as usize * sheet.width + sx as usize) * 4;
-                        canvas.bytes[(y * canvas.width + x) * 4..(y * canvas.width + x + 1) * 4]
-                            .copy_from_slice(&pixels.bytes()[at..at + 4]);
-                    }
-                }
-            });
-            for flame in &mut flames[..*flame_count] {
-                for point in &mut flame.points {
-                    *point = mapping.unroll(*point);
-                }
-            }
-        } else {
-            workspace.with_canvas(frame, |canvas| draw(canvas, p));
-        }
+            None,
+            placed,
+            None,
+        )
+        .unwrap();
     }
+
+    #[cfg(test)]
     pub(super) fn render_with_cockpit(
         &mut self,
         world: &World,
@@ -494,42 +472,120 @@ impl Raster {
         cockpit: &super::cockpit::Cockpit,
         placed: &Placements,
     ) {
-        if self.output_band.is_some() {
-            self.render_compact(world, flight, cockpit, placed);
-        } else {
-            self.render(world, flight, placed);
-            self.frame
-                .with_canvas(|canvas| cockpit.draw(canvas, world, flight, &self.palette));
-        }
+        self.render_scene(
+            world.at(Some(Default::default())),
+            flight,
+            Some(cockpit),
+            placed,
+            None,
+        )
+        .unwrap();
     }
-}
-#[derive(Clone, Copy)]
-struct HeightProjection {
-    origin: Fixed,
-    scale: Fixed,
-}
-impl HeightProjection {
-    fn new(center: Fixed, scale: Fixed, slope: Fixed, depth: Fixed, altitude: Fixed) -> Self {
-        Self {
-            origin: center - scale * (slope * depth - altitude),
-            scale,
-        }
-    }
-    fn at(&self, height: usize) -> i32 {
-        assert!(
-            height <= world::MAX_HEIGHT,
-            "terrain height outside projection"
+
+    pub(super) fn render_scene(
+        &mut self,
+        ground: Ground<'_>,
+        flight: &Flight,
+        cockpit: Option<&super::cockpit::Cockpit>,
+        placed: &Placements,
+        extra: Option<(
+            &mirui_sprite_stack::StackScene,
+            &[Option<mirui_sprite_stack::Object>],
+        )>,
+    ) -> Result<(), RenderError> {
+        let Self {
+            frame,
+            workspace,
+            objects,
+            palette,
+            flames,
+            flame_count,
+            seen,
+        } = self;
+        let mapping = Mapping::new(
+            flight.projection(frame.width, frame.height),
+            frame.width,
+            frame.height,
         );
-        (self.origin - self.scale * Fixed::from_int(height as i32) + Fixed::from_ratio(1, 100000))
-            .floor()
-            .trunc_to_int()
-    }
-    fn minimum_y(&self) -> i32 {
-        self.at(if self.scale >= Fixed::ZERO {
-            world::MAX_HEIGHT
+        let projection = mapping.projection;
+        let extra = if let Some((shared, managed)) = extra {
+            let [x, z, altitude] = projection.position;
+            let (sin, cos) = projection.yaw.sin_cos();
+            let camera = mirui_sprite_stack::ViewProjection::horizontal(
+                projection.camera,
+                [x, altitude, -z],
+                [-sin, cos],
+                terrain_distance(altitude),
+            );
+            Some(objects.prepare(shared, camera, |id| !managed.contains(&Some(id)))?)
         } else {
-            0
-        })
+            objects.clear();
+            None
+        };
+        let scene = Scene {
+            placed,
+            ground,
+            flight,
+            palette,
+            frame_height: frame.height,
+            terrain: PreparedTerrain::new(ground, flight, &projection, palette, placed),
+        };
+        let order = scene.order(projection);
+        let mut models = scene.prepare(projection, mapping.size);
+        let compact = frame.texture.format() == ColorFormat::RGB565;
+        if compact {
+            for model in models.iter_mut().flatten() {
+                model.prepare_regions(&projection);
+            }
+        }
+        let overlay = cockpit.and_then(|cockpit| {
+            cockpit
+                .prepare(flight, palette)
+                .map(|prepared| CockpitOverlay {
+                    cockpit,
+                    prepared,
+                    world: ground,
+                    flight,
+                })
+        });
+        let mut pending = [PendingFlame::default(); 6];
+        let mut count = 0;
+        for &index in &order[..flight.count] {
+            if let Some(jet) = placed[index] {
+                project_flames(flight, (index, jet), &projection, &mut pending, &mut count);
+            }
+        }
+        workspace.render(
+            frame,
+            &mapping,
+            overlay.as_ref().map(|o| o as &dyn FrameOverlay),
+            |tile| {
+                scene.draw_ordered::<false>(tile, projection, &order, &models, extra.as_ref())?;
+                for query in &mut pending[..count] {
+                    query.resolve(tile);
+                }
+                Ok(())
+            },
+        )?;
+
+        // Effect samples behind an opaque cockpit can lie outside the visible scene tiles.
+        workspace.finish_depth_queries(&mapping, &mut pending[..count], |canvas| {
+            scene.draw_ordered::<true>(canvas, projection, &order, &models, extra.as_ref())
+        })?;
+        for (out, query) in flames.iter_mut().zip(pending[..count].iter().copied()) {
+            *out = query.finish(seen);
+            if mapping.rolled {
+                for point in &mut out.points {
+                    *point = mapping.unroll(*point);
+                }
+            }
+        }
+        *flame_count = count;
+        if compact {
+            let mut target = frame.texture.pixels_mut().expect("owned compact frame");
+            super::flame::composite_native(&mut target, &flames[..count], flight.time);
+        }
+        Ok(())
     }
 }
 #[derive(Clone, Copy, Default)]
@@ -553,12 +609,13 @@ struct PreparedTerrain {
 }
 impl PreparedTerrain {
     fn new(
-        world: &World,
+        ground: Ground<'_>,
         flight: &Flight,
         p: &Projection,
         pal: &Palette,
         placed: &Placements,
     ) -> Self {
+        let world = ground.world;
         let period = Fixed::from_int(world.period() as i32);
         let base = [
             p.position[0].rem_euclid(period) + period * Fixed::from_int(2),
@@ -597,6 +654,14 @@ impl PreparedTerrain {
                     shadow_bounds[axis + 2].max((center[axis].max(far) + reach).ceil().to_int());
             }
         }
+        let elevation = ground.elevation();
+        if shadow_count != 0 && !elevation.is_zero() {
+            for (axis, sun) in pal.sun.iter().enumerate() {
+                let offset = *sun * elevation;
+                shadow_bounds[axis] -= offset.ceil().to_int();
+                shadow_bounds[axis + 2] -= offset.floor().to_int();
+            }
+        }
         Self {
             base,
             drift: [
@@ -619,242 +684,203 @@ impl PreparedTerrain {
         }
     }
 }
-fn draw_world(
+use mirui_sprite_stack::raster::terrain::{TerrainColumn, TerrainRow, TerrainSurface, TerrainView};
+
+struct Landscape<'a, const PLACED: bool> {
+    ground: Ground<'a>,
+    to_world: [Fixed; 2],
+    world: &'a World,
+    palette: &'a Palette,
+    prepared: &'a PreparedTerrain,
+    levels: &'a [u8],
+    materials: &'a [u8],
+    fog_start: Fixed,
+    far: Fixed,
+    fog: Fixed,
+    pixel_width: Fixed,
+    cast_shadows: bool,
+}
+
+impl<const PLACED: bool> TerrainSurface for Landscape<'_, PLACED> {
+    type Sample = usize;
+
+    fn shade(&self, color: u32) -> u32 {
+        if self.fog.is_zero() {
+            color | 0xff00_0000
+        } else {
+            blend(color, self.palette.haze, self.fog)
+        }
+    }
+    fn begin_row(&mut self, row: TerrainRow) {
+        let [xmin, ymin, xmax, ymax] = self.prepared.shadow_bounds;
+        let [left, top, right, bottom] = row.bounds.map(Fixed::trunc_to_int);
+        self.cast_shadows = left <= xmax && right >= xmin && top <= ymax && bottom >= ymin;
+        self.pixel_width = row.pixel_width;
+        self.fog = if row.depth > self.fog_start {
+            (((row.depth - self.fog_start) / (self.far - self.fog_start)).sqrt()
+                * Fixed::from_int(10))
+            .round()
+            .min(Fixed::from_int(10))
+                / 10
+        } else {
+            Fixed::ZERO
+        };
+    }
+
+    fn overlay(&self, position: [Fixed; 2], column: &mut TerrainColumn<'_, '_, '_>) {
+        let prepared = self.prepared;
+        if prepared.rank == 0 {
+            return;
+        }
+        let [gx, gy] = position.map(Fixed::trunc_to_int);
+        let cloud = self.world.cloud(
+            (Fixed::from_int(gx) - prepared.drift[0]).trunc_to_int(),
+            (Fixed::from_int(gy) - prepared.drift[1]).trunc_to_int(),
+        );
+        let thick = usize::from(cloud & 15);
+        if thick > 0 && cloud >> 4 < prepared.rank {
+            let colors = self.palette;
+            column.slab(
+                world::CLOUD_ALT,
+                Fixed::ONE,
+                self.shade(colors.cloud_top[thick - 1]),
+                self.shade(colors.cloud_under),
+                colors.cloud_wall[..thick - 1]
+                    .iter()
+                    .map(|&color| self.shade(color)),
+            );
+        }
+    }
+
+    fn height_at(&self, position: [Fixed; 2]) -> Option<(Fixed, usize)> {
+        if PLACED {
+            return self.ground.placed_sample([
+                position[0] + self.to_world[0],
+                position[1] + self.to_world[1],
+            ]);
+        }
+        let [gx, gy] = position.map(Fixed::trunc_to_int);
+        let index = self.world.ground_index(gx, gy);
+        Some((Fixed::from_int(i32::from(self.levels[index])), index))
+    }
+
+    #[inline(always)]
+    fn colors(&self, position: [Fixed; 2], height: Fixed, index: usize) -> [u32; 2] {
+        let [gx, gy] = position.map(Fixed::trunc_to_int);
+        let world = self.world;
+        let pal = self.palette;
+        let prepared = self.prepared;
+        let material = usize::from(self.materials[index]);
+        let mut shaded = false;
+        if prepared.rank > 0 {
+            let c = world.cloud(
+                (Fixed::from_int(gx) + prepared.cloud_sun[0] - prepared.drift[0]).trunc_to_int(),
+                (Fixed::from_int(gy) + prepared.cloud_sun[1] - prepared.drift[1]).trunc_to_int(),
+            );
+            shaded = c & 15 > 1 && c >> 4 < prepared.rank;
+        }
+        if !shaded && self.cast_shadows {
+            for shadow in &prepared.shadows[..usize::from(prepared.shadow_count)] {
+                let dx = Fixed::from_int(gx) - shadow.center[0] + pal.sun[0] * height;
+                let dy = Fixed::from_int(gy) - shadow.center[1] + pal.sun[1] * height;
+                if dx.abs() < prepared.reach && dy.abs() < prepared.reach {
+                    let a = (dx * shadow.cos + dy * shadow.sin) / shadow.span;
+                    let b = (dx * shadow.sin - dy * shadow.cos) / prepared.jet_scale;
+                    let i = (a + (jet::PIVOT_X + Fixed::HALF)).floor().trunc_to_int();
+                    let k = ((jet::PIVOT[0] - b + Fixed::from_ratio(5, 10)).floor()).trunc_to_int();
+                    if (0..jet::WIDTH as i32).contains(&i)
+                        && (0..jet::LENGTH as i32).contains(&k)
+                        && jet::PROJECTIONS.shadow[k as usize * jet::WIDTH + i as usize] != 0
+                    {
+                        shaded = true;
+                        break;
+                    }
+                }
+            }
+        }
+        let mut top = if shaded {
+            pal.top_shade[material]
+        } else {
+            pal.top[material]
+        };
+        let mut wall = if shaded {
+            pal.wall_shade[material]
+        } else {
+            pal.wall[material]
+        };
+        if material < 4 {
+            let noise = |x: i32, y: i32| world.noise_at(x, y);
+            if material == 3 && noise(gx, gy).wrapping_add(prepared.water[0] as u8) < 120 {
+                top = if shaded { pal.top_shade[2] } else { pal.foam };
+            } else if !shaded && self.pixel_width < Fixed::from_ratio(18, 10) {
+                let n = noise((gx + i32::from(prepared.water[1])) >> 2, gy);
+                if n > 243 && noise((gx + 1024 - i32::from(prepared.water[2])) >> 2, gy + 91) > 128
+                {
+                    top = pal.spark[usize::from(n > 252)];
+                }
+            }
+            wall = top;
+        }
+        [top, wall]
+    }
+}
+
+fn terrain_distance(altitude: Fixed) -> Fixed {
+    Fixed::from_int(1500) + altitude * 3
+}
+
+fn draw_world<const PLACED: bool>(
     canvas: &mut SceneCanvas<'_, '_>,
-    world: &World,
+    ground: Ground<'_>,
     p: &Projection,
     pal: &Palette,
     prepared: &PreparedTerrain,
 ) {
     mirui::trace_span!("flight.terrain");
-    // Terrain and clouds claim depth first. Sky fills every remaining color pixel.
     canvas.clear_depth();
-    let [left, clip_top, right, bottom] = canvas.color.clip;
-    if left >= right || clip_top >= bottom {
-        return;
-    }
-    // Coverage moves upward; farther samples cannot change a completed local column.
-    let mut open_columns = right - left;
-    let (sn, cs) = p.yaw.sin_cos();
-    let q = p.perspective;
-    let scale = p.scale;
-    let slope = p.slope;
-    let [cx, cy] = p.center;
-    let alt = p.position[2];
-    let [bx, by] = prepared.base;
-    let rank = prepared.rank;
-    let drift = prepared.drift;
-    let (ground_levels, ground_materials) = world.ground_planes();
-    let below = Fixed::from_int(canvas.color.bounds[3]) - cy;
-    let nearest = if q > Fixed64::ZERO {
-        -p.divide_perspective(Fixed::from_ratio(85, 100))
-    } else {
-        -Fixed::from_int(1_000_000)
-    };
-    let eye_height = if q > Fixed64::ZERO {
-        alt + p.divide_perspective(slope)
-    } else {
-        Fixed::from_int(1_000_000)
-    };
-    let dn = scale * slope + p.apply_perspective(below);
-    let mut v = if eye_height > Fixed::from_int((world::MAX_HEIGHT) as i32) + Fixed::ONE
-        && dn > Fixed::from_ratio(1, 1000000)
-    {
-        nearest.max(
-            (scale * (alt - Fixed::from_int((world::MAX_HEIGHT) as i32)) - below) / dn
-                - Fixed::from_int(2),
-        )
-    } else {
-        nearest
-    };
-    let limit = Fixed::from_int(1500) + Fixed::from_int(3) * alt;
-    let fog_start = Fixed::from_int(300) + Fixed::from_int(2) * alt;
-    let above = cy - Fixed::from_int(canvas.color.bounds[1]) + Fixed::from_int(2);
-    let end = if scale * slope > p.apply_perspective(above) {
-        limit.min((scale * alt + above) / (scale * slope - p.apply_perspective(above)))
-    } else {
-        limit
-    };
-    let mut den = Fixed::ONE + p.apply_perspective(v);
-    let mut m = scale / den;
-    let mut row = HeightProjection::new(cy, m, slope, v, alt);
-    let rows = scale * (slope + p.apply_perspective(alt));
-    for _ in 0..4000 {
-        if v >= end || open_columns == 0 {
-            break;
-        }
-        let step = (den * den / rows)
-            .min(Fixed::from_ratio(25, 10) * den / scale)
-            .max(Fixed::from_ratio(5, 10));
-        v += step;
-        den = Fixed::ONE + p.apply_perspective(v);
-        m = scale / den;
-        let previous = row;
-        row = HeightProjection::new(cy, m, slope, v, alt);
-        // Advance the global ray sequence, but do not sample below the local clip.
-        if row.minimum_y() >= bottom && previous.minimum_y() >= bottom {
-            continue;
-        }
-        let inverse = den / scale;
-        let ax = cs * inverse;
-        let ay = -sn * inverse;
-        let mut wx = bx - cx * ax - v * sn + ax * Fixed::from_int(canvas.color.clip[0]);
-        let mut wy = by - cx * ay - v * cs + ay * Fixed::from_int(canvas.color.clip[0]);
-        // All world samples along this scanline lie between its two endpoints.
-        let last = right - left - 1;
-        let x0 = wx.trunc_to_int();
-        let x1 = (wx + ax * last).trunc_to_int();
-        let y0 = wy.trunc_to_int();
-        let y1 = (wy + ay * last).trunc_to_int();
-        let [xmin, ymin, xmax, ymax] = prepared.shadow_bounds;
-        let cast_shadows =
-            x0.min(x1) <= xmax && x0.max(x1) >= xmin && y0.min(y1) <= ymax && y0.max(y1) >= ymin;
-        let fog = if q > Fixed64::ZERO && v > fog_start {
-            (((v - fog_start) / (limit - fog_start)).sqrt() * Fixed::from_int(10))
-                .round()
-                .min(Fixed::from_int(10))
-                / Fixed::from_int(10)
+    let altitude = p.position[2];
+    let far = terrain_distance(altitude);
+    let world = ground.world;
+    let (levels, materials) = world.ground_planes();
+    let mut surface = Landscape::<PLACED> {
+        ground,
+        to_world: [
+            p.position[0] - prepared.base[0],
+            p.position[1] - prepared.base[1],
+        ],
+        world,
+        palette: pal,
+        prepared,
+        levels,
+        materials,
+        far,
+        fog_start: if p.perspective > Fixed64::ZERO {
+            Fixed::from_int(300) + altitude * 2
         } else {
-            Fixed::ZERO
-        };
-        let shade_fog = |color| {
-            if fog.is_zero() {
-                // Terrain spans are opaque, including custom palette colors.
-                color | 0xff00_0000
-            } else {
-                blend(color, pal.haze, fog)
-            }
-        };
-        let mut ground_height = usize::MAX;
-        let mut ground_rows = [0; 2];
-        for px in canvas.color.clip[0]..canvas.color.clip[2] {
-            let x = px as usize;
-            let column_index = (px - canvas.color.origin[0]) as usize;
-            let mut column = canvas.columns[column_index];
-            let sample_x = wx;
-            let sample_y = wy;
-            wx += ax;
-            wy += ay;
-            if column <= clip_top {
-                continue;
-            }
-            let gx = sample_x.trunc_to_int();
-            let gy = sample_y.trunc_to_int();
-            if rank > 0 {
-                let cloud = world.cloud(
-                    (Fixed::from_int(gx) - drift[0]).trunc_to_int(),
-                    (Fixed::from_int(gy) - drift[1]).trunc_to_int(),
-                );
-                let thick = usize::from(cloud & 15);
-                if thick > 0 && cloud >> 4 < rank {
-                    let top = (world::CLOUD_ALT).trunc_to_int() as usize + thick - 1;
-                    canvas.fill_span(
-                        x,
-                        row.at(top),
-                        previous.at(top),
-                        shade_fog(pal.cloud_top[thick - 1]),
-                        v,
-                        thick == 1,
-                    );
-                    canvas.fill_span(
-                        x,
-                        previous.at((world::CLOUD_ALT).trunc_to_int() as usize),
-                        row.at((world::CLOUD_ALT).trunc_to_int() as usize),
-                        shade_fog(pal.cloud_under),
-                        v,
-                        thick == 1,
-                    );
-                    for layer in (0..thick - 1).rev() {
-                        let z = (world::CLOUD_ALT).trunc_to_int() as usize + layer;
-                        canvas.fill_depth(
-                            x,
-                            previous.at(z + 1),
-                            previous.at(z),
-                            shade_fog(pal.cloud_wall[layer]),
-                            v,
-                        );
-                    }
-                }
-            }
-            let cell = world.ground_index(gx, gy);
-            let h = usize::from(ground_levels[cell]);
-            if h != ground_height {
-                ground_rows = [row.at(h), previous.at(h)];
-                ground_height = h;
-            }
-            let [yt, yr] = ground_rows;
-            if yt >= column && yr >= column {
-                continue;
-            }
-            let material = usize::from(ground_materials[cell]);
-            let mut shaded = false;
-            if rank > 0 {
-                let c = world.cloud(
-                    (Fixed::from_int(gx) + prepared.cloud_sun[0] - drift[0]).trunc_to_int(),
-                    (Fixed::from_int(gy) + prepared.cloud_sun[1] - drift[1]).trunc_to_int(),
-                );
-                shaded = c & 15 > 1 && c >> 4 < rank;
-            }
-            if !shaded && cast_shadows {
-                for shadow in &prepared.shadows[..usize::from(prepared.shadow_count)] {
-                    let dx = Fixed::from_int(gx) - shadow.center[0]
-                        + pal.sun[0] * Fixed::from_int(h as i32);
-                    let dy = Fixed::from_int(gy) - shadow.center[1]
-                        + pal.sun[1] * Fixed::from_int(h as i32);
-                    if dx.abs() < prepared.reach && dy.abs() < prepared.reach {
-                        let a = (dx * shadow.cos + dy * shadow.sin) / shadow.span;
-                        let b = (dx * shadow.sin - dy * shadow.cos) / prepared.jet_scale;
-                        let i = (a + (jet::PIVOT_X + Fixed::HALF)).floor().trunc_to_int();
-                        let k =
-                            ((jet::PIVOT[0] - b + Fixed::from_ratio(5, 10)).floor()).trunc_to_int();
-                        if (0..jet::WIDTH as i32).contains(&i)
-                            && (0..jet::LENGTH as i32).contains(&k)
-                            && jet::PROJECTIONS.shadow[k as usize * jet::WIDTH + i as usize] != 0
-                        {
-                            shaded = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            let mut top = if shaded {
-                pal.top_shade[material]
-            } else {
-                pal.top[material]
-            };
-            let mut wall = if shaded {
-                pal.wall_shade[material]
-            } else {
-                pal.wall[material]
-            };
-            if material < 4 {
-                let noise = |x: i32, y: i32| world.noise_at(x, y);
-                if material == 3 && noise(gx, gy).wrapping_add(prepared.water[0] as u8) < 120 {
-                    top = if shaded { pal.top_shade[2] } else { pal.foam };
-                } else if !shaded && inverse < Fixed::from_ratio(18, 10) {
-                    let n = noise((gx + i32::from(prepared.water[1])) >> 2, gy);
-                    if n > 243
-                        && noise((gx + 1024 - i32::from(prepared.water[2])) >> 2, gy + 91) > 128
-                    {
-                        top = pal.spark[usize::from(n > 252)];
-                    }
-                }
-                wall = top;
-            }
-            if yr < column {
-                canvas.fill_depth(x, yr, column, shade_fog(wall), v);
-                column = yr;
-            }
-            if yt < column {
-                canvas.fill_depth(x, yt, column, shade_fog(top), v);
-                column = yt;
-            }
-            canvas.columns[column_index] = column;
-            if column <= clip_top {
-                open_columns -= 1;
-            }
-        }
+            Fixed::MAX
+        },
+        fog: Fixed::ZERO,
+        pixel_width: Fixed::ZERO,
+        cast_shadows: false,
+    };
+    TerrainView {
+        projection: p.camera,
+        origin: prepared.base,
+        altitude,
+        yaw: p.yaw.sin_cos(),
+        heights: if PLACED {
+            let elevation = ground.elevation();
+            [
+                elevation.min(world::CLOUD_ALT),
+                (elevation + Fixed::from_int(world::MAX_HEIGHT as i32))
+                    .max(world::CLOUD_ALT + Fixed::from_int(world::CLOUD_LAYERS as i32)),
+            ]
+        } else {
+            [Fixed::ZERO, Fixed::from_int(world::MAX_HEIGHT as i32)]
+        },
+        depth: [-Fixed::from_int(1_000_000), far],
     }
+    .draw(canvas, &mut surface);
 }
 fn draw_sky(canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette, frame_height: usize) {
     mirui::trace_span!("flight.sky");
@@ -1099,27 +1125,12 @@ fn draw_smoke(canvas: &mut SceneCanvas<'_, '_>, flight: &Flight, p: &Projection,
         }
     }
 }
-#[derive(Clone, Copy)]
-struct PreparedLayer {
-    camera: [Fixed; 3],
-    drop: Fixed,
-    bounds: Option<[[i16; 4]; 2]>,
-}
 
 struct PreparedJet {
-    center: [Fixed; 4],
+    sprite: ProjectedStack<'static, { jet::LAYERS }>,
     fade: Fixed,
-    grid: GridBasis,
-    layers: [Option<PreparedLayer>; jet::LAYERS],
-    order: [usize; jet::LAYERS],
     lights: [usize; 2],
-    samples: usize,
-    offsets: [[Fixed; 2]; 64],
-    sample_bounds: [[Fixed; 2]; 2],
-    detail: jet::Detail,
-    level: mirui_sprite_stack::format::SparseLevel<'static>,
-    baked_bounds: bool,
-    right_side_x: u8,
+    right_side_x: i32,
 }
 impl PreparedJet {
     fn new(
@@ -1139,8 +1150,9 @@ impl PreparedJet {
         if center[2] <= Fixed::ZERO {
             return None;
         }
-        let reach = Fixed::from_int((jet::LENGTH) as i32) * flight.settings.jet_scale * center[2]
-            + Fixed::from_int(40);
+        let reach =
+            Fixed::from_int((jet.model.extent()[1]) as i32) * flight.settings.jet_scale * center[2]
+                + Fixed::from_int(40);
         if center[0] < -reach
             || center[1] < -reach - Fixed::from_int((size[1]) as i32)
             || center[0] > Fixed::from_int((size[0]) as i32) + reach
@@ -1151,37 +1163,8 @@ impl PreparedJet {
         let axes = aircraft_axes(jet.rotation);
         let (sn, cs) = p.yaw.sin_cos();
         let sc = flight.settings.jet_scale;
-        let project_axis = |a: [Fixed; 3]| {
-            [
-                sc * (a[0] * cs - a[1] * sn),
-                -sc * (a[0] * sn + a[1] * cs),
-                sc * a[2],
-            ]
-        };
-        let [right, forward, up] = axes.map(project_axis);
-        let dx = jet.position[0] - p.position[0];
-        let dy = jet.position[1] - p.position[1];
-        let cu = dx * cs - dy * sn;
-        let cv = -(dx * sn + dy * cs);
-        let cw = jet.position[2] - p.position[2];
-        let plane = if p.perspective.is_zero() {
-            if p.slope * up[2] - up[1] >= Fixed::ZERO {
-                Fixed::from_int(1_000_000)
-            } else {
-                -Fixed::from_int(1_000_000)
-            }
-        } else {
-            (-cu * up[0]
-                + (-p.divide_perspective(Fixed::ONE) - cv) * up[1]
-                + (p.divide_perspective(p.slope) - cw) * up[2])
-                / (sc * sc)
-        };
-        let mut order: [usize; jet::LAYERS] = core::array::from_fn(|i| i);
-        order.sort_unstable_by(|a, b| {
-            (((Fixed::from_int((*b) as i32) - jet::PIVOT[1]) * flight.spread - plane).abs()).cmp(
-                &((Fixed::from_int((*a) as i32) - jet::PIVOT[1]) * flight.spread - plane).abs(),
-            )
-        });
+        let project_axis = |a: [Fixed; 3]| [a[0] * cs - a[1] * sn, -(a[0] * sn + a[1] * cs), a[2]];
+        let offset = core::array::from_fn(|i| jet.position[i] - p.position[i]);
         let light = |side: Fixed| {
             let n = core::array::from_fn::<_, 3, _>(|i| {
                 axes[2][i] + side * Fixed::from_ratio(4, 10) * axes[0][i]
@@ -1212,355 +1195,72 @@ impl PreparedJet {
             mirui::trace_span!("flight.aircraft.light");
             [light(-Fixed::ONE), light(Fixed::ONE)]
         };
-        let big = sc * p.scale
-            / (Fixed::ONE + p.apply_perspective(cv)
-                - p.apply_perspective(
-                    Fixed::from_int(jet::LENGTH as i32) * Fixed::from_ratio(6, 10) * sc,
-                ))
-            .max(Fixed::from_ratio(2, 10));
-        let mut detail = jet::Detail::for_scale(big);
-        if jet.model.levels().len() == 1 {
-            detail = jet::Detail::Full;
-        }
-        let level = jet.model.levels()[detail as usize];
-        let cell_scale = detail.cell_scale();
-        // Coarse cells reuse the existing grid over a larger footprint at lower density.
-        let samples = ((big * Fixed::from_int(2) - Fixed::from_ratio(24, 100))
+        let sprite = ProjectedStack::new(
+            jet.model,
+            StackTransform {
+                scale: sc,
+                layer_spacing: flight.spread * Fixed::from_ratio(jet.model.spacing_q8(), 256),
+                depth_radius: Fixed::from(jet.model.extent()[1]) * Fixed::from_ratio(6, 10) * sc,
+                ..StackTransform::from_basis(offset, axes, project_axis)
+            },
+            &p.camera,
+            Fixed::from_int(3),
+            |layer, first_slice| {
+                let intro =
+                    flight.intro - Fixed::from_int((index) as i32) * Fixed::from_ratio(25, 100);
+                let t = (intro
+                    - Fixed::from_int((layer.saturating_sub(first_slice)) as i32)
+                        * Fixed::from_ratio(7, 100))
+                    / Fixed::from_ratio(36, 100);
+                if t <= Fixed::ZERO {
+                    return None;
+                }
+                let drop = if t < Fixed::ONE {
+                    -(Fixed::ONE - t * t)
+                        * (Fixed::from_int((size[1]) as i32) / Fixed::from_int(2)
+                            + Fixed::from_int(44))
+                } else {
+                    Fixed::ZERO
+                };
+                Some(drop)
+            },
+        )?;
+        let (step, pivot) = (
+            sprite.level().step(),
+            Fixed::from_ratio(jet.model.pivot_q8()[0], 256),
+        );
+        let right_side_x = (pivot - (Fixed::from(step) - Fixed::ONE) / 2)
             .ceil()
-            .clamp(Fixed::from_int(2), Fixed::from_int(8)))
-        .trunc_to_int() as usize;
-        let mut offsets = [[Fixed::ZERO; 2]; 64];
-        for i in 0..samples {
-            for k in 0..samples {
-                let a = ((Fixed::from_int((i) as i32) + Fixed::from_ratio(5, 10))
-                    / Fixed::from_int((samples) as i32)
-                    - Fixed::from_ratio(5, 10))
-                    * cell_scale;
-                let b = ((Fixed::from_int((k) as i32) + Fixed::from_ratio(5, 10))
-                    / Fixed::from_int((samples) as i32)
-                    - Fixed::from_ratio(5, 10))
-                    * cell_scale;
-                offsets[i * samples + k] = [
-                    center[2] * (a * right[0] + b * forward[0]),
-                    -center[2]
-                        * (a * (right[2] + p.slope * right[1])
-                            + b * (forward[2] + p.slope * forward[1])),
-                ];
-            }
-        }
-        let mut sample_bounds = [offsets[0]; 2];
-        for offset in &offsets[1..samples * samples] {
-            for axis in 0..2 {
-                sample_bounds[0][axis] = sample_bounds[0][axis].min(offset[axis]);
-                sample_bounds[1][axis] = sample_bounds[1][axis].max(offset[axis]);
-            }
-        }
-        let first_slice = (0..jet::LAYERS)
-            .position(|layer| level.layer(layer).is_some_and(|slice| !slice.is_empty()))
-            .unwrap_or(jet::LAYERS);
-        // All cells share a fractional pivot. Project that fraction once;
-        // whole-cell steps along either axis are exact integer products.
-        let grid_x = jet::lateral(0) + detail.center_offset();
-        let grid_y = jet::longitudinal(0) - detail.center_offset();
-        let grid: [Fixed; 3] = core::array::from_fn(|i| grid_x * right[i] + grid_y * forward[i]);
-        let layers = core::array::from_fn(|layer: usize| {
-            let intro = flight.intro - Fixed::from_int((index) as i32) * Fixed::from_ratio(25, 100);
-            let t = (intro
-                - Fixed::from_int((layer.saturating_sub(first_slice)) as i32)
-                    * Fixed::from_ratio(7, 100))
-                / Fixed::from_ratio(36, 100);
-            if t <= Fixed::ZERO {
-                return None;
-            }
-            let drop = if t < Fixed::ONE {
-                -(Fixed::ONE - t * t)
-                    * (Fixed::from_int((size[1]) as i32) / Fixed::from_int(2) + Fixed::from_int(44))
-            } else {
-                Fixed::ZERO
-            };
-            let height = (Fixed::from_int((layer) as i32) - jet::PIVOT[1]) * flight.spread;
-            let bu = cu + height * up[0];
-            let bv = cv + height * up[1];
-            let bw = cw + height * up[2];
-            Some(PreparedLayer {
-                camera: [bu + grid[0], bv + grid[1], bw + grid[2]],
-                drop,
-                bounds: None,
-            })
-        });
+            .to_int();
         Some(Self {
-            center,
+            sprite,
             fade,
-            grid: GridBasis::new(right, forward.map(|step| -step)),
-            layers,
-            order,
             lights,
-            samples,
-            offsets,
-            sample_bounds,
-            detail,
-            level,
-            baked_bounds: core::ptr::eq(jet.model, &jet::MODEL),
-            right_side_x: (-grid_x).ceil().to_int() as u8,
+            right_side_x,
         })
+    }
+
+    fn prepare_regions(&mut self, p: &Projection) {
+        self.sprite.prepare_regions(p);
     }
     fn draw(&self, canvas: &mut SceneCanvas<'_, '_>, p: &Projection, pal: &Palette) {
         mirui::trace_span!("flight.aircraft");
-        let center = self.center;
-        let fade = self.fade;
-        let samples = self.samples;
-        let offsets = &self.offsets;
-        canvas.mask.fill(0);
-        let mut bounds = [
-            canvas.color.width as i32,
-            canvas.color.height as i32,
-            -1,
-            -1,
-        ];
-        {
-            mirui::trace_span!("flight.aircraft.samples");
-            for index in self.order {
-                let Some(layer) = &self.layers[index] else {
-                    continue;
-                };
-                let voxels = self.level.layer(index).unwrap_or_default();
-                let voxels = if let Some(bands) = layer.bounds {
-                    let [left, top, right, bottom] = canvas.color.clip;
-                    let visible = bands.map(|[x0, y0, x1, y1]| {
-                        i32::from(x0) < right
-                            && i32::from(x1) > left
-                            && i32::from(y0) < bottom
-                            && i32::from(y1) > top
-                    });
-                    let mid = voxels.len() / 2;
-                    match visible {
-                        [false, false] => continue,
-                        [true, false] => &voxels[..mid],
-                        [false, true] => &voxels[mid..],
-                        [true, true] => voxels,
-                    }
-                } else {
-                    voxels
-                };
-                for voxel in voxels {
-                    let Some([x, y, m, depth]) = self.project(layer, voxel, p) else {
-                        continue;
-                    };
-                    let xs = self.sample_ends(x, 0, m);
-                    if xs[0].max(xs[1]) < canvas.color.clip[0]
-                        || xs[0].min(xs[1]) >= canvas.color.clip[2]
-                    {
-                        continue;
-                    }
-                    let ys = self.sample_ends(y, 1, m);
-                    if ys[0].max(ys[1]) < canvas.color.clip[1]
-                        || ys[0].min(ys[1]) >= canvas.color.clip[3]
-                    {
-                        continue;
-                    }
-                    // Zero is uncovered. Keep the visible palette index and its lighting side.
-                    let material = voxel.color | (u8::from(voxel.x >= self.right_side_x) << 7);
-                    // Coincident extrema make that coordinate identical for every offset.
-                    let fixed_x = xs[0] == xs[1];
-                    let fixed_y = ys[0] == ys[1];
-                    let clip = canvas.color.clip;
-                    let mut mark = |xx, yy| {
-                        if !canvas.color.contains(xx, yy) {
-                            return;
-                        }
-                        let at = canvas.color.index(xx, yy);
-                        if canvas.depth[at] >= depth - Fixed::ONE {
-                            canvas.mask[at] = material;
-                            bounds = [
-                                bounds[0].min(xx),
-                                bounds[1].min(yy),
-                                bounds[2].max(xx),
-                                bounds[3].max(yy),
-                            ];
-                        }
-                    };
-                    // Both extrema are sampled. On a single row or column they cover
-                    // the entire footprint if they are at most one pixel apart.
-                    if (fixed_x && ys[0].abs_diff(ys[1]) <= 1)
-                        || (fixed_y && xs[0].abs_diff(xs[1]) <= 1)
-                    {
-                        mark(xs[0], ys[0]);
-                        if !(fixed_x && fixed_y) {
-                            mark(xs[1], ys[1]);
-                        }
-                        continue;
-                    }
-                    for offset in &offsets[..samples * samples] {
-                        let xx = if fixed_x {
-                            xs[0]
-                        } else {
-                            ((x + offset[0] * m / center[2]).round()).trunc_to_int()
-                        };
-                        if xx < clip[0] || xx >= clip[2] {
-                            continue;
-                        }
-                        let yy = if fixed_y {
-                            ys[0]
-                        } else {
-                            ((y + offset[1] * m / center[2]).round()).trunc_to_int()
-                        };
-                        mark(xx, yy);
-                    }
-                }
-            }
-        }
-        {
-            mirui::trace_span!("flight.aircraft.outline");
-            let [left, top, right, bottom] = canvas.color.clip;
-            for y in (bounds[1] - 1).max(top)..=(bounds[3] + 1).min(bottom - 1) {
-                for x in (bounds[0] - 1).max(left)..=(bounds[2] + 1).min(right - 1) {
-                    let at = canvas.color.index(x, y);
-                    let interior = x > left && x + 1 < right && y > top && y + 1 < bottom;
-                    let material = canvas.mask[at];
-                    if material != 0 {
-                        let light = self.lights[usize::from(material >> 7)];
-                        let mut color = pal.jets[light][usize::from(material & 0x7f)];
-                        if fade < Fixed::ONE && interior {
-                            color = blend(canvas.get(at), color, fade);
-                        }
-                        canvas.put(at, color);
-                    } else if interior
-                        && fade >= Fixed::from_ratio(5, 10)
-                        && (canvas.mask[at - 1] != 0
-                            || canvas.mask[at + 1] != 0
-                            || canvas.mask[at - canvas.color.pitch] != 0
-                            || canvas.mask[at + canvas.color.pitch] != 0)
-                    {
-                        canvas.put(at, pal.outline);
-                    }
-                }
-            }
-        }
-    }
-
-    fn band_bounds(&self, index: usize, half: usize) -> Option<[[u8; 2]; 2]> {
-        if self.baked_bounds {
-            return self.detail.band_bounds(index, half);
-        }
-        let voxels = self.level.layer(index)?;
-        let (first, second) = voxels.split_at(voxels.len() / 2);
-        let mut samples = if half == 0 { first } else { second }.iter();
-        let first = samples.next()?;
-        let mut bounds = [[first.x; 2], [first.y; 2]];
-        for v in samples {
-            for (axis, point) in bounds.iter_mut().zip([v.x, v.y]) {
-                axis[0] = axis[0].min(point);
-                axis[1] = axis[1].max(point);
-            }
-        }
-        Some(bounds)
-    }
-    fn prepare_regions(&mut self, p: &Projection) {
-        mirui::trace_span!("flight.aircraft.regions");
-        for index in 0..jet::LAYERS {
-            let Some(layer) = self.layers[index] else {
-                continue;
-            };
-            let bounds = core::array::from_fn(|half| {
-                self.band_bounds(index, half)
-                    .map_or(Self::EMPTY_BAND, |coords| {
-                        self.project_band(&layer, p, coords)
-                    })
-            });
-            self.layers[index] = Some(PreparedLayer {
-                bounds: Some(bounds),
-                ..layer
-            });
-        }
-    }
-
-    const EMPTY_BAND: [i16; 4] = [i16::MAX, i16::MAX, i16::MIN, i16::MIN];
-
-    fn project_band(
-        &self,
-        layer: &PreparedLayer,
-        p: &Projection,
-        [x, y]: [[u8; 2]; 2],
-    ) -> [i16; 4] {
-        let axis_range = |axis: usize| {
-            self.grid
-                .axis_range(layer.camera[axis], axis, x.map(i32::from), y.map(i32::from))
-        };
-        let depth = axis_range(1);
-        let den = depth.map(|d| Fixed::ONE + p.apply_perspective(d));
-        let near = Fixed::from_ratio(2, 10);
-        if den[1] < near {
-            return Self::EMPTY_BAND;
-        }
-        // A layer crossing the near plane keeps per-voxel clipping.
-        if den[0] < near {
-            return [i16::MIN, i16::MIN, i16::MAX, i16::MAX];
-        }
-        let scale = [p.scale / den[1], p.scale / den[0]];
-        // Scale stays positive; signs select which endpoint gives each extreme.
-        let scaled = |[lo, hi]: [Fixed; 2]| {
-            [
-                lo * scale[usize::from(lo < Fixed::ZERO)],
-                hi * scale[usize::from(hi >= Fixed::ZERO)],
-            ]
-        };
-        let u = scaled(axis_range(0));
-        let z = axis_range(2);
-        let [s0, s1] = depth.map(|d| p.slope * d);
-        let v = scaled([z[0] + s0.min(s1), z[1] + s0.max(s1)]);
-        let position = [
-            [p.center[0] + u[0], p.center[0] + u[1]],
-            [
-                p.center[1] - v[1] + layer.drop,
-                p.center[1] - v[0] + layer.drop,
-            ],
-        ];
-        let mut bounds = [0; 4];
-        for axis in 0..2 {
-            let offset = scaled(self.sample_bounds.map(|bound| bound[axis]));
-            let ends = core::array::from_fn::<_, 2, _>(|i| {
-                (position[axis][i] + offset[i] / self.center[2])
-                    .round()
-                    .trunc_to_int()
-            });
-            bounds[axis] = ends[0];
-            bounds[axis + 2] = ends[1].saturating_add(1);
-        }
-        // Coordinates outside i16 are outside every supported scene clip.
-        bounds.map(|x| x.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16)
-    }
-
-    fn project(
-        &self,
-        layer: &PreparedLayer,
-        voxel: &jet::Voxel,
-        p: &Projection,
-    ) -> Option<[Fixed; 4]> {
-        let [bu, bv, bw] = layer.camera;
-        let x = i32::from(voxel.x);
-        let y = i32::from(voxel.y);
-        let depth = self.grid.axis(bv, 1, x, y);
-        let den = Fixed::ONE + p.apply_perspective(depth);
-        if den < Fixed::from_ratio(2, 10) {
-            return None;
-        }
-        let m = p.scale / den;
-        Some([
-            p.center[0] + m * self.grid.axis(bu, 0, x, y),
-            p.center[1] - m * (self.grid.axis(bw, 2, x, y) + p.slope * depth) + layer.drop,
-            m,
-            depth,
-        ])
-    }
-
-    fn sample_ends(&self, position: Fixed, axis: usize, scale: Fixed) -> [i32; 2] {
-        self.sample_bounds.map(|bound| {
-            (position + bound[axis] * scale / self.center[2])
-                .round()
-                .trunc_to_int()
-        })
+        self.sprite.view().draw_masked(
+            canvas,
+            p,
+            SpritePaint {
+                depth_bias: Fixed::ONE,
+                opacity: self.fade,
+                outline: (self.fade >= Fixed::HALF).then_some(pal.outline),
+            },
+            |voxel| voxel.color | (u8::from(i32::from(voxel.x) >= self.right_side_x) << 7),
+            |material| {
+                pal.jets[self.lights[usize::from(material >> 7)]][usize::from(material & 0x7f)]
+            },
+        );
     }
 }
+
 #[derive(Clone, Copy, Default)]
 struct PendingFlame {
     flame: Flame,
@@ -1594,18 +1294,21 @@ impl PendingFlame {
             point[3],
         )
     }
+}
+impl DepthQuery for PendingFlame {
     fn resolve(&mut self, canvas: &SceneCanvas<'_, '_>) {
         let mut samples = self.samples;
         samples.resolve(canvas, Fixed::ONE, |i| self.query(i));
         self.samples = samples;
     }
-    fn missing(&self) -> Option<[i32; 2]> {
+    fn next_point(&self) -> Option<[i32; 2]> {
         self.samples.next_missing().map(|i| {
             let (x, y, _) = self.query(i);
             [x, y]
         })
     }
-
+}
+impl PendingFlame {
     fn finish(mut self, seen: &mut [[Fixed; 3]; 6]) -> Flame {
         let visible = self
             .samples
@@ -1622,25 +1325,6 @@ impl PendingFlame {
             *target = *value;
         }
         self.flame
-    }
-}
-fn record_flames(
-    canvas: &SceneCanvas<'_, '_>,
-    flight: &Flight,
-    instance: (usize, PlacedAircraft),
-    p: &Projection,
-    out: &mut [Flame; 6],
-    count: &mut usize,
-    seen: &mut [[Fixed; 3]; 6],
-) {
-    let mut pending = [PendingFlame::default(); 2];
-    let mut length = 0;
-    project_flames(flight, instance, p, &mut pending, &mut length);
-    for mut value in pending[..length].iter().copied() {
-        value.resolve(canvas);
-        assert!(value.missing().is_none());
-        out[*count] = value.finish(seen);
-        *count += 1;
     }
 }
 fn project_flames(
@@ -1728,6 +1412,49 @@ mod tests {
     use super::super::flight::{Settings, View};
     use super::*;
     #[test]
+    fn deferred_effect_queries_see_the_same_aircraft_depth_as_the_visible_tiles() {
+        let world = World::with_size(7, Fixed::HALF, 64, 32, 16);
+        let mut flight = Flight::new(&world, Settings::default());
+        flight.intro = Fixed::from_int(8);
+        let projection = flight.projection(128, 128);
+        let palette = Palette::new(Daylight::Day);
+        let placed = PlacedAircraft::from_flight(&flight);
+        let ground = world.at(Some(Default::default()));
+        let scene = Scene {
+            placed: &placed,
+            ground,
+            flight: &flight,
+            palette: &palette,
+            frame_height: 128,
+            terrain: PreparedTerrain::new(ground, &flight, &projection, &palette, &placed),
+        };
+        let models = scene.prepare(projection, [128; 2]);
+        let order = scene.order(projection);
+        let mut frame = Frame::new(128, 128).unwrap();
+        let mut work = Workspace::new(128, 128).unwrap();
+        let mut depths = |only_depth: bool, aircraft: bool| {
+            work.with_canvas(&mut frame, |tile| {
+                if !aircraft {
+                    scene.draw_ground(tile, &projection);
+                } else if only_depth {
+                    scene
+                        .draw_ordered::<true>(tile, projection, &order, &models, None)
+                        .unwrap();
+                } else {
+                    scene
+                        .draw_ordered::<false>(tile, projection, &order, &models, None)
+                        .unwrap();
+                }
+                tile.depth.to_vec()
+            })
+        };
+        let ground = depths(true, false);
+        let visible = depths(false, true);
+        assert!(visible.iter().zip(ground).any(|(v, g)| *v < g));
+        assert_eq!(depths(true, true), visible);
+    }
+
+    #[test]
     fn placement_selects_the_visible_object_position_and_its_sparse_level() {
         use mirui_sprite_stack::format::{PreparedSpriteStack, SparseLevel};
         const EMPTY: SparseLevel<'static> = SparseLevel::new(1, &[0, 0], &[]).unwrap();
@@ -1745,16 +1472,25 @@ mod tests {
         placed[1] = None;
         let scene = Scene {
             placed: &placed,
-            world: &world,
+            ground: world.at(Some(Default::default())),
             flight: &flight,
             palette: &palette,
             frame_height: 128,
-            terrain: PreparedTerrain::new(&world, &flight, &projection, &palette, &placed),
+            terrain: PreparedTerrain::new(
+                world.at(Some(Default::default())),
+                &flight,
+                &projection,
+                &palette,
+                &placed,
+            ),
         };
         let prepared = scene.prepare(projection, [128; 2]);
         let jet = prepared[0].as_ref().unwrap();
-        assert_eq!(jet.center, projection.project(active.position).unwrap());
-        assert!(jet.level.layer(0).unwrap().is_empty());
+        assert_eq!(
+            jet.sprite.center(),
+            projection.project(active.position).unwrap()
+        );
+        assert!(jet.sprite.level().layer(0).unwrap().is_empty());
         assert!(prepared[1].is_none());
     }
     #[test]
@@ -1769,39 +1505,42 @@ mod tests {
         ];
         let palette = Palette::new(Daylight::Sunset);
         let projection = flight.projection(128, 128);
-        let prepared = PreparedTerrain::new(
-            &world,
-            &flight,
-            &projection,
-            &palette,
-            &PlacedAircraft::from_flight(&flight),
-        );
-        for (index, jet) in flight.jets[..flight.count].iter().enumerate() {
-            for axis in 0..2 {
-                let base = projection.position[axis]
-                    .rem_euclid(Fixed::from_int(world.period() as i32))
-                    + Fixed::from_int(world.period() as i32) * Fixed::from_int(2);
-                assert_eq!(
-                    prepared.shadows[index].center[axis],
-                    base + jet.position[axis] - projection.position[axis]
-                        + palette.sun[axis] * jet.position[2]
-                );
-                for h in 0..=world::MAX_HEIGHT as i32 {
-                    let center = prepared.shadows[index].center[axis] - palette.sun[axis] * h;
-                    assert!(
-                        Fixed::from_int(prepared.shadow_bounds[axis]) <= center - prepared.reach
+        for elevation in [0, -82, 137] {
+            let prepared = PreparedTerrain::new(
+                world.at(Some(mirui_sprite_stack::Pose::at(0, elevation, 0))),
+                &flight,
+                &projection,
+                &palette,
+                &PlacedAircraft::from_flight(&flight),
+            );
+            for (index, jet) in flight.jets[..flight.count].iter().enumerate() {
+                for axis in 0..2 {
+                    let base = projection.position[axis]
+                        .rem_euclid(Fixed::from_int(world.period() as i32))
+                        + Fixed::from_int(world.period() as i32) * Fixed::from_int(2);
+                    assert_eq!(
+                        prepared.shadows[index].center[axis],
+                        base + jet.position[axis] - projection.position[axis]
+                            + palette.sun[axis] * jet.position[2]
                     );
-                    assert!(
-                        Fixed::from_int(prepared.shadow_bounds[axis + 2])
-                            >= center + prepared.reach
-                    );
+                    for h in elevation..=elevation + world::MAX_HEIGHT as i32 {
+                        let center = prepared.shadows[index].center[axis] - palette.sun[axis] * h;
+                        assert!(
+                            Fixed::from_int(prepared.shadow_bounds[axis])
+                                <= center - prepared.reach
+                        );
+                        assert!(
+                            Fixed::from_int(prepared.shadow_bounds[axis + 2])
+                                >= center + prepared.reach
+                        );
+                    }
                 }
             }
         }
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
                 let _ = PreparedTerrain::new(
-                    &world,
+                    world.at(Some(Default::default())),
                     &flight,
                     &projection,
                     &palette,
@@ -1819,187 +1558,18 @@ mod tests {
         let (sin, cos) = jet.rotation[0].sin_cos();
         let bank = jet.rotation[2] - flight.jets[2].spin();
         let span = bank.cos().abs().max(Fixed::from_ratio(3, 10)) * flight.settings.jet_scale;
-        let prepared = PreparedTerrain::new(&world, &flight, &projection, &palette, &placed);
+        let prepared = PreparedTerrain::new(
+            world.at(Some(Default::default())),
+            &flight,
+            &projection,
+            &palette,
+            &placed,
+        );
         assert_eq!(prepared.shadow_count, 2);
         let shadow = prepared.shadows[1];
         assert_eq!((shadow.sin, shadow.cos, shadow.span), (sin, cos, span));
     }
 
-    #[test]
-    fn height_projection_minimum_bounds_every_supported_height() {
-        for origin in [-256, -1, 0, 37, 256] {
-            for scale in [-512, -37, -1, 0, 1, 37, 512] {
-                let row = HeightProjection {
-                    origin: Fixed::from_int(origin),
-                    scale: Fixed::from_ratio(scale, 256),
-                };
-                let minimum = row.minimum_y();
-                for height in 0..=world::MAX_HEIGHT {
-                    assert!(row.at(height) >= minimum);
-                }
-            }
-        }
-    }
-    #[test]
-    #[should_panic(expected = "terrain height outside projection")]
-    fn height_projection_rejects_heights_outside_the_world_domain() {
-        HeightProjection::new(Fixed::ONE, Fixed::ONE, Fixed::ONE, Fixed::ONE, Fixed::ONE)
-            .at(world::MAX_HEIGHT + 1);
-    }
-    #[test]
-    fn prepared_regions_cover_all_samples_without_allocating() {
-        assert!(core::mem::size_of::<PreparedLayer>() <= 36);
-        let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
-        let mut flight = Flight::new(&world, Settings::default());
-        let palette = Palette::new(Daylight::Day);
-        let mut details = [false; 2];
-        for size in [32, 128, 480] {
-            for view in [View::Overhead, View::Chase] {
-                flight.view = view;
-                for _ in 0..180 {
-                    flight.step(&world, 16, 128, 128);
-                }
-                let projection = flight.projection(size, size);
-                let mut prepared = PreparedJet::new(
-                    &flight,
-                    0,
-                    PlacedAircraft::from_flight(&flight)[0].unwrap(),
-                    &projection,
-                    &palette,
-                    [size, size],
-                )
-                .expect("visible aircraft");
-                details[usize::from(prepared.detail == jet::Detail::Coarse)] = true;
-                assert!(prepared.layers.iter().flatten().all(|l| l.bounds.is_none()));
-                let original = prepared.layers;
-                assert_eq!(
-                    crate::test_support::tracked_allocations(|| {
-                        prepared.prepare_regions(&projection)
-                    }),
-                    0
-                );
-                for (index, layer) in original.iter().enumerate() {
-                    let Some(layer) = layer else { continue };
-                    let voxels = prepared.detail.slice(index);
-                    for (i, voxel) in voxels.iter().enumerate() {
-                        let Some([x, y, scale, _]) = prepared.project(layer, voxel, &projection)
-                        else {
-                            continue;
-                        };
-                        let bounds = prepared.layers[index]
-                            .expect("visible layer")
-                            .bounds
-                            .expect("prepared layer")[usize::from(i >= voxels.len() / 2)]
-                        .map(i32::from);
-                        for offset in &prepared.offsets[..prepared.samples * prepared.samples] {
-                            for (axis, position) in [x, y].into_iter().enumerate() {
-                                let at = (position + offset[axis] * scale / prepared.center[2])
-                                    .round()
-                                    .trunc_to_int();
-                                assert!(at >= bounds[axis] && at < bounds[axis + 2]);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        assert!(details.into_iter().all(|seen| seen));
-    }
-    #[test]
-    fn near_plane_rejects_only_wholly_hidden_model_bands() {
-        let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
-        let mut flight = Flight::new(&world, Settings::default());
-        for _ in 0..180 {
-            flight.step(&world, 16, 128, 128);
-        }
-        let mut p = flight.projection(128, 128);
-        let palette = Palette::new(Daylight::Day);
-        let mut jet = PreparedJet::new(
-            &flight,
-            0,
-            PlacedAircraft::from_flight(&flight)[0].unwrap(),
-            &p,
-            &palette,
-            [128, 128],
-        )
-        .unwrap();
-        p.perspective = Fixed64::from_ratio(1, 64);
-        jet.grid = GridBasis::new([Fixed::ZERO, Fixed::ONE, Fixed::ZERO], [Fixed::ZERO; 3]);
-        let coords = [[0, 16], [0; 2]];
-        let bounds = |depth| {
-            let layer = PreparedLayer {
-                camera: [Fixed::ZERO, Fixed::from_int(depth - 8), Fixed::ZERO],
-                drop: Fixed::ZERO,
-                bounds: None,
-            };
-            jet.project_band(&layer, &p, coords)
-        };
-        assert_eq!(bounds(-80), PreparedJet::EMPTY_BAND);
-        assert_eq!(bounds(-51), [i16::MIN, i16::MIN, i16::MAX, i16::MAX]);
-        let [left, top, right, bottom] = bounds(0);
-        assert!(left < right && top < bottom);
-        assert!(left > i16::MIN && right < i16::MAX);
-    }
-    #[test]
-    fn sample_bounds_never_reject_a_sample_inside_the_region() {
-        let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
-        let mut flight = Flight::new(&world, Settings::default());
-        let palette = Palette::new(Daylight::Day);
-        for view in [View::Overhead, View::Chase] {
-            flight.view = view;
-            for _ in 0..180 {
-                flight.step(&world, 16, 128, 128);
-            }
-            let projection = flight.projection(128, 128);
-            let prepared = PreparedJet::new(
-                &flight,
-                0,
-                PlacedAircraft::from_flight(&flight)[0].unwrap(),
-                &projection,
-                &palette,
-                [128, 128],
-            )
-            .expect("visible aircraft");
-            for scale in [1, 63, 256, 512, 1024] {
-                let scale = Fixed::from_ratio(scale, 256);
-                for axis in 0..2 {
-                    for raw in (-32 * 256..160 * 256).step_by(67) {
-                        let position = Fixed::from_ratio(raw, 256);
-                        for clip in [[0, 0, 32, 32], [31, 47, 63, 79], [127, 127, 128, 128]] {
-                            let ends = prepared.sample_ends(position, axis, scale);
-                            if ends[0] == ends[1] {
-                                for offset in
-                                    &prepared.offsets[..prepared.samples * prepared.samples]
-                                {
-                                    assert_eq!(
-                                        (position + offset[axis] * scale / prepared.center[2])
-                                            .round()
-                                            .trunc_to_int(),
-                                        ends[0]
-                                    );
-                                }
-                            }
-                            if ends[0].max(ends[1]) < clip[axis]
-                                || ends[0].min(ends[1]) >= clip[axis + 2]
-                            {
-                                assert!(
-                                    prepared.offsets[..prepared.samples * prepared.samples]
-                                        .iter()
-                                        .all(|offset| {
-                                            let at = (position
-                                                + offset[axis] * scale / prepared.center[2])
-                                                .round()
-                                                .trunc_to_int();
-                                            at < clip[axis] || at >= clip[axis + 2]
-                                        })
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
     #[test]
     fn region_writes_preserve_global_scene_samples_and_depth() {
         let world = World::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16);
@@ -2026,12 +1596,12 @@ mod tests {
             let placed = PlacedAircraft::from_flight(&flight);
             let scene = Scene {
                 placed: &placed,
-                world: &world,
+                ground: world.at(Some(Default::default())),
                 flight: &flight,
                 palette: &raster.palette,
                 frame_height: 128,
                 terrain: PreparedTerrain::new(
-                    &world,
+                    world.at(Some(Default::default())),
                     &flight,
                     &flight.projection(128, 128),
                     &raster.palette,
@@ -2114,7 +1684,6 @@ mod tests {
         });
         assert_eq!(allocation, 0);
         let max = Raster::new(MAX_WIDTH, MAX_HEIGHT).unwrap();
-        assert!(max.sheet.width <= 628);
         assert!(max.bytes() < 8 * 1024 * 1024);
         for size in [(0, 0), (1280, 720), (65535, 65535), (1, 65535), (65535, 1)] {
             let (w, h, _) = scene_size(size.0, size.1);

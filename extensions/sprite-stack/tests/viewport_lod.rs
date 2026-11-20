@@ -89,6 +89,63 @@ fn pair(actual: model!(StackScene), reference: model!(StackScene), zoom: Signal<
 }
 
 #[test]
+fn public_camera_distance_controls_perspective_in_an_ordinary_viewport() {
+    use mirui_sprite_stack::ViewportCamera;
+
+    #[mirui::compose]
+    fn screen(scene: model!(StackScene), camera: Camera) -> Entity {
+        ui! { StackViewport(id: "camera", width: 32, height: 32, scene: scene, camera: camera) }
+    }
+    let mut app = App::headless(32, 32);
+    app.with_default_widgets().add_plugin(SpriteStackPlugin);
+    let mut scene = StackScene::bounded(1);
+    let id = scene.place(asset(false, true), Pose::default()).unwrap();
+    let scene = app.add_model(scene).finish();
+    let camera = Camera {
+        scale: Fixed::from_int(4),
+        ..Camera::overhead()
+    };
+    let root = app.spawn_root().id();
+    app.compose(root, screen(scene.clone(), camera));
+    let coverage = |app: &mut App<_, _>| {
+        let image = app.snapshot().unwrap().unwrap();
+        let pixels = image.read_pixels().unwrap();
+        (0..32)
+            .flat_map(|y| (0..32).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let c = pixels.get_pixel(x, y);
+                [c.r, c.g, c.b, c.a] == RED
+            })
+            .count()
+    };
+    let initial = coverage(&mut app);
+    assert!(initial > 0);
+    scene.set_pose(id, Pose::at(0, -8, 0)).unwrap();
+    assert_eq!(coverage(&mut app), initial);
+    let viewport = app.world.find_by_id("camera").unwrap();
+    let distance = |value| Camera {
+        focal_distance: Some(Fixed::from_int(value)),
+        ..camera
+    };
+    app.world
+        .widget_mut(viewport)
+        .unwrap()
+        .set::<ViewportCamera>(distance(8));
+    let far = coverage(&mut app);
+    assert!(far > 0 && far < initial);
+    scene.set_pose(id, Pose::default()).unwrap();
+    assert_eq!(coverage(&mut app), initial);
+    app.world
+        .widget_mut(viewport)
+        .unwrap()
+        .set::<ViewportCamera>(distance(0));
+    assert!(matches!(
+        app.snapshot(),
+        Err(mirui::render::RenderError::InvalidGeometry)
+    ));
+}
+
+#[test]
 fn viewport_switches_between_indexed_or_rgba_levels_and_the_odd_sized_base() {
     for indexed in [false, true] {
         let mut app = App::headless(32, 16);
@@ -130,5 +187,44 @@ fn viewport_switches_between_indexed_or_rgba_levels_and_the_odd_sized_base() {
             app.render_dirty().unwrap();
         });
         assert_eq!(hot, 0);
+    }
+}
+
+#[test]
+fn directed_view_uses_projected_cell_size_for_authored_lods() {
+    use mirui::types::Fixed64;
+    use mirui_sprite_stack::{
+        ObjectPass, ViewProjection,
+        raster::{Frame, Projection, Workspace},
+    };
+    let mut scene = StackScene::new();
+    let id = scene.place(asset(true, true), Pose::default()).unwrap();
+    let mut pass = ObjectPass::default();
+    let mut frame = Frame::new(16, 16).unwrap();
+    let mut work = Workspace::new(16, 16).unwrap();
+    for (z, expected) in [(0, RED), (32, BLUE), (0, RED)] {
+        scene.set_pose(id, Pose::at(0, -z, z)).unwrap();
+        let camera = ViewProjection::horizontal(
+            Projection {
+                perspective: Fixed64::from_ratio(1, 8),
+                slope: Fixed::ONE,
+                scale: Fixed::from_int(2),
+                center: [Fixed::from_int(8); 2],
+            },
+            [Fixed::ZERO; 3],
+            [Fixed::ZERO, Fixed::ONE],
+            Fixed::from_int(50),
+        );
+        let objects = pass.prepare(&scene, camera, |_| true).unwrap();
+        work.render_rows(&mut frame, |tile| {
+            tile.color.bytes.fill(0);
+            tile.clear_depth();
+            objects.draw(tile)
+        })
+        .unwrap();
+        let pixels = frame.texture.read_pixels().unwrap();
+        let visible = pixels.bytes().chunks_exact(4).filter(|c| c[3] != 0);
+        assert!(visible.clone().count() > 0, "depth {z}");
+        assert!(visible.into_iter().all(|c| c == expected), "depth {z}");
     }
 }

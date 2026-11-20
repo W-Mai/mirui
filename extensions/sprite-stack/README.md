@@ -74,9 +74,11 @@ fn screens(scene: model!(StackScene), player: Object) -> Entity {
 }
 ```
 
-`StackScene::bounded(n)` prepares instance slots. `place` accepts a shared sprite, a static prepared model, a height field, or a registered editable height field. A failed placement preserves existing objects. `set_pose`, `remove` and `height_at` use the returned `Object`. Each viewport retains its output texture and reuses up to sixteen rows of depth and coverage. A game can install a per-viewport `ScenePainter` for its own materials and effects.
+`StackScene::bounded(n)` prepares instance slots. `place` accepts a shared sprite, a static prepared model, a height field, or a registered editable height field. A failed placement preserves existing objects. `set_pose`, `remove` and `height_at` use the returned `Object`. Use `Geometry::Sampled(&MODEL)` for a prepared model drawn as projected samples. Placing `&MODEL` directly draws the cell faces.
 
 `StackViewport` selects detail separately for each camera. It uses the coarsest stored grid step that projects to at most one screen pixel, and draws the base atlas at closer scales. Optional `SLOD` records borrow sparse cells and their original RGBA colors or palette indices from the MIRX file. A coarse cell on the edge stops at the original layer bounds.
+
+For a perspective chase view, set `Camera { focal_distance: Some(96.into()), ..Camera::chase(player) }`. The target plane keeps the configured scale. At 96 world units behind that plane, an object appears half as large. A second viewport can use `Camera::overhead()` to see the same objects at a constant scale.
 
 [Passing Lane](examples/passing_lane.rs) starts two cars driving in separate lanes. One game timer advances both cars, and each time the faster car overtakes the slower one, the counter goes up. **Pause** and **Resume** control the race. **Toggle lift** raises or lowers a section of the repeating road. Both cameras show the same traffic and terrain, and `scene.height_at` keeps the cars on the road surface.
 
@@ -85,3 +87,9 @@ cargo run --profile release-opt -p mirui-sprite-stack --example passing_lane --f
 ```
 
 Procedural games can pass their existing height and material planes to `HeightField::from_planes`. Use `with_coordinate_map` to convert local X/Z coordinates to the source map's axes. `address_at` returns the index for reading both planes.
+
+### Game-directed cameras
+
+[Pixel Flight](../../gallery/pixel-flight/src/runtime.rs) installs its animated flight camera with `StackViewport::with_renderer(scene, renderer)`. The viewport requests a new image when the scene, camera or viewport size changes. It assigns the texture revision and presents the last rendered frame. Setting the viewport's `camera` property selects the built-in camera. Additional viewports can follow the same objects independently.
+
+`ObjectPass::prepare` resolves placed objects for a view. Its result draws into each visible region using the scene depth buffer. `ProjectedStack` accepts per-layer offsets and a material callback for animated, shaded sprites. `TerrainView` draws a height field directly or accepts a `TerrainSurface` for procedural shading. `CameraWorkspace` handles screen roll, RGB565 tiles and optional opaque overlays. Pixel Flight supplies its controls, camera motion, sky, aircraft materials, exhaust and cockpit through these interfaces.

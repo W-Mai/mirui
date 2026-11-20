@@ -7,9 +7,9 @@ use super::{
     world::World as Terrain,
 };
 use core::cell::Cell;
-use mirui::core::model::{ModelHandle, OwnedModel};
+use mirui::core::model::ModelHandle;
 use mirui::render::RenderError;
-use mirui_sprite_stack::{Camera, ScenePainter, SpriteStackPlugin, StackScene, StackViewport};
+use mirui_sprite_stack::{SceneRenderer, SpriteStackPlugin, StackScene, StackViewport};
 mod objects;
 use objects::FlightObjects;
 
@@ -21,7 +21,6 @@ use mirui::input::event::{
     press::{PressCancelReason, PressCancelled, Pressed, Released},
 };
 use mirui::prelude::*;
-use mirui::render::command::{CompositeMode, DrawCommand};
 use mirui::render::font::{Font, FontManager};
 use mirui::ui::widgets::{ParagraphStyle, Text, TextAlign};
 use mirui::ui::{ComputedRect, view::PaintCtx};
@@ -84,7 +83,7 @@ impl FlightModel {
         self.view_elapsed_ms = 0;
         self.flight.controls.release_all();
     }
-    /// Flight dynamics and cloud sampling share a fixed terrain origin. Removing or moving this ground suspends the flight simulation.
+    /// The procedural terrain object used by the flight camera and ground-clearance controls.
     pub fn ground(&self) -> mirui_sprite_stack::Object {
         self.objects.ground()
     }
@@ -206,12 +205,6 @@ impl FlightModel {
         if width == 0 || height == 0 || !self.focused || !self.visible {
             return;
         }
-        if !self
-            .scene
-            .read(|scene| self.objects.supports_terrain(scene, &self.terrain))
-        {
-            return;
-        }
         let (scene_width, scene_height, scale) = self.profile.scene_size(width, height);
         let milliseconds = milliseconds.min(50) as u16;
         if self.autoplay {
@@ -241,8 +234,12 @@ impl FlightModel {
             self.flight.controls.pointer = None;
             self.flight.release_pointer(true);
         }
-        self.flight
-            .step(&self.terrain, milliseconds, scene_width, scene_height);
+        self.flight.step_above(
+            self.terrain.at(self.scene.pose(self.objects.ground())),
+            milliseconds,
+            scene_width,
+            scene_height,
+        );
         self.hint_time += Fixed::from_int(milliseconds.into()) / Fixed::from_int(1000);
         self.objects.sync(&mut self.scene, &mut self.flight);
         self.scene.invalidate();
@@ -260,8 +257,6 @@ struct FlightOutput {
     cockpit: Option<Cockpit>,
     flames: Option<Flames>,
     viewport: (u16, u16),
-    cache_revision: u64,
-    last: Option<u64>,
 }
 impl FlightOutput {
     fn new(profile: Profile) -> Self {
@@ -275,8 +270,6 @@ impl FlightOutput {
                 None
             },
             viewport: (0, 0),
-            cache_revision: 0,
-            last: None,
         }
     }
     fn prepare(&mut self, width: u16, height: u16, day: super::raster::Daylight) {
@@ -296,7 +289,6 @@ impl FlightOutput {
         } else {
             self.rebuild(w, h, day);
         }
-        self.last = None;
     }
     fn rebuild(&mut self, width: usize, height: usize, day: super::raster::Daylight) {
         self.cockpit = None;
@@ -315,13 +307,18 @@ impl FlightOutput {
         self.cockpit = Some(cockpit);
         self.raster = Some(raster);
     }
-    fn render_frame(&mut self, model: &FlightModel, scene: &StackScene, stamp: u64) {
+    fn render_frame(&mut self, model: &FlightModel, scene: &StackScene) -> Result<(), RenderError> {
         let Some(raster) = &mut self.raster else {
-            return;
+            return Ok(());
         };
         if let Some(cockpit) = &self.cockpit {
             let placed = model.objects.placed(scene);
-            raster.render_with_cockpit(&model.terrain, &model.flight, cockpit, &placed);
+            let ground = model.terrain.at(scene.pose(model.objects.ground()));
+            let managed = model.objects.managed(ground.draws_surface());
+            let extra = (scene.len()
+                > usize::from(ground.draws_surface()) + placed.iter().flatten().count())
+            .then_some((scene, managed.as_slice()));
+            raster.render_scene(ground, &model.flight, Some(cockpit), &placed, extra)?;
         }
         let (_, _, scale) = self.profile.scene_size(self.viewport.0, self.viewport.1);
         if let Some(flames) = &mut self.flames {
@@ -334,39 +331,9 @@ impl FlightOutput {
                 )
                 .expect("prepared flame textures");
         }
-        self.cache_revision = self.cache_revision.wrapping_add(1);
-        raster.frame.texture.cache_revision = self.cache_revision;
-        self.last = Some(stamp);
         model.display_bytes.set(self.bytes());
+        Ok(())
     }
-    fn paint(&self, paint: &mut PaintCtx<'_>) {
-        let Some(raster) = &self.raster else {
-            return;
-        };
-        let rect = paint.rect();
-        let (_, _, scale) = self.profile.scene_size(self.viewport.0, self.viewport.1);
-        let scale = Fixed::from_int(scale as i32);
-        let width = Fixed::from_int(raster.frame.width as i32) * scale;
-        let height = Fixed::from_int(raster.frame.height as i32) * scale;
-        let origin = Point::new(
-            rect.x + ((rect.w - width) / 2).round(),
-            rect.y + ((rect.h - height) / 2).round(),
-        );
-        paint.draw(&DrawCommand::Blit {
-            pos: origin,
-            size: Point::new(width, height),
-            transform: paint.transform(),
-            quad: None,
-            texture: &raster.frame.texture,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        });
-        if let Some(flames) = &self.flames {
-            flames.paint(paint, origin, scale);
-        }
-    }
-
     fn bytes(&self) -> usize {
         core::mem::size_of::<Self>()
             + self
@@ -385,46 +352,43 @@ impl FlightOutput {
         &mut self,
         model: &FlightModel,
         scene: &StackScene,
-        stamp: u64,
         width: u16,
         height: u16,
-    ) {
+    ) -> Result<(), RenderError> {
         self.prepare(width, height, model.day);
-        if self.last != Some(stamp) {
-            self.render_frame(model, scene, stamp);
-        }
+        self.render_frame(model, scene)
     }
 }
-struct FlightPainter {
+
+struct FlightCamera {
     model: FlightModelHandle,
     output: FlightOutput,
 }
-impl ScenePainter for FlightPainter {
-    fn paint(
+
+impl SceneRenderer for FlightCamera {
+    fn render(
         &mut self,
         scene: &StackScene,
-        _camera: Camera,
-        stamp: u64,
-        paint: &mut PaintCtx<'_>,
-    ) -> Result<(), RenderError> {
-        let rect = paint.rect();
-        let (w, h) = (
-            rect.w.to_int().clamp(0, 65535) as u16,
-            rect.h.to_int().clamp(0, 65535) as u16,
-        );
-        if w == 0 || h == 0 {
-            return Ok(());
+        [width, height]: [u16; 2],
+    ) -> Result<Option<&mut super::raster::Frame>, RenderError> {
+        self.model
+            .read(|model| self.output.update(model, scene, width, height))?;
+        Ok(self.output.raster.as_mut().map(|r| &mut r.frame))
+    }
+
+    fn frame(&self) -> Option<&super::raster::Frame> {
+        self.output.raster.as_ref().map(|r| &r.frame)
+    }
+
+    fn pixel_scale(&self) -> Option<core::num::NonZeroU16> {
+        let (w, h) = self.output.viewport;
+        core::num::NonZeroU16::new(self.output.profile.scene_size(w, h).2 as u16)
+    }
+
+    fn overlay(&self, paint: &mut PaintCtx<'_>, origin: Point, scale: Fixed) {
+        if let Some(flames) = &self.output.flames {
+            flames.paint(paint, origin, scale);
         }
-        self.model.read(|model| {
-            if model.objects.supports_terrain(scene, &model.terrain) {
-                self.output.update(model, scene, stamp, w, h);
-            }
-        });
-        if self.output.raster.is_some() {
-            paint.set_background_handled(true);
-            self.output.paint(paint);
-        }
-        Ok(())
     }
 }
 #[mirui::component]
@@ -513,10 +477,9 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
     if !res!(optional MonoClock).with(|clock| clock.is_some()) {
         res!().insert(MonoClock::from_time_source());
     }
-    let viewport = StackViewport::with_painter(
+    let viewport = StackViewport::with_renderer(
         model.scene(),
-        Camera::default(),
-        FlightPainter {
+        FlightCamera {
             model: model.clone(),
             output: FlightOutput::new(profile),
         },
@@ -535,7 +498,9 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
                 ..Padding::all(0)
             }
         ) [
-            FlightInput { model: model.clone() },
+            FlightInput {
+                model: model.clone(),
+            },
             viewport,
             mirui::input::event::scroll::TouchAction::None,
         ] {
@@ -633,6 +598,8 @@ fn setup_profile<B: Surface, F: RendererFactory<B>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mirui::core::model::OwnedModel;
+    use mirui_sprite_stack::Camera;
 
     fn assert_hint_fits(world: &mirui::ecs::World) {
         let fits = mirui::gallery::demos::text_fits(world);
@@ -646,7 +613,18 @@ mod tests {
     fn additional_scene_viewports_share_one_simulation_step() {
         #[mirui::compose]
         fn minimap(scene: model!(StackScene), player: mirui_sprite_stack::Object) -> Entity {
-            ui! { StackViewport(width:16,height:16,scene:scene,camera:Camera{target:Some(player),range:Fixed::from_int(8),..Camera::overhead()}) }
+            ui! {
+                StackViewport (
+                    width: 16,
+                    height: 16,
+                    scene: scene,
+                    camera: Camera {
+                        target: Some(player),
+                        range: Fixed::from_int(8),
+                        ..Camera::overhead()
+                    }
+                )
+            }
         }
         let mut app = App::headless(40, 64);
         app.with_default_widgets().with_default_systems();
@@ -663,36 +641,76 @@ mod tests {
     }
 
     #[test]
-    fn losing_the_flight_ground_holds_the_last_view_without_blocking_rendering() {
-        let mut app = App::headless(32, 32);
+    fn moving_and_removing_the_ground_keeps_the_scene_and_cameras_live() {
+        use mirui_sprite_stack::Pose;
+        let mut app = App::headless(128, 128);
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
         let game = setup_compact_app(&mut app, root);
-        let original = app.snapshot().unwrap().unwrap();
-        let rev = game.revision();
+        game.key(PhysicalKey::KeyE, true, false);
+        for _ in 0..45 {
+            game.advance(32, 128, 128, None);
+        }
+        let scene = game.scene();
         let ground = game.ground();
-        game.scene()
-            .set_pose(ground, mirui_sprite_stack::Pose::at(1, 0, 0))
+        let player = game.player();
+        let frame = |app: &mut App<_>| app.snapshot().unwrap().unwrap();
+        let differs = |a: &mirui::render::texture::Texture, b: &mirui::render::texture::Texture| {
+            a.read_pixels()
+                .unwrap()
+                .bytes()
+                .iter()
+                .zip(b.read_pixels().unwrap().bytes())
+                .any(|(a, b)| a != b)
+        };
+        let original = frame(&mut app);
+        let mut moved = Pose::at(123, 26, 17);
+        moved.yaw = Fixed::from_int(90);
+        scene.set_pose(ground, moved).unwrap();
+        let raised = frame(&mut app);
+        assert!(differs(&original, &raised));
+        let p = scene.pose(player).unwrap();
+        let pos = p.position;
+        let expected = scene
+            .height_at(
+                ground,
+                Fixed::from_int(pos[0].trunc_to_int()),
+                Fixed::from_int(pos[2].trunc_to_int()),
+            )
+            .unwrap()
             .unwrap();
-        game.advance(16, 32, 32, None);
-        assert_eq!(game.revision(), rev);
-        app.render_dirty().unwrap();
-        let frozen = app.snapshot().unwrap().unwrap();
-        assert_eq!(
-            original.read_pixels().unwrap().bytes(),
-            frozen.read_pixels().unwrap().bytes()
+        let sampled = game.read(|game| {
+            game.terrain
+                .at(Some(moved))
+                .height(pos[0].trunc_to_int(), -pos[2].trunc_to_int())
+        });
+        assert_eq!(sampled, expected);
+        scene.set_pose(ground, Pose::default()).unwrap();
+        assert!(!differs(&original, &frame(&mut app)));
+        scene.set_pose(ground, moved).unwrap();
+        let rev = game.revision();
+        game.advance(32, 128, 128, None);
+        assert_eq!(game.revision(), rev + 1);
+        assert_ne!(scene.pose(player), Some(p));
+        let with_ground = frame(&mut app);
+        scene.remove(ground).unwrap();
+        let no_ground = frame(&mut app);
+        assert!(differs(&with_ground, &no_ground));
+        let p = scene.pose(player).unwrap();
+        game.select_view(CameraView::Chase);
+        for _ in 0..32 {
+            game.advance(32, 128, 128, None);
+        }
+        assert_ne!(scene.pose(player), Some(p));
+        assert!(differs(&no_ground, &frame(&mut app)));
+        let same_view = frame(&mut app);
+        scene.remove(player).unwrap();
+        assert!(
+            differs(&same_view, &frame(&mut app)),
+            "the aircraft was visible with no ground"
         );
-        game.scene()
-            .set_pose(ground, mirui_sprite_stack::Pose::default())
-            .unwrap();
-        game.advance(16, 32, 32, None);
-        app.render_dirty().unwrap();
-        assert_eq!(game.revision(), rev + 1);
-        game.scene().remove(ground).unwrap();
-        game.advance(16, 32, 32, None);
-        app.render_dirty().unwrap();
-        assert_eq!(game.revision(), rev + 1);
     }
+
     #[test]
     fn lighting_changes_reuse_view_storage() {
         use crate::raster::Daylight;
@@ -707,24 +725,6 @@ mod tests {
                 );
                 assert_eq!(output.bytes(), bytes);
                 assert_eq!(output.raster.as_ref().unwrap().palette.day, day);
-            }
-        }
-    }
-    #[test]
-    fn output_revisions_survive_storage_rebuilds() {
-        let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
-        let mut output = FlightOutput::new(Profile::Compact);
-        let mut previous = 0;
-        for (width, height) in [(128, 128), (320, 240), (128, 128), (128, 160)] {
-            for _ in 0..3 {
-                scene.key(PhysicalKey::KeyT, true, false);
-                scene.advance(16, width, height, None);
-                scene
-                    .scene
-                    .read(|shared| output.update(&scene, shared, scene.revision, width, height));
-                let revision = output.raster.as_ref().unwrap().frame.texture.cache_revision;
-                assert!(revision > previous);
-                previous = revision;
             }
         }
     }
@@ -801,7 +801,7 @@ mod tests {
         let mut output = FlightOutput::new(Profile::Compact);
         scene
             .scene
-            .read(|shared| output.update(&scene, shared, scene.revision, 128, 128));
+            .read(|shared| output.update(&scene, shared, 128, 128).unwrap());
         eprintln!("compact scene bytes: {}", scene.resident_bytes());
         assert!(scene.resident_bytes() < 128 * 1024);
         assert_eq!(Profile::Compact.scene_size(128, 128), (128, 128, 1));
@@ -825,13 +825,13 @@ mod tests {
                 scene.advance(16, width, height, None);
                 scene
                     .scene
-                    .read(|shared| output.update(&scene, shared, scene.revision, width, height));
+                    .read(|shared| output.update(&scene, shared, width, height).unwrap());
                 let allocations = crate::test_support::tracked_allocations(|| {
                     for _ in 0..8 {
                         scene.advance(16, width, height, None);
-                        scene.scene.read(|shared| {
-                            output.update(&scene, shared, scene.revision, width, height)
-                        });
+                        scene
+                            .scene
+                            .read(|shared| output.update(&scene, shared, width, height).unwrap());
                     }
                 });
                 assert_eq!(allocations, 0);
