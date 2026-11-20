@@ -144,7 +144,8 @@ impl Race {
     }
 }
 
-#[timer(every = 16)]
+// The App paces frames. Advance once per tick when the simulation clock has moved.
+#[timer(every = 1)]
 fn drive(race: model!(Race)) {
     if !race.paused() {
         race.advance(now_ms());
@@ -196,7 +197,7 @@ fn setup<B: Surface, F: RendererFactory<B>>(app: &mut App<B, F>) -> RaceHandle {
 fn main() {
     let mut app = App::new(SdlSurface::new("Passing Lane", 360, 200));
     setup(&mut app);
-    app.add_plugin(FrameRateCapPlugin::new(60));
+    app.add_plugin(FrameRateCapPlugin::new(120));
     app.run();
 }
 
@@ -278,6 +279,14 @@ mod tests {
         app.add_system(sim_input_system::system());
         assert!(!app.tick());
         let before = app.snapshot().unwrap().unwrap();
+        for time in [8, 17, 25] {
+            mock::set_ms(time);
+            assert!(!app.tick());
+            assert_eq!(
+                car_positions(&race)[0],
+                Fixed::from_int(16) + Fixed::from_ratio(time as i32, 16)
+            );
+        }
         for time in (80..=640).step_by(80) {
             mock::set_ms(time);
             assert!(!app.tick());

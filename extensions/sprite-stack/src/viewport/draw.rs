@@ -128,11 +128,12 @@ impl ViewProjection {
         let (s, c) = self.yaw;
         let (sp, cp) = self.pitch;
         let forward = x * s + z * c;
-        let [x, y, _, depth] = self
-            .projection
-            .project_camera(x * c - z * s, y * cp + forward * sp, forward * cp - y * sp)
-            .expect("orthographic projection");
-        [x, y, depth]
+        let [screen_x, screen_y] = self.projection.screen_point(
+            x * c - z * s,
+            y * cp + forward * sp,
+            self.projection.scale,
+        );
+        [screen_x, screen_y, forward * cp - y * sp]
     }
 }
 struct ObjectProjection<'a> {
@@ -290,6 +291,67 @@ struct LayerGrid {
     pivot: [Fixed; 2],
 }
 impl LayerGrid {
+    /// Upright quarter turns map each local axis to one world axis. The orthographic
+    /// projection is monotone along each of those axes, including fixed-point rounding.
+    fn intersects_band(
+        self,
+        slice: &SliceProjection<'_, '_>,
+        mut elevations: [Fixed; 2],
+        clip: [i32; 4],
+    ) -> bool {
+        let t = slice.object;
+        if t.pitch != (Fixed::ZERO, Fixed::ONE)
+            || t.roll != (Fixed::ZERO, Fixed::ONE)
+            || (!t.yaw.0.is_zero() && !t.yaw.1.is_zero())
+        {
+            return true;
+        }
+        // Empty parts of a sparse canvas can reach farther than any occupied cell.
+        // Only project its corners when every intermediate fits the raster coordinates.
+        let extent = self
+            .pivot
+            .into_iter()
+            .chain(t.pose.position)
+            .chain(t.camera.origin)
+            .map(|v| i64::from(v.to_int()).abs() + 1)
+            .sum::<i64>()
+            + i64::from(self.size[0])
+            + i64::from(self.size[1])
+            + elevations
+                .into_iter()
+                .map(|v| i64::from(v.to_int()).abs())
+                .max()
+                .unwrap()
+            + 4;
+        let scale = i64::from(t.camera.projection.scale.to_int()) + 1;
+        let [cx, cy] = t.camera.projection.center;
+        let center = cx.max(cy).to_int();
+        if extent * scale + i64::from(center) >= i64::from(Fixed::MAX.to_int()) {
+            return true;
+        }
+        if slice.edge.is_some() {
+            elevations[0] -= Fixed::HALF;
+            elevations[1] += Fixed::HALF;
+        }
+        let mut low = [Fixed::MAX; 2];
+        let mut high = [Fixed::MIN; 2];
+        for y in elevations {
+            for x in [-self.pivot[0], Fixed::from(self.size[0]) - self.pivot[0]] {
+                for z in [self.pivot[1], self.pivot[1] - Fixed::from(self.size[1])] {
+                    let p = t.point([x, y, z]);
+                    for axis in 0..2 {
+                        low[axis] = low[axis].min(p[axis]);
+                        high[axis] = high[axis].max(p[axis]);
+                    }
+                }
+            }
+        }
+        high[0] > Fixed::from_int(clip[0])
+            && low[0] < Fixed::from_int(clip[2])
+            && high[1] > Fixed::from_int(clip[1])
+            && low[1] < Fixed::from_int(clip[3])
+    }
+
     fn cell(
         self,
         slice: &SliceProjection<'_, '_>,
@@ -327,6 +389,10 @@ fn draw_atlas(
         size: [w, h],
         pivot: [px, pz],
     };
+    let top = spacing * (d.layers().len() - 1) as i32;
+    if !grid.intersects_band(&slice, [Fixed::ZERO, top], tile.color.clip) {
+        return Ok(());
+    }
     if let Some((levels, palette)) = asset.levels {
         let scale = t.camera.projection.scale;
         if let Some(level) = (0..levels.len())
@@ -336,6 +402,9 @@ fn draw_atlas(
         {
             for i in 0..d.layers().len() {
                 let elevation = spacing * i as i32;
+                if !grid.intersects_band(&slice, [elevation; 2], tile.color.clip) {
+                    continue;
+                }
                 for sample in level.layer(i).expect("validated layer") {
                     let rgba = match sample.color {
                         crate::format::lod::LodColor::Rgba(rgba) => rgba,
@@ -362,6 +431,10 @@ fn draw_atlas(
     let image = asset.atlas().read_pixels()?;
     for i in 0..d.layers().len() {
         let region = d.layers().get(i).expect("validated layer");
+        let elevation = spacing * i as i32;
+        if !grid.intersects_band(&slice, [elevation; 2], tile.color.clip) {
+            continue;
+        }
         for y in 0..region.height() as i32 {
             for x in 0..region.width() as i32 {
                 let c = image.get_pixel(region.x() as i32 + x, region.y() as i32 + y);
@@ -372,7 +445,7 @@ fn draw_atlas(
                     &slice,
                     tile,
                     [x as u16, y as u16],
-                    spacing * i as i32,
+                    elevation,
                     1,
                     u32::from_le_bytes([c.r, c.g, c.b, c.a]),
                 );
@@ -401,13 +474,21 @@ fn draw_sparse(
         .find(|level| fits_pixel(t.camera.projection.scale, level.step()))
         .unwrap_or(&asset.levels()[0]);
     for i in 0..layers {
-        for s in level.layer(usize::from(i)).expect("validated layer") {
+        let samples = level.layer(usize::from(i)).expect("validated layer");
+        if samples.is_empty() {
+            continue;
+        }
+        let elevation = (Fixed::from(i) - ph) * spacing;
+        if !grid.intersects_band(&slice, [elevation; 2], tile.color.clip) {
+            continue;
+        }
+        for s in samples {
             let (x, y) = (u16::from(s.x), u16::from(s.y));
             grid.cell(
                 &slice,
                 tile,
                 [x, y],
-                (Fixed::from(i) - ph) * spacing,
+                elevation,
                 level.step(),
                 u32::from_le_bytes(asset.palette()[usize::from(s.color)]),
             );
@@ -466,5 +547,59 @@ fn draw_field(tile: &mut SceneCanvas<'_, '_>, t: &ObjectProjection<'_>, field: &
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn band_culling_preserves_rasterized_cells_at_fractional_and_edge_on_views() {
+        let size = [49, 71];
+        let grid = LayerGrid {
+            size: [9, 5],
+            pivot: [Fixed::from_ratio(7, 2), Fixed::from_ratio(5, 4)],
+        };
+        let elevation = Fixed::from_ratio(9, 4);
+        let mut culled = 0;
+        for pitch in [-34, 0, 29, 90] {
+            let camera = Camera {
+                yaw: Fixed::from_int(33),
+                pitch: Fixed::from_int(pitch),
+                scale: Fixed::from_ratio(17, 4),
+                ..Camera::default()
+            };
+            let view = ViewProjection::new(camera, [Fixed::HALF; 3], size);
+            for yaw in [0, 90, 180, 270, 23] {
+                let pose = Pose {
+                    yaw: Fixed::from_int(yaw),
+                    ..Pose::default()
+                };
+                let object = ObjectProjection::new(&view, pose);
+                let slice = SliceProjection::new(&object);
+                let mut frame = Frame::new(size[0], size[1]).unwrap();
+                let mut work = Workspace::new(size[0], size[1]).unwrap();
+                work.with_rows(&mut frame, 0, size[1], |tile| {
+                    tile.clear_depth();
+                    for y in (0..grid.size[1]).step_by(2) {
+                        for x in (0..grid.size[0]).step_by(2) {
+                            grid.cell(&slice, tile, [x, y], elevation, 2, u32::MAX);
+                        }
+                    }
+                    for y in 0..size[1] {
+                        if !grid.intersects_band(
+                            &slice,
+                            [elevation; 2],
+                            [0, y as i32, size[0] as i32, y as i32 + 1],
+                        ) {
+                            culled += 1;
+                            assert!((0..size[0]).all(|x| tile.get(y * size[0] + x) == 0));
+                        }
+                    }
+                });
+            }
+        }
+        assert!(culled > 0);
     }
 }

@@ -20,6 +20,9 @@ pub struct Projection {
     pub center: [Fixed; 2],
 }
 impl Projection {
+    pub(super) fn screen_point(&self, right: Fixed, up: Fixed, scale: Fixed) -> [Fixed; 2] {
+        [self.center[0] + scale * right, self.center[1] - scale * up]
+    }
     pub fn apply_perspective(&self, value: Fixed) -> Fixed {
         (self.perspective * Fixed64::from_fixed(value)).to_fixed()
     }
@@ -33,12 +36,8 @@ impl Projection {
             return None;
         }
         let scale = self.scale / denominator;
-        Some([
-            self.center[0] + scale * right,
-            self.center[1] - scale * (up + self.slope * depth),
-            scale,
-            depth,
-        ])
+        let [x, y] = self.screen_point(right, up + self.slope * depth, scale);
+        Some([x, y, scale, depth])
     }
 }
 /// Owned output texture. Canvas methods require an RGBA8888 frame.

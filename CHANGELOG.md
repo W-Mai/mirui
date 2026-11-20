@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Passing Lane starts both cars automatically, aligns them with the road, and counts overtakes in motion. Pause, resume and road lift controls sit below the two camera views.
+- Passing Lane starts both cars automatically, updates traffic at up to 120 Hz and counts overtakes in motion. Pause, resume and road lift controls sit below the two camera views.
+- SpriteStack skips upright, axis-aligned sprite layers outside the current drawing band and uses the camera scale directly for orthographic projection.
 
 - Pixel Flight changes the cockpit and terrain lighting in place. Switching between day, sunset and night reuses the rendered frame, cockpit layers and drawing workspace.
 
