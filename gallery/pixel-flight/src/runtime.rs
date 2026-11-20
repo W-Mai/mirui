@@ -291,18 +291,32 @@ impl FlightOutput {
         }
     }
     fn rebuild(&mut self, width: usize, height: usize, day: super::raster::Daylight) {
+        let compact = self.profile == Profile::Compact;
+        self.prepare_cockpit(width, height);
+        let palette = Palette::new(day);
+        self.cockpit
+            .as_mut()
+            .expect("prepared cockpit")
+            .set_palette(&palette);
+        let mut raster = Raster::new([width, height], compact).expect("bounded flight workspace");
+        raster.palette = palette;
+        self.raster = Some(raster);
+    }
+    fn prepare_cockpit(&mut self, width: usize, height: usize) {
+        if self
+            .cockpit
+            .as_ref()
+            .is_some_and(|c| c.size() == [width, height])
+        {
+            return;
+        }
         self.cockpit = None;
         self.raster = None;
-        let palette = Palette::new(day);
-        let cockpit = match self.profile {
-            Profile::Desktop => Cockpit::new(width, height, &palette),
-            Profile::Compact => Cockpit::new_compact(width, height, &palette),
-        };
-        let mut raster = Raster::new([width, height], self.profile == Profile::Compact)
-            .expect("bounded flight workspace");
-        raster.palette = palette;
-        self.cockpit = Some(cockpit);
-        self.raster = Some(raster);
+        self.cockpit = Some(Cockpit::with_storage(
+            width,
+            height,
+            self.profile == Profile::Compact,
+        ));
     }
     fn render_frame(
         &mut self,
@@ -376,6 +390,12 @@ impl SceneRenderer for FlightCamera {
 
     fn opaque_frame_byte_limit(&self) -> Option<usize> {
         (self.output.profile == Profile::Compact).then_some(2)
+    }
+
+    fn prepare_frame(&mut self, [width, height]: [u16; 2]) -> Result<(), RenderError> {
+        let (width, height, _) = self.output.profile.scene_size(width, height);
+        self.output.prepare_cockpit(width, height);
+        Ok(())
     }
 
     fn render(

@@ -4,6 +4,12 @@ use mirui::types::Fixed;
 /// Depth queries for an effect spanning multiple tiles. Resolve every outstanding sample contained in the supplied region, including samples outside the virtual scene.
 pub trait DepthQuery {
     fn next_point(&self) -> Option<[i32; 2]>;
+    /// Visits pending points and their maximum relevant depth. Use MAX when all depths matter.
+    fn visit_pending(&self, visit: &mut dyn FnMut([i32; 2], Fixed)) {
+        if let Some(point) = self.next_point() {
+            visit(point, Fixed::MAX);
+        }
+    }
     fn resolve(&mut self, tile: &SceneCanvas<'_, '_>);
 }
 
@@ -52,10 +58,7 @@ impl<const N: usize> DepthSamples<N> {
         bias: Fixed,
         mut sample: impl FnMut(usize) -> (i32, i32, Fixed),
     ) {
-        let mut missing = Self::MASK & !self.resolved;
-        while missing != 0 {
-            let i = missing.trailing_zeros() as usize;
-            missing &= missing - 1;
+        for i in self.missing() {
             let (x, y, at) = sample(i);
             if let Some(surface) = tile.sample_depth(x, y) {
                 let bit = 1 << i;
@@ -69,6 +72,17 @@ impl<const N: usize> DepthSamples<N> {
     pub fn next_missing(self) -> Option<usize> {
         let missing = Self::MASK & !self.resolved;
         (missing != 0).then(|| missing.trailing_zeros() as usize)
+    }
+    pub fn missing(self) -> impl Iterator<Item = usize> {
+        let mut mask = Self::MASK & !self.resolved;
+        core::iter::from_fn(move || {
+            if mask == 0 {
+                return None;
+            }
+            let index = mask.trailing_zeros() as usize;
+            mask &= mask - 1;
+            Some(index)
+        })
     }
     pub fn resolved_count(self) -> u32 {
         self.resolved.count_ones()

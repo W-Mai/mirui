@@ -466,13 +466,21 @@ impl Cockpit {
             + core::mem::size_of::<Self>()
     }
     pub fn new(width: usize, height: usize, palette: &Palette) -> Self {
-        Self::with_storage(width, height, palette, false)
+        let mut cockpit = Self::with_storage(width, height, false);
+        cockpit.set_palette(palette);
+        cockpit
     }
+    #[cfg(test)]
     pub(super) fn new_compact(width: usize, height: usize, palette: &Palette) -> Self {
-        assert!(width <= 128 && height <= 128);
-        Self::with_storage(width, height, palette, true)
+        let mut cockpit = Self::with_storage(width, height, true);
+        cockpit.set_palette(palette);
+        cockpit
     }
-    fn with_storage(width: usize, height: usize, palette: &Palette, compact: bool) -> Self {
+    pub(super) fn size(&self) -> [usize; 2] {
+        [self.width as usize, self.height as usize]
+    }
+    pub(super) fn with_storage(width: usize, height: usize, compact: bool) -> Self {
+        assert!(!compact || (width <= 128 && height <= 128));
         let w = width as i32;
         let h = height as i32;
         let s = Fixed::from_int((height) as i32) / Fixed::from_int(300);
@@ -1308,7 +1316,6 @@ impl Cockpit {
                 }
             }
         }
-        art.set_palette(palette);
         art
     }
     pub(super) fn set_palette(&mut self, palette: &Palette) {

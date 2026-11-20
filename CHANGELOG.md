@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Copy ready texture regions between pixel formats with `TexturePixelsMut::copy_region_from`.
 - SpriteStack viewports own their output frames. Custom scene renderers receive a writable frame selected by the viewport.
+- Pixel Flight Compact blends exhaust into bounded scene regions before Mirui converts them to the output format.
 
 - Desktop examples in the workspace use optimized SpriteStack rasterization in development builds.
 

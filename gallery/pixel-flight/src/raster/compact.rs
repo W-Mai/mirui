@@ -39,6 +39,14 @@ mod tests {
                         &cockpit,
                         &PlacedAircraft::from_flight(&flight),
                     );
+                    full_frame.with_canvas(|canvas| {
+                        super::super::super::flame::paint_region(
+                            canvas,
+                            &full.flames[..full.flame_count],
+                            flight.time,
+                        )
+                        .unwrap();
+                    });
                     let rgba = full_frame.texture.read_pixels().unwrap();
                     {
                         let mut target = expected.texture.pixels_mut().unwrap();
@@ -49,11 +57,6 @@ mod tests {
                                 target.set_pixel(x, y, &Color::rgba(r, g, b, a));
                             }
                         }
-                        super::super::super::flame::composite_native(
-                            &mut target,
-                            &full.flames[..full.flame_count],
-                            flight.time,
-                        );
                     }
                     let allocations = crate::test_support::tracked_allocations(|| {
                         native.render_with_cockpit(

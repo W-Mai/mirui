@@ -71,13 +71,15 @@ impl CameraWorkspace {
         self.workspace.bytes() + self.sheet.bytes() + self.band.as_ref().map_or(0, Frame::bytes)
     }
 
-    /// Renders a camera and its optional screen-space foreground into an owned frame.
+    /// Renders a camera into an owned frame. The finish callback receives each
+    /// non-overlapping output region after the foreground and before format conversion.
     pub fn render(
         &mut self,
         output: &mut Frame,
         mapping: &RollMapping,
         overlay: Option<&dyn FrameOverlay>,
         scene: impl FnMut(&mut SceneCanvas<'_, '_>) -> Result<(), RenderError>,
+        finish: impl FnMut(&mut Canvas<'_>) -> Result<(), RenderError>,
     ) -> Result<(), RenderError> {
         if mapping.output != [output.width, output.height] {
             return Err(RenderError::InvalidGeometry);
@@ -98,7 +100,8 @@ impl CameraWorkspace {
                 sheet: &mut self.sheet,
             },
         };
-        self.workspace.render_frame(output, layout, overlay, scene)
+        self.workspace
+            .render_frame(output, layout, overlay, scene, finish)
     }
 
     /// Samples outstanding effect depths when an overlay or roll excluded them from the rendered tiles. Reuses the existing source tile for each group of nearby points.
@@ -106,27 +109,68 @@ impl CameraWorkspace {
         &mut self,
         mapping: &RollMapping,
         queries: &mut [impl DepthQuery],
-        mut depth: impl FnMut(&mut SceneCanvas<'_, '_>) -> Result<(), RenderError>,
+        mut depth: impl FnMut(&mut SceneCanvas<'_, '_>, Fixed) -> Result<(), RenderError>,
     ) -> Result<(), RenderError> {
-        while let Some((index, origin)) = queries
+        const HALO: i32 = 2;
+        while let Some((index, anchor)) = queries
             .iter()
             .enumerate()
             .find_map(|(i, q)| Some((i, q.next_point()?)))
         {
-            self.workspace.with_region(
+            let [left, top, right, bottom] = mapping.bounds;
+            let available = [self.sheet.width as i32, self.sheet.height as i32];
+            let [x, y] = [
+                anchor[0].clamp(left, right.saturating_sub(1).max(left)),
+                anchor[1].clamp(top, bottom.saturating_sub(1).max(top)),
+            ];
+            let mut low = [x, y];
+            let mut high = [x + 1, y + 1];
+            let mut far: Option<Fixed> = None;
+            for query in &*queries {
+                query.visit_pending(&mut |point, limit| {
+                    if point[0] < left || point[0] >= right || point[1] < top || point[1] >= bottom
+                    {
+                        return;
+                    }
+                    let next_low = [low[0].min(point[0]), low[1].min(point[1])];
+                    let next_high = [high[0].max(point[0] + 1), high[1].max(point[1] + 1)];
+                    if (0..2).all(|i| next_high[i] - next_low[i] <= available[i] - 2 * HALO) {
+                        low = next_low;
+                        high = next_high;
+                        far = Some(far.map_or(limit, |prior| prior.max(limit)));
+                    }
+                });
+            }
+            let origin = low.map(|n| n - HALO);
+            let extent = [
+                (high[0] - low[0] + 2 * HALO).min(available[0]) as usize,
+                (high[1] - low[1] + 2 * HALO).min(available[1]) as usize,
+            ];
+            self.workspace.with_extent(
                 &mut self.sheet,
+                extent,
                 mapping.size,
                 origin,
                 mapping.bounds,
                 |tile| {
-                    depth(tile)?;
+                    if let Some(far) = far
+                        && tile.color.clip[0] < tile.color.clip[2]
+                        && tile.color.clip[1] < tile.color.clip[3]
+                    {
+                        depth(tile, far)?;
+                    }
+                    let clip = &mut tile.color.clip;
+                    clip[0] = clip[0].max(low[0]);
+                    clip[1] = clip[1].max(low[1]);
+                    clip[2] = clip[2].min(high[0]);
+                    clip[3] = clip[3].min(high[1]);
                     for query in &mut *queries {
                         query.resolve(tile);
                     }
                     Ok::<(), RenderError>(())
                 },
             )?;
-            if queries[index].next_point() == Some(origin) {
+            if queries[index].next_point() == Some(anchor) {
                 return Err(RenderError::InvalidGeometry);
             }
         }
@@ -141,7 +185,7 @@ impl Workspace {
         output: &mut Frame,
         scene: impl FnMut(&mut SceneCanvas<'_, '_>) -> Result<(), RenderError>,
     ) -> Result<(), RenderError> {
-        self.render_frame(output, FrameLayout::Rows, None, scene)
+        self.render_frame(output, FrameLayout::Rows, None, scene, |_| Ok(()))
     }
 
     /// Renders the complete output with the existing depth and coverage storage. The callback receives one clipped region at a time. A failed scene pass aborts the frame before later regions run.
@@ -151,6 +195,7 @@ impl Workspace {
         layout: FrameLayout<'_>,
         overlay: Option<&dyn FrameOverlay>,
         mut scene: impl FnMut(&mut SceneCanvas<'_, '_>) -> Result<(), RenderError>,
+        mut finish: impl FnMut(&mut Canvas<'_>) -> Result<(), RenderError>,
     ) -> Result<(), RenderError> {
         let size = [output.width, output.height];
         if size.contains(&0) {
@@ -175,7 +220,7 @@ impl Workspace {
                             if let Some(overlay) = overlay {
                                 overlay.paint(tile.color);
                             }
-                            Ok(())
+                            finish(tile.color)
                         },
                     )?;
                 }
@@ -199,7 +244,8 @@ impl Workspace {
                     if let Some(overlay) = overlay {
                         overlay.paint(canvas);
                     }
-                });
+                    finish(canvas)
+                })?;
             }
             FrameLayout::Tiled {
                 mapping,
@@ -216,7 +262,7 @@ impl Workspace {
                 {
                     return Err(RenderError::MissingWorkspace);
                 }
-                self.render_tiles(output, sheet, band, mapping, overlay, scene)?;
+                self.render_tiles(output, [sheet, band], mapping, overlay, scene, finish)?;
             }
         }
         Ok(())
@@ -225,11 +271,11 @@ impl Workspace {
     fn render_tiles(
         &mut self,
         output: &mut Frame,
-        sheet: &mut Frame,
-        band: &mut Frame,
+        [sheet, band]: [&mut Frame; 2],
         mapping: &RollMapping,
         overlay: Option<&dyn FrameOverlay>,
         mut scene: impl FnMut(&mut SceneCanvas<'_, '_>) -> Result<(), RenderError>,
+        mut finish: impl FnMut(&mut Canvas<'_>) -> Result<(), RenderError>,
     ) -> Result<(), RenderError> {
         let size = [output.width, output.height];
         let [width, height] = size;
@@ -260,6 +306,8 @@ impl Workspace {
                         mapping.bounds,
                         |tile| -> Result<(), RenderError> {
                             scene(tile)?;
+                            tile.color.clip = rect;
+                            finish(tile.color)?;
                             write_region(tile.color, &mut target, rect)
                         },
                     )?;
@@ -299,6 +347,7 @@ impl Workspace {
                     if let Some(overlay) = overlay {
                         overlay.paint(canvas);
                     }
+                    finish(canvas)?;
                     write_region(canvas, &mut target, rect)
                 })?;
             }
@@ -487,9 +536,13 @@ mod tests {
         ] {
             let mut output = Frame::with_format(65, 42, format).unwrap();
             workspace
-                .render(&mut output, &mapping, Some(&Solid), |_| {
-                    panic!("covered scene drawn")
-                })
+                .render(
+                    &mut output,
+                    &mapping,
+                    Some(&Solid),
+                    |_| panic!("covered scene drawn"),
+                    |_| Ok(()),
+                )
                 .unwrap();
             let packed = format
                 .pack(&mirui::types::Color::rgb(255, 0, 0))
@@ -506,7 +559,7 @@ mod tests {
         let mut queries = [Sample(Some([4, 5])), Sample(Some([40, 39]))];
         let mut fills = 0;
         workspace
-            .finish_depth_queries(&mapping, &mut queries, |tile| {
+            .finish_depth_queries(&mapping, &mut queries, |tile, _| {
                 tile.clear_depth();
                 fills += 1;
                 Ok(())

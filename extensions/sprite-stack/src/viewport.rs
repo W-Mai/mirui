@@ -73,7 +73,11 @@ pub trait SceneRenderer: 'static {
     fn opaque_frame_byte_limit(&self) -> Option<usize> {
         None
     }
-    /// Draw into the viewport's frame. Return false to retain the previous image without changing it.
+    /// Prepare resources before the viewport allocates a new frame.
+    fn prepare_frame(&mut self, _viewport: [u16; 2]) -> Result<(), RenderError> {
+        Ok(())
+    }
+    /// Draw into the viewport's frame. Return false to reuse a compatible previous image.
     fn render(
         &mut self,
         scene: &StackScene,
@@ -134,6 +138,7 @@ impl Output {
             if new_frame {
                 self.ready = None;
                 self.frame = None;
+                renderer.prepare_frame(size)?;
                 let frame = if let Some(limit) = renderer.opaque_frame_byte_limit() {
                     Frame::with_format(width, height, paint.opaque_output_format(limit)?)?
                 } else {

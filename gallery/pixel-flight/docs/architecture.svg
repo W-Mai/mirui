@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1120" height="834" viewBox="0 0 1120 834" role="img" aria-labelledby="title desc">
   <title id="title">Pixel Flight architecture</title>
-  <desc id="desc">The build turns jet.mirx into two sparse detail levels. FlightModel advances the aircraft from controls or autopilot and publishes their poses to a StackScene containing the procedural island. One FlightCamera switches between overhead, chase and cockpit. SpriteStack projects the scene, tests visibility and presents the frame. Pixel Flight supplies materials, shadows and effects. Desktop uses RGBA8888 and Compact uses bounded tiles to produce RGB565.</desc>
+  <desc id="desc">The build turns jet.mirx into two sparse detail levels. FlightModel advances the aircraft from controls or autopilot and publishes their poses to a StackScene containing the procedural island. One FlightCamera switches between overhead, chase and cockpit. SpriteStack projects the scene, tests visibility and presents the frame. Pixel Flight supplies materials, shadows and effects. Compact combines scene colors and effects in bounded tiles before Mirui writes the output format.</desc>
   <defs>
     <style>
       text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "DejaVu Sans", sans-serif; }
@@ -141,6 +141,6 @@
       <path d="M611 752v30m-15-15h30"/>
     </g>
     <text x="647" y="761" class="caption">Compact</text>
-    <text x="647" y="788" class="body">RGB565 · strips or tiles · up to 128 × 128</text>
+    <text x="647" y="788" class="body">Strips or tiles · up to 128 × 128</text>
   </g>
 </svg>

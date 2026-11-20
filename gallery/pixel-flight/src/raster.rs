@@ -297,11 +297,30 @@ struct Scene<'a> {
     terrain: PreparedTerrain,
 }
 impl Scene<'_> {
-    fn draw_ground(&self, canvas: &mut SceneCanvas<'_, '_>, projection: &Projection) {
+    fn draw_ground<const DEPTH_ONLY: bool>(
+        &self,
+        canvas: &mut SceneCanvas<'_, '_>,
+        projection: &Projection,
+        limit: Fixed,
+    ) {
         if self.ground.is_original() {
-            draw_world::<false>(canvas, self.ground, projection, self.palette, &self.terrain);
+            draw_world::<false, DEPTH_ONLY>(
+                canvas,
+                self.ground,
+                projection,
+                self.palette,
+                &self.terrain,
+                limit,
+            );
         } else {
-            draw_world::<true>(canvas, self.ground, projection, self.palette, &self.terrain);
+            draw_world::<true, DEPTH_ONLY>(
+                canvas,
+                self.ground,
+                projection,
+                self.palette,
+                &self.terrain,
+                limit,
+            );
         }
     }
 
@@ -309,7 +328,7 @@ impl Scene<'_> {
     fn draw(&self, canvas: &mut SceneCanvas<'_, '_>, projection: Projection) -> [usize; 3] {
         let order = self.order(projection);
         let prepared = self.prepare(projection, [canvas.color.width, canvas.color.height]);
-        self.draw_ordered::<false>(canvas, projection, &order, &prepared, None)
+        self.draw_ordered::<false>(canvas, projection, &order, &prepared, None, Fixed::MAX)
             .unwrap();
         order
     }
@@ -346,8 +365,9 @@ impl Scene<'_> {
         order: &[usize; 3],
         prepared: &[Option<PreparedJet>; 3],
         objects: Option<&mirui_sprite_stack::ProjectedObjects<'_>>,
+        limit: Fixed,
     ) -> Result<(), RenderError> {
-        self.draw_ground(canvas, &projection);
+        self.draw_ground::<DEPTH_ONLY>(canvas, &projection, limit);
         if !DEPTH_ONLY {
             draw_sky(canvas, &projection, self.palette, self.frame_height);
         }
@@ -547,37 +567,67 @@ impl Raster {
                 project_flames(flight, (index, jet), &projection, &mut pending, &mut count);
             }
         }
+        let depth = |canvas: &mut SceneCanvas<'_, '_>, limit| {
+            scene.draw_ordered::<true>(canvas, projection, &order, &models, extra.as_ref(), limit)
+        };
+        let mut next_seen = *seen;
+        let mut pending = &mut pending[..count];
+        if compact && count != 0 {
+            mirui::trace_span!("flight.flame_depth");
+            workspace.finish_depth_queries(&mapping, pending, depth)?;
+            finish_flames(&mapping, pending, &mut next_seen, flames);
+            pending = &mut [];
+        }
         workspace.render(
             frame,
             &mapping,
             overlay.as_ref().map(|o| o as &dyn FrameOverlay),
             |tile| {
-                scene.draw_ordered::<false>(tile, projection, &order, &models, extra.as_ref())?;
-                for query in &mut pending[..count] {
+                scene.draw_ordered::<false>(
+                    tile,
+                    projection,
+                    &order,
+                    &models,
+                    extra.as_ref(),
+                    Fixed::MAX,
+                )?;
+                for query in &mut *pending {
                     query.resolve(tile);
+                }
+                Ok(())
+            },
+            |canvas| {
+                if compact {
+                    super::flame::paint_region(canvas, &flames[..count], flight.time)?;
                 }
                 Ok(())
             },
         )?;
 
-        // Effect samples behind an opaque cockpit can lie outside the visible scene tiles.
-        workspace.finish_depth_queries(&mapping, &mut pending[..count], |canvas| {
-            scene.draw_ordered::<true>(canvas, projection, &order, &models, extra.as_ref())
-        })?;
-        for (out, query) in flames.iter_mut().zip(pending[..count].iter().copied()) {
-            *out = query.finish(seen);
-            if mapping.rolled {
-                for point in &mut out.points {
-                    *point = mapping.unroll(*point);
-                }
+        if !pending.is_empty() {
+            // Effect samples behind an opaque cockpit can lie outside the visible scene tiles.
+            workspace.finish_depth_queries(&mapping, pending, depth)?;
+            finish_flames(&mapping, pending, &mut next_seen, flames);
+        }
+        *seen = next_seen;
+        *flame_count = count;
+        Ok(())
+    }
+}
+
+fn finish_flames(
+    mapping: &RollMapping,
+    pending: &[PendingFlame],
+    seen: &mut [[Fixed; 3]; 6],
+    flames: &mut [Flame],
+) {
+    for (out, query) in flames.iter_mut().zip(pending.iter().copied()) {
+        *out = query.finish(seen);
+        if mapping.rolled {
+            for point in &mut out.points {
+                *point = mapping.unroll(*point);
             }
         }
-        *flame_count = count;
-        if compact {
-            let mut target = frame.texture.pixels_mut().expect("owned compact frame");
-            super::flame::composite_native(&mut target, &flames[..count], flight.time);
-        }
-        Ok(())
     }
 }
 #[derive(Clone, Copy, Default)]
@@ -678,7 +728,7 @@ impl PreparedTerrain {
 }
 use mirui_sprite_stack::raster::terrain::{TerrainColumn, TerrainRow, TerrainSurface, TerrainView};
 
-struct Landscape<'a, const PLACED: bool> {
+struct Landscape<'a, const PLACED: bool, const DEPTH_ONLY: bool> {
     ground: Ground<'a>,
     to_world: [Fixed; 2],
     world: &'a World,
@@ -693,17 +743,22 @@ struct Landscape<'a, const PLACED: bool> {
     cast_shadows: bool,
 }
 
-impl<const PLACED: bool> TerrainSurface for Landscape<'_, PLACED> {
+impl<const PLACED: bool, const DEPTH_ONLY: bool> TerrainSurface
+    for Landscape<'_, PLACED, DEPTH_ONLY>
+{
     type Sample = usize;
 
     fn shade(&self, color: u32) -> u32 {
-        if self.fog.is_zero() {
+        if DEPTH_ONLY || self.fog.is_zero() {
             color | 0xff00_0000
         } else {
             blend(color, self.palette.haze, self.fog)
         }
     }
     fn begin_row(&mut self, row: TerrainRow) {
+        if DEPTH_ONLY {
+            return;
+        }
         let [xmin, ymin, xmax, ymax] = self.prepared.shadow_bounds;
         let [left, top, right, bottom] = row.bounds.map(Fixed::trunc_to_int);
         self.cast_shadows = left <= xmax && right >= xmin && top <= ymax && bottom >= ymin;
@@ -758,6 +813,9 @@ impl<const PLACED: bool> TerrainSurface for Landscape<'_, PLACED> {
 
     #[inline(always)]
     fn colors(&self, position: [Fixed; 2], height: Fixed, index: usize) -> [u32; 2] {
+        if DEPTH_ONLY {
+            return [0; 2];
+        }
         let [gx, gy] = position.map(Fixed::trunc_to_int);
         let world = self.world;
         let pal = self.palette;
@@ -821,12 +879,13 @@ fn terrain_distance(altitude: Fixed) -> Fixed {
     Fixed::from_int(1500) + altitude * 3
 }
 
-fn draw_world<const PLACED: bool>(
+fn draw_world<const PLACED: bool, const DEPTH_ONLY: bool>(
     canvas: &mut SceneCanvas<'_, '_>,
     ground: Ground<'_>,
     p: &Projection,
     pal: &Palette,
     prepared: &PreparedTerrain,
+    limit: Fixed,
 ) {
     mirui::trace_span!("flight.terrain");
     canvas.clear_depth();
@@ -834,7 +893,7 @@ fn draw_world<const PLACED: bool>(
     let far = terrain_distance(altitude);
     let world = ground.world;
     let (levels, materials) = world.ground_planes();
-    let mut surface = Landscape::<PLACED> {
+    let mut surface = Landscape::<PLACED, DEPTH_ONLY> {
         ground,
         to_world: [
             p.position[0] - prepared.base[0],
@@ -870,7 +929,7 @@ fn draw_world<const PLACED: bool>(
         } else {
             [Fixed::ZERO, Fixed::from_int(world::MAX_HEIGHT as i32)]
         },
-        depth: [-Fixed::from_int(1_000_000), far],
+        depth: [-Fixed::from_int(1_000_000), far.min(limit)],
     }
     .draw(canvas, &mut surface);
 }
@@ -1299,6 +1358,12 @@ impl DepthQuery for PendingFlame {
             [x, y]
         })
     }
+    fn visit_pending(&self, visit: &mut dyn FnMut([i32; 2], Fixed)) {
+        for index in self.samples.missing() {
+            let (x, y, depth) = self.query(index);
+            visit([x, y], depth - Fixed::ONE);
+        }
+    }
 }
 impl PendingFlame {
     fn finish(mut self, seen: &mut [[Fixed; 3]; 6]) -> Flame {
@@ -1427,14 +1492,14 @@ mod tests {
         let mut depths = |only_depth: bool, aircraft: bool| {
             work.with_canvas(&mut frame, |tile| {
                 if !aircraft {
-                    scene.draw_ground(tile, &projection);
+                    scene.draw_ground::<true>(tile, &projection, Fixed::MAX);
                 } else if only_depth {
                     scene
-                        .draw_ordered::<true>(tile, projection, &order, &models, None)
+                        .draw_ordered::<true>(tile, projection, &order, &models, None, Fixed::MAX)
                         .unwrap();
                 } else {
                     scene
-                        .draw_ordered::<false>(tile, projection, &order, &models, None)
+                        .draw_ordered::<false>(tile, projection, &order, &models, None, Fixed::MAX)
                         .unwrap();
                 }
                 tile.depth.to_vec()

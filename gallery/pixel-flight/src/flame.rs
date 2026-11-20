@@ -1,6 +1,9 @@
 #![doc = " Continuous curved flame shading with ordinary SourceOver and Add textures."]
 use super::math::FixedMath as _;
-use super::{flight::smooth, raster::Flame};
+use super::{
+    flight::smooth,
+    raster::{Canvas, Flame},
+};
 use mirui::{
     render::{
         command::{CompositeMode, DrawCommand},
@@ -12,6 +15,20 @@ use mirui::{
 };
 pub const TILE: usize = 256;
 const PUFFS: usize = 36;
+// Q24.8 samples of (1 - t)^0.75 at the fixed puff centers.
+const EXTINCTION: [u8; PUFFS] = [
+    253, 247, 242, 236, 230, 225, 219, 214, 208, 203, 197, 191, 186, 179, 173, 167, 161, 155, 149,
+    142, 136, 130, 122, 115, 109, 101, 94, 86, 79, 71, 63, 54, 44, 35, 24, 11,
+];
+const EXTINCTION_SUM: Fixed = {
+    let mut sum = 0;
+    let mut i = 0;
+    while i < PUFFS {
+        sum += EXTINCTION[i] as i32;
+        i += 1;
+    }
+    Fixed::from_ratio(sum, 256)
+};
 const PUFF_DISTANCE_LIMIT: i32 = 16;
 fn mix(a: Fixed, b: Fixed, t: Fixed) -> Fixed {
     a + (b - a) * t
@@ -154,16 +171,13 @@ impl Prepared {
                 center: bezier(&flame, t),
                 inverse: Fixed64::ONE / square,
                 cutoff: square * i64::from(PUFF_DISTANCE_LIMIT),
-                extinction: (Fixed::ONE - t).pow_fraction(Fixed::from_ratio(75, 100)),
+                extinction: Fixed::from_ratio(i32::from(EXTINCTION[i]), 256),
                 t,
                 radius: r,
                 reach_squared: Fixed::ZERO,
             }
         });
-        let extinction_sum = puffs
-            .iter()
-            .fold(Fixed::ZERO, |sum, puff| sum + puff.extinction);
-        let glow_radius = ((flame.length / Fixed::from_int((PUFFS) as i32) * extinction_sum
+        let glow_radius = ((flame.length / Fixed::from_int((PUFFS) as i32) * EXTINCTION_SUM
             / Fixed::from_ratio(609, 10000))
         .max(Fixed::ONE)
         .ln()
@@ -481,7 +495,26 @@ fn encode_sample(value: [Fixed; 4]) -> (Color, Color) {
         Color::rgb(emission[0], emission[1], emission[2]),
     )
 }
-pub(super) fn composite_native(pixels: &mut TexturePixelsMut<'_>, flames: &[Flame], time: Fixed) {
+pub(super) fn paint_region(
+    canvas: &mut Canvas<'_>,
+    flames: &[Flame],
+    time: Fixed,
+) -> Result<(), RenderError> {
+    if flames.is_empty() {
+        return Ok(());
+    }
+    let origin = canvas.origin;
+    let clip = canvas.clip;
+    canvas.with_pixels(|pixels| composite_region(pixels, origin, clip, flames, time))
+}
+
+fn composite_region(
+    pixels: &mut TexturePixelsMut<'_>,
+    [origin_x, origin_y]: [i32; 2],
+    clip: [i32; 4],
+    flames: &[Flame],
+    time: Fixed,
+) {
     mirui::trace_span!("flight.flames");
     for mut flame in flames.iter().copied() {
         if flame.radius <= Fixed::ZERO || flame.alpha <= Fixed::ZERO {
@@ -502,7 +535,7 @@ pub(super) fn composite_native(pixels: &mut TexturePixelsMut<'_>, flames: &[Flam
                 - margin)
                 .floor()
                 .to_int()
-                .max(0)
+                .max(clip[k])
         });
         let high: [i32; 2] = core::array::from_fn(|k| {
             (flame
@@ -513,12 +546,11 @@ pub(super) fn composite_native(pixels: &mut TexturePixelsMut<'_>, flames: &[Flam
                 + margin)
                 .ceil()
                 .to_int()
-                .min(if k == 0 {
-                    pixels.width().into()
-                } else {
-                    pixels.height().into()
-                })
+                .min(clip[k + 2])
         });
+        if low[0] >= high[0] || low[1] >= high[1] {
+            continue;
+        }
         let prepared = Prepared::new(flame, time);
         let warp_y = prepared.warp_y_interval();
         for y in low[1]..high[1] {
@@ -534,9 +566,19 @@ pub(super) fn composite_native(pixels: &mut TexturePixelsMut<'_>, flames: &[Flam
                 let value = prepared
                     .shade_row::<true>(Fixed::from_int(x) + Fixed::from_ratio(1, 2), &candidates);
                 let (base, emission) = encode_sample(value);
-                pixels.composite_pixel(x, y, &base, CompositeMode::SourceOver);
+                pixels.composite_pixel(
+                    x - origin_x,
+                    y - origin_y,
+                    &base,
+                    CompositeMode::SourceOver,
+                );
                 if emission.r != 0 || emission.g != 0 || emission.b != 0 {
-                    pixels.composite_pixel(x, y, &emission, CompositeMode::Add);
+                    pixels.composite_pixel(
+                        x - origin_x,
+                        y - origin_y,
+                        &emission,
+                        CompositeMode::Add,
+                    );
                 }
             }
         }
@@ -736,6 +778,17 @@ impl Flames {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn puff_coefficients() {
+        for (i, &weight) in EXTINCTION.iter().enumerate() {
+            let t = (Fixed::from_int(i as i32) + Fixed::HALF) / Fixed::from_int(PUFFS as i32);
+            assert_eq!(
+                Fixed::from_ratio(i32::from(weight), 256),
+                (Fixed::ONE - t).pow_fraction(Fixed::from_ratio(75, 100))
+            );
+        }
+    }
     #[test]
     fn density_row_admission_never_rejects_a_nonzero_weight() {
         for raw in 0..=256 {

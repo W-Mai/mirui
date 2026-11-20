@@ -68,6 +68,17 @@ pub struct Canvas<'a> {
     pub origin: [i32; 2],
     extent: [usize; 2],
 }
+impl Canvas<'_> {
+    /// Borrow the RGBA tile in its local storage coordinates.
+    pub fn with_pixels<R>(
+        &mut self,
+        edit: impl FnOnce(&mut mirui::render::texture::TexturePixelsMut<'_>) -> R,
+    ) -> Result<R, RenderError> {
+        let [width, height] = self.extent.map(|n| n as u16);
+        let mut texture = Texture::new(self.bytes, width, height, ColorFormat::RGBA8888)?;
+        Ok(edit(&mut texture.pixels_mut()?))
+    }
+}
 /// Scoped color, depth and coverage for the same region of a virtual viewport.
 pub struct SceneCanvas<'a, 'b> {
     pub color: &'a mut Canvas<'b>,

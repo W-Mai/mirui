@@ -12,7 +12,7 @@ cargo run -p gallery --example pixel_flight_demo --profile release-opt --no-defa
 
 Point to steer, click to roll, hold the pointer button or Shift to boost, and press Space to switch views. Both desktop and Compact support window resizing and the same controls.
 
-Compact renders at native 128×128 into RGB565, using bounded scene tiles and lossless MIRX cockpit rows:
+Compact renders at native 128×128 with bounded scene tiles and lossless MIRX cockpit rows. Mirui selects the output format within a two-byte-per-pixel budget:
 
 ```sh
 cargo run -p gallery --example pixel_flight_compact_demo --profile release-opt --no-default-features --features sdl-gpu,pixel-flight
