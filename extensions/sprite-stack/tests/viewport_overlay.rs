@@ -3,7 +3,7 @@
 use core::cell::Cell;
 use mirui::{prelude::*, render::RenderError};
 use mirui_sprite_stack::{
-    SpriteStackPlugin, StackScene, StackViewport, ViewportOverlay,
+    Resolution, SpriteStackPlugin, StackScene, StackViewport, ViewportOverlay,
     raster::{Canvas, FrameOverlay, OverlayFrame},
 };
 use std::rc::Rc;
@@ -62,7 +62,7 @@ fn screen(
     );
     ui! {
         Row (width: 32, height: 16) {
-            StackViewport (width: 16, height: 16, scene: scene.clone()) [dynamic_overlay]
+            StackViewport (width: 16, height: 16, scene: scene.clone(), resolution: Resolution::Native) [dynamic_overlay]
             StackViewport (width: 16, height: 16, scene: scene) [static_overlay]
         }
     }

@@ -40,6 +40,7 @@ pub use terrain::{
 mod viewport;
 #[cfg(feature = "widget")]
 pub use viewport::{
-    Camera, FrameSize, ObjectPass, ProjectedObjects, SceneFrame, SceneRenderer, SpriteStackPlugin,
-    StackViewport, ViewProjection, ViewportCamera, ViewportOverlay, ViewportScene,
+    Camera, FrameSize, ObjectPass, ProjectedObjects, Resolution, SceneFrame, SceneRenderer,
+    SpriteStackPlugin, StackViewport, ViewProjection, ViewportCamera, ViewportOverlay,
+    ViewportResolution, ViewportScene,
 };

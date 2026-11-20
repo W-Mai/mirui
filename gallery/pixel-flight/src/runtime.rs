@@ -336,8 +336,9 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
     if !res!(optional MonoClock).with(|clock| clock.is_some()) {
         res!().insert(MonoClock::from_time_source());
     }
-    let viewport =
+    let mut viewport =
         StackViewport::with_renderer(model.scene(), FlightRenderer::new(model.clone(), profile));
+    viewport.resolution = profile.resolution();
     let cockpit = cockpit_layer(model.clone(), profile);
 
     ui! {

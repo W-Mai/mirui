@@ -78,6 +78,48 @@ pub struct FrameSize {
     scale: Option<NonZeroU16>,
 }
 
+/// Selects the raster dimensions independently of layout.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Resolution {
+    /// Render at one pixel per logical viewport unit.
+    #[default]
+    Native,
+    /// Render at an integer scale within the maximum frame extent.
+    Integer {
+        limit: [NonZeroU16; 2],
+        minimum: [u16; 2],
+        scale: NonZeroU16,
+    },
+}
+
+impl Resolution {
+    /// Resolves the frame pixels and placement for this viewport.
+    pub fn fit(self, viewport: [u16; 2]) -> FrameSize {
+        let Self::Integer {
+            limit,
+            minimum,
+            scale,
+        } = self
+        else {
+            return FrameSize::stretch(viewport);
+        };
+        let [max_width, max_height] = limit.map(NonZeroU16::get);
+        let [width, height] = viewport;
+        let scale = scale
+            .get()
+            .max(width.div_ceil(max_width))
+            .max(height.div_ceil(max_height));
+        let pixels = [
+            width.div_ceil(scale).max(minimum[0].min(max_width)),
+            height.div_ceil(scale).max(minimum[1].min(max_height)),
+        ];
+        FrameSize::integer(
+            pixels,
+            NonZeroU16::new(scale).expect("positive placement scale"),
+        )
+    }
+}
+
 impl FrameSize {
     pub const fn stretch(pixels: [u16; 2]) -> Self {
         Self {
@@ -140,9 +182,6 @@ impl FrameSize {
 
 /// Produces the image of a game-directed camera. The viewport handles invalidation, texture revisions, placement and presentation.
 pub trait SceneRenderer: 'static {
-    fn frame_size(&self, viewport: [u16; 2]) -> FrameSize {
-        FrameSize::stretch(viewport)
-    }
     /// Request opaque output bounded by the given bytes per pixel.
     /// The default uses an RGBA frame with transparency.
     fn opaque_frame_byte_limit(&self) -> Option<usize> {
@@ -200,6 +239,7 @@ impl Output {
         &mut self,
         scene: &StackScene,
         camera: Camera,
+        resolution: Resolution,
         stamp: u64,
         paint: &mut PaintCtx<'_>,
         overlay: Option<&ViewportOverlay>,
@@ -219,7 +259,7 @@ impl Output {
             .is_none_or(|(revision, viewport, _)| (revision, viewport) != (stamp, size))
         {
             let renderer = self.renderer.producer();
-            let frame_size = renderer.frame_size(size);
+            let frame_size = resolution.fit(size);
             let [width, height] = frame_size.pixels().map(usize::from);
             if width == 0 || height == 0 {
                 return Err(RenderError::InvalidGeometry);
@@ -316,6 +356,8 @@ pub struct StackViewport {
     pub scene: Option<StackSceneHandle>,
     #[property(ViewportCamera)]
     pub camera: Camera,
+    #[property(ViewportResolution)]
+    pub resolution: Resolution,
     bindings: Option<(ModelSubscription, OwnedEffects)>,
     output: RefCell<Output>,
     stamp: Cell<u64>,
@@ -334,6 +376,7 @@ impl StackViewport {
         Self {
             scene,
             camera: Camera::default(),
+            resolution: Resolution::Native,
             bindings: None,
             output: RefCell::new(Output {
                 renderer,
@@ -376,9 +419,14 @@ impl StackViewport {
             self.tracked.set(Some(position));
             camera.center = core::array::from_fn(|i| position[i] + camera.center[i]);
         }
-        self.output
-            .borrow_mut()
-            .paint(scene, camera, self.stamp.get(), paint, overlay)
+        self.output.borrow_mut().paint(
+            scene,
+            camera,
+            self.resolution,
+            self.stamp.get(),
+            paint,
+            overlay,
+        )
     }
 
     fn bind(world: &mut World, entity: Entity) {
@@ -445,6 +493,23 @@ impl Property for ViewportCamera {
             view.tracked.set(None);
         }
         view.camera = camera;
+        view.advance_stamp();
+        PropertyChange::Visual
+    }
+}
+
+pub struct ViewportResolution;
+impl Property for ViewportResolution {
+    type Value = Resolution;
+
+    fn apply(world: &mut World, entity: Entity, resolution: Resolution) -> PropertyChange {
+        let Some(view) = world.get_mut::<StackViewport>(entity) else {
+            return PropertyChange::Unchanged;
+        };
+        if view.resolution == resolution {
+            return PropertyChange::Unchanged;
+        }
+        view.resolution = resolution;
         view.advance_stamp();
         PropertyChange::Visual
     }

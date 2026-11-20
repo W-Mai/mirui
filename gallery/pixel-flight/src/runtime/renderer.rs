@@ -30,10 +30,6 @@ impl FlightRenderer {
 }
 
 impl SceneRenderer for FlightRenderer {
-    fn frame_size(&self, dimensions: [u16; 2]) -> FrameSize {
-        self.output.profile.frame_size(dimensions)
-    }
-
     fn opaque_frame_byte_limit(&self) -> Option<usize> {
         (self.output.profile == Profile::Compact).then_some(2)
     }

@@ -5,7 +5,7 @@
 extern crate alloc;
 use core::num::NonZeroU16;
 use mirui::types::{Fixed, Point, Rect};
-use mirui_sprite_stack::FrameSize;
+use mirui_sprite_stack::{FrameSize, Resolution};
 #[cfg(test)]
 #[macro_use]
 extern crate std;
@@ -41,18 +41,21 @@ impl Profile {
         )
     }
 
-    fn frame_size(self, [width, height]: [u16; 2]) -> FrameSize {
+    fn resolution(self) -> Resolution {
         let (limit_w, limit_h, minimum_scale) = match self {
             Self::Desktop => (480, 300, 3),
             Self::Compact => (128, 128, 1),
         };
-        let scale = minimum_scale
-            .max(width.div_ceil(limit_w))
-            .max(height.div_ceil(limit_h));
-        FrameSize::integer(
-            [width, height].map(|side| side.div_ceil(scale).max(8)),
-            NonZeroU16::new(scale).expect("positive frame scale"),
-        )
+        Resolution::Integer {
+            limit: [limit_w, limit_h]
+                .map(|side| NonZeroU16::new(side).expect("positive frame limit")),
+            minimum: [8, 8],
+            scale: NonZeroU16::new(minimum_scale).expect("positive frame scale"),
+        }
+    }
+
+    fn frame_size(self, viewport: [u16; 2]) -> FrameSize {
+        self.resolution().fit(viewport)
     }
 
     fn frame_input(
