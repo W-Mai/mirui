@@ -10,6 +10,7 @@ use mirui::{
 mod camera;
 mod simulation;
 pub use camera::Projection;
+pub(crate) use camera::cockpit_center;
 
 pub const TRAIL_CAPACITY: usize = 160;
 pub const SMOKE_CAPACITY: usize = 96;

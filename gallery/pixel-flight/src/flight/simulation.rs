@@ -429,14 +429,10 @@ impl Flight {
                 } else {
                     -Fixed::ONE
                 };
+                let [x, y, z] = jet::nozzle(side);
                 self.smoke[head] = Smoke {
                     position: j.local(
-                        [
-                            side * Fixed::from_ratio(196, 100)
-                                + bend * t * t / length.max(Fixed::ONE),
-                            jet::PIVOT[0] - Fixed::from_ratio(436, 10) - t,
-                            Fixed::from_ratio(41, 10) - jet::PIVOT[1],
-                        ],
+                        [x + bend * t * t / length.max(Fixed::ONE), y - t, z],
                         s.jet_scale,
                     ),
                     born: self.time,

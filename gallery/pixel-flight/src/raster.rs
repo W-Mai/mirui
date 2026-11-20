@@ -3,7 +3,7 @@
 mod compact;
 use super::math::FixedMath as _;
 use super::{
-    flight::{Flight, Projection, V3, aircraft_axes_with_heading},
+    flight::{Flight, Projection, V3, aircraft_axes_with_heading, cockpit_center},
     world::Ground,
 };
 #[cfg(test)]
@@ -247,10 +247,6 @@ impl FrameOverlay for CockpitOverlay<'_> {
     }
 }
 
-fn roll_pivot(height: usize) -> Fixed {
-    (Fixed::from_int(height as i32) * Fixed::from_ratio(34, 100)).round()
-}
-
 fn map_projection(
     mut projection: Projection,
     width: usize,
@@ -258,7 +254,7 @@ fn map_projection(
 ) -> (Projection, RollMapping) {
     let rotation = (projection.cockpit > Fixed::ZERO || projection.roll != Fixed::ZERO)
         .then(|| projection.roll.sin_cos());
-    let roll = RollMapping::new([width, height], roll_pivot(height), rotation);
+    let roll = RollMapping::new([width, height], cockpit_center(height), rotation);
     if roll.rolled {
         let axis = Fixed::from_int(width as i32) / 2;
         projection.camera.center = roll.projection_center([axis, projection.camera.center[1]]);
@@ -282,7 +278,7 @@ impl Raster {
     ) -> Result<Self, RenderError> {
         Ok(Self {
             compact,
-            workspace: CameraWorkspace::new(size, roll_pivot(size[1]), compact)?,
+            workspace: CameraWorkspace::new(size, cockpit_center(size[1]), compact)?,
             objects: Default::default(),
             palette,
             flames: [Flame::default(); 6],

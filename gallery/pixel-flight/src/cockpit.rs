@@ -2,7 +2,7 @@
 use super::math::FixedMath as _;
 use super::math::{PI, SQRT_2, TAU};
 use super::{
-    flight::{Flight, Projection},
+    flight::{Flight, Projection, cockpit_center},
     jet,
     raster::{BAYER, Canvas, Palette, blend, rgba},
     world::{Ground, World, hash8},
@@ -420,6 +420,14 @@ struct Live<'a, 'b> {
     canvas: &'a mut Canvas<'b>,
     offset: [i32; 2],
 }
+impl<'a, 'b> Live<'a, 'b> {
+    fn new(canvas: &'a mut Canvas<'b>, [x, y, _]: [Fixed; 3]) -> Self {
+        Self {
+            canvas,
+            offset: [x.trunc_to_int(), y.trunc_to_int()],
+        }
+    }
+}
 impl Ink for Live<'_, '_> {
     fn clip(&self) -> [i32; 4] {
         let [left, top, right, bottom] = self.canvas.clip;
@@ -688,10 +696,7 @@ impl Cockpit {
         );
         self.hud(canvas, flight, &prepared.projection, glass);
         self.lay(canvas, 1, panel, Some(light));
-        let mut panel = Live {
-            canvas,
-            offset: [panel[0].trunc_to_int(), panel[1].trunc_to_int()],
-        };
+        let mut panel = Live::new(canvas, panel);
         self.paint_indicators(&mut panel, flight);
         self.paint_radar(&mut panel, world, flight, prepared);
         self.paint_status(&mut panel, flight);
@@ -785,8 +790,7 @@ impl Cockpit {
         let body = &self.inks[1..=9];
         let r = |v: i32| scaled_pixel(v, self.scale);
         let cx = self.width / 2;
-        let pivot =
-            ((Fixed::from_int(self.height) * Fixed::from_ratio(34, 100)).round()).trunc_to_int();
+        let pivot = cockpit_center(self.height as usize).trunc_to_int();
         let gx = (offset[0]).trunc_to_int();
         let gy = (offset[1]).trunc_to_int();
         let top = pivot - r(57) + gy;

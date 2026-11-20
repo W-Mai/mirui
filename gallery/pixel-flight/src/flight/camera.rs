@@ -6,6 +6,12 @@ use crate::{
 };
 use mirui::types::{Fixed, Fixed64};
 
+const COCKPIT_CENTER: Fixed = Fixed::from_ratio(34, 100);
+
+pub(crate) fn cockpit_center(height: usize) -> Fixed {
+    (Fixed::from_int(height as i32) * COCKPIT_CENTER).round()
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Projection {
     pub position: V3,
@@ -107,7 +113,7 @@ impl Flight {
                 p.camera
                     .apply_perspective(Fixed::from_int(2) - p.position[2]),
             );
-        let pivot = (Fixed::from_int((height) as i32) * Fixed::from_ratio(34, 100)).round();
+        let pivot = cockpit_center(height);
         let chase_y = Fixed::from_int((height / 2) as i32)
             + Fixed::from_int((height) as i32)
                 * (Fixed::from_ratio(14, 100) - Fixed::from_ratio(3, 100) * self.boost);
@@ -120,7 +126,7 @@ impl Flight {
             top * Fixed::from_int((height / 2) as i32) + c * chase_y + k * cockpit_y;
         p.steer_y = top * Fixed::from_int((height / 2) as i32)
             + c * chase_y
-            + k * Fixed::from_int((height) as i32) * Fixed::from_ratio(34, 100);
+            + k * Fixed::from_int(height as i32) * COCKPIT_CENTER;
         p.roll = j.roll * k + j.spin() * self.spin_camera;
         let behind = self.camera_yaw + self.yaw_diff;
         p.yaw = self.camera_yaw + self.yaw_diff * (c + k) + wrap_angle(-j.yaw - behind) * k;

@@ -431,32 +431,35 @@ impl Cockpit {
         flight: &Flight,
         [deck, lever, stick]: [[Fixed; 3]; 3],
     ) {
-        let j = &flight.jets[0];
-        let cx = self.width / 2;
-        let r = |v| scaled_pixel(v, self.scale);
-        let b = &self.inks[1..=9];
-        let a = &self.inks[17..=22];
-        let mut live = Live {
-            canvas,
-            offset: [(deck[0]).trunc_to_int(), (deck[1]).trunc_to_int()],
-        };
+        self.paint_deck_lights(&mut Live::new(canvas, deck), flight.time);
+        self.paint_throttle(&mut Live::new(canvas, lever), flight.boost);
+        self.paint_stick(&mut Live::new(canvas, stick), flight);
+    }
+
+    fn paint_deck_lights(&self, live: &mut Live<'_, '_>, time: Fixed) {
+        let lit = self.inks[4];
         for (i, key) in self.deck_keys.iter().enumerate() {
             if hash8(
                 (i * 91) as u32
-                    + (flight.time
+                    + (time
                         * (Fixed::from_ratio(9, 10)
                             + Fixed::from_int((i) as i32) * Fixed::from_ratio(31, 100)))
                     .trunc_to_int() as u32,
             ) <= 150
             {
-                live.rect(key.x, key.y, key.x + key.w, key.y + key.h, b[3]);
+                live.rect(key.x, key.y, key.x + key.w, key.y + key.h, lit);
             }
         }
-        live.offset = [(lever[0]).trunc_to_int(), (lever[1]).trunc_to_int()];
-        let throttle = cx + r(-150);
+    }
+
+    fn paint_throttle(&self, live: &mut Live<'_, '_>, boost: Fixed) {
+        let r = |v| scaled_pixel(v, self.scale);
+        let b = &self.inks[1..=9];
+        let a = &self.inks[17..=22];
+        let throttle = self.width / 2 + r(-150);
         let yy = r(290)
             - ((Fixed::from_int(r(290) - r(270))
-                * (Fixed::from_ratio(18, 100) + Fixed::from_ratio(82, 100) * flight.boost)
+                * (Fixed::from_ratio(18, 100) + Fixed::from_ratio(82, 100) * boost)
                     .clamp(Fixed::ZERO, Fixed::ONE))
             .round())
             .trunc_to_int();
@@ -498,73 +501,89 @@ impl Cockpit {
             yy + r(9),
             a[2],
         );
-        live.offset = [(stick[0]).trunc_to_int(), (stick[1]).trunc_to_int()];
+    }
+
+    fn paint_stick(&self, live: &mut Live<'_, '_>, flight: &Flight) {
+        let r = |v| scaled_pixel(v, self.scale);
+        let cx = self.width / 2;
+        let b = &self.inks[1..=9];
+        let a = &self.inks[17..=22];
         let top = r(253)
             - (((flight.climb_tilt / Fixed::from_ratio(5, 10)).clamp(-Fixed::ONE, Fixed::ONE)
                 * Fixed::from_int(r(3)))
             .round())
             .trunc_to_int();
-        let lean = (j.yaw_rate / flight.settings.agility.max(Fixed::from_ratio(1, 10)))
-            .clamp(-Fixed::ONE, Fixed::ONE)
+        let lean = (flight.jets[0].yaw_rate
+            / flight.settings.agility.max(Fixed::from_ratio(1, 10)))
+        .clamp(-Fixed::ONE, Fixed::ONE)
             * Fixed::from_int(r(9));
         let reach = self.height + r(40) - top;
         let head_height = r(14).max(r(7).max(1));
         let grip_height = r(17).max(r(8).max(1));
         let fold = r(5).max(r(3).max(1));
-        for y in top + r(4)..self.height + self.pad {
-            let d = y - top;
-            let xx = ((Fixed::from_int(cx)
+        let shaft_start = head_height + grip_height;
+        let wide = r(12);
+        let narrow = r(8);
+        let pleat = r(3);
+        let trim = pleat.max(r(2).max(1));
+        let grooves = r(4).max(pleat.max(1));
+        let row = |d: i32| {
+            let center = ((Fixed::from_int(cx)
                 + lean * (Fixed::ONE - Fixed::from_int(d) / Fixed::from_int(reach)))
             .round())
-            .trunc_to_int()
-                + r(5);
+            .trunc_to_int();
             let half = if d < head_height {
-                r(12)
-            } else if d < head_height + grip_height {
-                r(8)
+                wide
+            } else if d < shaft_start {
+                narrow
             } else {
-                r(12) + (d - head_height - grip_height) / fold * r(3)
+                wide + (d - shaft_start) / fold * pleat
             };
-            for i in -half..=half {
-                if (xx + i + y) & 1 == 0 {
+            (center, half)
+        };
+        let [_, clip_top, _, clip_bottom] = live.clip();
+        let bottom = self.height + self.pad;
+        let shadow_y = r(3);
+        let shadow_x = r(5);
+        for y in (top + r(4)).max(clip_top - shadow_y)..bottom.min(clip_bottom - shadow_y) {
+            let (center, half) = row(y - top);
+            let center = center + shadow_x;
+            for x in center - half..=center + half {
+                if (x + y) & 1 == 0 {
                     live.tint(
-                        xx + i,
-                        y + r(3),
+                        x,
+                        y + shadow_y,
                         BLACK,
                         Fixed::from_int(150) / Fixed::from_int(256),
                     );
                 }
             }
         }
-        for y in top..self.height + self.pad {
+        for y in top.max(clip_top)..bottom.min(clip_bottom) {
             let d = y - top;
-            let xx = ((Fixed::from_int(cx)
-                + lean * (Fixed::ONE - Fixed::from_int(d) / Fixed::from_int(reach)))
-            .round())
-            .trunc_to_int();
-            let half = if d < head_height {
-                r(12)
-                    - if d < 2 {
-                        2 - d
-                    } else if d > head_height - 2 {
-                        1
-                    } else {
-                        0
-                    }
-            } else if d < head_height + grip_height {
-                r(8)
+            let (xx, half) = row(d);
+            let trim_edges = if d < head_height {
+                if d < 2 {
+                    2 - d
+                } else if d > head_height - 2 {
+                    1
+                } else {
+                    0
+                }
+            } else if d >= shaft_start {
+                i32::from((d - shaft_start) % fold == 0)
             } else {
-                r(12) + (d - head_height - grip_height) / fold * r(3)
-                    - i32::from((d - head_height - grip_height) % fold == 0)
+                0
             };
+            let half = half - trim_edges;
             for i in -half..=half {
                 let f = Fixed::from_int(i) / Fixed::from_int(half.max(1));
                 let color = if d < head_height {
                     if d == 0 {
                         b[5]
-                    } else if d < r(3).max(r(2).max(1)) {
+                    } else if d < trim {
                         b[6]
-                    } else if d > head_height - r(3).max(r(2).max(1)) {
+                    } else if d > head_height - trim {
                         b[1]
                     } else if f < -Fixed::from_ratio(8, 10) {
                         b[5]
@@ -575,8 +594,8 @@ impl Cockpit {
                     } else {
                         b[3]
                     }
-                } else if d < head_height + grip_height {
-                    let groove = (d - head_height) % r(4).max(r(3).max(1)) == r(3).max(r(2).max(1));
+                } else if d < shaft_start {
+                    let groove = (d - head_height) % grooves == trim;
                     if groove {
                         if f < -Fixed::from_ratio(5, 100) {
                             b[2]
@@ -597,7 +616,7 @@ impl Cockpit {
                         b[0]
                     }
                 } else {
-                    let within = (d - head_height - grip_height) % fold;
+                    let within = (d - shaft_start) % fold;
                     if within == 0 {
                         if f < Fixed::from_ratio(2, 10) {
                             b[4]

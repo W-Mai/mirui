@@ -48,6 +48,14 @@ pub const PIVOT: [Fixed; 2] = [
     Fixed::from_ratio(PIVOT_Q8[2], 256),
 ];
 
+pub(super) fn nozzle(side: Fixed) -> [Fixed; 3] {
+    [
+        side * Fixed::from_ratio(196, 100),
+        PIVOT[0] - Fixed::from_ratio(436, 10),
+        Fixed::from_ratio(41, 10) - PIVOT[1],
+    ]
+}
+
 /// Expands the full-detail slices into caller-owned material indices.
 pub fn decode(out: &mut [u8; WIDTH * LENGTH * LAYERS]) {
     out.fill(0);

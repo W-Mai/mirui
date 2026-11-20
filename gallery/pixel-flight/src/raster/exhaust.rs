@@ -107,21 +107,20 @@ pub(super) fn project_flames(
     let width = Fixed::from_ratio(163, 100)
         * (Fixed::ONE + Fixed::from_ratio(12, 100) * flight.boost)
         * Fixed::from_ratio(15, 10);
+    let bend = flight.flame_bend();
     for side in [-Fixed::ONE, Fixed::ONE] {
         if *count == out.len() {
             break;
         }
+        let [x, y, z] = jet::nozzle(side);
         let mut projected = [[Fixed::ZERO; 4]; 3];
         let mut visible = true;
         for (n, target) in projected.iter_mut().enumerate() {
             let curl = if n == 2 { length } else { Fixed::ZERO };
             let local = [
-                side * Fixed::from_ratio(196, 100) + flight.flame_bend() * curl,
-                jet::PIVOT[0]
-                    - Fixed::from_ratio(436, 10)
-                    - Fixed::from_int((n) as i32) * Fixed::from_ratio(5, 10) * length,
-                (Fixed::from_ratio(41, 10) - Fixed::from_ratio(5, 10) - jet::PIVOT[1])
-                    * flight.spread
+                x + bend * curl,
+                y - Fixed::from_int(n as i32) * Fixed::HALF * length,
+                (z - Fixed::HALF) * flight.spread
                     + flight.climb_tilt * Fixed::from_ratio(35, 100) * curl,
             ];
             if let Some(value) = p.project_with_yaw(
