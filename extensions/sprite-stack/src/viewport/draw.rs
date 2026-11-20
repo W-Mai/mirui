@@ -1,4 +1,4 @@
-use super::{Camera, SceneRenderer};
+use super::{Camera, FrameSize, SceneRenderer};
 use crate::{
     StackScene,
     raster::{Frame, FrameOverlay, Workspace},
@@ -22,7 +22,7 @@ impl SceneRenderer for DefaultRenderer {
     fn render(
         &mut self,
         scene: &StackScene,
-        _: [u16; 2],
+        _: FrameSize,
         frame: &mut Frame,
     ) -> Result<bool, RenderError> {
         self.render_with_overlay(scene, frame, None)?;

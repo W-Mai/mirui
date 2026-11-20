@@ -3,7 +3,9 @@
 #![no_std]
 
 extern crate alloc;
-use mirui::types::Fixed;
+use core::num::NonZeroU16;
+use mirui::types::{Fixed, Point, Rect};
+use mirui_sprite_stack::FrameSize;
 #[cfg(test)]
 #[macro_use]
 extern crate std;
@@ -30,17 +32,26 @@ pub enum Profile {
 
 impl Profile {
     pub fn scene_size(self, width: u16, height: u16) -> (usize, usize, usize) {
+        let frame = self.frame_size([width, height]);
+        let [width, height] = frame.pixels().map(usize::from);
+        (
+            width,
+            height,
+            usize::from(frame.integer_scale().unwrap().get()),
+        )
+    }
+
+    fn frame_size(self, [width, height]: [u16; 2]) -> FrameSize {
         let (limit_w, limit_h, minimum_scale) = match self {
             Self::Desktop => (480, 300, 3),
             Self::Compact => (128, 128, 1),
         };
         let scale = minimum_scale
-            .max(usize::from(width).div_ceil(limit_w))
-            .max(usize::from(height).div_ceil(limit_h));
-        (
-            usize::from(width).div_ceil(scale).max(8),
-            usize::from(height).div_ceil(scale).max(8),
-            scale,
+            .max(width.div_ceil(limit_w))
+            .max(height.div_ceil(limit_h));
+        FrameSize::integer(
+            [width, height].map(|side| side.div_ceil(scale).max(8)),
+            NonZeroU16::new(scale).expect("positive frame scale"),
         )
     }
 
@@ -49,18 +60,11 @@ impl Profile {
         dimensions: [Fixed; 2],
         pointer: Option<[Fixed; 2]>,
     ) -> ([usize; 2], Option<[Fixed; 2]>) {
-        let [w, h] = dimensions.map(|dimension| dimension.ceil().to_int().clamp(0, 65535) as u16);
-        let (w, h, scale) = self.scene_size(w, h);
-        let size = [w, h];
-        let scale = Fixed::from_int(scale as i32);
-        let point = pointer.map(|point| {
-            core::array::from_fn(|axis| {
-                let frame = Fixed::from_int(size[axis] as i32) * scale;
-                let offset = ((dimensions[axis] - frame) / 2).round();
-                (point[axis] - offset) / scale
-            })
-        });
-        (size, point)
+        let frame =
+            self.frame_size(dimensions.map(|value| value.ceil().to_int().clamp(0, 65535) as u16));
+        let viewport = Rect::new(Fixed::ZERO, Fixed::ZERO, dimensions[0], dimensions[1]);
+        let point = pointer.and_then(|[x, y]| frame.frame_point(viewport, Point::new(x, y)));
+        (frame.pixels().map(usize::from), point.map(|p| [p.x, p.y]))
     }
 }
 

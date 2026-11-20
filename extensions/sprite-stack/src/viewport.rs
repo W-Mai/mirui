@@ -1,6 +1,9 @@
 use crate::{Geometry, Object, StackScene, StackSceneHandle, raster::Frame};
 use alloc::boxed::Box;
-use core::cell::{Cell, RefCell};
+use core::{
+    cell::{Cell, RefCell},
+    num::NonZeroU16,
+};
 use mirui::{
     __macro_support::{BindingRole, OwnedEffects, prepare_widget_effect, with_owned_effects},
     app::{App, RendererFactory, plugin::Plugin},
@@ -12,7 +15,7 @@ use mirui::{
         texture::AlphaMode,
     },
     surface::Surface,
-    types::{Fixed, Point},
+    types::{Fixed, Point, Rect},
     ui::{
         property::{Property, PropertyChange},
         view::PaintCtx,
@@ -65,10 +68,77 @@ impl Camera {
     }
 }
 
+/// Output pixel dimensions and their placement in a scene viewport.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FrameSize {
+    pixels: [u16; 2],
+    scale: Option<NonZeroU16>,
+}
+
+impl FrameSize {
+    pub const fn stretch(pixels: [u16; 2]) -> Self {
+        Self {
+            pixels,
+            scale: None,
+        }
+    }
+
+    pub const fn integer(pixels: [u16; 2], scale: NonZeroU16) -> Self {
+        Self {
+            pixels,
+            scale: Some(scale),
+        }
+    }
+
+    pub const fn pixels(self) -> [u16; 2] {
+        self.pixels
+    }
+
+    pub const fn integer_scale(self) -> Option<NonZeroU16> {
+        self.scale
+    }
+
+    fn placed(self, viewport: Rect) -> Rect {
+        let Some(scale) = self.scale else {
+            return viewport;
+        };
+        let [w, h] = self
+            .pixels
+            .map(|side| Fixed::from(side) * Fixed::from(scale.get()));
+        Rect::new(
+            viewport.x + ((viewport.w - w) / 2).round(),
+            viewport.y + ((viewport.h - h) / 2).round(),
+            w,
+            h,
+        )
+    }
+
+    /// Maps a point in the viewport's coordinate space into the frame.
+    pub fn frame_point(self, viewport: Rect, point: Point) -> Option<Point> {
+        if !viewport.w.is_positive() || !viewport.h.is_positive() || self.pixels.contains(&0) {
+            return None;
+        }
+        let rect = self.placed(viewport);
+        let delta = Point::new(point.x - rect.x, point.y - rect.y);
+        let [sx, sy] = if let Some(scale) = self.scale {
+            [Fixed::from(scale.get()); 2]
+        } else {
+            [
+                rect.w / Fixed::from(self.pixels[0]),
+                rect.h / Fixed::from(self.pixels[1]),
+            ]
+        };
+        if !sx.is_positive() || !sy.is_positive() {
+            return None;
+        }
+        Some(Point::new(delta.x / sx, delta.y / sy))
+    }
+}
+
 /// Produces the image of a game-directed camera. The viewport handles invalidation, texture revisions, placement and presentation.
 pub trait SceneRenderer: 'static {
-    fn frame_size(&self, viewport: [u16; 2]) -> [u16; 2] {
-        viewport
+    fn frame_size(&self, viewport: [u16; 2]) -> FrameSize {
+        FrameSize::stretch(viewport)
     }
     /// Request opaque output bounded by the given bytes per pixel.
     /// The default uses an RGBA frame with transparency.
@@ -76,20 +146,16 @@ pub trait SceneRenderer: 'static {
         None
     }
     /// Prepare resources before the viewport allocates a new frame.
-    fn prepare_frame(&mut self, _viewport: [u16; 2]) -> Result<(), RenderError> {
+    fn prepare_frame(&mut self, _size: FrameSize) -> Result<(), RenderError> {
         Ok(())
     }
     /// Draw into the viewport's frame. Return false to reuse a compatible previous image.
     fn render(
         &mut self,
         scene: &StackScene,
-        size: [u16; 2],
+        size: FrameSize,
         target: &mut Frame,
     ) -> Result<bool, RenderError>;
-    /// Centers native scene pixels at this integer scale. By default the frame fills the viewport.
-    fn pixel_scale(&self) -> Option<core::num::NonZeroU16> {
-        None
-    }
     /// Adds screen-space effects after the scene image is presented.
     fn overlay(&self, _paint: &mut PaintCtx<'_>, _origin: Point, _scale: Fixed) {}
 }
@@ -111,7 +177,7 @@ impl Renderer {
 struct Output {
     renderer: Renderer,
     frame: Option<Frame>,
-    ready: Option<(u64, [u16; 2])>,
+    ready: Option<(u64, [u16; 2], FrameSize)>,
     texture_revision: u64,
 }
 
@@ -134,9 +200,13 @@ impl Output {
         if let Renderer::Camera(renderer) = &mut self.renderer {
             renderer.camera = camera;
         }
-        if self.ready != Some((stamp, size)) {
+        if self
+            .ready
+            .is_none_or(|(revision, viewport, _)| (revision, viewport) != (stamp, size))
+        {
             let renderer = self.renderer.producer();
-            let [width, height] = renderer.frame_size(size).map(usize::from);
+            let frame_size = renderer.frame_size(size);
+            let [width, height] = frame_size.pixels().map(usize::from);
             if width == 0 || height == 0 {
                 return Err(RenderError::InvalidGeometry);
             }
@@ -147,7 +217,16 @@ impl Output {
             if new_frame {
                 self.ready = None;
                 self.frame = None;
-                renderer.prepare_frame(size)?;
+                renderer.prepare_frame(frame_size)?;
+            }
+            let overlay = match self.renderer {
+                Renderer::Camera(_) => overlay
+                    .map(|layer| layer.prepare([width, height]))
+                    .transpose()?,
+                Renderer::Directed(_) => None,
+            };
+            if new_frame {
+                let renderer = self.renderer.producer();
                 let frame = if let Some(limit) = renderer.opaque_frame_byte_limit() {
                     Frame::with_format(width, height, paint.opaque_output_format(limit)?)?
                 } else {
@@ -160,14 +239,17 @@ impl Output {
             let frame = self.frame.as_mut().expect("viewport frame");
             let rendered = match &mut self.renderer {
                 Renderer::Camera(renderer) => {
-                    let overlay = overlay
-                        .map(|layer| layer.prepare([width, height]))
-                        .transpose()?;
                     self.ready = None;
                     renderer.render_with_overlay(scene, frame, overlay.as_deref())?;
                     true
                 }
-                Renderer::Directed(renderer) => renderer.render(scene, size, frame)?,
+                Renderer::Directed(renderer) => match renderer.render(scene, frame_size, frame) {
+                    Ok(rendered) => rendered,
+                    Err(error) => {
+                        self.ready = None;
+                        return Err(error);
+                    }
+                },
             };
             if rendered {
                 self.texture_revision = self.texture_revision.wrapping_add(1);
@@ -175,30 +257,18 @@ impl Output {
             } else if self.ready.is_none() {
                 return Ok(());
             }
-            self.ready = Some((stamp, size));
+            self.ready = Some((stamp, size, frame_size));
         }
-        let Some(frame) = self.frame.as_ref() else {
+        let (Some(frame), Some((_, _, frame_size))) = (self.frame.as_ref(), self.ready) else {
             return Ok(());
         };
         let renderer = self.renderer.producer();
-        let (origin, dimensions, scale) = if let Some(scale) = renderer.pixel_scale() {
-            let scale = Fixed::from(scale.get());
-            let dimensions = Point::new(
-                Fixed::from_int(frame.width as i32) * scale,
-                Fixed::from_int(frame.height as i32) * scale,
-            );
-            let origin = Point::new(
-                rect.x + ((rect.w - dimensions.x) / 2).round(),
-                rect.y + ((rect.h - dimensions.y) / 2).round(),
-            );
-            (origin, dimensions, scale)
-        } else {
-            (
-                Point::new(rect.x, rect.y),
-                Point::new(rect.w, rect.h),
-                Fixed::ONE,
-            )
-        };
+        let placement = frame_size.placed(rect);
+        let origin = Point::new(placement.x, placement.y);
+        let dimensions = Point::new(placement.w, placement.h);
+        let scale = frame_size
+            .integer_scale()
+            .map_or(Fixed::ONE, |scale| Fixed::from(scale.get()));
         if frame.texture.alpha_mode == AlphaMode::Opaque
             && dimensions.x >= rect.w
             && dimensions.y >= rect.h

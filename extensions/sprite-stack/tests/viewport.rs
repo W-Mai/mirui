@@ -11,20 +11,22 @@ const COLORS: [Color; 2] = [RED, GREEN];
 #[test]
 fn directed_camera_publishes_once_per_change_and_an_explicit_camera_takes_over() {
     use mirui::render::RenderError;
-    use mirui_sprite_stack::{SceneRenderer, StackSceneHandle, ViewportCamera, raster::Frame};
+    use mirui_sprite_stack::{
+        FrameSize, SceneRenderer, StackSceneHandle, ViewportCamera, raster::Frame,
+    };
     use std::{cell::Cell, rc::Rc};
 
     struct Directed {
         attempts: Rc<Cell<u32>>,
     }
     impl SceneRenderer for Directed {
-        fn frame_size(&self, _: [u16; 2]) -> [u16; 2] {
-            [4, 4]
+        fn frame_size(&self, _: [u16; 2]) -> FrameSize {
+            FrameSize::stretch([4, 4])
         }
         fn render(
             &mut self,
             _: &StackScene,
-            _: [u16; 2],
+            _: FrameSize,
             target: &mut Frame,
         ) -> Result<bool, RenderError> {
             let count = self.attempts.get() + 1;

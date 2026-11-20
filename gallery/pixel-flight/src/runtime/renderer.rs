@@ -4,20 +4,17 @@ use crate::{
     flame::Flames,
     raster::{Daylight, Frame, Palette, Raster},
 };
-use core::{cell::Cell, num::NonZeroU16};
 use mirui::{
     core::model::ModelHandle,
     render::{RenderError, texture::AlphaMode},
     types::{Fixed, Point},
     ui::view::PaintCtx,
 };
-use mirui_sprite_stack::{SceneRenderer, StackScene};
+use mirui_sprite_stack::{FrameSize, SceneRenderer, StackScene};
 
 pub(super) struct FlightRenderer {
     model: FlightModelHandle,
     output: FlightOutput,
-    // StackViewport requests the size before preparing or rendering a new image.
-    fit: Cell<[u16; 3]>,
 }
 
 impl FlightRenderer {
@@ -25,46 +22,35 @@ impl FlightRenderer {
         Self {
             model,
             output: FlightOutput::new(profile),
-            fit: Cell::new([0; 3]),
         }
     }
 }
 
 impl SceneRenderer for FlightRenderer {
-    fn frame_size(&self, [width, height]: [u16; 2]) -> [u16; 2] {
-        let (width, height, scale) = self.output.profile.scene_size(width, height);
-        let [width, height, scale] = [width, height, scale].map(|value| value as u16);
-        self.fit.set([width, height, scale]);
-        [width, height]
+    fn frame_size(&self, dimensions: [u16; 2]) -> FrameSize {
+        self.output.profile.frame_size(dimensions)
     }
 
     fn opaque_frame_byte_limit(&self) -> Option<usize> {
         (self.output.profile == Profile::Compact).then_some(2)
     }
 
-    fn prepare_frame(&mut self, _: [u16; 2]) -> Result<(), RenderError> {
-        let [width, height, _] = self.fit.get();
-        self.output
-            .prepare_cockpit([width, height].map(usize::from));
+    fn prepare_frame(&mut self, size: FrameSize) -> Result<(), RenderError> {
+        self.output.prepare_cockpit(size.pixels().map(usize::from));
         Ok(())
     }
 
     fn render(
         &mut self,
         scene: &StackScene,
-        _: [u16; 2],
+        size: FrameSize,
         frame: &mut Frame,
     ) -> Result<bool, RenderError> {
         frame.texture.alpha_mode = AlphaMode::Opaque;
-        self.model.read(|model| {
-            self.output
-                .render(model, scene, frame, self.fit.get()[2].into())
-        })?;
+        let scale = Fixed::from(size.integer_scale().expect("flight frame scale").get());
+        self.model
+            .read(|model| self.output.render(model, scene, frame, scale))?;
         Ok(true)
-    }
-
-    fn pixel_scale(&self) -> Option<NonZeroU16> {
-        NonZeroU16::new(self.fit.get()[2])
     }
 
     fn overlay(&self, paint: &mut PaintCtx<'_>, origin: Point, scale: Fixed) {

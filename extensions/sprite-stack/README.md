@@ -103,7 +103,7 @@ Procedural games can pass their existing height and material planes to `HeightFi
 
 ### Game-directed cameras
 
-[Pixel Flight](../../gallery/pixel-flight/src/runtime.rs) installs its animated flight camera with `StackViewport::with_renderer(scene, renderer)`. The renderer specifies the frame size and draws into the frame borrowed by `SceneRenderer::render`. Report an opaque byte limit to let Mirui choose a format within that limit, or use the default RGBA frame. The viewport owns the texture, assigns its revision and requests a new image when the scene, camera or viewport size changes. Setting the viewport's `camera` property selects the built-in camera. Additional viewports can follow the same objects independently.
+[Pixel Flight](../../gallery/pixel-flight/src/runtime.rs) installs its animated flight camera with `StackViewport::with_renderer(scene, renderer)`. The renderer returns a `FrameSize` that describes pixels and placement, then draws into the frame borrowed by `SceneRenderer::render`. `FrameSize::frame_point` uses the same placement for input. Report an opaque byte limit to let Mirui choose a format within that limit, or use the default RGBA frame. The viewport owns the texture, assigns its revision and requests a new image when the scene, camera or viewport size changes. Setting the viewport's `camera` property selects the built-in camera. Additional viewports can follow the same objects independently.
 
 Use `SceneRenderer::prepare_frame` for resources that need temporary storage during construction. It runs before the viewport allocates a new frame, so the temporary storage can be released first.
 
