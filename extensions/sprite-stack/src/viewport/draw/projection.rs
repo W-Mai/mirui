@@ -27,8 +27,15 @@ impl ViewProjection {
     /// Maps a scene camera with a resolved target to a viewport in pixels.
     pub fn from_camera(
         camera: Camera,
-        [w, h]: [usize; 2],
+        size: [usize; 2],
     ) -> Result<Self, mirui::render::RenderError> {
+        Ok(Self::from_plane(camera, Self::camera_plane(camera, size)?))
+    }
+
+    pub(super) fn camera_plane(
+        camera: Camera,
+        [w, h]: [usize; 2],
+    ) -> Result<Projection, mirui::render::RenderError> {
         let invalid = mirui::render::RenderError::InvalidGeometry;
         if !camera.scale.is_positive() {
             return Err(invalid);
@@ -38,18 +45,22 @@ impl ViewProjection {
             Some(_) => return Err(invalid),
             None => Fixed64::ZERO,
         };
-        Ok(Self {
-            projection: Projection {
-                perspective,
-                slope: Fixed::ZERO,
-                scale: camera.scale,
-                center: [Fixed::from_int(w as i32) / 2, Fixed::from_int(h as i32) / 2],
-            },
+        Ok(Projection {
+            perspective,
+            slope: Fixed::ZERO,
+            scale: camera.scale,
+            center: [Fixed::from_int(w as i32) / 2, Fixed::from_int(h as i32) / 2],
+        })
+    }
+
+    pub(super) fn from_plane(camera: Camera, projection: Projection) -> Self {
+        Self {
+            projection,
             origin: camera.center,
             yaw: trig(camera.yaw),
             pitch: trig(camera.pitch),
             radius: camera.range,
-        })
+        }
     }
     /// Uses a camera-space projection and its unit forward direction in world X/Z.
     pub fn horizontal(

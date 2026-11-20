@@ -22,6 +22,8 @@ struct Panel {
 impl FrameOverlay<Color> for Panel {
     fn prepare(&mut self, frame: OverlayFrame, input: &Color) -> Result<bool, RenderError> {
         assert_eq!(frame.size, [16, 16]);
+        let camera = frame.camera.expect("built-in scene camera");
+        assert_eq!(camera.projection.center, [Fixed::from_int(8); 2]);
         self.ink = *input;
         self.prepares.set(self.prepares.get() + 1);
         Ok(input.a != 0)

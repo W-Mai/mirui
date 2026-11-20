@@ -28,6 +28,7 @@ impl Projection {
             projection: self.camera,
             position: [self.position[0], self.position[2], -self.position[1]],
             yaw: -self.yaw,
+            pitch: Fixed::ZERO,
             roll: self.roll,
         }
     }

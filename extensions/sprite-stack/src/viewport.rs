@@ -192,8 +192,8 @@ pub trait SceneRenderer: 'static {
         Ok(())
     }
     /// Resolves the projection once for scene and overlay preparation.
-    fn frame_camera(&self, _size: FrameSize) -> Option<FrameCamera> {
-        None
+    fn frame_camera(&self, _size: FrameSize) -> Result<Option<FrameCamera>, RenderError> {
+        Ok(None)
     }
     /// Draw into the viewport's frame. Return false to reuse a compatible previous image.
     fn render(
@@ -258,6 +258,7 @@ impl Output {
             .ready
             .is_none_or(|(revision, viewport, _)| (revision, viewport) != (stamp, size))
         {
+            let needs_camera = overlay.is_some() || matches!(&self.renderer, Renderer::Directed(_));
             let renderer = self.renderer.producer();
             let frame_size = resolution.fit(size);
             let [width, height] = frame_size.pixels().map(usize::from);
@@ -273,7 +274,11 @@ impl Output {
                 self.frame = None;
                 renderer.prepare_frame(frame_size)?;
             }
-            let camera = renderer.frame_camera(frame_size);
+            let camera = if needs_camera {
+                renderer.frame_camera(frame_size)?
+            } else {
+                None
+            };
             let overlay = overlay
                 .map(|layer| {
                     layer.prepare(OverlayFrame {

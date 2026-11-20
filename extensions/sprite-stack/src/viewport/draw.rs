@@ -1,11 +1,12 @@
-use super::{Camera, SceneFrame, SceneRenderer};
+use super::{Camera, FrameSize, SceneFrame, SceneRenderer};
 use crate::{
     StackScene,
-    raster::{Frame, Workspace},
+    raster::{Frame, FrameCamera, Workspace},
 };
 mod objects;
 mod projection;
 use mirui::render::RenderError;
+use mirui::types::{Fixed, Fixed64};
 pub use objects::{ObjectPass, ProjectedObjects};
 pub use projection::ViewProjection;
 
@@ -19,6 +20,19 @@ pub(super) struct DefaultRenderer {
 }
 
 impl SceneRenderer for DefaultRenderer {
+    fn frame_camera(&self, size: FrameSize) -> Result<Option<FrameCamera>, RenderError> {
+        let projection = ViewProjection::camera_plane(self.camera, size.pixels().map(usize::from))?;
+        let radians =
+            |degrees: Fixed| (Fixed64::from(degrees) * Fixed64::from(Fixed::PI) / 180).to_fixed();
+        Ok(Some(FrameCamera {
+            projection,
+            position: self.camera.center,
+            yaw: radians(self.camera.yaw),
+            pitch: radians(self.camera.pitch),
+            roll: Fixed::ZERO,
+        }))
+    }
+
     fn render(
         &mut self,
         scene: &StackScene,
@@ -27,7 +41,10 @@ impl SceneRenderer for DefaultRenderer {
     ) -> Result<bool, RenderError> {
         let camera = self.camera;
         let [w, h] = [frame.width, frame.height];
-        let projection = ViewProjection::from_camera(camera, [w, h])?;
+        let projection = match input.camera {
+            Some(frame) => ViewProjection::from_plane(camera, frame.projection),
+            None => ViewProjection::from_camera(camera, [w, h])?,
+        };
         if self
             .workspace
             .as_ref()

@@ -37,6 +37,8 @@ pub struct FrameCamera {
     pub position: [Fixed; 3],
     /// Rotation about the world Y axis, in radians.
     pub yaw: Fixed,
+    /// Camera pitch in radians, with positive values facing down.
+    pub pitch: Fixed,
     /// Rotation of the output image, in radians.
     pub roll: Fixed,
 }

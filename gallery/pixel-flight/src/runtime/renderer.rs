@@ -39,12 +39,11 @@ impl SceneRenderer for FlightRenderer {
         Ok(())
     }
 
-    fn frame_camera(&self, size: FrameSize) -> Option<FrameCamera> {
+    fn frame_camera(&self, size: FrameSize) -> Result<Option<FrameCamera>, RenderError> {
         let [width, height] = size.pixels().map(usize::from);
-        Some(
-            self.model
-                .read(|model| model.flight.projection(width, height).frame_camera()),
-        )
+        Ok(Some(self.model.read(|model| {
+            model.flight.projection(width, height).frame_camera()
+        })))
     }
 
     fn render(
