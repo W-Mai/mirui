@@ -41,6 +41,22 @@ pub trait FrameOverlay<T = ()> {
     fn paint(&self, canvas: &mut Canvas<'_>);
 }
 
+/// Which scene samples a frame region needs.
+#[derive(Clone, Copy)]
+pub enum FramePass {
+    Color,
+    Depth { limit: Fixed },
+}
+
+/// An effect whose screen-space contribution depends on samples from the scene.
+pub trait FrameEffects {
+    type Query: DepthQuery;
+
+    fn queries(&mut self) -> &mut [Self::Query];
+    fn finish_queries(&mut self, mapping: &RollMapping);
+    fn composite(&self, canvas: &mut Canvas<'_>) -> Result<(), RenderError>;
+}
+
 /// Reusable depth and color storage for a camera that can roll.
 pub struct CameraWorkspace {
     workspace: Workspace,
@@ -106,6 +122,59 @@ impl CameraWorkspace {
         };
         self.workspace
             .render_frame(output, layout, overlay, scene, finish)
+    }
+
+    /// Renders an effect at the target resolution for bounded output. Full
+    /// workspace layouts resolve samples during scene rendering and leave
+    /// composition at presentation resolution to the caller.
+    pub fn render_with_effects(
+        &mut self,
+        output: &mut Frame,
+        mapping: &RollMapping,
+        overlay: Option<&dyn FrameOverlay>,
+        effects: &mut impl FrameEffects,
+        mut scene: impl FnMut(&mut SceneCanvas<'_, '_>, FramePass) -> Result<(), RenderError>,
+    ) -> Result<(), RenderError> {
+        if effects.queries().is_empty() {
+            return self.render(
+                output,
+                mapping,
+                overlay,
+                |tile| scene(tile, FramePass::Color),
+                |_| Ok(()),
+            );
+        }
+        if self.band.is_some() {
+            self.finish_depth_queries(mapping, effects.queries(), |tile, limit| {
+                scene(tile, FramePass::Depth { limit })
+            })?;
+            effects.finish_queries(mapping);
+            return self.render(
+                output,
+                mapping,
+                overlay,
+                |tile| scene(tile, FramePass::Color),
+                |canvas| effects.composite(canvas),
+            );
+        }
+        self.render(
+            output,
+            mapping,
+            overlay,
+            |tile| {
+                scene(tile, FramePass::Color)?;
+                for query in effects.queries() {
+                    query.resolve(tile);
+                }
+                Ok(())
+            },
+            |_| Ok(()),
+        )?;
+        self.finish_depth_queries(mapping, effects.queries(), |tile, limit| {
+            scene(tile, FramePass::Depth { limit })
+        })?;
+        effects.finish_queries(mapping);
+        Ok(())
     }
 
     /// Samples outstanding effect depths when an overlay or roll excluded them from the rendered tiles. Reuses the existing source tile for each group of nearby points.

@@ -15,7 +15,7 @@ use mirui::types::Fixed;
 #[cfg(test)]
 use mirui_sprite_stack::raster::Workspace;
 use mirui_sprite_stack::raster::{
-    CameraWorkspace, DepthQuery, FrameOverlay, RollMapping, SceneCanvas,
+    CameraWorkspace, FrameOverlay, FramePass, RollMapping, SceneCanvas,
 };
 pub use mirui_sprite_stack::raster::{Canvas, Frame};
 mod aircraft;
@@ -25,7 +25,7 @@ mod palette;
 mod wake;
 
 use aircraft::PreparedJet;
-use exhaust::{PendingFlame, finish_flames, project_flames};
+use exhaust::{ExhaustFrame, PendingFlame, project_flames};
 use landscape::{PreparedTerrain, draw_sky, draw_world, terrain_distance};
 pub use palette::{BAYER, Daylight, Palette, blend, rgba};
 use wake::{draw_smoke, draw_trails};
@@ -399,41 +399,27 @@ impl Raster {
                 );
             }
         }
-        let depth = |canvas: &mut SceneCanvas<'_, '_>, limit| {
-            scene.draw_ordered::<true>(canvas, &order, &models, extra.as_ref(), limit)
-        };
         let mut next_seen = *seen;
-        let mut pending = &mut pending[..count];
-        if compact && count != 0 {
-            mirui::trace_span!("flight.flame_depth");
-            workspace.finish_depth_queries(&mapping, pending, depth)?;
-            finish_flames(&mapping, pending, &mut next_seen, flames);
-            pending = &mut [];
-        }
-        workspace.render(
+        workspace.render_with_effects(
             frame,
             &mapping,
             overlay.as_ref().map(|o| o as &dyn FrameOverlay),
-            |tile| {
-                scene.draw_ordered::<false>(tile, &order, &models, extra.as_ref(), Fixed::MAX)?;
-                for query in &mut *pending {
-                    query.resolve(tile);
-                }
-                Ok(())
+            &mut ExhaustFrame {
+                queries: &mut pending[..count],
+                visibility: &mut next_seen,
+                flames: &mut flames[..count],
+                time: flight.time,
             },
-            |canvas| {
-                if compact {
-                    super::flame::paint_region(canvas, &flames[..count], flight.time)?;
+            |tile, pass| match pass {
+                FramePass::Color => {
+                    scene.draw_ordered::<false>(tile, &order, &models, extra.as_ref(), Fixed::MAX)
                 }
-                Ok(())
+                FramePass::Depth { limit } => {
+                    scene.draw_ordered::<true>(tile, &order, &models, extra.as_ref(), limit)
+                }
             },
         )?;
 
-        if !pending.is_empty() {
-            // Effect samples behind an opaque cockpit can lie outside the visible scene tiles.
-            workspace.finish_depth_queries(&mapping, pending, depth)?;
-            finish_flames(&mapping, pending, &mut next_seen, flames);
-        }
         *seen = next_seen;
         *flame_count = count;
         Ok(())
