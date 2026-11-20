@@ -16,17 +16,6 @@ pub struct Projection {
     pub cockpit: Fixed,
     pub steer_y: Fixed,
 }
-impl core::ops::Deref for Projection {
-    type Target = mirui_sprite_stack::raster::Projection;
-    fn deref(&self) -> &Self::Target {
-        &self.camera
-    }
-}
-impl core::ops::DerefMut for Projection {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.camera
-    }
-}
 impl Projection {
     #[doc = " Returns screen x/y, scale and camera depth. Points behind the eye are rejected."]
     pub fn project(&self, point: V3) -> Option<[Fixed; 4]> {
@@ -97,9 +86,9 @@ impl Flight {
         p.position[1] +=
             (j.position[1] - j.yaw.cos() * Fixed::from_int(64) * k - self.follow[1]) * k;
         p.position[2] += (j.position[2] + Fixed::from_int(3) * s.jet_scale - self.follow[2]) * k;
-        p.perspective =
+        p.camera.perspective =
             Fixed64::from_fixed(c) / Fixed64::from_fixed(distance) + Fixed64::from_fixed(k) / 64;
-        p.scale =
+        p.camera.scale =
             (top * viewport_scale.ln() + c * zoom.ln() + k * (focal / Fixed::from_int(64)).ln())
                 .exp();
         let lean = ((Fixed::from_int(45) * top
@@ -108,19 +97,27 @@ impl Flight {
             / Fixed::from_int(180))
         .tan()
             - Fixed::from_ratio(5, 10) * self.climb_tilt * c;
-        p.slope = (lean + p.apply_perspective(self.camera_fix) * (Fixed::ONE - k))
-            .max(p.apply_perspective(self.camera_floor - p.position[2]) * (Fixed::ONE - k))
-            .max(p.apply_perspective(Fixed::from_int(2) - p.position[2]));
+        p.camera.slope = (lean + p.camera.apply_perspective(self.camera_fix) * (Fixed::ONE - k))
+            .max(
+                p.camera
+                    .apply_perspective(self.camera_floor - p.position[2])
+                    * (Fixed::ONE - k),
+            )
+            .max(
+                p.camera
+                    .apply_perspective(Fixed::from_int(2) - p.position[2]),
+            );
         let pivot = (Fixed::from_int((height) as i32) * Fixed::from_ratio(34, 100)).round();
         let chase_y = Fixed::from_int((height / 2) as i32)
             + Fixed::from_int((height) as i32)
                 * (Fixed::from_ratio(14, 100) - Fixed::from_ratio(3, 100) * self.boost);
         let cockpit_y = pivot
-            + p.divide_perspective(p.scale)
+            + p.camera.divide_perspective(p.camera.scale)
                 * (j.pitch * Fixed::from_ratio(8, 10))
                     .clamp(-Fixed::from_ratio(6, 10), Fixed::from_ratio(6, 10))
                     .tan();
-        p.center[1] = top * Fixed::from_int((height / 2) as i32) + c * chase_y + k * cockpit_y;
+        p.camera.center[1] =
+            top * Fixed::from_int((height / 2) as i32) + c * chase_y + k * cockpit_y;
         p.steer_y = top * Fixed::from_int((height / 2) as i32)
             + c * chase_y
             + k * Fixed::from_int((height) as i32) * Fixed::from_ratio(34, 100);
@@ -188,9 +185,9 @@ impl Flight {
         let mut fix = Fixed::ZERO;
         self.camera_floor = Fixed::ZERO;
         if self.chase[2].to_fixed() > Fixed::from_ratio(3, 10)
-            && old_camera.perspective > Fixed64::from_ratio(1, 10000)
+            && old_camera.camera.perspective > Fixed64::from_ratio(1, 10000)
         {
-            let back = old_camera.divide_perspective(Fixed::ONE);
+            let back = old_camera.camera.divide_perspective(Fixed::ONE);
             let (sn, cs) = old_camera.yaw.sin_cos();
             let x = old_camera.position[0] + sn * back;
             let y = old_camera.position[1] + cs * back;
@@ -204,7 +201,7 @@ impl Flight {
                 }
             }
             self.camera_floor = high + Fixed::from_int(5);
-            let nominal = self.follow[2] + old_camera.slope * back;
+            let nominal = self.follow[2] + old_camera.camera.slope * back;
             let mut wanted = nominal.max(self.camera_floor);
             if wanted > CLOUD_ALT - Fixed::from_int(3)
                 && wanted < Fixed::from_int((MAX_HEIGHT) as i32) + Fixed::from_int(3)

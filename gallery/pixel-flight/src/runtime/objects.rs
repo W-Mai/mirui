@@ -90,11 +90,11 @@ impl FlightObjects {
                 };
                 let [x, altitude, z] = p.position;
                 let position: V3 = [x, -z, altitude];
-                Some(PlacedAircraft {
+                Some(PlacedAircraft::new(
                     position,
-                    rotation: [p.yaw, p.pitch, -p.roll].map(radians),
+                    [p.yaw, p.pitch, -p.roll].map(radians),
                     model,
-                })
+                ))
             })?
         })
     }

@@ -148,7 +148,14 @@ impl Aircraft {
     }
 }
 pub(crate) fn aircraft_axes([yaw, pitch, roll]: V3) -> [V3; 3] {
-    let (sn, cs) = yaw.sin_cos();
+    aircraft_axes_with_heading(yaw.sin_cos(), pitch, roll)
+}
+
+pub(crate) fn aircraft_axes_with_heading(
+    (sn, cs): (Fixed, Fixed),
+    pitch: Fixed,
+    roll: Fixed,
+) -> [V3; 3] {
     let (sr, cr) = roll.sin_cos();
     let (sp, cp) = pitch.sin_cos();
     [
@@ -385,12 +392,16 @@ mod tests {
         for target in [View::Chase, View::Cockpit, View::Overhead, View::Cockpit] {
             let before = flight.projection(427, 240);
             flight.view = target;
-            assert_eq!(before.center, flight.projection(427, 240).center);
+            assert_eq!(
+                before.camera.center,
+                flight.projection(427, 240).camera.center
+            );
             for _ in 0..400 {
                 flight.step(&world, 16, 427, 240);
                 let p = flight.projection(427, 240);
                 assert!(
-                    p.center
+                    p.camera
+                        .center
                         .into_iter()
                         .chain(p.position)
                         .all(|v| v.abs() < Fixed::from_int(1_000_000))

@@ -2335,9 +2335,9 @@ impl Cockpit {
             HUD,
         );
         let (sn, cs) = p.roll.sin_cos();
-        let focal = p.divide_perspective(p.scale);
+        let focal = p.camera.divide_perspective(p.camera.scale);
         for degrees in (-20_i32..=20).step_by(10) {
-            let dy = p.center[1]
+            let dy = p.camera.center[1]
                 - Fixed::from_int(pivot)
                 - focal
                     * (Fixed::from_int(degrees) * PI / Fixed::from_int(180)
