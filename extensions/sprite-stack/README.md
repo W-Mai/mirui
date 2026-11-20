@@ -83,7 +83,7 @@ For a perspective chase view, set `Camera { focal_distance: Some(96.into()), ..C
 [Passing Lane](examples/passing_lane.rs) starts two cars driving in separate lanes. One game timer advances both cars, and each time the faster car overtakes the slower one, the counter goes up. **Pause** and **Resume** control the race. **Toggle lift** raises or lowers a section of the repeating road. Both cameras show the same traffic and terrain, and `scene.height_at` keeps the cars on the road surface.
 
 ```sh
-cargo run --profile release-opt -p mirui-sprite-stack --example passing_lane --features mirui/sdl
+cargo run -p mirui-sprite-stack --example passing_lane --features mirui/sdl
 ```
 
 Procedural games can pass their existing height and material planes to `HeightField::from_planes`. Use `with_coordinate_map` to convert local X/Z coordinates to the source map's axes. `address_at` returns the index for reading both planes.
