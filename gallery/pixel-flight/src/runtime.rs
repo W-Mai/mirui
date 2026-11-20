@@ -7,7 +7,7 @@ use super::{
 use core::cell::Cell;
 use mirui_sprite_stack::{SpriteStackPlugin, StackScene, StackViewport};
 mod objects;
-use objects::FlightObjects;
+pub(crate) use objects::FlightObjects;
 mod renderer;
 use renderer::{FlightRenderer, cockpit_layer};
 

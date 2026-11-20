@@ -1,6 +1,6 @@
 use super::projection::{InstancePose, ObjectProjection, V3, ViewProjection};
 use crate::{
-    Geometry, HeightField, Object, PreparedSpriteStack, SpriteStackAsset, StackScene,
+    Geometry, HeightField, Object, Pose, PreparedSpriteStack, SpriteStackAsset, StackScene,
     raster::{
         SceneCanvas,
         sprites::{LayerGrid, StackTransform, ViewStack},
@@ -40,13 +40,13 @@ impl ObjectPass {
         &'a mut self,
         scene: &'a StackScene,
         camera: ViewProjection,
-        mut include: impl FnMut(Object) -> bool,
+        mut include: impl FnMut(Object, &Geometry, Pose) -> bool,
     ) -> Result<ProjectedObjects<'a>, RenderError> {
         self.objects.clear();
         let mut sampled = 0;
         let mut result: Result<(), RenderError> = Ok(());
         scene.for_each(|id, geometry, pose| {
-            if result.is_err() || !include(id) {
+            if result.is_err() || !include(id, geometry, pose) {
                 return;
             }
             result = (|| {

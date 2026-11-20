@@ -2,12 +2,12 @@ use super::{Flight, Terrain};
 use crate::{
     flight::{Aircraft, V3},
     jet,
-    raster::PlacedAircraft,
+    raster::{PlacedAircraft, Placements},
 };
 use mirui::types::{Fixed, Fixed64};
 use mirui_sprite_stack::{Geometry, Object, Pose, StackScene, StackSceneOwned};
 
-pub(super) struct FlightObjects {
+pub(crate) struct FlightObjects {
     ground: Object,
     aircraft: [Option<Object>; 3],
 }
@@ -74,29 +74,31 @@ impl FlightObjects {
             }
         }
     }
-    pub fn managed(&self, draws_ground: bool) -> [Option<Object>; 4] {
-        [
-            draws_ground.then_some(self.ground),
-            self.aircraft[0],
-            self.aircraft[1],
-            self.aircraft[2],
-        ]
-    }
-    pub fn placed(&self, scene: &StackScene) -> [Option<PlacedAircraft>; 3] {
-        self.aircraft.map(|id| {
-            scene.with_object(id?, |geometry, p| {
-                let Geometry::Sampled(model) = geometry else {
-                    return None;
-                };
-                let [x, altitude, z] = p.position;
-                let position: V3 = [x, -z, altitude];
-                Some(PlacedAircraft::new(
-                    position,
-                    [p.yaw, p.pitch, -p.roll].map(radians),
-                    model,
-                ))
-            })?
-        })
+    pub(crate) fn collect_styled(
+        &self,
+        id: Object,
+        geometry: &Geometry,
+        pose: Pose,
+        ground: &mut Option<Pose>,
+        aircraft: &mut Placements,
+    ) -> bool {
+        if self.ground == id {
+            *ground = Some(pose);
+            return true;
+        }
+        let Some(index) = self.aircraft.iter().position(|entry| *entry == Some(id)) else {
+            return false;
+        };
+        if let Geometry::Sampled(model) = geometry {
+            let [x, altitude, z] = pose.position;
+            let position: V3 = [x, -z, altitude];
+            aircraft[index] = Some(PlacedAircraft::new(
+                position,
+                [pose.yaw, pose.pitch, -pose.roll].map(radians),
+                model,
+            ));
+        }
+        true
     }
 }
 

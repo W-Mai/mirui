@@ -215,7 +215,7 @@ fn directed_view_uses_projected_cell_size_for_authored_lods() {
             [Fixed::ZERO, Fixed::ONE],
             Fixed::from_int(50),
         );
-        let objects = pass.prepare(&scene, camera, |_| true).unwrap();
+        let objects = pass.prepare(&scene, camera, |_, _, _| true).unwrap();
         work.render_rows(&mut frame, |tile| {
             tile.color.bytes.fill(0);
             tile.clear_depth();

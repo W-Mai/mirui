@@ -2,7 +2,7 @@ use super::{FlightModel, FlightModelHandle, Profile, Terrain};
 use crate::{
     cockpit::{Cockpit, PreparedCockpit},
     flame::Flames,
-    raster::{Canvas, Daylight, Frame, Palette, Raster},
+    raster::{Canvas, Daylight, Frame, Palette, Raster, SceneObjects},
 };
 use mirui::{
     core::{cache::Handle, model::ModelHandle},
@@ -151,19 +151,15 @@ impl FlightOutput {
             |camera| model.flight.render_projection(camera),
         );
         let raster = self.prepare([frame.width, frame.height], model.day)?;
-        let ground = model.terrain.at(scene.pose(model.objects.ground()));
-        let placed = model.objects.placed(scene);
-        let managed = model.objects.managed(ground.draws_surface());
-        let extra = (scene.len()
-            > usize::from(ground.draws_surface()) + placed.iter().flatten().count())
-        .then_some((scene, managed.as_slice()));
         raster.render_scene(
             frame,
-            ground,
             &model.flight,
             (projection, overlay),
-            &placed,
-            extra,
+            SceneObjects::Placed {
+                scene,
+                world: &model.terrain,
+                objects: &model.objects,
+            },
         )?;
         if let (Some(raster), Some(flames)) = (&self.raster, &mut self.flames) {
             flames.prepare(

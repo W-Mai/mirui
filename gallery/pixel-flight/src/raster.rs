@@ -1,13 +1,14 @@
 //! Prepares one flight scene and draws it through the SpriteStack workspace.
 #[cfg(test)]
 mod compact;
+#[cfg(test)]
+use super::jet;
 use super::math::FixedMath as _;
 use super::{
     flight::{Flight, Projection, V3, aircraft_axes_with_heading, cockpit_center},
-    world::Ground,
+    runtime::FlightObjects,
+    world::{Ground, World},
 };
-#[cfg(test)]
-use super::{jet, world::World};
 use mirui::render::renderer::RenderError;
 #[cfg(test)]
 use mirui::types::Color;
@@ -91,6 +92,19 @@ impl PlacedAircraft {
     }
 }
 pub(crate) type Placements = [Option<PlacedAircraft>; 3];
+pub(super) enum SceneObjects<'a> {
+    Placed {
+        scene: &'a mirui_sprite_stack::StackScene,
+        world: &'a World,
+        objects: &'a FlightObjects,
+    },
+    #[cfg(test)]
+    Samples {
+        ground: Ground<'a>,
+        aircraft: &'a Placements,
+    },
+}
+
 struct Scene<'a> {
     placed: &'a Placements,
     ground: Ground<'a>,
@@ -102,6 +116,7 @@ struct Scene<'a> {
     heading: (Fixed, Fixed),
 }
 impl<'a> Scene<'a> {
+    #[cfg(test)]
     fn new(
         placed: &'a Placements,
         ground: Ground<'a>,
@@ -110,7 +125,26 @@ impl<'a> Scene<'a> {
         frame_height: usize,
         projection: Projection,
     ) -> Self {
-        let heading = projection.yaw.sin_cos();
+        Self::with_heading(
+            placed,
+            ground,
+            flight,
+            palette,
+            frame_height,
+            projection,
+            projection.yaw.sin_cos(),
+        )
+    }
+
+    fn with_heading(
+        placed: &'a Placements,
+        ground: Ground<'a>,
+        flight: &'a Flight,
+        palette: &'a Palette,
+        frame_height: usize,
+        projection: Projection,
+        heading: (Fixed, Fixed),
+    ) -> Self {
         let terrain = PreparedTerrain::new(ground, flight, &projection, palette, placed);
         Self {
             placed,
@@ -301,11 +335,12 @@ impl Raster {
         let projection = flight.projection(frame.width, frame.height);
         self.render_scene(
             frame,
-            world.at(Some(Default::default())),
             flight,
             (projection, None),
-            placed,
-            None,
+            SceneObjects::Samples {
+                ground: world.at(Some(Default::default())),
+                aircraft: placed,
+            },
         )
         .unwrap();
     }
@@ -330,14 +365,15 @@ impl Raster {
             });
         self.render_scene(
             frame,
-            ground,
             flight,
             (
                 projection,
                 overlay.as_ref().map(|overlay| overlay as &dyn FrameOverlay),
             ),
-            placed,
-            None,
+            SceneObjects::Samples {
+                ground,
+                aircraft: placed,
+            },
         )
         .unwrap();
     }
@@ -345,14 +381,9 @@ impl Raster {
     pub(super) fn render_scene(
         &mut self,
         frame: &mut Frame,
-        ground: Ground<'_>,
         flight: &Flight,
         (screen, overlay): (Projection, Option<&dyn FrameOverlay>),
-        placed: &Placements,
-        extra: Option<(
-            &mirui_sprite_stack::StackScene,
-            &[Option<mirui_sprite_stack::Object>],
-        )>,
+        scene_objects: SceneObjects<'_>,
     ) -> Result<(), RenderError> {
         let Self {
             compact,
@@ -365,21 +396,47 @@ impl Raster {
             ..
         } = self;
         let (projection, mapping) = map_projection(screen, frame.width, frame.height);
-        let scene = Scene::new(placed, ground, flight, palette, frame.height, projection);
-        let extra = if let Some((shared, managed)) = extra {
-            let [x, z, altitude] = projection.position;
-            let (sin, cos) = scene.heading;
-            let camera = mirui_sprite_stack::ViewProjection::horizontal(
-                projection.camera,
-                [x, altitude, -z],
-                [-sin, cos],
-                terrain_distance(altitude),
-            );
-            Some(objects.prepare(shared, camera, |id| !managed.contains(&Some(id)))?)
-        } else {
-            objects.clear();
-            None
+        let heading = projection.yaw.sin_cos();
+        let mut aircraft: Placements = [None; 3];
+        let (ground, placed, extra) = match scene_objects {
+            SceneObjects::Placed {
+                scene,
+                world,
+                objects: styled,
+            } => {
+                let [x, z, altitude] = projection.position;
+                let (sin, cos) = heading;
+                let camera = mirui_sprite_stack::ViewProjection::horizontal(
+                    projection.camera,
+                    [x, altitude, -z],
+                    [-sin, cos],
+                    terrain_distance(altitude),
+                );
+                let mut ground = None;
+                let mut has_other = false;
+                let prepared = objects.prepare(scene, camera, |id, geometry, pose| {
+                    let ordinary =
+                        !styled.collect_styled(id, geometry, pose, &mut ground, &mut aircraft);
+                    has_other |= ordinary;
+                    ordinary
+                })?;
+                (world.at(ground), &aircraft, has_other.then_some(prepared))
+            }
+            #[cfg(test)]
+            SceneObjects::Samples { ground, aircraft } => {
+                objects.clear();
+                (ground, aircraft, None)
+            }
         };
+        let scene = Scene::with_heading(
+            placed,
+            ground,
+            flight,
+            palette,
+            frame.height,
+            projection,
+            heading,
+        );
         let order = scene.order();
         let mut models = scene.prepare(mapping.size);
         let compact = *compact;

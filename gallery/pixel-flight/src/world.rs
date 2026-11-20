@@ -25,9 +25,6 @@ impl Ground<'_> {
         matches!(self.placement, GroundPose::Original)
     }
 
-    pub(super) fn draws_surface(&self) -> bool {
-        !matches!(self.placement, GroundPose::Absent)
-    }
     pub(super) fn elevation(&self) -> Fixed {
         match self.placement {
             GroundPose::Placed { origin, .. } => origin[1],

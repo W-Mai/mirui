@@ -37,7 +37,7 @@ impl SceneRenderer for DefaultRenderer {
             self.workspace = Some(([w, h], Workspace::new(w, BAND.min(h))?));
         }
         let (_, work) = self.workspace.as_mut().expect("viewport storage");
-        let objects = self.objects.prepare(scene, projection, |_| true)?;
+        let objects = self.objects.prepare(scene, projection, |_, _, _| true)?;
         work.render_rows_with_overlay(frame, input.overlay, |tile| {
             tile.color.bytes.fill(0);
             tile.clear_depth();
