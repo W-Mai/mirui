@@ -1,7 +1,9 @@
 //! Fixed-point scene projection and reusable color, coverage and depth tiles.
 mod frame;
 mod mapping;
-pub use frame::{CameraWorkspace, FrameEffects, FrameOverlay, FramePass};
+pub use frame::{
+    CameraWorkspace, FrameCamera, FrameEffects, FrameOverlay, FramePass, OverlayFrame,
+};
 pub mod sprites;
 pub mod terrain;
 mod visibility;

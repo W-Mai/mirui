@@ -1,4 +1,4 @@
-use super::{Canvas, DepthQuery, Frame, RollMapping, SceneCanvas, Workspace};
+use super::{Canvas, DepthQuery, Frame, Projection, RollMapping, SceneCanvas, Workspace};
 use mirui::{
     render::{
         RenderError,
@@ -29,10 +29,30 @@ enum FrameLayout<'a> {
     },
 }
 
+/// Camera geometry measured before the output image is rolled.
+#[derive(Clone, Copy, Debug)]
+pub struct FrameCamera {
+    pub projection: Projection,
+    /// World position with Y up.
+    pub position: [Fixed; 3],
+    /// Rotation about the world Y axis, in radians.
+    pub yaw: Fixed,
+    /// Rotation of the output image, in radians.
+    pub roll: Fixed,
+}
+
+/// Pixel dimensions and optional projection for an in-frame overlay.
+#[derive(Clone, Copy, Debug)]
+pub struct OverlayFrame {
+    pub size: [usize; 2],
+    pub camera: Option<FrameCamera>,
+}
+
 /// Optional screen-space foreground. Fully covered tiles can omit their scene pass.
 pub trait FrameOverlay<T = ()> {
-    fn prepare(&mut self, _size: [usize; 2], _input: &T) -> Result<(), RenderError> {
-        Ok(())
+    /// Returns whether the overlay contributes to this frame.
+    fn prepare(&mut self, _frame: OverlayFrame, _input: &T) -> Result<bool, RenderError> {
+        Ok(true)
     }
 
     fn covers(&self, _rect: [i32; 4], _scratch: &mut [u8]) -> bool {

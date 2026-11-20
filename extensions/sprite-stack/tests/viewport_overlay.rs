@@ -4,7 +4,7 @@ use core::cell::Cell;
 use mirui::{prelude::*, render::RenderError};
 use mirui_sprite_stack::{
     SpriteStackPlugin, StackScene, StackViewport, ViewportOverlay,
-    raster::{Canvas, FrameOverlay},
+    raster::{Canvas, FrameOverlay, OverlayFrame},
 };
 use std::rc::Rc;
 
@@ -20,11 +20,11 @@ struct Panel {
 }
 
 impl FrameOverlay<Color> for Panel {
-    fn prepare(&mut self, size: [usize; 2], input: &Color) -> Result<(), RenderError> {
-        assert_eq!(size, [16, 16]);
+    fn prepare(&mut self, frame: OverlayFrame, input: &Color) -> Result<bool, RenderError> {
+        assert_eq!(frame.size, [16, 16]);
         self.ink = *input;
         self.prepares.set(self.prepares.get() + 1);
-        Ok(())
+        Ok(input.a != 0)
     }
 
     fn paint(&self, canvas: &mut Canvas<'_>) {
@@ -94,4 +94,10 @@ fn attached_overlay_observes_its_input_and_reuses_the_completed_frame() {
     check(&mut app, ink.get());
     assert_eq!([draws[0].get(), draws[1].get()], [2, 1]);
     assert_eq!(allocations::tracked_allocations(|| ink.set(ink.get())), 0);
+    ink.set(Color::rgba(0, 0, 0, 0));
+    let snapshot = app.snapshot().unwrap().unwrap();
+    let pixels = snapshot.read_pixels().unwrap();
+    assert_ne!(pixels.get_pixel(8, 8), Color::rgb(10, 80, 130));
+    assert_eq!(pixels.get_pixel(24, 8), WHITE);
+    assert_eq!([draws[0].get(), draws[1].get()], [3, 1]);
 }

@@ -229,12 +229,14 @@ impl<'a> Scene<'a> {
         Ok(())
     }
 }
+#[cfg(test)]
 struct CockpitOverlay<'a> {
     cockpit: &'a super::cockpit::Cockpit,
     prepared: super::cockpit::PreparedCockpit,
     world: Ground<'a>,
 }
 
+#[cfg(test)]
 impl FrameOverlay for CockpitOverlay<'_> {
     fn covers(&self, rect: [i32; 4], scratch: &mut [u8]) -> bool {
         self.cockpit.covers(rect, &self.prepared, scratch)
@@ -296,11 +298,12 @@ impl Raster {
         flight: &Flight,
         placed: &Placements,
     ) {
+        let projection = flight.projection(frame.width, frame.height);
         self.render_scene(
             frame,
             world.at(Some(Default::default())),
             flight,
-            None,
+            (projection, None),
             placed,
             None,
         )
@@ -316,11 +319,23 @@ impl Raster {
         cockpit: &super::cockpit::Cockpit,
         placed: &Placements,
     ) {
+        let projection = flight.projection(frame.width, frame.height);
+        let ground = world.at(Some(Default::default()));
+        let overlay = cockpit
+            .prepare(flight, projection, &self.palette)
+            .map(|prepared| CockpitOverlay {
+                cockpit,
+                prepared,
+                world: ground,
+            });
         self.render_scene(
             frame,
-            world.at(Some(Default::default())),
+            ground,
             flight,
-            Some(cockpit),
+            (
+                projection,
+                overlay.as_ref().map(|overlay| overlay as &dyn FrameOverlay),
+            ),
             placed,
             None,
         )
@@ -332,7 +347,7 @@ impl Raster {
         frame: &mut Frame,
         ground: Ground<'_>,
         flight: &Flight,
-        cockpit: Option<&super::cockpit::Cockpit>,
+        (screen, overlay): (Projection, Option<&dyn FrameOverlay>),
         placed: &Placements,
         extra: Option<(
             &mirui_sprite_stack::StackScene,
@@ -349,7 +364,6 @@ impl Raster {
             seen,
             ..
         } = self;
-        let screen = flight.projection(frame.width, frame.height);
         let (projection, mapping) = map_projection(screen, frame.width, frame.height);
         let scene = Scene::new(placed, ground, flight, palette, frame.height, projection);
         let extra = if let Some((shared, managed)) = extra {
@@ -374,15 +388,6 @@ impl Raster {
                 model.prepare_regions(&projection);
             }
         }
-        let overlay = cockpit.and_then(|cockpit| {
-            cockpit
-                .prepare(flight, screen, palette)
-                .map(|prepared| CockpitOverlay {
-                    cockpit,
-                    prepared,
-                    world: ground,
-                })
-        });
         let mut pending = [PendingFlame::default(); 6];
         let mut count = 0;
         for &index in &order[..flight.count] {
@@ -401,7 +406,7 @@ impl Raster {
         workspace.render_with_effects(
             frame,
             &mapping,
-            overlay.as_ref().map(|o| o as &dyn FrameOverlay),
+            overlay,
             &mut ExhaustFrame {
                 queries: &mut pending[..count],
                 visibility: &mut next_seen,

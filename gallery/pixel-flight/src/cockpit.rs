@@ -539,6 +539,16 @@ impl Cockpit {
         p: Projection,
         palette: &Palette,
     ) -> Option<PreparedCockpit> {
+        self.prepare_lit(flight, p, palette.day, palette.sun)
+    }
+
+    pub(super) fn prepare_lit(
+        &self,
+        flight: &Flight,
+        p: Projection,
+        day: crate::raster::Daylight,
+        sun: [Fixed; 2],
+    ) -> Option<PreparedCockpit> {
         let amount = p.cockpit_in();
         if amount <= Fixed::ZERO {
             return None;
@@ -596,10 +606,10 @@ impl Cockpit {
             Fixed::from_ratio(165, 100),
             -away * Fixed::from_int(self.height) * Fixed::from_ratio(9, 10),
         );
-        let light_length = (palette.sun[0].powi(2) + palette.sun[1].powi(2)).sqrt();
-        let sun_side = (-palette.sun[0] * heading[0] - palette.sun[1] * heading[1]) / light_length;
-        let sun_front = (-palette.sun[0] * heading[1] + palette.sun[1] * heading[0]) / light_length;
-        let sun_power = match palette.day {
+        let light_length = (sun[0].powi(2) + sun[1].powi(2)).sqrt();
+        let sun_side = (-sun[0] * heading[0] - sun[1] * heading[1]) / light_length;
+        let sun_front = (-sun[0] * heading[1] + sun[1] * heading[0]) / light_length;
+        let sun_power = match day {
             super::raster::Daylight::Day => Fixed::ONE,
             super::raster::Daylight::Sunset => Fixed::from_ratio(11, 10),
             super::raster::Daylight::Night => Fixed::from_ratio(45, 100),
@@ -613,7 +623,7 @@ impl Cockpit {
                 * sun_power
                 * (Fixed::from_ratio(72, 100) - Fixed::from_ratio(28, 100) * sun_front)
                 / Fixed::from_int(256),
-            color: match palette.day {
+            color: match day {
                 super::raster::Daylight::Day => rgba(
                     Fixed::from_int(255),
                     Fixed::from_int(246),

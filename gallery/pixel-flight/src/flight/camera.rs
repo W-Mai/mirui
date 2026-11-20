@@ -23,6 +23,14 @@ pub struct Projection {
     pub steer_y: Fixed,
 }
 impl Projection {
+    pub(crate) fn frame_camera(self) -> mirui_sprite_stack::raster::FrameCamera {
+        mirui_sprite_stack::raster::FrameCamera {
+            projection: self.camera,
+            position: [self.position[0], self.position[2], -self.position[1]],
+            yaw: -self.yaw,
+            roll: self.roll,
+        }
+    }
     #[doc = " Returns screen x/y, scale and camera depth. Points behind the eye are rejected."]
     pub fn project(&self, point: V3) -> Option<[Fixed; 4]> {
         self.project_with_yaw(point, self.yaw.sin_cos())
@@ -45,6 +53,22 @@ impl Projection {
     }
 }
 impl Flight {
+    pub(crate) fn render_projection(
+        &self,
+        camera: mirui_sprite_stack::raster::FrameCamera,
+    ) -> Projection {
+        let cockpit = self.cockpit[2].to_fixed();
+        Projection {
+            position: [camera.position[0], -camera.position[2], camera.position[1]],
+            yaw: -camera.yaw,
+            camera: camera.projection,
+            roll: camera.roll,
+            jet_alpha: Fixed::ONE
+                - smooth((cockpit - Fixed::from_ratio(12, 100)) / Fixed::from_ratio(4, 10)),
+            cockpit,
+            steer_y: camera.projection.center[1],
+        }
+    }
     pub fn projection(&self, width: usize, height: usize) -> Projection {
         let s = self.settings;
         let j = &self.jets[0];

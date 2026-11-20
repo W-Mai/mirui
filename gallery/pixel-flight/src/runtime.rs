@@ -9,7 +9,7 @@ use mirui_sprite_stack::{SpriteStackPlugin, StackScene, StackViewport};
 mod objects;
 use objects::FlightObjects;
 mod renderer;
-use renderer::FlightRenderer;
+use renderer::{FlightRenderer, cockpit_layer};
 
 use mirui::input::event::{
     PointerCursor,
@@ -21,18 +21,22 @@ use mirui::prelude::*;
 use mirui::render::font::{Font, FontManager, FontToken};
 use mirui::ui::ComputedRect;
 use mirui::ui::widgets::{ParagraphStyle, Text, TextAlign};
-use mirui::{core::model::ModelHandle, ecs::DeltaTimeMs};
+use mirui::{
+    core::{cache::Handle, model::ModelHandle},
+    ecs::DeltaTimeMs,
+};
 
 const FLIGHT_FONT: FontToken = FontToken::Custom("pixel-flight-ui");
 #[mirui::model]
 pub struct FlightModel {
     profile: Profile,
-    terrain: Terrain,
+    terrain: Handle<Terrain>,
     flight: Flight,
     pub scene: model!(owned StackScene),
     objects: FlightObjects,
     day: Daylight,
     display_bytes: Cell<usize>,
+    cockpit_bytes: Cell<usize>,
     revision: u64,
     hint_time: Fixed,
     focused: bool,
@@ -53,11 +57,12 @@ impl FlightModel {
         let (scene, objects) = FlightObjects::new(&terrain, &flight);
         Self {
             profile,
-            terrain,
+            terrain: Handle::new(terrain),
             flight,
             scene: scene.into(),
             objects,
             display_bytes: Cell::new(0),
+            cockpit_bytes: Cell::new(0),
             day: Daylight::default(),
             revision: 0,
             hint_time: Fixed::ZERO,
@@ -253,6 +258,8 @@ impl FlightModel {
         self.terrain.bytes() + core::mem::size_of::<Self>() + self.flight.bytes()
             - core::mem::size_of::<Flight>()
             + self.display_bytes.get()
+            + self.cockpit_bytes.get()
+            + core::mem::size_of::<mirui::core::cache::handle::CacheEntry<Terrain>>()
     }
 }
 #[mirui::component]
@@ -331,6 +338,7 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
     }
     let viewport =
         StackViewport::with_renderer(model.scene(), FlightRenderer::new(model.clone(), profile));
+    let cockpit = cockpit_layer(model.clone(), profile);
 
     ui! {
         View (
@@ -349,6 +357,7 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
                 model: model.clone(),
             },
             viewport,
+            cockpit,
             mirui::input::event::scroll::TouchAction::None,
         ] {
             Text (
@@ -626,7 +635,7 @@ mod tests {
             for day in [Daylight::Sunset, Daylight::Night, Daylight::Day] {
                 assert_eq!(
                     crate::test_support::tracked_allocations(|| {
-                        let (_, raster) = output.prepare([128, 128], day).unwrap();
+                        let raster = output.prepare([128, 128], day).unwrap();
                         assert_eq!(raster.palette.day, day);
                     }),
                     0

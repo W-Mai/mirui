@@ -1,4 +1,4 @@
-use crate::raster::{Canvas, FrameOverlay};
+use crate::raster::{Canvas, FrameOverlay, OverlayFrame};
 use alloc::rc::Rc;
 use core::{
     cell::{Ref, RefCell},
@@ -65,16 +65,19 @@ impl ViewportOverlay {
 
     pub(super) fn prepare(
         &self,
-        size: [usize; 2],
-    ) -> Result<Ref<'_, dyn FrameOverlay>, RenderError> {
-        self.source.prepare(size)
+        frame: OverlayFrame,
+    ) -> Result<Option<Ref<'_, dyn FrameOverlay>>, RenderError> {
+        self.source.prepare(frame)
     }
 }
 
 trait OverlaySource {
     fn is_dynamic(&self) -> bool;
     fn refresh(&self) -> bool;
-    fn prepare(&self, size: [usize; 2]) -> Result<Ref<'_, dyn FrameOverlay>, RenderError>;
+    fn prepare(
+        &self,
+        frame: OverlayFrame,
+    ) -> Result<Option<Ref<'_, dyn FrameOverlay>>, RenderError>;
 }
 
 struct Source<T, P> {
@@ -98,19 +101,24 @@ impl<T: Clone + PartialEq + 'static, P: FrameOverlay<T> + 'static> OverlaySource
         true
     }
 
-    fn prepare(&self, size: [usize; 2]) -> Result<Ref<'_, dyn FrameOverlay>, RenderError> {
+    fn prepare(
+        &self,
+        frame: OverlayFrame,
+    ) -> Result<Option<Ref<'_, dyn FrameOverlay>>, RenderError> {
         if self.value.borrow().is_none() {
             self.refresh();
         }
-        self.painter.borrow_mut().0.prepare(
-            size,
+        let active = self.painter.borrow_mut().0.prepare(
+            frame,
             self.value
                 .borrow()
                 .as_ref()
                 .expect("prepared overlay input"),
         )?;
-        Ok(Ref::map(self.painter.borrow(), |painter| {
-            painter as &dyn FrameOverlay
+        Ok(active.then(|| {
+            Ref::map(self.painter.borrow(), |painter| {
+                painter as &dyn FrameOverlay
+            })
         }))
     }
 }
@@ -139,9 +147,9 @@ mod tests {
     struct Panel(u32);
 
     impl FrameOverlay<u32> for Panel {
-        fn prepare(&mut self, _: [usize; 2], color: &u32) -> Result<(), RenderError> {
+        fn prepare(&mut self, _: OverlayFrame, color: &u32) -> Result<bool, RenderError> {
             self.0 = *color;
-            Ok(())
+            Ok(true)
         }
 
         fn covers(&self, _: [i32; 4], _: &mut [u8]) -> bool {
@@ -168,7 +176,10 @@ mod tests {
         let storage = workspace.bytes() + output.bytes();
 
         let allocations = allocations::tracked_allocations(|| {
-            let overlay = overlay.prepare(size).unwrap();
+            let overlay = overlay
+                .prepare(OverlayFrame { size, camera: None })
+                .unwrap()
+                .unwrap();
             workspace
                 .render(
                     &mut output,

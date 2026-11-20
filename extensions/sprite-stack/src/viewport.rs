@@ -1,4 +1,7 @@
-use crate::{Geometry, Object, StackScene, StackSceneHandle, raster::Frame};
+use crate::{
+    Geometry, Object, StackScene, StackSceneHandle,
+    raster::{Frame, FrameCamera, FrameOverlay, OverlayFrame},
+};
 use alloc::boxed::Box;
 use core::{
     cell::{Cell, RefCell},
@@ -149,15 +152,26 @@ pub trait SceneRenderer: 'static {
     fn prepare_frame(&mut self, _size: FrameSize) -> Result<(), RenderError> {
         Ok(())
     }
+    /// Resolves the projection once for scene and overlay preparation.
+    fn frame_camera(&self, _size: FrameSize) -> Option<FrameCamera> {
+        None
+    }
     /// Draw into the viewport's frame. Return false to reuse a compatible previous image.
     fn render(
         &mut self,
         scene: &StackScene,
-        size: FrameSize,
+        frame: SceneFrame<'_>,
         target: &mut Frame,
     ) -> Result<bool, RenderError>;
     /// Adds screen-space effects after the scene image is presented.
     fn overlay(&self, _paint: &mut PaintCtx<'_>, _origin: Point, _scale: Fixed) {}
+}
+
+/// Prepared viewport input for one scene frame.
+pub struct SceneFrame<'a> {
+    pub size: FrameSize,
+    pub camera: Option<FrameCamera>,
+    pub overlay: Option<&'a dyn FrameOverlay>,
 }
 
 enum Renderer {
@@ -219,12 +233,16 @@ impl Output {
                 self.frame = None;
                 renderer.prepare_frame(frame_size)?;
             }
-            let overlay = match self.renderer {
-                Renderer::Camera(_) => overlay
-                    .map(|layer| layer.prepare([width, height]))
-                    .transpose()?,
-                Renderer::Directed(_) => None,
-            };
+            let camera = renderer.frame_camera(frame_size);
+            let overlay = overlay
+                .map(|layer| {
+                    layer.prepare(OverlayFrame {
+                        size: [width, height],
+                        camera,
+                    })
+                })
+                .transpose()?
+                .flatten();
             if new_frame {
                 let renderer = self.renderer.producer();
                 let frame = if let Some(limit) = renderer.opaque_frame_byte_limit() {
@@ -237,19 +255,21 @@ impl Output {
                 self.frame = Some(frame);
             }
             let frame = self.frame.as_mut().expect("viewport frame");
-            let rendered = match &mut self.renderer {
-                Renderer::Camera(renderer) => {
-                    self.ready = None;
-                    renderer.render_with_overlay(scene, frame, overlay.as_deref())?;
-                    true
-                }
-                Renderer::Directed(renderer) => match renderer.render(scene, frame_size, frame) {
-                    Ok(rendered) => rendered,
-                    Err(error) => {
-                        self.ready = None;
-                        return Err(error);
-                    }
+            let renderer = self.renderer.producer();
+            let rendered = match renderer.render(
+                scene,
+                SceneFrame {
+                    size: frame_size,
+                    camera,
+                    overlay: overlay.as_deref(),
                 },
+                frame,
+            ) {
+                Ok(rendered) => rendered,
+                Err(error) => {
+                    self.ready = None;
+                    return Err(error);
+                }
             };
             if rendered {
                 self.texture_revision = self.texture_revision.wrapping_add(1);
