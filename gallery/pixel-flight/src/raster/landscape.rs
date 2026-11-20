@@ -320,66 +320,53 @@ pub(super) fn draw_sky(
     frame_height: usize,
 ) {
     mirui::trace_span!("flight.sky");
-    let [left, top, right, bottom] = canvas.color.clip;
-    if left >= right || top >= bottom {
-        return;
-    }
-    // Ground spans cover every pixel from the column boundary to the clip bottom.
-    // Clouds above that boundary can leave holes, so keep testing those pixels.
-    let local_x = |x: i32| (x - canvas.color.origin[0]) as usize;
-    let sky_bottom = *canvas.columns[local_x(left)..local_x(right)]
-        .iter()
-        .max()
-        .expect("nonempty clipped columns");
-    if sky_bottom <= top {
-        return;
-    }
-    let horizon = if p.camera.perspective > Fixed64::ZERO {
-        p.camera.center[1] - p.camera.divide_perspective(p.camera.scale * p.camera.slope)
-    } else {
-        -Fixed::from_int(1_000_000)
-    };
-    let mut star_offset = 0;
-    let mut disk = None;
-    if Fixed::from_int(top) < horizon && pal.day != Daylight::Day {
-        let focal = p.camera.divide_perspective(p.camera.scale);
-        if pal.day == Daylight::Night {
-            star_offset = (p.yaw * focal).trunc_to_int();
-        }
-        let length = (pal.sun[0] * pal.sun[0] + pal.sun[1] * pal.sun[1]).sqrt();
-        let dx = -pal.sun[0] / length;
-        let dy = -pal.sun[1] / length;
-        let (sn, cs) = heading;
-        let along = -(dx * sn + dy * cs);
-        if along > Fixed::from_ratio(2, 10) {
-            let (size, elevation) = if pal.day == Daylight::Sunset {
-                (Fixed::from_ratio(5, 100), Fixed::from_ratio(12, 100))
+    canvas.paint_background(
+        |top, width| {
+            let horizon = if p.camera.perspective > Fixed64::ZERO {
+                p.camera.center[1] - p.camera.divide_perspective(p.camera.scale * p.camera.slope)
             } else {
-                (Fixed::from_ratio(22, 1000), Fixed::from_ratio(3, 10))
+                -Fixed::from_int(1_000_000)
             };
-            disk = Some((
-                p.camera.center[0] + focal * (dx * cs - dy * sn) / along,
-                horizon - focal * elevation / along,
-                Fixed::from_int(canvas.color.width as i32) * size,
-            ));
-        }
-    }
-    for y in top..sky_bottom {
-        let gradient = (Fixed::from_int(y) < horizon).then(|| {
-            let t = (horizon - Fixed::from_int(y))
-                / (Fixed::from_int(frame_height as i32) * Fixed::from_ratio(75, 100))
-                * Fixed::from_int(7);
-            let band = t.trunc_to_int();
-            let threshold = (t - Fixed::from_int(band) - Fixed::from_ratio(7, 10))
-                * Fixed::from_ratio(34, 10)
-                * Fixed::from_int(16);
-            (band as usize, threshold)
-        });
-        for x in left..right {
-            let at = canvas.color.index(x, y);
-            if canvas.depth[at] != Fixed::MAX {
-                continue;
+            let mut star_offset = 0;
+            let mut disk = None;
+            if Fixed::from_int(top) < horizon && pal.day != Daylight::Day {
+                let focal = p.camera.divide_perspective(p.camera.scale);
+                if pal.day == Daylight::Night {
+                    star_offset = (p.yaw * focal).trunc_to_int();
+                }
+                let length = (pal.sun[0] * pal.sun[0] + pal.sun[1] * pal.sun[1]).sqrt();
+                let dx = -pal.sun[0] / length;
+                let dy = -pal.sun[1] / length;
+                let (sn, cs) = heading;
+                let along = -(dx * sn + dy * cs);
+                if along > Fixed::from_ratio(2, 10) {
+                    let (size, elevation) = if pal.day == Daylight::Sunset {
+                        (Fixed::from_ratio(5, 100), Fixed::from_ratio(12, 100))
+                    } else {
+                        (Fixed::from_ratio(22, 1000), Fixed::from_ratio(3, 10))
+                    };
+                    disk = Some((
+                        p.camera.center[0] + focal * (dx * cs - dy * sn) / along,
+                        horizon - focal * elevation / along,
+                        Fixed::from_int(width as i32) * size,
+                    ));
+                }
             }
+            (horizon, star_offset, disk)
+        },
+        |&(horizon, _, _), y| {
+            (Fixed::from_int(y) < horizon).then(|| {
+                let t = (horizon - Fixed::from_int(y))
+                    / (Fixed::from_int(frame_height as i32) * Fixed::from_ratio(75, 100))
+                    * Fixed::from_int(7);
+                let band = t.trunc_to_int();
+                let threshold = (t - Fixed::from_int(band) - Fixed::from_ratio(7, 10))
+                    * Fixed::from_ratio(34, 10)
+                    * Fixed::from_int(16);
+                (band as usize, threshold)
+            })
+        },
+        |&(_, star_offset, disk), &gradient, x, y| {
             let mut color = pal.haze;
             if let Some((base, threshold)) = gradient {
                 let dither = Fixed::from_int(BAYER[((y & 3) * 4 + (x & 3)) as usize] as i32);
@@ -407,9 +394,9 @@ pub(super) fn draw_sky(
             } else if p.camera.perspective.is_zero() {
                 color = pal.top[0];
             }
-            canvas.put(at, color);
-        }
-    }
+            color
+        },
+    );
 }
 
 #[cfg(test)]

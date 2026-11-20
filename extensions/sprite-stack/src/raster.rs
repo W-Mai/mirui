@@ -341,6 +341,39 @@ impl SceneCanvas<'_, '_> {
             Some(self.depth[self.color.index(x, y)])
         }
     }
+    /// Fills the sky behind the scene without claiming depth. Preparation runs
+    /// only when the tile contains rows above its opaque column boundaries.
+    pub fn paint_background<T, R>(
+        &mut self,
+        prepare: impl FnOnce(i32, usize) -> T,
+        mut prepare_row: impl FnMut(&T, i32) -> R,
+        mut shade: impl FnMut(&T, &R, i32, i32) -> u32,
+    ) {
+        let [left, top, right, bottom] = self.color.clip;
+        if left >= right || top >= bottom {
+            return;
+        }
+        let x0 = self.color.origin[0];
+        let bottom = self.columns[(left - x0) as usize..(right - x0) as usize]
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(top)
+            .min(bottom);
+        if bottom <= top {
+            return;
+        }
+        let sky = prepare(top, self.color.width);
+        for y in top..bottom {
+            let row = prepare_row(&sky, y);
+            for x in left..right {
+                let index = self.color.index(x, y);
+                if self.depth[index] == Fixed::MAX {
+                    self.put(index, shade(&sky, &row, x, y));
+                }
+            }
+        }
+    }
     #[inline]
     pub fn fill_depth(&mut self, x: usize, y0: i32, y1: i32, color: u32, depth: Fixed) {
         self.fill_span(x, y0, y1, color, depth, false);
