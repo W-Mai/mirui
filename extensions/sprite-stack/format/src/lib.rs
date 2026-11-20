@@ -8,7 +8,7 @@ extern crate alloc;
 
 pub mod lod;
 mod prepared;
-pub use prepared::{PreparedSpriteStack, SparseLevel, StackSample};
+pub use prepared::{IndexedLevel, PreparedSpriteStack, SparseLevel, StackSample};
 
 use alloc::vec;
 use mirx::extension::{Extension, Policy, Relocation};
