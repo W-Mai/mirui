@@ -233,8 +233,15 @@ impl<'a> RleDecodePlan<'a> {
         let mut position = 0;
         self.for_each_block(|bytes, repeat| {
             let end = position + bytes.len() * repeat;
-            for target in output[position..end].chunks_exact_mut(bytes.len()) {
-                target.copy_from_slice(bytes);
+            let block = &mut output[position..end];
+            if repeat == 1 {
+                block.copy_from_slice(bytes);
+            } else if let [value] = bytes {
+                block.fill(*value);
+            } else {
+                for element in block.chunks_exact_mut(bytes.len()) {
+                    element.copy_from_slice(bytes);
+                }
             }
             position = end;
         });
