@@ -73,22 +73,22 @@ pub fn select_level<'a>(
     scale: Fixed,
     max_pixels: Fixed,
 ) -> SparseLevel<'a> {
-    select_matching_level(asset, scale, max_pixels, |_| true)
+    asset.levels()[select_matching_level(asset, scale, max_pixels, |_| true)]
 }
 
-fn select_matching_level<'a>(
-    asset: &PreparedSpriteStack<'a>,
+fn select_matching_level(
+    asset: &PreparedSpriteStack<'_>,
     scale: Fixed,
     max_pixels: Fixed,
     accepts_step: impl Fn(u16) -> bool,
-) -> SparseLevel<'a> {
+) -> usize {
     asset
         .levels()
         .iter()
-        .rev()
-        .copied()
-        .find(|level| fits_level(scale, level.step(), max_pixels) && accepts_step(level.step()))
-        .unwrap_or(asset.levels()[0])
+        .rposition(|level| {
+            fits_level(scale, level.step(), max_pixels) && accepts_step(level.step())
+        })
+        .unwrap_or(0)
 }
 
 pub(crate) fn fits_level(scale: Fixed, step: u16, max_pixels: Fixed) -> bool {
@@ -104,7 +104,8 @@ struct PreparedLayer {
 
 /// Bounded per-instance work for a sampled sprite. Every tile of a frame borrows the same projection, sample footprint and ordered layers.
 pub struct ProjectedStack<'a, const N: usize> {
-    core: ProjectionWork<'a>,
+    core: ProjectionWork,
+    level: &'a SparseLevel<'a>,
     layers: [Option<PreparedLayer>; N],
     order: [usize; N],
 }
@@ -130,13 +131,14 @@ impl<'a, const N: usize> ProjectedStack<'a, N> {
             layer_offset,
         )?;
         Some(Self {
+            level: &model.levels()[core.level],
             core,
             layers,
             order,
         })
     }
     pub fn level(&self) -> SparseLevel<'a> {
-        self.core.level
+        *self.level
     }
     /// Screen x, y, reference scale and camera depth of the pivot. A hidden pivot uses the near-plane scale.
     pub fn center(&self) -> [Fixed; 4] {
@@ -144,13 +146,14 @@ impl<'a, const N: usize> ProjectedStack<'a, N> {
     }
     pub fn prepare_regions(&mut self, p: &Projection) {
         self.core
-            .prepare_regions(&mut self.layers[..self.core.level.layer_count()], p);
+            .prepare_regions(*self.level, &mut self.layers[..self.level.layer_count()], p);
     }
     /// Borrows the prepared instance for drawing any number of tiles.
     pub fn view(&self) -> SpriteView<'_, 'a> {
-        let count = self.core.level.layer_count();
+        let count = self.level.layer_count();
         SpriteView {
             core: &self.core,
+            level: self.level,
             layers: &self.layers[..count],
             order: &self.order[..count],
         }
@@ -160,7 +163,7 @@ impl<'a, const N: usize> ProjectedStack<'a, N> {
 /// Per-object projection storage for a viewport reading models of varying layer counts.
 #[derive(Default)]
 pub(crate) struct ViewStack {
-    core: Option<ProjectionWork<'static>>,
+    core: Option<ProjectionWork>,
     layers: alloc::vec::Vec<Option<PreparedLayer>>,
     order: alloc::vec::Vec<usize>,
 }
@@ -172,7 +175,7 @@ impl ViewStack {
 
     pub(crate) fn prepare(
         &mut self,
-        asset: &PreparedSpriteStack<'static>,
+        asset: &PreparedSpriteStack<'_>,
         transform: StackTransform,
         p: &Projection,
     ) -> Result<(), mirui::render::RenderError> {
@@ -199,13 +202,18 @@ impl ViewStack {
             |_, _| Some(Fixed::ZERO),
         );
         if let Some(core) = self.core.as_ref() {
-            core.prepare_regions(&mut self.layers, p);
+            core.prepare_regions(asset.levels()[core.level], &mut self.layers, p);
         }
         Ok(())
     }
-    pub(crate) fn view(&self) -> Option<SpriteView<'_, 'static>> {
+    pub(crate) fn view<'a>(
+        &self,
+        asset: &'a PreparedSpriteStack<'a>,
+    ) -> Option<SpriteView<'_, 'a>> {
+        let core = self.core.as_ref()?;
         Some(SpriteView {
-            core: self.core.as_ref()?,
+            core,
+            level: &asset.levels()[core.level],
             layers: &self.layers,
             order: &self.order,
         })
@@ -214,7 +222,8 @@ impl ViewStack {
 
 /// Borrows the prepared sample positions, layer order and visibility for one instance.
 pub struct SpriteView<'s, 'a> {
-    core: &'s ProjectionWork<'a>,
+    core: &'s ProjectionWork,
+    level: &'s SparseLevel<'a>,
     layers: &'s [Option<PreparedLayer>],
     order: &'s [usize],
 }
@@ -259,7 +268,7 @@ impl SpriteView<'_, '_> {
                 let Some(layer) = &self.layers[index] else {
                     continue;
                 };
-                let voxels = self.core.level.layer(index).unwrap_or_default();
+                let voxels = self.level.layer(index).unwrap_or_default();
                 let voxels = if let Some(bands) = layer.bounds {
                     let [left, top, right, bottom] = clip;
                     let visible = bands.map(|[x0, y0, x1, y1]| {
@@ -483,17 +492,17 @@ impl SpriteView<'_, '_> {
         });
     }
 }
-struct ProjectionWork<'a> {
+struct ProjectionWork {
     center: [Fixed; 4],
     grid: GridBasis,
     samples: usize,
     offsets: [[Fixed; 2]; 64],
     sample_bounds: [[Fixed; 2]; 2],
-    level: SparseLevel<'a>,
+    level: usize,
 }
-impl<'a> ProjectionWork<'a> {
+impl ProjectionWork {
     fn new(
-        model: &PreparedSpriteStack<'a>,
+        model: &PreparedSpriteStack<'_>,
         transform: StackTransform,
         projection: &Projection,
         max_cell_pixels: Fixed,
@@ -551,9 +560,10 @@ impl<'a> ProjectionWork<'a> {
                 .max(Fixed::from_ratio(2, 10));
         // One sample footprint is shared by every cell. Choose a level that tiles
         // the entire model so an unpadded edge keeps its true width and height.
-        let level = select_matching_level(model, big, max_cell_pixels, |step| {
+        let level_index = select_matching_level(model, big, max_cell_pixels, |step| {
             width.is_multiple_of(step) && length.is_multiple_of(step)
         });
+        let level = &model.levels()[level_index];
         let cell_scale = Fixed::from(level.step());
         let cell_center = (cell_scale - Fixed::ONE) / 2;
         // Coarse cells reuse the existing grid over a larger footprint at lower density.
@@ -610,19 +620,23 @@ impl<'a> ProjectionWork<'a> {
             samples,
             offsets,
             sample_bounds,
-            level,
+            level: level_index,
         })
     }
 
     /// Computes conservative screen bounds for each half of a layer. Assets can supply baked cell bounds or scan the borrowed samples.
-    fn prepare_regions(&self, layers: &mut [Option<PreparedLayer>], p: &Projection) {
+    fn prepare_regions(
+        &self,
+        level: SparseLevel<'_>,
+        layers: &mut [Option<PreparedLayer>],
+        p: &Projection,
+    ) {
         mirui::trace_span!("sprite_stack.regions");
         for (index, work) in layers.iter_mut().enumerate() {
             let Some(layer) = *work else {
                 continue;
             };
-            let bounds = self
-                .level
+            let bounds = level
                 .layer_bounds(index)
                 .expect("validated layer")
                 .map(|coords| {
@@ -1032,13 +1046,13 @@ mod tests {
         for scale in [Fixed::HALF, Fixed::from_int(3), Fixed::from_int(8)] {
             for perspective in [false, true] {
                 let (projection, mut prepared) = fixture(scale, perspective);
-                details[usize::from(prepared.core.level.step() > 1)] = true;
+                details[usize::from(prepared.level().step() > 1)] = true;
                 assert!(prepared.layers.iter().flatten().all(|l| l.bounds.is_none()));
                 let original = prepared.layers;
                 prepared.prepare_regions(&projection);
                 for (index, layer) in original.iter().enumerate() {
                     let Some(layer) = layer else { continue };
-                    let voxels = prepared.core.level.layer(index).unwrap();
+                    let voxels = prepared.level().layer(index).unwrap();
                     for (i, voxel) in voxels.iter().enumerate() {
                         let Some([x, y, scale, _]) =
                             prepared.core.project(layer, voxel, &projection)

@@ -198,8 +198,10 @@ impl<I: Copy, S: ObjectSource<I>> Projected<'_, I, S> {
                             draw_sparse::<true>(tile, &transform, sprite, scale, material)
                         }
                         Geometry::Sampled(sprite) => {
-                            if let Some(view) =
-                                sampled.next().expect("prepared scene instance").view()
+                            if let Some(view) = sampled
+                                .next()
+                                .expect("prepared scene instance")
+                                .view(sprite)
                             {
                                 let palette = sprite.palette();
                                 if material.is_default() {
