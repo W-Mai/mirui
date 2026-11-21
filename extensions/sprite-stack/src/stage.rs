@@ -28,6 +28,10 @@ impl StackStage {
             }),
         }
     }
+
+    pub(crate) fn with_entities<R>(&self, read: impl FnOnce(&[Entity]) -> R) -> R {
+        read(&self.members.entities.borrow())
+    }
 }
 
 #[mirui::model]

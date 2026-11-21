@@ -193,3 +193,65 @@ fn foreign_stages_and_model_sources_are_rejected_before_mounting() {
     assert!(other.is_empty());
     assert!(app.world.query::<Pilot>().iter().next().is_none());
 }
+
+#[mirui::compose]
+fn viewports(stage: model!(StackStage), other: model!(StackStage)) -> Entity {
+    use crate::{Camera, StackViewport};
+    ui! {
+        Row {
+            StackViewport(stage: stage.clone(), camera: Camera::overhead(), width: 16, height: 16)
+            StackViewport(stage: stage, camera: Camera::overhead(), width: 16, height: 16)
+            StackViewport(stage: other, camera: Camera::overhead(), width: 16, height: 16)
+        }
+    }
+}
+
+#[test]
+fn two_viewports_draw_stage_updates_without_dirtying_another_stage() {
+    let mut app = App::headless(48, 16);
+    app.with_default_widgets()
+        .add_plugin(crate::SpriteStackPlugin);
+    app.add_system(edit_stage::system());
+    let stage = app.add_model(StackStage::bounded(1)).finish();
+    let other = app.add_model(StackStage::bounded(1)).finish();
+    let car = app
+        .add_model(Car {
+            pose: Pose::at(0, 0, 0),
+        })
+        .finish();
+    let field = geometry();
+    let visual = StackVisual::from_model(&car, move |car| {
+        StackVisual::new(field.clone()).at(car.pose())
+    });
+    apply(&mut app, &stage, Edit::Spawn(visual)).unwrap();
+    let root = app.spawn_root().id();
+    let row = app.compose(root, viewports(stage.clone(), other));
+    app.render().unwrap();
+    let before = |app: &mut App<_>, offset| {
+        let image = app.snapshot().unwrap().unwrap();
+        let pixels = image.read_pixels().unwrap();
+        (0..16)
+            .flat_map(|y| (offset..offset + 16).map(move |x| (x, y)))
+            .filter(|&(x, y)| pixels.get_pixel(x, y) == Color::rgb(255, 255, 255))
+            .collect::<Vec<_>>()
+    };
+    let left = before(&mut app, 0);
+    let right = before(&mut app, 16);
+    assert!(!left.is_empty() && !right.is_empty());
+    car.move_to(Pose::at(5, 0, 0));
+    assert_eq!(
+        app.dirty_regions().unwrap().rects,
+        [Rect::new(0, 0, 32, 16)]
+    );
+    app.render_dirty().unwrap();
+    assert_ne!(before(&mut app, 0), left);
+    assert_ne!(before(&mut app, 16), right);
+
+    let first = app.world.get::<mirui::ui::Children>(row).unwrap().0[0];
+    apply(&mut app, &stage, Edit::Despawn(first)).unwrap();
+    assert_eq!(stage.len(), 1);
+    car.move_to(Pose::at(3, 0, 0));
+    app.render_dirty().unwrap();
+    assert!(!before(&mut app, 0).is_empty());
+    assert!(before(&mut app, 16).is_empty());
+}

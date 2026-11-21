@@ -66,6 +66,27 @@ app.compose(root, vehicle(car, heading));
 
 Tools and build scripts can depend directly on [mirui-sprite-stack-format](format) and use `StackDescriptor` to read or write layer placement. The format crate depends only on `mirx`. The widget exposes the same types in its `format` module.
 
+## Viewports for ECS stage members
+
+Register `SpriteStackPlugin` and create a stage with `app.add_model(StackStage::bounded(capacity)).finish()`. Import `StackStageCommands` in systems that use `commands.stage(&stage)`. Call `spawn(bundle, visual)` to create a member or `attach(entity, visual)` for an existing entity. Create a static value with `StackVisual::new(asset).at(pose)` or bind the visual to an observed game Model with `StackVisual::from_model(model, visual)`.
+
+```rust
+use mirui::prelude::*;
+use mirui_sprite_stack::{Camera, StackStage, StackViewport};
+
+#[mirui::compose]
+fn stage_views(stage: model!(StackStage)) -> Entity {
+    ui! {
+        Row(grow: 1.0) {
+            StackViewport(stage: stage.clone(), grow: 1.0)
+            StackViewport(stage: stage, camera: Camera::overhead(), width: 80, height: 80)
+        }
+    }
+}
+```
+
+Each viewport uses its own camera and output frame. Closing a viewport releases that viewport's resources. `commands.stage(&destination).transfer(entity)` keeps the entity and its visual binding while changing the set of viewports that display it. `commands.remove::<StackVisual>(entity)` detaches the visual, and `commands.despawn(entity)` retires the entity.
+
 ## Shared scenes
 
 Register `SpriteStackPlugin`, place shared assets in a `StackScene`, and pass its Model handle to each viewport. The camera uses degrees and world units. A moving object can drive a chase camera while an overhead viewport shows the same game state.

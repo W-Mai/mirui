@@ -13,14 +13,66 @@ use mirui::{
 /// Per-viewport storage for the visible scene instances. Projection buffers grow only when a newly placed object needs additional storage.
 #[derive(Default)]
 pub struct ObjectPass {
-    objects: alloc::vec::Vec<(Object, InstancePose, Fixed)>,
+    work: ObjectWork<Object>,
+}
+
+pub(super) trait ObjectSource<I> {
+    fn visit(&self, read: impl FnMut(I, &Geometry, Pose));
+    fn with_geometry<R>(&self, id: I, read: impl FnOnce(&Geometry) -> R) -> Option<R>;
+}
+
+impl ObjectSource<Object> for StackScene {
+    fn visit(&self, read: impl FnMut(Object, &Geometry, Pose)) {
+        self.for_each(read);
+    }
+
+    fn with_geometry<R>(&self, id: Object, read: impl FnOnce(&Geometry) -> R) -> Option<R> {
+        self.with_object(id, |geometry, _| read(geometry))
+    }
+}
+
+pub(super) struct ObjectWork<I> {
+    objects: alloc::vec::Vec<(I, InstancePose, Fixed)>,
     sampled: alloc::vec::Vec<ViewStack>,
+}
+
+impl<I> Default for ObjectWork<I> {
+    fn default() -> Self {
+        Self {
+            objects: alloc::vec::Vec::new(),
+            sampled: alloc::vec::Vec::new(),
+        }
+    }
 }
 
 impl ObjectPass {
     /// Heap bytes reserved for instance transforms and sampled sprite layers.
     pub fn storage_bytes(&self) -> usize {
-        self.objects.capacity() * core::mem::size_of::<(Object, InstancePose, Fixed)>()
+        self.work.storage_bytes()
+    }
+
+    /// Drops the layer buffers of removed instances. The object slots remain available for reuse.
+    pub fn clear(&mut self) {
+        self.work.objects.clear();
+        self.work.sampled.clear();
+    }
+
+    /// Resolves the selected instances once for this frame. Drawing any number of tiles reuses these transforms and the scene-owned geometry.
+    pub fn prepare<'a>(
+        &'a mut self,
+        scene: &'a StackScene,
+        camera: ViewProjection,
+        include: impl FnMut(Object, &Geometry, Pose) -> bool,
+    ) -> Result<ProjectedObjects<'a>, RenderError> {
+        self.work
+            .prepare(scene, camera, include)
+            .map(ProjectedObjects)
+    }
+}
+
+impl<I: Copy> ObjectWork<I> {
+    fn storage_bytes(&self) -> usize {
+        self.objects.capacity() * core::mem::size_of::<(I, InstancePose, Fixed)>()
             + self.sampled.capacity() * core::mem::size_of::<ViewStack>()
             + self
                 .sampled
@@ -29,23 +81,16 @@ impl ObjectPass {
                 .sum::<usize>()
     }
 
-    /// Drops the layer buffers of removed instances. The object slots remain available for reuse.
-    pub fn clear(&mut self) {
-        self.objects.clear();
-        self.sampled.clear();
-    }
-
-    /// Resolves the selected instances once for this frame. Drawing any number of tiles reuses these transforms and the scene-owned geometry.
-    pub fn prepare<'a>(
+    pub(super) fn prepare<'a, S: ObjectSource<I>>(
         &'a mut self,
-        scene: &'a StackScene,
+        scene: &'a S,
         camera: ViewProjection,
-        mut include: impl FnMut(Object, &Geometry, Pose) -> bool,
-    ) -> Result<ProjectedObjects<'a>, RenderError> {
+        mut include: impl FnMut(I, &Geometry, Pose) -> bool,
+    ) -> Result<Projected<'a, I, S>, RenderError> {
         self.objects.clear();
         let mut sampled = 0;
         let mut result: Result<(), RenderError> = Ok(());
-        scene.for_each(|id, geometry, pose| {
+        scene.visit(|id, geometry, pose| {
             if result.is_err() || !include(id, geometry, pose) {
                 return;
             }
@@ -101,7 +146,7 @@ impl ObjectPass {
         });
         result?;
         self.sampled.truncate(sampled);
-        Ok(ProjectedObjects {
+        Ok(Projected {
             scene,
             camera,
             pass: self,
@@ -110,14 +155,22 @@ impl ObjectPass {
 }
 
 /// A borrowed set of projected objects. Every draw tests and updates the supplied scene depth tile.
-pub struct ProjectedObjects<'a> {
-    scene: &'a StackScene,
-    camera: ViewProjection,
-    pass: &'a ObjectPass,
-}
+pub struct ProjectedObjects<'a>(Projected<'a, Object, StackScene>);
 
 impl ProjectedObjects<'_> {
     pub fn draw(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
+        self.0.draw(tile)
+    }
+}
+
+pub(super) struct Projected<'a, I, S> {
+    scene: &'a S,
+    camera: ViewProjection,
+    pass: &'a ObjectWork<I>,
+}
+
+impl<I: Copy, S: ObjectSource<I>> Projected<'_, I, S> {
+    pub(super) fn draw(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
         let mut sampled = self.pass.sampled.iter();
         for &(id, instance, scale) in &self.pass.objects {
             let transform = ObjectProjection {
@@ -125,7 +178,7 @@ impl ProjectedObjects<'_> {
                 instance,
             };
             self.scene
-                .with_object(id, |geometry, _| -> Result<(), RenderError> {
+                .with_geometry(id, |geometry| -> Result<(), RenderError> {
                     match geometry {
                         Geometry::Sprite(sprite) => {
                             draw_atlas(tile, &transform, sprite.get(), scale)?

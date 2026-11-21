@@ -1,5 +1,5 @@
 use crate::{
-    Geometry, Object, StackScene, StackSceneHandle,
+    Geometry, Object, StackScene, StackSceneHandle, StackStage, StackStageHandle,
     raster::{Frame, OverlayFrame},
 };
 use alloc::boxed::Box;
@@ -8,7 +8,11 @@ use core::{
     num::NonZeroU16,
 };
 use mirui::{
-    __macro_support::{BindingRole, OwnedEffects, prepare_widget_effect, with_owned_effects},
+    __macro_support::{
+        AttachDefinition, BindingRole, OwnedEffects, PreparedAttach, QueryReadScope,
+        RuntimeInstallError, ViewDescriptor, assemble_view, prepare_attach, prepare_widget_effect,
+        report_query_reads, with_owned_effects,
+    },
     app::{App, RendererFactory, plugin::Plugin},
     core::model::{ModelHandle, ModelInvalidation, ModelSubscription, SharedValue},
     ecs::{Entity, World},
@@ -21,7 +25,7 @@ use mirui::{
     types::{Fixed, Point, Rect},
     ui::{
         property::{Property, PropertyChange},
-        view::PaintCtx,
+        view::{PaintCtx, View, ViewInvalidation},
     },
 };
 
@@ -200,7 +204,7 @@ struct Output {
 impl Output {
     fn paint(
         &mut self,
-        scene: &StackScene,
+        source: draw::DrawSource<'_>,
         camera: Camera,
         resolution: Resolution,
         stamp: u64,
@@ -275,6 +279,9 @@ impl Output {
             }
             let frame = self.frame.as_mut().expect("viewport frame");
             if let Some((view, policy)) = world {
+                let draw::DrawSource::Scene(scene) = source else {
+                    return Err(RenderError::InvalidGeometry);
+                };
                 if !matches!(&self.storage, Some(Storage::World(storage)) if storage.matches(pixels, view.pivot))
                 {
                     self.storage = None;
@@ -298,7 +305,7 @@ impl Output {
                 let Storage::Rows(renderer) = storage else {
                     unreachable!()
                 };
-                renderer.render(scene, camera, frame_camera, overlay.as_deref(), frame)?;
+                renderer.render(source, camera, frame_camera, overlay.as_deref(), frame)?;
             }
             self.texture_revision = self.texture_revision.wrapping_add(1);
             frame.texture.cache_revision = self.texture_revision;
@@ -340,11 +347,13 @@ impl Output {
 pub struct StackViewport {
     #[property(ViewportScene)]
     pub scene: Option<StackSceneHandle>,
+    #[property(ViewportStage)]
+    pub stage: Option<StackStageHandle>,
     #[property(ViewportCamera)]
     pub camera: Camera,
     #[property(ViewportResolution)]
     pub resolution: Resolution,
-    bindings: Option<(ModelSubscription, OwnedEffects)>,
+    bindings: Option<(Option<ModelSubscription>, OwnedEffects)>,
     output: RefCell<Output>,
     stamp: Cell<u64>,
     seen_scene: Cell<u64>,
@@ -355,6 +364,7 @@ impl Default for StackViewport {
     fn default() -> Self {
         Self {
             scene: None,
+            stage: None,
             camera: Camera::default(),
             resolution: Resolution::Native,
             bindings: None,
@@ -404,7 +414,7 @@ impl StackViewport {
             camera.center = core::array::from_fn(|i| position[i] + camera.center[i]);
         }
         self.output.borrow_mut().paint(
-            scene,
+            draw::DrawSource::Scene(scene),
             camera,
             self.resolution,
             self.stamp.get(),
@@ -413,7 +423,39 @@ impl StackViewport {
         )
     }
 
+    fn paint_stage(
+        &self,
+        stage: &StackStage,
+        world: &World,
+        paint: &mut PaintCtx<'_>,
+        attachments: Attachments<'_>,
+    ) -> Result<(), RenderError> {
+        self.output.borrow_mut().paint(
+            draw::DrawSource::Stage { stage, world },
+            self.camera,
+            self.resolution,
+            self.stamp.get(),
+            paint,
+            attachments,
+        )
+    }
+
     fn bind(world: &mut World, entity: Entity) {
+        if let Some(stage) = world.get::<Self>(entity).and_then(|v| v.stage.clone()) {
+            let (_, effects) = with_owned_effects(|| {
+                prepare_widget_effect(entity, BindingRole::Display, move || {
+                    stage.assert_registered_owner();
+                    stage.revision();
+                    mirui::ui::property::apply::<SourceChanged>(entity, ());
+                })
+                .install(world);
+            });
+            world
+                .get_mut::<Self>(entity)
+                .expect("mounted viewport")
+                .bindings = Some((None, effects));
+            return;
+        }
         let Some(scene) = world.get::<Self>(entity).and_then(|v| v.scene.clone()) else {
             return;
         };
@@ -438,7 +480,7 @@ impl StackViewport {
         world
             .get_mut::<Self>(entity)
             .expect("mounted viewport")
-            .bindings = Some((sub, effects));
+            .bindings = Some((Some(sub), effects));
     }
 }
 
@@ -453,6 +495,24 @@ impl Property for ViewportScene {
         view.tracked.set(None);
         view.advance_stamp();
         view.scene = Some(scene);
+        view.stage = None;
+        StackViewport::bind(world, entity);
+        PropertyChange::Visual
+    }
+}
+
+pub struct ViewportStage;
+impl Property for ViewportStage {
+    type Value = StackStageHandle;
+    fn apply(world: &mut World, entity: Entity, stage: Self::Value) -> PropertyChange {
+        let Some(view) = world.get_mut::<StackViewport>(entity) else {
+            return PropertyChange::Unchanged;
+        };
+        view.bindings = None;
+        view.tracked.set(None);
+        view.advance_stamp();
+        view.scene = None;
+        view.stage = Some(stage);
         StackViewport::bind(world, entity);
         PropertyChange::Visual
     }
@@ -512,7 +572,7 @@ impl Property for Mount {
     fn apply(world: &mut World, entity: Entity, _: ()) -> PropertyChange {
         if world
             .get::<StackViewport>(entity)
-            .is_some_and(|v| v.scene.is_some() && v.bindings.is_none())
+            .is_some_and(|v| (v.stage.is_some() || v.scene.is_some()) && v.bindings.is_none())
         {
             StackViewport::bind(world, entity);
         }
@@ -525,28 +585,50 @@ fn attach(entity: entity!(), commands: commands!()) {
     commands.set::<Mount>(entity, ());
 }
 
-#[mirui::view(component=StackViewport, name="StackViewport", priority=60, invalidation=Visual, attach=attach::callback())]
-fn viewport(
-    rows: query!(StackViewport, optional ViewportOverlay, optional ViewportContent),
-    entity: entity!(),
-    paint: paint!(),
-) {
-    let Some((component, overlay, content)) = rows.get(entity) else {
+fn paint_viewport(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
+    let Some(component) = world.get::<StackViewport>(entity) else {
         return;
     };
-    if let Some(scene) = &component.scene {
-        let result = scene
-            .read(|scene| component.paint_scene(scene, paint, Attachments { overlay, content }));
-        if let Err(e) = result {
-            paint.fail(e);
-        }
+    let attachments = Attachments {
+        overlay: world.get(entity),
+        content: world.get(entity),
+    };
+    let result = if let Some(stage) = &component.stage {
+        stage.read(|stage| component.paint_stage(stage, world, paint, attachments))
+    } else if let Some(scene) = &component.scene {
+        scene.read(|scene| component.paint_scene(scene, paint, attachments))
+    } else {
+        return;
+    };
+    if let Err(error) = result {
+        paint.fail(error);
     }
+    report_query_reads(paint, &QueryReadScope::new(entity));
+}
+
+fn viewport() -> View {
+    fn mount(world: &mut World) -> Result<PreparedAttach, RuntimeInstallError> {
+        prepare_attach(world, attach::callback())
+    }
+    assemble_view::<StackViewport>(ViewDescriptor {
+        name: "StackViewport",
+        paint: Some((60, paint_viewport)),
+        attach: Some(AttachDefinition::Callback(mount)),
+        input: None,
+        observation: None,
+        query_dependencies: &[
+            core::any::TypeId::of::<ViewportOverlay>,
+            core::any::TypeId::of::<ViewportContent>,
+        ],
+        systems: &[],
+        invalidation: ViewInvalidation::Visual,
+    })
 }
 
 /// Registers SpriteStack and StackViewport paint and attachment views at priority 60.
 pub struct SpriteStackPlugin;
 impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for SpriteStackPlugin {
     fn build(&mut self, app: &mut App<B, F>) {
-        app.with_widget(crate::view()).with_widget(viewport::view());
+        app.with_widget(crate::view()).with_widget(viewport());
     }
 }

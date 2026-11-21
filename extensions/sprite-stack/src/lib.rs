@@ -48,5 +48,6 @@ mod viewport;
 pub use viewport::{
     Camera, FrameSize, ObjectPass, ProjectedObjects, Resolution, SceneContent, SpriteStackPlugin,
     StackViewport, ViewProjection, ViewportCamera, ViewportContent, ViewportOverlay,
-    ViewportResolution, ViewportScene, WorldCamera, WorldFrame, WorldLayers, WorldOutput,
+    ViewportResolution, ViewportScene, ViewportStage, WorldCamera, WorldFrame, WorldLayers,
+    WorldOutput,
 };
