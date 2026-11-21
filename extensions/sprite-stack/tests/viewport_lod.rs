@@ -296,6 +296,8 @@ fn sampled_layer_workspace_reuses_capacity_across_membership_changes() {
     let expected = draw(&mut pass, &scene);
     assert!(expected.into_iter().all(|count| count > 0));
     let capacity = pass.storage_bytes();
+    let two_largest_footprints = size_of::<[[Fixed; 2]; 64]>() * 2;
+    assert!(capacity < two_largest_footprints, "{capacity} bytes");
     for _ in 0..3 {
         scene.remove(second).unwrap();
         assert_eq!(draw(&mut pass, &scene), [expected[0], 0]);

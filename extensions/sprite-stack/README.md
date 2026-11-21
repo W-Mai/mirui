@@ -114,7 +114,7 @@ fn screens(scene: model!(StackScene), player: Object) -> Entity {
 
 `StackViewport` selects detail separately for each camera. It uses the coarsest stored grid step that projects to at most one screen pixel, and draws the base atlas at closer scales. Optional `SLOD` records borrow sparse cells and their original RGBA colors or palette indices from the MIRX file. A coarse cell on the edge stops at the original layer bounds.
 
-Sampled instances share the viewport's layer and draw-order buffers. The buffers retain the capacity needed for the largest prepared frame and are released with the viewport.
+Sampled instances share the viewport's layer, draw-order and sample-offset buffers. Each instance keeps the offsets selected for its projected size. The buffers grow on demand, retain their capacity between frames and are released with the viewport.
 
 For a perspective chase view, set `Camera { focal_distance: Some(96.into()), ..Camera::chase(player) }`. The target plane keeps the configured scale. At 96 world units behind that plane, an object appears half as large. A second viewport can use `Camera::overhead()` to see the same objects at a constant scale.
 

@@ -111,6 +111,7 @@ pub struct ProjectedStack<'a, const N: usize> {
     level: &'a SparseLevel<'a>,
     layers: [Option<PreparedLayer>; N],
     order: [usize; N],
+    offsets: [[Fixed; 2]; 64],
 }
 impl<'a, const N: usize> ProjectedStack<'a, N> {
     /// Projects a model with up to N layers. A layer offset moves its samples vertically in screen pixels. Returning None hides the layer.
@@ -124,13 +125,17 @@ impl<'a, const N: usize> ProjectedStack<'a, N> {
         let len = usize::from(model.extent()[2]);
         let mut layers = [None; N];
         let mut order = [0; N];
+        let mut offsets = [[Fixed::ZERO; 2]; 64];
         let core = ProjectionWork::new(
             model,
             transform,
             p,
             max_cell_pixels,
-            layers.get_mut(..len)?,
-            order.get_mut(..len)?,
+            ProjectionBuffers {
+                layers: layers.get_mut(..len)?,
+                order: order.get_mut(..len)?,
+                offsets: &mut offsets,
+            },
             layer_offset,
         )?;
         Some(Self {
@@ -138,6 +143,7 @@ impl<'a, const N: usize> ProjectedStack<'a, N> {
             core,
             layers,
             order,
+            offsets,
         })
     }
     pub fn level(&self) -> SparseLevel<'a> {
@@ -159,6 +165,7 @@ impl<'a, const N: usize> ProjectedStack<'a, N> {
             level: self.level,
             layers: &self.layers[..count],
             order: &self.order[..count],
+            offsets: &self.offsets[..self.core.samples * self.core.samples],
         }
     }
 }
@@ -166,6 +173,7 @@ impl<'a, const N: usize> ProjectedStack<'a, N> {
 struct PreparedStack {
     core: Option<ProjectionWork>,
     layers: Range<usize>,
+    offsets: Range<usize>,
 }
 
 /// Per-viewport projection storage shared by all sampled instances.
@@ -174,22 +182,26 @@ pub(crate) struct ViewStacks {
     stacks: Vec<PreparedStack>,
     layers: Vec<Option<PreparedLayer>>,
     order: Vec<usize>,
+    offsets: Vec<[Fixed; 2]>,
 }
 impl ViewStacks {
     pub(crate) fn storage_bytes(&self) -> usize {
         self.stacks.capacity() * size_of::<PreparedStack>()
             + self.layers.capacity() * size_of::<Option<PreparedLayer>>()
             + self.order.capacity() * size_of::<usize>()
+            + self.offsets.capacity() * size_of::<[Fixed; 2]>()
     }
 
     pub(crate) fn reset(&mut self) {
         self.stacks.clear();
+        self.offsets.clear();
     }
 
     pub(crate) fn release_layers(&mut self) {
-        self.stacks.clear();
+        self.reset();
         self.layers = Vec::new();
         self.order = Vec::new();
+        self.offsets = Vec::new();
     }
 
     pub(crate) fn push(
@@ -219,21 +231,32 @@ impl ViewStacks {
         }
         let range = start..end;
         let layers = &mut self.layers[range.clone()];
+        let mut offsets = [[Fixed::ZERO; 2]; 64];
         let core = ProjectionWork::new(
             asset,
             transform,
             p,
             Fixed::ONE,
-            layers,
-            &mut self.order[range.clone()],
+            ProjectionBuffers {
+                layers,
+                order: &mut self.order[range.clone()],
+                offsets: &mut offsets,
+            },
             |_, _| Some(Fixed::ZERO),
         );
+        let offset_start = self.offsets.len();
         if let Some(core) = core.as_ref() {
             core.prepare_regions(asset.levels()[core.level], layers, p);
+            let count = core.samples * core.samples;
+            self.offsets
+                .try_reserve_exact(count)
+                .map_err(|_| RenderError::MissingWorkspace)?;
+            self.offsets.extend_from_slice(&offsets[..count]);
         }
         self.stacks.push(PreparedStack {
             core,
             layers: range,
+            offsets: offset_start..self.offsets.len(),
         });
         Ok(())
     }
@@ -250,6 +273,7 @@ impl ViewStacks {
             level: &asset.levels()[core.level],
             layers: &self.layers[stack.layers.clone()],
             order: &self.order[stack.layers.clone()],
+            offsets: &self.offsets[stack.offsets.clone()],
         })
     }
 }
@@ -260,6 +284,7 @@ pub struct SpriteView<'s, 'a> {
     level: &'s SparseLevel<'a>,
     layers: &'s [Option<PreparedLayer>],
     order: &'s [usize],
+    offsets: &'s [[Fixed; 2]],
 }
 impl SpriteView<'_, '_> {
     /// Visits each covered sample that passes the scene depth test, in layer order. The callback can shade the fragment directly or record coverage for a subsequent pass.
@@ -295,8 +320,7 @@ impl SpriteView<'_, '_> {
     ) {
         mirui::trace_span!("sprite_stack.samples");
         let center = self.core.center;
-        let samples = self.core.samples;
-        let offsets = &self.core.offsets;
+        let offsets = self.offsets;
         {
             for &index in self.order {
                 let Some(layer) = &self.layers[index] else {
@@ -352,7 +376,7 @@ impl SpriteView<'_, '_> {
                         }
                         continue;
                     }
-                    for offset in &offsets[..samples * samples] {
+                    for offset in offsets {
                         let xx = if fixed_x {
                             xs[0]
                         } else {
@@ -530,9 +554,14 @@ struct ProjectionWork {
     center: [Fixed; 4],
     grid: GridBasis,
     samples: usize,
-    offsets: [[Fixed; 2]; 64],
     sample_bounds: [[Fixed; 2]; 2],
     level: usize,
+}
+
+struct ProjectionBuffers<'a> {
+    layers: &'a mut [Option<PreparedLayer>],
+    order: &'a mut [usize],
+    offsets: &'a mut [[Fixed; 2]; 64],
 }
 impl ProjectionWork {
     fn new(
@@ -540,8 +569,11 @@ impl ProjectionWork {
         transform: StackTransform,
         projection: &Projection,
         max_cell_pixels: Fixed,
-        layers: &mut [Option<PreparedLayer>],
-        order: &mut [usize],
+        ProjectionBuffers {
+            layers,
+            order,
+            offsets,
+        }: ProjectionBuffers<'_>,
         mut layer_offset: impl FnMut(usize, usize) -> Option<Fixed>,
     ) -> Option<Self> {
         let [cu, cv, cw] = transform.origin;
@@ -605,7 +637,6 @@ impl ProjectionWork {
             .ceil()
             .clamp(Fixed::from_int(2), Fixed::from_int(8)))
         .trunc_to_int() as usize;
-        let mut offsets = [[Fixed::ZERO; 2]; 64];
         let mut centers = [Fixed::ZERO; 8];
         for (i, center) in centers[..samples].iter_mut().enumerate() {
             *center = ((Fixed::from_int(i as i32) + Fixed::HALF) / samples as i32 - Fixed::HALF)
@@ -652,7 +683,6 @@ impl ProjectionWork {
             center,
             grid: GridBasis::new(right, forward.map(|step| -step)),
             samples,
-            offsets,
             sample_bounds,
             level: level_index,
         })
@@ -1099,7 +1129,7 @@ mod tests {
                             .expect("prepared layer")[usize::from(i >= voxels.len() / 2)]
                         .map(i32::from);
                         for offset in
-                            &prepared.core.offsets[..prepared.core.samples * prepared.core.samples]
+                            &prepared.offsets[..prepared.core.samples * prepared.core.samples]
                         {
                             for (axis, position) in [x, y].into_iter().enumerate() {
                                 let at = (position
@@ -1197,7 +1227,7 @@ mod tests {
                         for clip in [[0, 0, 32, 32], [31, 47, 63, 79], [127, 127, 128, 128]] {
                             let ends = prepared.core.sample_ends(position, axis, scale);
                             if ends[0] == ends[1] {
-                                for offset in &prepared.core.offsets
+                                for offset in &prepared.offsets
                                     [..prepared.core.samples * prepared.core.samples]
                                 {
                                     assert_eq!(
@@ -1212,7 +1242,7 @@ mod tests {
                                 || ends[0].min(ends[1]) >= clip[axis + 2]
                             {
                                 assert!(
-                                    prepared.core.offsets
+                                    prepared.offsets
                                         [..prepared.core.samples * prepared.core.samples]
                                         .iter()
                                         .all(|offset| {
