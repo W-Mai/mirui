@@ -1,6 +1,7 @@
 //! Fixed-point scene projection and reusable color, coverage and depth tiles.
 mod frame;
 mod mapping;
+pub(crate) use frame::draw_layers_with_objects;
 pub use frame::{
     CameraWorkspace, FrameCamera, FrameEffects, FrameOverlay, FramePass, OverlayFrame, SceneLayers,
     draw_layers,

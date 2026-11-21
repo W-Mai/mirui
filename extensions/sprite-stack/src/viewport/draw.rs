@@ -3,7 +3,7 @@ use crate::{
     Geometry, Pose, StackScene, StackStage, StackVisual,
     raster::{
         Frame, FrameCamera, FrameOverlay, FramePass, SceneCanvas, SceneLayers, Workspace,
-        draw_layers,
+        draw_layers_with_objects,
     },
 };
 mod objects;
@@ -14,7 +14,7 @@ use mirui::{
     render::RenderError,
 };
 pub use objects::{ObjectPass, ProjectedObjects};
-use objects::{ObjectSource, ObjectWork, Projected};
+use objects::{ObjectSource, ObjectWork};
 pub use projection::ViewProjection;
 
 const BAND: usize = 16;
@@ -118,7 +118,7 @@ impl DefaultRenderer {
                     unreachable!()
                 };
                 let objects = objects.prepare(scene, projection, |_, _, _| true)?;
-                render_rows(work, frame, overlay, &objects)
+                render_rows(work, frame, overlay, |tile| objects.draw(tile))
             }
             DrawSource::Stage { stage, world } => {
                 if !matches!(self.objects, ViewObjects::Stage(_)) {
@@ -130,7 +130,7 @@ impl DefaultRenderer {
                 stage.with_entities(|entities| {
                     let source = StageObjects { entities, world };
                     let objects = objects.prepare(&source, projection, |_, _, _| true)?;
-                    render_rows(work, frame, overlay, &objects)
+                    render_rows(work, frame, overlay, |tile| objects.draw(tile))
                 })
             }
         }
@@ -141,26 +141,23 @@ fn render_rows(
     work: &mut Workspace,
     frame: &mut Frame,
     overlay: Option<&dyn FrameOverlay>,
-    layers: &impl SceneLayers,
+    draw_objects: impl Fn(&mut SceneCanvas<'_, '_>) -> Result<(), RenderError>,
 ) -> Result<(), RenderError> {
     work.render_rows_with_overlay(frame, overlay, |tile| {
-        draw_layers(layers, tile, FramePass::Color)
+        draw_layers_with_objects(&Transparent, tile, FramePass::Color, &draw_objects)
     })
+}
+
+struct Transparent;
+impl SceneLayers for Transparent {
+    fn background(&self, tile: &mut SceneCanvas<'_, '_>) {
+        tile.color.bytes.fill(0);
+    }
 }
 
 impl SceneLayers for ProjectedObjects<'_> {
     fn background(&self, tile: &mut SceneCanvas<'_, '_>) {
-        tile.color.bytes.fill(0);
-    }
-
-    fn objects(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
-        self.draw(tile)
-    }
-}
-
-impl SceneLayers for Projected<'_, Entity, StageObjects<'_>> {
-    fn background(&self, tile: &mut SceneCanvas<'_, '_>) {
-        tile.color.bytes.fill(0);
+        Transparent.background(tile);
     }
 
     fn objects(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {

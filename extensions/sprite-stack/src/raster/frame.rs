@@ -97,6 +97,15 @@ pub fn draw_layers(
     tile: &mut SceneCanvas<'_, '_>,
     pass: FramePass,
 ) -> Result<(), RenderError> {
+    draw_layers_with_objects(layers, tile, pass, |_| Ok(()))
+}
+
+pub(crate) fn draw_layers_with_objects(
+    layers: &impl SceneLayers,
+    tile: &mut SceneCanvas<'_, '_>,
+    pass: FramePass,
+    objects: impl FnOnce(&mut SceneCanvas<'_, '_>) -> Result<(), RenderError>,
+) -> Result<(), RenderError> {
     tile.clear_depth();
     let depth_limit = match pass {
         FramePass::Color => None,
@@ -107,6 +116,7 @@ pub fn draw_layers(
         layers.background(tile);
     }
     layers.objects(tile)?;
+    objects(tile)?;
     if depth_limit.is_none() {
         layers.effects_behind_sprites(tile);
     }
