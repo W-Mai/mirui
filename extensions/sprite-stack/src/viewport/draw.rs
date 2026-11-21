@@ -1,7 +1,10 @@
-use super::{Camera, FrameSize, SceneFrame, SceneRenderer};
+use super::{Camera, FrameSize};
 use crate::{
     StackScene,
-    raster::{Frame, FrameCamera, Workspace},
+    raster::{
+        Frame, FrameCamera, FrameOverlay, FramePass, SceneCanvas, SceneLayers, Workspace,
+        draw_layers,
+    },
 };
 mod objects;
 mod projection;
@@ -15,33 +18,36 @@ const BAND: usize = 16;
 #[derive(Default)]
 pub(super) struct DefaultRenderer {
     workspace: Option<([usize; 2], Workspace)>,
-    pub(super) camera: Camera,
     objects: ObjectPass,
 }
 
-impl SceneRenderer for DefaultRenderer {
-    fn frame_camera(&self, size: FrameSize) -> Result<Option<FrameCamera>, RenderError> {
-        let projection = ViewProjection::camera_plane(self.camera, size.pixels().map(usize::from))?;
+impl DefaultRenderer {
+    pub(super) fn frame_camera(
+        camera: Camera,
+        size: FrameSize,
+    ) -> Result<FrameCamera, RenderError> {
+        let projection = ViewProjection::camera_plane(camera, size.pixels().map(usize::from))?;
         let radians =
             |degrees: Fixed| (Fixed64::from(degrees) * Fixed64::from(Fixed::PI) / 180).to_fixed();
-        Ok(Some(FrameCamera {
+        Ok(FrameCamera {
             projection,
-            position: self.camera.center,
-            yaw: radians(self.camera.yaw),
-            pitch: radians(self.camera.pitch),
+            position: camera.center,
+            yaw: radians(camera.yaw),
+            pitch: radians(camera.pitch),
             roll: Fixed::ZERO,
-        }))
+        })
     }
 
-    fn render(
+    pub(super) fn render(
         &mut self,
         scene: &StackScene,
-        input: SceneFrame<'_>,
+        camera: Camera,
+        frame_camera: Option<FrameCamera>,
+        overlay: Option<&dyn FrameOverlay>,
         frame: &mut Frame,
-    ) -> Result<bool, RenderError> {
-        let camera = self.camera;
+    ) -> Result<(), RenderError> {
         let [w, h] = [frame.width, frame.height];
-        let projection = match input.camera {
+        let projection = match frame_camera {
             Some(frame) => ViewProjection::from_plane(camera, frame.projection),
             None => ViewProjection::from_camera(camera, [w, h])?,
         };
@@ -55,11 +61,18 @@ impl SceneRenderer for DefaultRenderer {
         }
         let (_, work) = self.workspace.as_mut().expect("viewport storage");
         let objects = self.objects.prepare(scene, projection, |_, _, _| true)?;
-        work.render_rows_with_overlay(frame, input.overlay, |tile| {
-            tile.color.bytes.fill(0);
-            tile.clear_depth();
-            objects.draw(tile)
-        })?;
-        Ok(true)
+        work.render_rows_with_overlay(frame, overlay, |tile| {
+            draw_layers(&objects, tile, FramePass::Color)
+        })
+    }
+}
+
+impl SceneLayers for ProjectedObjects<'_> {
+    fn background(&self, tile: &mut SceneCanvas<'_, '_>) {
+        tile.color.bytes.fill(0);
+    }
+
+    fn objects(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
+        self.draw(tile)
     }
 }

@@ -1,183 +1,106 @@
-use super::{FlightModel, FlightModelHandle, Profile, Terrain};
+use super::{FlightModelHandle, Profile, Terrain};
 use crate::{
     cockpit::{Cockpit, PreparedCockpit},
     flame::Flames,
-    raster::{Canvas, Daylight, Frame, Palette, Raster, SceneObjects},
+    flight::cockpit_center,
+    raster::{Canvas, Daylight, FlightScene, Palette, SceneObjects, SceneView},
 };
 use mirui::{
     core::{cache::Handle, model::ModelHandle},
-    render::{RenderError, texture::AlphaMode},
+    render::RenderError,
     types::{Fixed, Point},
     ui::{Prop, view::PaintCtx},
 };
 use mirui_sprite_stack::{
-    FrameSize, Pose, SceneFrame, SceneRenderer, StackScene, ViewportOverlay,
-    raster::{FrameCamera, FrameOverlay, OverlayFrame},
+    FrameSize, Pose, SceneContent, StackScene, ViewportContent, ViewportOverlay, WorldCamera,
+    WorldFrame, WorldOutput,
+    raster::{FrameOverlay, OverlayFrame},
 };
 
-pub(super) struct FlightRenderer {
+struct FlightContent {
     model: FlightModelHandle,
-    output: FlightOutput,
-}
-
-impl FlightRenderer {
-    pub(super) fn new(model: FlightModelHandle, profile: Profile) -> Self {
-        Self {
-            model,
-            output: FlightOutput::new(profile),
-        }
-    }
-}
-
-impl SceneRenderer for FlightRenderer {
-    fn opaque_frame_byte_limit(&self) -> Option<usize> {
-        (self.output.profile == Profile::Compact).then_some(2)
-    }
-
-    fn prepare_frame(&mut self, size: FrameSize) -> Result<(), RenderError> {
-        self.output.resize(size.pixels().map(usize::from));
-        Ok(())
-    }
-
-    fn frame_camera(&self, size: FrameSize) -> Result<Option<FrameCamera>, RenderError> {
-        let [width, height] = size.pixels().map(usize::from);
-        Ok(Some(self.model.read(|model| {
-            model.flight.projection(width, height).frame_camera()
-        })))
-    }
-
-    fn render(
-        &mut self,
-        scene: &StackScene,
-        input: SceneFrame<'_>,
-        frame: &mut Frame,
-    ) -> Result<bool, RenderError> {
-        frame.texture.alpha_mode = AlphaMode::Opaque;
-        let scale = Fixed::from(
-            input
-                .size
-                .integer_scale()
-                .expect("flight frame scale")
-                .get(),
-        );
-        self.model.read(|model| {
-            self.output
-                .render_view(model, scene, frame, scale, input.camera, input.overlay)
-        })?;
-        Ok(true)
-    }
-
-    fn overlay(&self, paint: &mut PaintCtx<'_>, origin: Point, scale: Fixed) {
-        if let Some(flames) = &self.output.flames {
-            flames.paint(paint, origin, scale);
-        }
-    }
-}
-
-pub(super) struct FlightOutput {
-    profile: Profile,
-    size: [usize; 2],
-    raster: Option<Raster>,
+    scene: FlightScene,
     flames: Option<Flames>,
 }
 
-impl FlightOutput {
-    pub(super) fn new(profile: Profile) -> Self {
-        Self {
-            profile,
-            size: [0, 0],
-            raster: None,
-            flames: (profile == Profile::Desktop)
-                .then(|| Flames::new().expect("flight flame storage")),
+pub(super) fn flight_content(model: FlightModelHandle, profile: Profile) -> ViewportContent {
+    ViewportContent::new(FlightContent {
+        model,
+        scene: FlightScene::new(Palette::new(Daylight::Day)),
+        flames: (profile == Profile::Desktop).then(|| Flames::new().expect("flight flame storage")),
+    })
+}
+
+impl SceneContent for FlightContent {
+    fn output(&self) -> WorldOutput {
+        if self.flames.is_some() {
+            WorldOutput::Full
+        } else {
+            WorldOutput::Bounded
         }
     }
 
-    fn resize(&mut self, size: [usize; 2]) {
-        if self.size != size {
-            self.raster = None;
-            self.size = size;
-        }
-    }
-
-    pub(super) fn prepare(
-        &mut self,
-        size: [usize; 2],
-        day: Daylight,
-    ) -> Result<&mut Raster, RenderError> {
-        let compact = self.profile == Profile::Compact;
-        self.resize(size);
-        let raster = match &mut self.raster {
-            Some(raster) => {
-                if raster.palette.day != day {
-                    raster.palette = Palette::new(day);
-                }
-                raster
+    fn camera(&self, size: FrameSize) -> Result<WorldCamera, RenderError> {
+        let [width, height] = size.pixels().map(usize::from);
+        Ok(self.model.read(|model| {
+            let projection = model.flight.projection(width, height);
+            WorldCamera {
+                camera: projection.frame_camera(),
+                pivot: cockpit_center(height),
+                roll: projection.cockpit > Fixed::ZERO,
             }
-            empty => {
-                let raster = Raster::with_palette(size, compact, Palette::new(day))?;
-                empty.insert(raster)
-            }
-        };
-        Ok(raster)
+        }))
     }
 
-    #[cfg(test)]
-    pub(super) fn render(
+    fn prepare(
         &mut self,
-        model: &FlightModel,
         scene: &StackScene,
-        frame: &mut Frame,
-        scale: Fixed,
+        frame: &mut WorldFrame<'_>,
     ) -> Result<(), RenderError> {
-        self.render_view(model, scene, frame, scale, None, None)
-    }
-
-    fn render_view(
-        &mut self,
-        model: &FlightModel,
-        scene: &StackScene,
-        frame: &mut Frame,
-        scale: Fixed,
-        camera: Option<FrameCamera>,
-        overlay: Option<&dyn FrameOverlay>,
-    ) -> Result<(), RenderError> {
-        let projection = camera.map_or_else(
-            || model.flight.projection(frame.width, frame.height),
-            |camera| model.flight.render_projection(camera),
-        );
-        let raster = self.prepare([frame.width, frame.height], model.day)?;
-        raster.render_scene(
-            frame,
-            &model.flight,
-            (projection, overlay),
-            SceneObjects::Placed {
-                scene,
-                world: &model.terrain,
-                objects: &model.objects,
-            },
-        )?;
-        if let (Some(raster), Some(flames)) = (&self.raster, &mut self.flames) {
-            flames.prepare(
-                &raster.flames[..raster.flame_count],
-                model.flight.time,
-                scale,
-                [frame.width, frame.height],
+        let size = frame.size();
+        let pixels @ [_, height] = size.pixels().map(usize::from);
+        let camera = frame.camera();
+        let source_size = frame.source_size();
+        let compact = self.output() == WorldOutput::Bounded;
+        self.model.read(|model| {
+            self.scene.set_daylight(model.day);
+            let (target, objects) = frame.layers();
+            self.scene.draw(
+                target,
+                objects,
+                &model.flight,
+                SceneView {
+                    projection: model.flight.render_projection(camera),
+                    source_size,
+                    height,
+                    compact,
+                },
+                SceneObjects::Placed {
+                    scene,
+                    world: &model.terrain,
+                    objects: &model.objects,
+                },
             )?;
-        }
-        model.display_bytes.set(self.bytes() + frame.bytes());
-        Ok(())
+            let mut storage = frame.storage_bytes() + core::mem::size_of::<Self>();
+            if let Some(flames) = &mut self.flames {
+                let scale = Fixed::from(size.integer_scale().expect("flight frame scale").get());
+                flames.prepare(
+                    &self.scene.flames[..self.scene.flame_count],
+                    model.flight.time,
+                    scale,
+                    pixels,
+                )?;
+                storage += flames.bytes() - core::mem::size_of::<Flames>();
+            }
+            model.display_bytes.set(storage);
+            Ok(())
+        })
     }
 
-    pub(super) fn bytes(&self) -> usize {
-        core::mem::size_of::<Self>()
-            + self
-                .raster
-                .as_ref()
-                .map_or(0, |value| value.bytes() - core::mem::size_of::<Raster>())
-            + self
-                .flames
-                .as_ref()
-                .map_or(0, |value| value.bytes() - core::mem::size_of::<Flames>())
+    fn present(&self, paint: &mut PaintCtx<'_>, origin: Point, scale: Fixed) {
+        if let Some(flames) = &self.flames {
+            flames.paint(paint, origin, scale);
+        }
     }
 }
 

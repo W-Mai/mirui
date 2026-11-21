@@ -1,6 +1,6 @@
 use crate::{
     Geometry, Object, StackScene, StackSceneHandle,
-    raster::{Frame, FrameCamera, FrameOverlay, OverlayFrame},
+    raster::{Frame, OverlayFrame},
 };
 use alloc::boxed::Box;
 use core::{
@@ -25,8 +25,12 @@ use mirui::{
     },
 };
 
+mod content;
 mod draw;
 mod overlay;
+pub use content::{
+    SceneContent, ViewportContent, WorldCamera, WorldFrame, WorldLayers, WorldOutput,
+};
 pub use draw::{ObjectPass, ProjectedObjects, ViewProjection};
 pub use overlay::ViewportOverlay;
 
@@ -180,55 +184,14 @@ impl FrameSize {
     }
 }
 
-/// Produces the image of a game-directed camera. The viewport handles invalidation, texture revisions, placement and presentation.
-pub trait SceneRenderer: 'static {
-    /// Request opaque output bounded by the given bytes per pixel.
-    /// The default uses an RGBA frame with transparency.
-    fn opaque_frame_byte_limit(&self) -> Option<usize> {
-        None
-    }
-    /// Prepare resources before the viewport allocates a new frame.
-    fn prepare_frame(&mut self, _size: FrameSize) -> Result<(), RenderError> {
-        Ok(())
-    }
-    /// Resolves the projection once for scene and overlay preparation.
-    fn frame_camera(&self, _size: FrameSize) -> Result<Option<FrameCamera>, RenderError> {
-        Ok(None)
-    }
-    /// Draw into the viewport's frame. Return false to reuse a compatible previous image.
-    fn render(
-        &mut self,
-        scene: &StackScene,
-        frame: SceneFrame<'_>,
-        target: &mut Frame,
-    ) -> Result<bool, RenderError>;
-    /// Adds screen-space effects after the scene image is presented.
-    fn overlay(&self, _paint: &mut PaintCtx<'_>, _origin: Point, _scale: Fixed) {}
-}
-
-/// Prepared viewport input for one scene frame.
-pub struct SceneFrame<'a> {
-    pub size: FrameSize,
-    pub camera: Option<FrameCamera>,
-    pub overlay: Option<&'a dyn FrameOverlay>,
-}
-
-enum Renderer {
-    Camera(Box<draw::DefaultRenderer>),
-    Directed(Box<dyn SceneRenderer>),
-}
-
-impl Renderer {
-    fn producer(&mut self) -> &mut dyn SceneRenderer {
-        match self {
-            Self::Camera(renderer) => renderer.as_mut(),
-            Self::Directed(renderer) => renderer.as_mut(),
-        }
-    }
+enum Storage {
+    Rows(Box<draw::DefaultRenderer>),
+    World(Box<content::WorldStorage>),
 }
 
 struct Output {
-    renderer: Renderer,
+    storage: Option<Storage>,
+    world_output: Option<WorldOutput>,
     frame: Option<Frame>,
     ready: Option<(u64, [u16; 2], FrameSize)>,
     texture_revision: u64,
@@ -242,7 +205,7 @@ impl Output {
         resolution: Resolution,
         stamp: u64,
         paint: &mut PaintCtx<'_>,
-        overlay: Option<&ViewportOverlay>,
+        attachments: Attachments<'_>,
     ) -> Result<(), RenderError> {
         let rect = paint.rect();
         if !rect.w.is_positive() || !rect.h.is_positive() {
@@ -251,83 +214,99 @@ impl Output {
         let dimension =
             |v: Fixed| u16::try_from(v.ceil().to_int()).map_err(|_| RenderError::InvalidGeometry);
         let size = [dimension(rect.w)?, dimension(rect.h)?];
-        if let Renderer::Camera(renderer) = &mut self.renderer {
-            renderer.camera = camera;
-        }
         if self
             .ready
             .is_none_or(|(revision, viewport, _)| (revision, viewport) != (stamp, size))
         {
-            let needs_camera = overlay.is_some() || matches!(&self.renderer, Renderer::Directed(_));
-            let renderer = self.renderer.producer();
             let frame_size = resolution.fit(size);
-            let [width, height] = frame_size.pixels().map(usize::from);
+            let pixels @ [width, height] = frame_size.pixels().map(usize::from);
             if width == 0 || height == 0 {
                 return Err(RenderError::InvalidGeometry);
             }
-            let new_frame = self
-                .frame
+            self.ready = None;
+            let mut content = attachments
+                .content
+                .map(|content| content.source.borrow_mut());
+            let world = content
                 .as_ref()
-                .is_none_or(|f| [f.width, f.height] != [width, height]);
+                .map(|c| c.camera(frame_size).map(|camera| (camera, c.output())))
+                .transpose()?;
+            let world_output = world.map(|(_, output)| output);
+            let new_frame = self.world_output != world_output
+                || self
+                    .frame
+                    .as_ref()
+                    .is_none_or(|f| [f.width, f.height] != pixels);
             if new_frame {
-                self.ready = None;
                 self.frame = None;
-                renderer.prepare_frame(frame_size)?;
+                self.storage = None;
             }
-            let camera = if needs_camera {
-                renderer.frame_camera(frame_size)?
-            } else {
-                None
+            let frame_camera = match world {
+                Some((view, _)) => Some(view.camera),
+                None if attachments.overlay.is_some() => {
+                    Some(draw::DefaultRenderer::frame_camera(camera, frame_size)?)
+                }
+                None => None,
             };
-            let overlay = overlay
+            let overlay = attachments
+                .overlay
                 .map(|layer| {
                     layer.prepare(OverlayFrame {
-                        size: [width, height],
-                        camera,
+                        size: pixels,
+                        camera: frame_camera,
                     })
                 })
                 .transpose()?
                 .flatten();
             if new_frame {
-                let renderer = self.renderer.producer();
-                let frame = if let Some(limit) = renderer.opaque_frame_byte_limit() {
-                    Frame::with_format(width, height, paint.opaque_output_format(limit)?)?
+                let mut frame = match world_output {
+                    Some(WorldOutput::Bounded) => {
+                        Frame::with_format(width, height, paint.opaque_output_format(2)?)?
+                    }
+                    _ => Frame::new(width, height)?,
+                };
+                frame.texture.alpha_mode = if world_output.is_some() {
+                    AlphaMode::Opaque
                 } else {
-                    let mut frame = Frame::new(width, height)?;
-                    frame.texture.alpha_mode = AlphaMode::Blend;
-                    frame
+                    AlphaMode::Blend
                 };
                 self.frame = Some(frame);
+                self.world_output = world_output;
             }
             let frame = self.frame.as_mut().expect("viewport frame");
-            let renderer = self.renderer.producer();
-            let rendered = match renderer.render(
-                scene,
-                SceneFrame {
-                    size: frame_size,
-                    camera,
-                    overlay: overlay.as_deref(),
-                },
-                frame,
-            ) {
-                Ok(rendered) => rendered,
-                Err(error) => {
-                    self.ready = None;
-                    return Err(error);
+            if let Some((view, policy)) = world {
+                if !matches!(&self.storage, Some(Storage::World(storage)) if storage.matches(pixels, view.pivot))
+                {
+                    self.storage = None;
+                    self.storage = Some(Storage::World(Box::new(content::WorldStorage::new(
+                        pixels, view.pivot, policy,
+                    )?)));
                 }
-            };
-            if rendered {
-                self.texture_revision = self.texture_revision.wrapping_add(1);
-                frame.texture.cache_revision = self.texture_revision;
-            } else if self.ready.is_none() {
-                return Ok(());
+                let Some(Storage::World(storage)) = &mut self.storage else {
+                    unreachable!()
+                };
+                let mut frame = storage.begin(frame_size, view, overlay.as_deref(), frame);
+                content
+                    .as_deref_mut()
+                    .expect("viewport content")
+                    .prepare(scene, &mut frame)?;
+                frame.finish()?;
+            } else {
+                let storage = self
+                    .storage
+                    .get_or_insert_with(|| Storage::Rows(Box::default()));
+                let Storage::Rows(renderer) = storage else {
+                    unreachable!()
+                };
+                renderer.render(scene, camera, frame_camera, overlay.as_deref(), frame)?;
             }
+            self.texture_revision = self.texture_revision.wrapping_add(1);
+            frame.texture.cache_revision = self.texture_revision;
             self.ready = Some((stamp, size, frame_size));
         }
         let (Some(frame), Some((_, _, frame_size))) = (self.frame.as_ref(), self.ready) else {
             return Ok(());
         };
-        let renderer = self.renderer.producer();
         let placement = frame_size.placed(rect);
         let origin = Point::new(placement.x, placement.y);
         let dimensions = Point::new(placement.w, placement.h);
@@ -350,7 +329,9 @@ impl Output {
             radius: Fixed::ZERO,
             composite: CompositeMode::SourceOver,
         });
-        renderer.overlay(paint, origin, scale);
+        if let Some(content) = attachments.content {
+            content.source.borrow().present(paint, origin, scale);
+        }
         Ok(())
     }
 }
@@ -372,19 +353,14 @@ pub struct StackViewport {
 
 impl Default for StackViewport {
     fn default() -> Self {
-        Self::new(None, Renderer::Camera(Box::default()))
-    }
-}
-
-impl StackViewport {
-    fn new(scene: Option<StackSceneHandle>, renderer: Renderer) -> Self {
         Self {
-            scene,
+            scene: None,
             camera: Camera::default(),
             resolution: Resolution::Native,
             bindings: None,
             output: RefCell::new(Output {
-                renderer,
+                storage: None,
+                world_output: None,
                 frame: None,
                 ready: None,
                 texture_revision: 0,
@@ -394,12 +370,15 @@ impl StackViewport {
             tracked: Cell::new(None),
         }
     }
+}
 
-    /// Installs a game-directed camera. Assigning the camera property selects an ordinary scene camera for this viewport.
-    pub fn with_renderer(scene: StackSceneHandle, renderer: impl SceneRenderer) -> Self {
-        Self::new(Some(scene), Renderer::Directed(Box::new(renderer)))
-    }
+#[derive(Clone, Copy)]
+struct Attachments<'a> {
+    overlay: Option<&'a ViewportOverlay>,
+    content: Option<&'a ViewportContent>,
+}
 
+impl StackViewport {
     fn advance_stamp(&self) {
         self.stamp.set(self.stamp.get().wrapping_add(1));
     }
@@ -408,14 +387,14 @@ impl StackViewport {
         &self,
         scene: &StackScene,
         paint: &mut PaintCtx<'_>,
-        overlay: Option<&ViewportOverlay>,
+        attachments: Attachments<'_>,
     ) -> Result<(), RenderError> {
         let revision = scene.revision();
         if self.seen_scene.replace(revision) != revision {
             self.advance_stamp();
         }
         let mut camera = self.camera;
-        if let Some(target) = camera.target {
+        if let Some(target) = camera.target.filter(|_| attachments.content.is_none()) {
             let position = scene
                 .pose(target)
                 .map(|p| p.position)
@@ -430,7 +409,7 @@ impl StackViewport {
             self.resolution,
             self.stamp.get(),
             paint,
-            overlay,
+            attachments,
         )
     }
 
@@ -486,12 +465,7 @@ impl Property for ViewportCamera {
         let Some(view) = world.get_mut::<StackViewport>(entity) else {
             return PropertyChange::Unchanged;
         };
-        let output = view.output.get_mut();
-        if matches!(&output.renderer, Renderer::Directed(_)) {
-            output.renderer = Renderer::Camera(Box::default());
-            output.frame = None;
-            output.ready = None;
-        } else if view.camera == camera {
+        if view.camera == camera {
             return PropertyChange::Unchanged;
         }
         if camera.target != view.camera.target {
@@ -553,15 +527,16 @@ fn attach(entity: entity!(), commands: commands!()) {
 
 #[mirui::view(component=StackViewport, name="StackViewport", priority=60, invalidation=Visual, attach=attach::callback())]
 fn viewport(
-    rows: query!(StackViewport, optional ViewportOverlay),
+    rows: query!(StackViewport, optional ViewportOverlay, optional ViewportContent),
     entity: entity!(),
     paint: paint!(),
 ) {
-    let Some((component, overlay)) = rows.get(entity) else {
+    let Some((component, overlay, content)) = rows.get(entity) else {
         return;
     };
     if let Some(scene) = &component.scene {
-        let result = scene.read(|scene| component.paint_scene(scene, paint, overlay));
+        let result = scene
+            .read(|scene| component.paint_scene(scene, paint, Attachments { overlay, content }));
         if let Err(e) = result {
             paint.fail(e);
         }

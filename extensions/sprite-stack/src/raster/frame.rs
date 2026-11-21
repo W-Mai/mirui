@@ -79,6 +79,63 @@ pub trait FrameEffects {
     fn composite(&self, canvas: &mut Canvas<'_>) -> Result<(), RenderError>;
 }
 
+/// Prepared scene layers. Terrain, objects and sprites also supply depth for effect queries.
+pub trait SceneLayers {
+    fn terrain(&self, _tile: &mut SceneCanvas<'_, '_>, _depth_limit: Option<Fixed>) {}
+    /// Supplies the remaining color where terrain has not written opaque coverage.
+    fn background(&self, tile: &mut SceneCanvas<'_, '_>);
+    fn objects(&self, _tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
+        Ok(())
+    }
+    fn effects_behind_sprites(&self, _tile: &mut SceneCanvas<'_, '_>) {}
+    fn sprites(&self, _tile: &mut SceneCanvas<'_, '_>) {}
+}
+
+/// Runs the shared scene passes for a single tile.
+pub fn draw_layers(
+    layers: &impl SceneLayers,
+    tile: &mut SceneCanvas<'_, '_>,
+    pass: FramePass,
+) -> Result<(), RenderError> {
+    tile.clear_depth();
+    let depth_limit = match pass {
+        FramePass::Color => None,
+        FramePass::Depth { limit } => Some(limit),
+    };
+    layers.terrain(tile, depth_limit);
+    if depth_limit.is_none() {
+        layers.background(tile);
+    }
+    layers.objects(tile)?;
+    if depth_limit.is_none() {
+        layers.effects_behind_sprites(tile);
+    }
+    layers.sprites(tile);
+    Ok(())
+}
+
+impl DepthQuery for core::convert::Infallible {
+    fn next_point(&self) -> Option<[i32; 2]> {
+        match *self {}
+    }
+
+    fn resolve(&mut self, _: &SceneCanvas<'_, '_>) {
+        match *self {}
+    }
+}
+
+impl FrameEffects for () {
+    type Query = core::convert::Infallible;
+
+    fn queries(&mut self) -> &mut [Self::Query] {
+        &mut []
+    }
+    fn finish_queries(&mut self, _: &RollMapping) {}
+    fn composite(&self, _: &mut Canvas<'_>) -> Result<(), RenderError> {
+        Ok(())
+    }
+}
+
 /// Reusable depth and color storage for a camera that can roll.
 pub struct CameraWorkspace {
     workspace: Workspace,
@@ -144,6 +201,20 @@ impl CameraWorkspace {
         };
         self.workspace
             .render_frame(output, layout, overlay, scene, finish)
+    }
+
+    /// Draws prepared layers using the same order for every color and depth tile.
+    pub fn render_layers(
+        &mut self,
+        output: &mut Frame,
+        mapping: &RollMapping,
+        overlay: Option<&dyn FrameOverlay>,
+        layers: &impl SceneLayers,
+        effects: &mut impl FrameEffects,
+    ) -> Result<(), RenderError> {
+        self.render_with_effects(output, mapping, overlay, effects, |tile, pass| {
+            draw_layers(layers, tile, pass)
+        })
     }
 
     /// Renders an effect at the target resolution for bounded output. Full

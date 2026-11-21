@@ -2,7 +2,8 @@
 mod frame;
 mod mapping;
 pub use frame::{
-    CameraWorkspace, FrameCamera, FrameEffects, FrameOverlay, FramePass, OverlayFrame,
+    CameraWorkspace, FrameCamera, FrameEffects, FrameOverlay, FramePass, OverlayFrame, SceneLayers,
+    draw_layers,
 };
 pub mod sprites;
 pub mod terrain;

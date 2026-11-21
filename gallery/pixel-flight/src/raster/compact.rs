@@ -21,9 +21,9 @@ mod tests {
         let mut native_frame = Frame::with_format(128, 128, ColorFormat::RGB565).unwrap();
         let mut expected = Frame::with_format(128, 128, ColorFormat::RGB565).unwrap();
         for day in [Daylight::Day, Daylight::Sunset, Daylight::Night] {
-            full.palette = Palette::new(day);
-            native.palette = Palette::new(day);
-            let cockpit = Cockpit::new_compact(128, 128, &full.palette);
+            full.scene.set_daylight(day);
+            native.scene.set_daylight(day);
+            let cockpit = Cockpit::new_compact(128, 128, &full.scene.palette);
             for view in [View::Overhead, View::Chase, View::Cockpit] {
                 flight.view = view;
                 for (frames, degrees) in [(1, 0), (12, 60), (100, 150), (200, 240), (1, 315)] {
@@ -42,7 +42,7 @@ mod tests {
                     full_frame.with_canvas(|canvas| {
                         super::super::super::flame::paint_region(
                             canvas,
-                            &full.flames[..full.flame_count],
+                            &full.scene.flames[..full.scene.flame_count],
                             flight.time,
                         )
                         .unwrap();
@@ -75,7 +75,7 @@ mod tests {
                         mismatch.is_none(),
                         "native {day:?} {view:?} after {frames} steps, roll {degrees}: first differing byte {mismatch:?}"
                     );
-                    assert_eq!(full.seen, native.seen);
+                    assert_eq!(full.scene.seen, native.scene.seen);
                     assert!(native.bytes() + native_frame.bytes() < 86 * 1024);
                 }
             }

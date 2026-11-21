@@ -39,8 +39,8 @@ split_demo_sources! {
     PIXEL_FLIGHT => {
         demo: "pixel_flight",
         root: "gallery/pixel-flight/src",
-        marker: "StackViewport::with_renderer",
-        parts: ["world.rs", "jet.rs", "flight.rs", "raster.rs", "raster/compact.rs", "cockpit.rs", "flame.rs", "math.rs", "runtime.rs", "runtime/objects.rs"]
+        marker: "let content = flight_content",
+        parts: ["world.rs", "jet.rs", "flight.rs", "raster.rs", "raster/compact.rs", "cockpit.rs", "flame.rs", "math.rs", "runtime.rs", "runtime/renderer.rs", "runtime/objects.rs"]
     },
     CHORD_PROMPTER => {
         demo: "chord_prompter",

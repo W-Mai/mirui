@@ -9,36 +9,64 @@ const GREEN: Color = Color::rgb(40, 160, 80);
 const COLORS: [Color; 2] = [RED, GREEN];
 
 #[test]
-fn directed_camera_publishes_once_per_change_and_an_explicit_camera_takes_over() {
+fn attached_content_publishes_once_per_change_and_retries_failed_frames() {
     use mirui::render::RenderError;
     use mirui_sprite_stack::{
-        SceneFrame, SceneRenderer, StackSceneHandle, ViewportCamera, raster::Frame,
+        FrameSize, SceneContent, StackSceneHandle, ViewportContent, WorldCamera, WorldFrame,
+        raster::{FrameCamera, Projection, SceneCanvas, SceneLayers},
     };
     use std::{cell::Cell, rc::Rc};
 
-    struct Directed {
+    struct Background;
+    impl SceneLayers for Background {
+        fn background(&self, tile: &mut SceneCanvas<'_, '_>) {
+            tile.color.bytes.fill(255);
+        }
+    }
+
+    struct Procedural {
         attempts: Rc<Cell<u32>>,
     }
-    impl SceneRenderer for Directed {
-        fn render(
+    impl SceneContent for Procedural {
+        fn camera(&self, _: FrameSize) -> Result<WorldCamera, RenderError> {
+            Ok(WorldCamera {
+                camera: FrameCamera {
+                    projection: Projection {
+                        perspective: Default::default(),
+                        slope: Fixed::ZERO,
+                        scale: Fixed::ONE,
+                        center: [Fixed::from_int(8); 2],
+                    },
+                    position: [Fixed::ZERO; 3],
+                    yaw: Fixed::ZERO,
+                    pitch: Fixed::ZERO,
+                    roll: Fixed::ZERO,
+                },
+                pivot: Fixed::from_int(8),
+                roll: false,
+            })
+        }
+
+        fn prepare(
             &mut self,
             _: &StackScene,
-            _: SceneFrame<'_>,
-            target: &mut Frame,
-        ) -> Result<bool, RenderError> {
+            frame: &mut WorldFrame<'_>,
+        ) -> Result<(), RenderError> {
             let count = self.attempts.get() + 1;
             self.attempts.set(count);
             if count == 2 {
                 return Err(RenderError::MissingWorkspace);
             }
-            target.with_canvas(|canvas| canvas.bytes.fill(255));
-            Ok(true)
+            frame.layers().0.draw(&Background, &mut ())
         }
     }
     #[mirui::compose]
-    fn directed(scene: StackSceneHandle, attempts: Rc<Cell<u32>>) -> Entity {
-        let viewport = StackViewport::with_renderer(scene, Directed { attempts });
-        ui! { View(id: "camera", width: 16, height: 16) [viewport] }
+    fn procedural(scene: StackSceneHandle, attempts: Rc<Cell<u32>>) -> Entity {
+        ui! {
+            StackViewport(width: 16, height: 16, scene: scene) [
+                ViewportContent::new(Procedural { attempts })
+            ]
+        }
     }
 
     let mut app = App::headless(16, 16);
@@ -46,7 +74,7 @@ fn directed_camera_publishes_once_per_change_and_an_explicit_camera_takes_over()
     let scene = app.add_model(StackScene::new()).finish();
     let attempts = Rc::new(Cell::new(0));
     let root = app.spawn_root().id();
-    app.compose(root, directed(scene.clone(), attempts.clone()));
+    app.compose(root, procedural(scene.clone(), attempts.clone()));
     for _ in 0..2 {
         let frame = app.snapshot().unwrap().unwrap();
         assert_eq!(
@@ -57,14 +85,6 @@ fn directed_camera_publishes_once_per_change_and_an_explicit_camera_takes_over()
     assert_eq!(attempts.get(), 1);
     scene.invalidate();
     assert!(matches!(app.snapshot(), Err(RenderError::MissingWorkspace)));
-    app.snapshot().unwrap();
-    assert_eq!(attempts.get(), 3);
-    let entity = app.world.find_by_id("camera").unwrap();
-    app.world
-        .widget_mut(entity)
-        .unwrap()
-        .set::<ViewportCamera>(Camera::default());
-    scene.invalidate();
     app.snapshot().unwrap();
     assert_eq!(attempts.get(), 3);
 }

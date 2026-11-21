@@ -9,7 +9,7 @@ use mirui_sprite_stack::{SpriteStackPlugin, StackScene, StackViewport};
 mod objects;
 pub(crate) use objects::FlightObjects;
 mod renderer;
-use renderer::{FlightRenderer, cockpit_layer};
+use renderer::{cockpit_layer, flight_content};
 
 use mirui::input::event::{
     PointerCursor,
@@ -336,13 +336,13 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
     if !res!(optional MonoClock).with(|clock| clock.is_some()) {
         res!().insert(MonoClock::from_time_source());
     }
-    let mut viewport =
-        StackViewport::with_renderer(model.scene(), FlightRenderer::new(model.clone(), profile));
-    viewport.resolution = profile.resolution();
+    let content = flight_content(model.clone(), profile);
     let cockpit = cockpit_layer(model.clone(), profile);
 
     ui! {
-        View (
+        StackViewport (
+            scene: model.scene(),
+            resolution: profile.resolution(),
             grow: 1.0,
             clip_children: true,
             direction: FlexDirection::Column,
@@ -357,7 +357,7 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
             FlightInput {
                 model: model.clone(),
             },
-            viewport,
+            content,
             cockpit,
             mirui::input::event::scroll::TouchAction::None,
         ] {
@@ -446,9 +446,9 @@ fn setup_profile<B: Surface, F: RendererFactory<B>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::raster::{FlightScene, Palette};
     use mirui::core::model::OwnedModel;
     use mirui_sprite_stack::Camera;
-    use renderer::FlightOutput;
 
     fn assert_hint_fits(world: &mirui::ecs::World) {
         let fits = mirui::gallery::demos::text_fits(world);
@@ -627,22 +627,15 @@ mod tests {
     }
 
     #[test]
-    fn lighting_changes_reuse_view_storage() {
+    fn lighting_updates_palette_without_allocating() {
         use crate::raster::Daylight;
-        for profile in [Profile::Desktop, Profile::Compact] {
-            let mut output = FlightOutput::new(profile);
-            output.prepare([128, 128], Daylight::Day).unwrap();
-            let bytes = output.bytes();
-            for day in [Daylight::Sunset, Daylight::Night, Daylight::Day] {
-                assert_eq!(
-                    crate::test_support::tracked_allocations(|| {
-                        let raster = output.prepare([128, 128], day).unwrap();
-                        assert_eq!(raster.palette.day, day);
-                    }),
-                    0
-                );
-                assert_eq!(output.bytes(), bytes);
-            }
+        let mut scene = FlightScene::new(Palette::new(Daylight::Day));
+        for day in [Daylight::Sunset, Daylight::Night, Daylight::Day] {
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| scene.set_daylight(day)),
+                0,
+            );
+            assert_eq!(scene.palette.day, day);
         }
     }
     #[test]
@@ -714,19 +707,10 @@ mod tests {
     }
     #[test]
     fn compact_keeps_all_views_and_bounds_workspaces_across_resizes() {
-        use super::super::raster::Frame;
+        use crate::raster::{Frame, Raster, SceneObjects};
         use mirui::render::texture::ColorFormat;
 
         let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
-        let mut output = FlightOutput::new(Profile::Compact);
-        let mut frame = Frame::with_format(128, 128, ColorFormat::RGB565).unwrap();
-        scene.scene.read(|shared| {
-            output
-                .render(&scene, shared, &mut frame, Fixed::ONE)
-                .unwrap()
-        });
-        eprintln!("compact scene bytes: {}", scene.resident_bytes());
-        assert!(scene.resident_bytes() < 128 * 1024);
         assert_eq!(Profile::Compact.scene_size(128, 128), (128, 128, 1));
         for (width, height) in [
             (128, 128),
@@ -736,27 +720,39 @@ mod tests {
             (64, 64),
             (800, 600),
         ] {
-            let (w, h, scale) = Profile::Compact.scene_size(width, height);
-            let scale = Fixed::from_int(scale as i32);
+            let (w, h, _) = Profile::Compact.scene_size(width, height);
+            let mut raster = Raster::new([w, h], true).unwrap();
             let mut frame = Frame::with_format(w, h, ColorFormat::RGB565).unwrap();
+            let mut draw = |scene: &FlightModel| {
+                scene.scene.read(|shared| {
+                    raster
+                        .render_scene(
+                            &mut frame,
+                            &scene.flight,
+                            (scene.flight.projection(w, h), None),
+                            SceneObjects::Placed {
+                                scene: shared,
+                                world: &scene.terrain,
+                                objects: &scene.objects,
+                            },
+                        )
+                        .unwrap()
+                });
+            };
             for view in [CameraView::Overhead, CameraView::Chase, CameraView::Cockpit] {
                 scene.select_view(view);
                 scene.advance(16, width, height, None);
-                scene
-                    .scene
-                    .read(|shared| output.render(&scene, shared, &mut frame, scale).unwrap());
+                draw(&scene);
                 let allocations = crate::test_support::tracked_allocations(|| {
                     for _ in 0..8 {
                         scene.advance(16, width, height, None);
-                        scene.scene.read(|shared| {
-                            output.render(&scene, shared, &mut frame, scale).unwrap()
-                        });
+                        draw(&scene);
                     }
                 });
                 assert_eq!(allocations, 0);
-                assert!(frame.width <= 128 && frame.height <= 128);
-                assert!(scene.resident_bytes() < 128 * 1024);
             }
+            assert!(w <= 128 && h <= 128);
+            assert!(scene.resident_bytes() + raster.bytes() + frame.bytes() < 128 * 1024);
         }
         let mut app = App::headless(128, 128);
         app.with_default_widgets().with_default_systems();
@@ -765,6 +761,7 @@ mod tests {
         for view in [CameraView::Overhead, CameraView::Chase, CameraView::Cockpit] {
             model.select_view(view);
             app.render().unwrap();
+            assert!(model.resident_bytes() < 128 * 1024);
             assert_hint_fits(&app.world);
             for (entity, _) in app.world.query::<Text>().iter() {
                 let rect = app.world.get::<ComputedRect>(entity).unwrap().0;

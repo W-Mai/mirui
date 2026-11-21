@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pixel Flight registers its hint font alongside the host's fonts and passes unused keys to other App handlers.
 - Pixel Flight uses the displayed frame placement for pointer steering at fractional view sizes. Camera, aircraft and instrument calculations are shared across scene regions.
 - Copy ready texture regions between pixel formats with `TexturePixelsMut::copy_region_from`.
-- SpriteStack viewports own their output frames. Custom scene renderers receive a writable frame selected by the viewport.
+- SpriteStack viewports own output frames and render procedural scene layers supplied by an attached component.
 - Pixel Flight Compact blends exhaust into bounded scene regions before Mirui converts them to the output format.
 
 - Desktop examples in the workspace use optimized SpriteStack rasterization in development builds.

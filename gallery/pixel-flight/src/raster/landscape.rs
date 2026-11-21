@@ -267,7 +267,6 @@ pub(super) fn draw_world<const PLACED: bool, const DEPTH_ONLY: bool>(
     limit: Fixed,
 ) {
     mirui::trace_span!("flight.terrain");
-    canvas.clear_depth();
     let altitude = p.position[2];
     let far = terrain_distance(altitude);
     let world = ground.world;
