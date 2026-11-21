@@ -1,12 +1,13 @@
 use mirui::app::plugins::{FrameRateCapPlugin, StdInstantClockPlugin};
-use mirui::core::cache::Handle;
 use mirui::core::time::clock_now_ns;
+use mirui::core::{cache::Handle, model::ModelHandle};
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::ui::widgets::{Button, Text};
 use mirui_sprite_stack::{
-    Camera, HeightField, HeightFieldHandle, Object, Pose, SpriteStackPlugin, SpriteStackReaderExt,
-    StackScene, StackViewport, TerrainCell, TerrainGrid,
+    Camera, HeightField, HeightFieldHandle, Pose, SpriteStackAsset, SpriteStackPlugin,
+    SpriteStackReaderExt, StackStage, StackStageCommands, StackViewport, StackVisual, TerrainCell,
+    TerrainGrid,
 };
 
 const ASPHALT: Color = Color::rgb(64, 75, 86);
@@ -39,11 +40,12 @@ fn road_surface() -> HeightField {
 
 #[model]
 struct Race {
-    scene: model!(owned StackScene),
-    road: Object,
+    stage: model!(owned StackStage),
     surface: HeightFieldHandle,
-    driver: Object,
-    leader: Object,
+    #[observe]
+    driver: Pose,
+    #[observe]
+    leader: Pose,
     #[observe]
     passes: u32,
     #[observe]
@@ -53,23 +55,16 @@ struct Race {
 
 impl Race {
     fn new(surface: HeightFieldHandle) -> Self {
-        let reader = mirx::Reader::open(include_bytes!("car.mirx")).expect("embedded model");
-        let car = Handle::new(reader.sprite_stack().expect("car layers"));
-        let mut scene = StackScene::bounded(3);
-        let road = scene.place(surface.clone(), Pose::default()).unwrap();
         // The atlas is longitudinal along local X. Both lanes run along world +Z.
         let lane_pose = |x, z| Pose {
             yaw: Fixed::from_int(270),
             ..Pose::at(x, 0, z)
         };
-        let driver = scene.place(car.clone(), lane_pose(16, 16)).unwrap();
-        let leader = scene.place(car, lane_pose(48, 56)).unwrap();
         Self {
-            scene: scene.into(),
-            road,
+            stage: StackStage::bounded(3).into(),
             surface,
-            driver,
-            leader,
+            driver: lane_pose(16, 16),
+            leader: lane_pose(48, 56),
             passes: 0,
             paused: false,
             last_ms: now_ms(),
@@ -77,15 +72,14 @@ impl Race {
     }
 
     fn road_height(&self, x: Fixed, z: Fixed) -> Fixed {
-        self.scene
-            .height_at(self.road, x, z)
-            .unwrap()
+        self.surface
+            .read(|field| field.height_at(x, z))
             .expect("repeating road")
     }
 
-    fn place_on_road(&mut self, car: Object, mut pose: Pose) {
+    fn place_on_road(&self, mut pose: Pose) -> Pose {
         pose.position[1] = self.road_height(pose.position[0], pose.position[2]);
-        self.scene.set_pose(car, pose).unwrap();
+        pose
     }
 }
 
@@ -95,8 +89,7 @@ impl Race {
         // Bound the first step after a stalled or suspended window.
         let elapsed = now.saturating_sub(self.last_ms).min(250) as i32;
         self.last_ms = now;
-        let mut driver = self.scene.pose(self.driver).unwrap();
-        let mut leader = self.scene.pose(self.leader).unwrap();
+        let (mut driver, mut leader) = (self.driver, self.leader);
         let was_ahead = leader.position[2] > driver.position[2];
         driver.position[2] += Fixed::from_ratio(elapsed, 16);
         leader.position[2] += Fixed::from_ratio(elapsed, 32);
@@ -112,8 +105,8 @@ impl Race {
             driver.position[2] -= ROAD_PERIOD;
             leader.position[2] -= ROAD_PERIOD;
         }
-        self.place_on_road(self.driver, driver);
-        self.place_on_road(self.leader, leader);
+        self.driver = self.place_on_road(driver);
+        self.leader = self.place_on_road(leader);
     }
 
     fn toggle_pause(&mut self) {
@@ -134,14 +127,44 @@ impl Race {
             }
         };
         self.surface.set_cell([0, 0], cell).unwrap();
-        for car in [self.driver, self.leader] {
-            self.place_on_road(car, self.scene.pose(car).unwrap());
-        }
+        self.driver = self.place_on_road(self.driver);
+        self.leader = self.place_on_road(self.leader);
     }
 
-    fn driver(&self) -> Object {
-        self.driver
+    fn surface(&self) -> HeightFieldHandle {
+        self.surface.clone()
     }
+}
+
+struct CourseAsset(Option<Handle<SpriteStackAsset>>);
+
+#[component]
+struct Road;
+
+#[component]
+struct Car;
+
+#[system]
+fn populate(race: model!(Race), asset: res!(mut CourseAsset), commands: commands!()) {
+    let Some(car) = asset.0.take() else {
+        return;
+    };
+    let stage = race.stage();
+    let mut members = commands.stage(&stage);
+    let driver = car.clone();
+    members.spawn(Road, StackVisual::new(race.surface()));
+    members.spawn(
+        Car,
+        StackVisual::from_model(race, move |state| {
+            StackVisual::new(driver.clone()).at(state.driver())
+        }),
+    );
+    members.spawn(
+        Car,
+        StackVisual::from_model(race, move |state| {
+            StackVisual::new(car.clone()).at(state.leader())
+        }),
+    );
 }
 
 // The App paces frames. Advance once per tick when the simulation clock has moved.
@@ -154,23 +177,42 @@ fn drive(race: model!(Race)) {
 
 #[compose]
 fn course(race: model!(Race)) -> Entity {
-    let scene = race.scene();
+    let stage = race.stage();
     let chase = Camera {
         yaw: Fixed::from_int(25),
         range: Fixed::from_int(112),
         scale: Fixed::from_int(2),
-        ..Camera::chase(race.driver())
+        ..Camera::default()
     };
     let overhead = Camera {
-        target: Some(race.driver()),
         range: Fixed::from_int(96),
         ..Camera::overhead()
     };
     ui! {
         Column (grow: 1.0) {
             Row (grow: 1.0) {
-                StackViewport (grow: 2.0, min_width: 0, scene: scene.clone(), camera: chase)
-                StackViewport (grow: 1.0, min_width: 0, scene: scene, camera: overhead)
+                StackViewport (
+                    grow: 2.0,
+                    min_width: 0,
+                    stage: stage.clone(),
+                    camera: ${
+                        Camera {
+                            center: race.driver().position,
+                            ..chase
+                        }
+                    }
+                )
+                StackViewport (
+                    grow: 1.0,
+                    min_width: 0,
+                    stage: stage,
+                    camera: ${
+                        Camera {
+                            center: race.driver().position,
+                            ..overhead
+                        }
+                    }
+                )
             }
             Row (height: 44, gap: 12, padding: Padding::all(8), align: AlignItems::Center) {
                 Button (text: ${ if race.paused() { "Resume" } else { "Pause" } }) on Tap { race.toggle_pause(); }
@@ -188,6 +230,10 @@ fn setup<B: Surface, F: RendererFactory<B>>(app: &mut App<B, F>) -> RaceHandle {
         .add_plugin(SpriteStackPlugin);
     let surface = app.add_model(road_surface()).finish();
     let race = app.add_model(Race::new(surface)).finish();
+    let reader = mirx::Reader::open(include_bytes!("car.mirx")).expect("embedded model");
+    let car = Handle::new(reader.sprite_stack().expect("car layers"));
+    app.add_resource(CourseAsset(Some(car)));
+    app.add_system(populate::system(race.clone()));
     app.add_timer(drive::timer(race.clone()));
     let root = app.spawn_root().id();
     app.compose(root, course(race.clone()));
@@ -204,7 +250,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mirui::core::model::ModelHandle;
     use mirui::core::time::mock;
     use mirui::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
     use mirui::surface::framebuf::FramebufSurface;
@@ -214,9 +259,7 @@ mod tests {
     type TestApp = App<FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
     fn car_positions(race: &RaceHandle) -> [Fixed; 2] {
-        race.read(|race| {
-            [race.driver, race.leader].map(|car| race.scene.pose(car).unwrap().position[2])
-        })
+        [race.driver(), race.leader()].map(|pose| pose.position[2])
     }
 
     fn click_button(app: &mut TestApp, label: &str) {
@@ -248,6 +291,7 @@ mod tests {
     fn overhead_car_is_longer_along_the_road_than_across_it() {
         let mut app = App::headless(360, 200);
         setup(&mut app);
+        assert!(!app.tick());
         let frame = app.snapshot().unwrap().unwrap();
         let pixels = frame.read_pixels().unwrap();
         let (camera, _) = app
@@ -337,10 +381,10 @@ mod tests {
         mock::set_ms(0);
         let mut app = App::headless(360, 200);
         let race = setup(&mut app);
+        assert!(!app.tick());
         let contact = || {
             race.read(|race| {
-                let driver = race.scene.pose(race.driver).unwrap();
-                let [x, y, z] = driver.position;
+                let [x, y, z] = race.driver.position;
                 (y, race.road_height(x, z))
             })
         };

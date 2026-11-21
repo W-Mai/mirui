@@ -207,8 +207,29 @@ impl StackVisualInput {
     ) -> Result<Option<Effect>, CommandCommitError> {
         match self.0 {
             VisualInput::Static(visual) => {
+                let field = match visual.geometry() {
+                    Geometry::LiveField(field) => Some(field.clone()),
+                    _ => None,
+                };
                 world.insert(entity, visual);
-                Ok(None)
+                Ok(field.map(|field| {
+                    with_world_scope(world, || {
+                        Effect::new(move || {
+                            if !field.callback_ready() {
+                                return;
+                            }
+                            field.revision();
+                            with_world(|world| {
+                                if let Some(member) = world
+                                    .get::<StackVisual>(entity)
+                                    .and_then(|visual| visual.membership.as_ref())
+                                {
+                                    member.members.publish();
+                                }
+                            });
+                        })
+                    })
+                }))
             }
             VisualInput::Bound { read, .. } => {
                 let effect = with_world_scope(world, || {
