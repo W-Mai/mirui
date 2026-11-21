@@ -278,6 +278,12 @@ impl BindingOwner {
         }
     }
 
+    /// Validate a captured owner during a framework extension's command commit.
+    #[doc(hidden)]
+    pub fn check_world(self, world: &crate::ecs::World) -> Result<(), ModelOwnerError> {
+        self.check(world.id())
+    }
+
     pub(crate) fn is_invalid(self) -> bool {
         matches!(self.0, OwnerState::Invalid(_))
     }

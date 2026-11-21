@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Queue typed extension operations with `DeferredOperation` in the existing ECS command batch. Operations can return a commit error, and event callbacks can reserve their payload capacity with `CommandCapacity::enqueue`.
+- Create, attach and transfer ECS entities across bounded `StackStage` groups. `StackVisual` accepts static geometry and pose or follows observed model values, and its subscriptions are released when the entity leaves the stage or is destroyed.
 
 - SpriteStack viewports accept an attached overlay component with reactive inputs and in-frame composition.
 

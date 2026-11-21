@@ -32,6 +32,12 @@ mod terrain;
 #[cfg(feature = "widget")]
 pub use scene::{Geometry, Object, Pose, StackScene, StackSceneHandle, StackSceneOwned};
 #[cfg(feature = "widget")]
+mod stage;
+#[cfg(feature = "widget")]
+pub use stage::{
+    StackStage, StackStageCommands, StackStageHandle, StackVisual, StackVisualInput, StageCommands,
+};
+#[cfg(feature = "widget")]
 pub use terrain::{
     HeightField, HeightFieldHandle, HeightFieldOwned, TerrainCell, TerrainError, TerrainGrid,
 };
