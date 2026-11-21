@@ -184,8 +184,6 @@ impl ViewStacks {
 
     pub(crate) fn reset(&mut self) {
         self.stacks.clear();
-        self.layers.clear();
-        self.order.clear();
     }
 
     pub(crate) fn release_layers(&mut self) {
@@ -204,17 +202,21 @@ impl ViewStacks {
         self.stacks
             .try_reserve_exact(1)
             .map_err(|_| RenderError::MissingWorkspace)?;
-        self.layers
-            .try_reserve_exact(count)
-            .map_err(|_| RenderError::MissingWorkspace)?;
-        self.order
-            .try_reserve_exact(count)
-            .map_err(|_| RenderError::MissingWorkspace)?;
-
-        let start = self.layers.len();
-        let end = start + count;
-        self.layers.resize(end, None);
-        self.order.resize(end, 0);
+        let start = self.stacks.last().map_or(0, |stack| stack.layers.end);
+        let end = start
+            .checked_add(count)
+            .ok_or(RenderError::MissingWorkspace)?;
+        if end > self.layers.len() {
+            let missing = end - self.layers.len();
+            self.layers
+                .try_reserve_exact(missing)
+                .map_err(|_| RenderError::MissingWorkspace)?;
+            self.order
+                .try_reserve_exact(missing)
+                .map_err(|_| RenderError::MissingWorkspace)?;
+            self.layers.resize(end, None);
+            self.order.resize(end, 0);
+        }
         let range = start..end;
         let layers = &mut self.layers[range.clone()];
         let core = ProjectionWork::new(
