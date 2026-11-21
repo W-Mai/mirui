@@ -255,3 +255,86 @@ fn two_viewports_draw_stage_updates_without_dirtying_another_stage() {
     assert!(!before(&mut app, 0).is_empty());
     assert!(before(&mut app, 16).is_empty());
 }
+
+#[test]
+fn a_bound_visual_tracks_the_current_live_geometry_until_detached() {
+    const COLORS: [Color; 2] = [Color::rgb(180, 30, 40), Color::rgb(15, 180, 30)];
+    let mut app = App::headless(48, 16);
+    app.with_default_widgets()
+        .add_plugin(crate::SpriteStackPlugin);
+    app.add_system(edit_stage::system());
+    let stage = app.add_model(StackStage::bounded(1)).finish();
+    let other = app.add_model(StackStage::bounded(0)).finish();
+    let field = |material| {
+        HeightField::generate(
+            TerrainGrid::finite([1, 1], Fixed::from_int(4)).unwrap(),
+            &COLORS,
+            |_| TerrainCell { level: 0, material },
+        )
+        .unwrap()
+    };
+    let red = app.add_model(field(0)).finish();
+    let green = app.add_model(field(1)).finish();
+    let car = app
+        .add_model(Car {
+            pose: Pose::default(),
+        })
+        .finish();
+    let visual = StackVisual::from_model(&car, {
+        let (red, green) = (red.clone(), green.clone());
+        move |car| {
+            let selection = car.pose().position[0];
+            let field = if selection.is_zero() { &red } else { &green };
+            let visual = StackVisual::new(field.clone());
+            if selection.is_negative() {
+                visual.with_palette(&[[0; 4]])
+            } else {
+                visual
+            }
+        }
+    });
+    apply(&mut app, &stage, Edit::Spawn(visual)).unwrap();
+    let root = app.spawn_root().id();
+    app.compose(root, viewports(stage.clone(), other));
+    let sample = |app: &mut App<_>| {
+        let frame = app.snapshot().unwrap().unwrap();
+        let pixels = frame.read_pixels().unwrap();
+        [0, 16].map(|left| {
+            (0..16)
+                .flat_map(|y| (left..left + 16).map(move |x| (x, y)))
+                .map(|(x, y)| pixels.get_pixel(x, y))
+                .find(|color| COLORS.contains(color))
+        })
+    };
+    let set = |field: &crate::HeightFieldHandle, material| {
+        field
+            .set_cell([0, 0], TerrainCell { level: 0, material })
+            .unwrap();
+    };
+    assert_eq!(sample(&mut app), [Some(COLORS[0]); 2]);
+    set(&red, 1);
+    assert_eq!(sample(&mut app), [Some(COLORS[1]); 2]);
+    set(&red, 0);
+    car.move_to(Pose::at(1, 0, 0));
+    assert_eq!(sample(&mut app), [Some(COLORS[1]); 2]);
+    let revision = stage.revision();
+    set(&red, 1);
+    assert_eq!(sample(&mut app), [Some(COLORS[1]); 2]);
+    assert_eq!(stage.revision(), revision);
+    set(&green, 0);
+    assert_eq!(sample(&mut app), [Some(COLORS[0]); 2]);
+
+    let revision = stage.revision();
+    car.move_to(Pose::at(-1, 0, 0));
+    assert_eq!(sample(&mut app), [Some(COLORS[0]); 2]);
+    assert_eq!(stage.revision(), revision);
+    set(&green, 1);
+    assert_eq!(sample(&mut app), [Some(COLORS[1]); 2]);
+
+    let entity = stage.read(|stage| stage.with_entities(|members| members[0]));
+    apply(&mut app, &stage, Edit::Leave(entity)).unwrap();
+    let revision = stage.revision();
+    set(&green, 1);
+    assert_eq!(sample(&mut app), [None; 2]);
+    assert_eq!(stage.revision(), revision);
+}

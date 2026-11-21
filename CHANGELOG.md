@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Queue typed extension operations with `DeferredOperation` in the existing ECS command batch. Operations can return a commit error, and event callbacks can reserve their payload capacity with `CommandCapacity::enqueue`.
 - Create, attach and transfer ECS entities across bounded `StackStage` groups. `StackVisual` accepts static geometry and pose or follows observed model values, and its subscriptions are released when the entity leaves the stage or is destroyed.
 - `StackViewport(stage: ...)` shares ECS stage members between independent cameras and redraws the viewports that use a changed stage.
+- `StackVisual` can replace an indexed sprite's palette and blend visible colors toward white. Palette replacement preserves source alpha across detail levels.
 - Passing Lane binds vehicle visuals and both cameras to its race Model. Stage members backed by a live height field update their viewports when the ground changes.
+- A model-bound `StackVisual` follows edits to its selected height field and releases the previous field's subscription when the model selects another source.
 
 - SpriteStack viewports accept an attached overlay component with reactive inputs and in-frame composition.
 

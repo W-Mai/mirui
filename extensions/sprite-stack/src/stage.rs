@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use mirui::{
     __macro_support::{DeferredCommands, with_world, with_world_scope},
     core::{
@@ -298,15 +298,26 @@ impl StackVisualInput {
                 }))
             }
             VisualInput::Bound { read, .. } => {
+                let field_revision = Cell::new(None);
                 let effect = with_world_scope(world, || {
                     Effect::new(move || {
-                        let Some(next) = read() else {
-                            return;
-                        };
+                        let next = read();
                         with_world(|world| {
-                            if next.check(world).is_err() || !world.is_alive(entity) {
+                            if !world.is_alive(entity) {
                                 return;
                             }
+                            let Some(next) = next.filter(|next| next.check(world).is_ok()) else {
+                                if let Some(visual) = world.get::<StackVisual>(entity) {
+                                    let revision = observe_field(&visual.geometry);
+                                    if field_revision.replace(revision) != revision
+                                        && let Some(member) = &visual.membership
+                                    {
+                                        member.members.publish();
+                                    }
+                                }
+                                return;
+                            };
+                            field_revision.set(observe_field(&next.geometry));
                             let Some(current) = world.get::<StackVisual>(entity) else {
                                 world.insert(entity, next);
                                 return;
@@ -343,6 +354,13 @@ impl StackVisualInput {
                 Ok(Some(effect))
             }
         }
+    }
+}
+
+fn observe_field(geometry: &Geometry) -> Option<u64> {
+    match geometry {
+        Geometry::LiveField(field) if field.callback_ready() => Some(field.revision()),
+        _ => None,
     }
 }
 
