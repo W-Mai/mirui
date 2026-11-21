@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Reuse sampled sprite layer storage across scene membership changes in SpriteStack viewports.
 - Reuse ray spacing and scale across orthographic terrain rows in SpriteStack.
 - Decode MIRX RLE literals and repeated single-byte blocks with bulk writes.
 

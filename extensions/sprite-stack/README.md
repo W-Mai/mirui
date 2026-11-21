@@ -114,6 +114,8 @@ fn screens(scene: model!(StackScene), player: Object) -> Entity {
 
 `StackViewport` selects detail separately for each camera. It uses the coarsest stored grid step that projects to at most one screen pixel, and draws the base atlas at closer scales. Optional `SLOD` records borrow sparse cells and their original RGBA colors or palette indices from the MIRX file. A coarse cell on the edge stops at the original layer bounds.
 
+Sampled instances share the viewport's layer and draw-order buffers. The buffers retain the capacity needed for the largest prepared frame and are released with the viewport.
+
 For a perspective chase view, set `Camera { focal_distance: Some(96.into()), ..Camera::chase(player) }`. The target plane keeps the configured scale. At 96 world units behind that plane, an object appears half as large. A second viewport can use `Camera::overhead()` to see the same objects at a constant scale.
 
 [Passing Lane](examples/passing_lane.rs) starts two cars driving in separate lanes. One game timer advances both cars, and each time the faster car overtakes the slower one, the counter goes up. **Pause** and **Resume** control the race. **Toggle lift** raises or lowers a section of the repeating road. Both cameras show the same traffic and terrain, and `scene.height_at` keeps the cars on the road surface.

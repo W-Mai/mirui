@@ -1,6 +1,9 @@
 //! Camera-space sampling and coverage for sparse indexed sprite layers.
 use super::{Projection, SceneCanvas};
 use crate::{PreparedSpriteStack, SparseLevel, StackSample};
+use alloc::vec::Vec;
+use core::ops::Range;
+use mirui::render::RenderError;
 use mirui::types::{Fixed, Fixed64, GridBasis};
 
 /// Paints the completed sprite coverage once per pixel, allowing palette lighting, a silhouette outline, and opacity over the scene.
@@ -160,62 +163,91 @@ impl<'a, const N: usize> ProjectedStack<'a, N> {
     }
 }
 
-/// Per-object projection storage for a viewport reading models of varying layer counts.
-#[derive(Default)]
-pub(crate) struct ViewStack {
+struct PreparedStack {
     core: Option<ProjectionWork>,
-    layers: alloc::vec::Vec<Option<PreparedLayer>>,
-    order: alloc::vec::Vec<usize>,
+    layers: Range<usize>,
 }
-impl ViewStack {
+
+/// Per-viewport projection storage shared by all sampled instances.
+#[derive(Default)]
+pub(crate) struct ViewStacks {
+    stacks: Vec<PreparedStack>,
+    layers: Vec<Option<PreparedLayer>>,
+    order: Vec<usize>,
+}
+impl ViewStacks {
     pub(crate) fn storage_bytes(&self) -> usize {
-        self.layers.capacity() * size_of::<Option<PreparedLayer>>()
+        self.stacks.capacity() * size_of::<PreparedStack>()
+            + self.layers.capacity() * size_of::<Option<PreparedLayer>>()
             + self.order.capacity() * size_of::<usize>()
     }
 
-    pub(crate) fn prepare(
+    pub(crate) fn reset(&mut self) {
+        self.stacks.clear();
+        self.layers.clear();
+        self.order.clear();
+    }
+
+    pub(crate) fn release_layers(&mut self) {
+        self.stacks.clear();
+        self.layers = Vec::new();
+        self.order = Vec::new();
+    }
+
+    pub(crate) fn push(
         &mut self,
         asset: &PreparedSpriteStack<'_>,
         transform: StackTransform,
         p: &Projection,
-    ) -> Result<(), mirui::render::RenderError> {
-        let len = usize::from(asset.extent()[2]);
-        fn resize<T: Clone>(
-            v: &mut alloc::vec::Vec<T>,
-            len: usize,
-            fill: T,
-        ) -> Result<(), mirui::render::RenderError> {
-            v.try_reserve_exact(len.saturating_sub(v.len()))
-                .map_err(|_| mirui::render::RenderError::MissingWorkspace)?;
-            v.resize(len, fill);
-            Ok(())
-        }
-        resize(&mut self.layers, len, None)?;
-        resize(&mut self.order, len, 0)?;
-        self.core = ProjectionWork::new(
+    ) -> Result<(), RenderError> {
+        let count = usize::from(asset.extent()[2]);
+        self.stacks
+            .try_reserve_exact(1)
+            .map_err(|_| RenderError::MissingWorkspace)?;
+        self.layers
+            .try_reserve_exact(count)
+            .map_err(|_| RenderError::MissingWorkspace)?;
+        self.order
+            .try_reserve_exact(count)
+            .map_err(|_| RenderError::MissingWorkspace)?;
+
+        let start = self.layers.len();
+        let end = start + count;
+        self.layers.resize(end, None);
+        self.order.resize(end, 0);
+        let range = start..end;
+        let layers = &mut self.layers[range.clone()];
+        let core = ProjectionWork::new(
             asset,
             transform,
             p,
             Fixed::ONE,
-            &mut self.layers,
-            &mut self.order,
+            layers,
+            &mut self.order[range.clone()],
             |_, _| Some(Fixed::ZERO),
         );
-        if let Some(core) = self.core.as_ref() {
-            core.prepare_regions(asset.levels()[core.level], &mut self.layers, p);
+        if let Some(core) = core.as_ref() {
+            core.prepare_regions(asset.levels()[core.level], layers, p);
         }
+        self.stacks.push(PreparedStack {
+            core,
+            layers: range,
+        });
         Ok(())
     }
+
     pub(crate) fn view<'a>(
         &self,
+        index: usize,
         asset: &'a PreparedSpriteStack<'a>,
     ) -> Option<SpriteView<'_, 'a>> {
-        let core = self.core.as_ref()?;
+        let stack = &self.stacks[index];
+        let core = stack.core.as_ref()?;
         Some(SpriteView {
             core,
             level: &asset.levels()[core.level],
-            layers: &self.layers,
-            order: &self.order,
+            layers: &self.layers[stack.layers.clone()],
+            order: &self.order[stack.layers.clone()],
         })
     }
 }

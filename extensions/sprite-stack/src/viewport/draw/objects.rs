@@ -3,7 +3,7 @@ use crate::{
     Geometry, HeightField, Object, Pose, PreparedSpriteStack, SpriteStackAsset, StackScene,
     raster::{
         SceneCanvas,
-        sprites::{LayerGrid, StackTransform, ViewStack},
+        sprites::{LayerGrid, StackTransform, ViewStacks},
     },
     stage::Material,
 };
@@ -38,14 +38,14 @@ impl ObjectSource<Object> for StackScene {
 
 pub(super) struct ObjectWork<I> {
     objects: alloc::vec::Vec<(I, InstancePose, Fixed)>,
-    sampled: alloc::vec::Vec<ViewStack>,
+    sampled: ViewStacks,
 }
 
 impl<I> Default for ObjectWork<I> {
     fn default() -> Self {
         Self {
             objects: alloc::vec::Vec::new(),
-            sampled: alloc::vec::Vec::new(),
+            sampled: ViewStacks::default(),
         }
     }
 }
@@ -56,10 +56,10 @@ impl ObjectPass {
         self.work.storage_bytes()
     }
 
-    /// Drops the layer buffers of removed instances. The object slots remain available for reuse.
+    /// Drops the sampled layer buffers. The object slots remain available for reuse.
     pub fn clear(&mut self) {
         self.work.objects.clear();
-        self.work.sampled.clear();
+        self.work.sampled.release_layers();
     }
 
     /// Resolves the selected instances once for this frame. Drawing any number of tiles reuses these transforms and the scene-owned geometry.
@@ -78,12 +78,7 @@ impl ObjectPass {
 impl<I: Copy> ObjectWork<I> {
     fn storage_bytes(&self) -> usize {
         self.objects.capacity() * core::mem::size_of::<(I, InstancePose, Fixed)>()
-            + self.sampled.capacity() * core::mem::size_of::<ViewStack>()
-            + self
-                .sampled
-                .iter()
-                .map(ViewStack::storage_bytes)
-                .sum::<usize>()
+            + self.sampled.storage_bytes()
     }
 
     pub(super) fn prepare<'a, S: ObjectSource<I>>(
@@ -93,7 +88,7 @@ impl<I: Copy> ObjectWork<I> {
         mut include: impl FnMut(I, &Geometry, Pose) -> bool,
     ) -> Result<Projected<'a, I, S>, RenderError> {
         self.objects.clear();
-        let mut sampled = 0;
+        self.sampled.reset();
         let mut result: Result<(), RenderError> = Ok(());
         scene.visit(|id, geometry, pose| {
             if result.is_err() || !include(id, geometry, pose) {
@@ -108,20 +103,13 @@ impl<I: Copy> ObjectWork<I> {
                 let mut scale = camera.projection.scale;
                 match geometry {
                     Geometry::Sampled(asset) => {
-                        if sampled == self.sampled.len() {
-                            self.sampled
-                                .try_reserve_exact(1)
-                                .map_err(|_| RenderError::MissingWorkspace)?;
-                            self.sampled.push(ViewStack::default());
-                        }
                         let stack = transform.stack(Fixed::from_ratio(asset.spacing_q8(), 256));
                         let stack = LayerGrid::prepared(asset).with_depth_extent(
                             stack,
                             asset.extent()[2],
                             &camera,
                         );
-                        self.sampled[sampled].prepare(asset, stack, &camera.projection)?;
-                        sampled += 1;
+                        self.sampled.push(asset, stack, &camera.projection)?;
                     }
                     Geometry::Prepared(asset) if !camera.projection.perspective.is_zero() => {
                         scale = LayerGrid::prepared(asset).nearest_scale(
@@ -150,7 +138,6 @@ impl<I: Copy> ObjectWork<I> {
             })();
         });
         result?;
-        self.sampled.truncate(sampled);
         Ok(Projected {
             scene,
             camera,
@@ -176,7 +163,7 @@ pub(super) struct Projected<'a, I, S> {
 
 impl<I: Copy, S: ObjectSource<I>> Projected<'_, I, S> {
     pub(super) fn draw(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
-        let mut sampled = self.pass.sampled.iter();
+        let mut sampled = 0;
         for &(id, instance, scale) in &self.pass.objects {
             let transform = ObjectProjection {
                 camera: &self.camera,
@@ -198,11 +185,9 @@ impl<I: Copy, S: ObjectSource<I>> Projected<'_, I, S> {
                             draw_sparse::<true>(tile, &transform, sprite, scale, material)
                         }
                         Geometry::Sampled(sprite) => {
-                            if let Some(view) = sampled
-                                .next()
-                                .expect("prepared scene instance")
-                                .view(sprite)
-                            {
+                            let view = self.pass.sampled.view(sampled, sprite);
+                            sampled += 1;
+                            if let Some(view) = view {
                                 let palette = sprite.palette();
                                 if material.is_default() {
                                     view.draw(tile, &self.camera.projection, |s| {

@@ -229,6 +229,89 @@ fn directed_view_uses_projected_cell_size_for_authored_lods() {
     }
 }
 
+#[test]
+fn sampled_layer_workspace_reuses_capacity_across_membership_changes() {
+    use mirui_sprite_stack::{
+        Geometry, ObjectPass, PreparedSpriteStack, SparseLevel, StackSample, ViewProjection,
+        raster::{Frame, Projection, Workspace},
+    };
+    const CELL: StackSample = StackSample {
+        x: 0,
+        y: 0,
+        color: 0,
+    };
+    const SHORT: PreparedSpriteStack<'static> = PreparedSpriteStack::new(
+        [1, 1, 1],
+        [0; 3],
+        256,
+        &[RED],
+        &[SparseLevel::new(1, &[0, 1], &[CELL]).unwrap()],
+    )
+    .unwrap();
+    const TALL: PreparedSpriteStack<'static> = PreparedSpriteStack::new(
+        [1, 1, 3],
+        [0; 3],
+        256,
+        &[BLUE],
+        &[SparseLevel::new(1, &[0, 1, 2, 3], &[CELL; 3]).unwrap()],
+    )
+    .unwrap();
+    let mut scene = StackScene::bounded(2);
+    scene
+        .place(Geometry::Sampled(&SHORT), Pose::at(-3, 0, 0))
+        .unwrap();
+    let mut second = scene
+        .place(Geometry::Sampled(&TALL), Pose::at(3, 0, 0))
+        .unwrap();
+    let mut pass = ObjectPass::default();
+    let mut frame = Frame::new(16, 16).unwrap();
+    let mut work = Workspace::new(16, 4).unwrap();
+    let mut draw = |pass: &mut ObjectPass, scene: &StackScene| {
+        let camera = ViewProjection::horizontal(
+            Projection {
+                perspective: Default::default(),
+                slope: Fixed::ZERO,
+                scale: Fixed::ONE,
+                center: [Fixed::from_int(8); 2],
+            },
+            [Fixed::ZERO; 3],
+            [Fixed::ZERO, Fixed::ONE],
+            Fixed::from_int(32),
+        );
+        let objects = pass.prepare(scene, camera, |_, _, _| true).unwrap();
+        work.render_rows(&mut frame, |tile| {
+            tile.color.bytes.fill(0);
+            tile.clear_depth();
+            objects.draw(tile)
+        })
+        .unwrap();
+        let pixels = frame.texture.read_pixels().unwrap();
+        let mut counts = [0, 0];
+        for color in pixels.bytes().chunks_exact(4) {
+            counts[0] += usize::from(color == RED);
+            counts[1] += usize::from(color == BLUE);
+        }
+        counts
+    };
+    let expected = draw(&mut pass, &scene);
+    assert!(expected.into_iter().all(|count| count > 0));
+    let capacity = pass.storage_bytes();
+    for _ in 0..3 {
+        scene.remove(second).unwrap();
+        assert_eq!(draw(&mut pass, &scene), [expected[0], 0]);
+        second = scene
+            .place(Geometry::Sampled(&TALL), Pose::at(3, 0, 0))
+            .unwrap();
+        let allocations = allocations::tracked_allocations(|| {
+            assert_eq!(draw(&mut pass, &scene), expected);
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(pass.storage_bytes(), capacity);
+    }
+    pass.clear();
+    assert!(pass.storage_bytes() < capacity);
+}
+
 mod stage_material {
     use super::*;
     use mirui_sprite_stack::{StackStage, StackStageCommands, StackVisual};
