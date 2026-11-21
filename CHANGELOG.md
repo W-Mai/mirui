@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `StackVisual` can replace an indexed sprite's palette and blend visible colors toward white. Palette replacement preserves source alpha across detail levels.
 - Passing Lane binds vehicle visuals and both cameras to its race Model. Stage members backed by a live height field update their viewports when the ground changes.
 - A model-bound `StackVisual` follows edits to its selected height field and releases the previous field's subscription when the model selects another source.
+- Removing a model-list item retires its stage-spawned entity and detaches visuals bound to that item from existing entities.
 
 - SpriteStack viewports accept an attached overlay component with reactive inputs and in-frame composition.
 

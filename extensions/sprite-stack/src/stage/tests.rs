@@ -1,5 +1,6 @@
 use super::*;
 use crate::{HeightField, TerrainCell, TerrainGrid};
+use mirui::core::model::{ModelItemId, ModelList};
 use mirui::{core::cache::Handle, ecs::CommandError, prelude::*};
 
 #[mirui::model]
@@ -12,6 +13,19 @@ struct Car {
 impl Car {
     fn move_to(&mut self, pose: Pose) {
         self.pose = pose;
+    }
+}
+
+#[mirui::model]
+struct Fleet {
+    cars: model!(owned ModelList<Car>),
+}
+
+#[mirui::model]
+impl Fleet {
+    fn remove_rejected(&mut self, item: ModelItemId) -> Result<(), ()> {
+        assert!(self.cars.remove(item).is_some());
+        Err(())
     }
 }
 
@@ -33,7 +47,10 @@ enum Edit {
 
 #[mirui::system]
 fn edit_stage(edit: res!(mut Operation), commands: commands!()) {
-    match edit.edit.take().unwrap() {
+    let Some(operation) = edit.edit.take() else {
+        return;
+    };
+    match operation {
         Edit::Spawn(visual) => commands.stage(&edit.stage).spawn(Pilot, visual),
         Edit::Attach(entity, visual) => commands.stage(&edit.stage).attach(entity, visual),
         Edit::Transfer(entity) => commands.stage(&edit.stage).transfer(entity),
@@ -72,6 +89,112 @@ fn apply<B: Surface, F: RendererFactory<B>>(
         .map_err(|error| error.cause);
     mirui::core::reactive::flush_signal_dirty(&mut app.world);
     result
+}
+
+#[test]
+fn collection_retirement_follows_the_entity_and_preserves_independent_entities() {
+    let mut app = App::headless(32, 32);
+    app.add_system(edit_stage::system());
+    let road = app.add_model(StackStage::bounded(5)).finish();
+    let garage = app.add_model(StackStage::bounded(1)).finish();
+    let mut cars = ModelList::bounded(3);
+    assert!(
+        cars.try_push(Car {
+            pose: Pose::at(0, 0, 0)
+        })
+        .is_ok()
+    );
+    assert!(
+        cars.try_push(Car {
+            pose: Pose::at(1, 0, 0)
+        })
+        .is_ok()
+    );
+    let fleet = app.add_model(Fleet { cars: cars.into() }).finish();
+    let cars = fleet.cars();
+    let mut entries = cars.entries();
+    let (removed_id, removed) = entries.next().unwrap();
+    let (retained_id, retained) = entries.next().unwrap();
+    drop(entries);
+    let independent = app
+        .add_model(Car {
+            pose: Pose::at(2, 0, 0),
+        })
+        .finish();
+    let unrelated = app.world.spawn_empty();
+    let existing = app.world.spawn_empty();
+    let field = geometry();
+    let calls = [Rc::new(Cell::new(0)), Rc::new(Cell::new(0))];
+    let visual = |model: &CarHandle, calls: Option<Rc<Cell<usize>>>| {
+        let field = field.clone();
+        StackVisual::from_model(model, move |car| {
+            if let Some(calls) = &calls {
+                calls.set(calls.get() + 1);
+            }
+            StackVisual::new(field.clone()).at(car.pose())
+        })
+    };
+    apply(
+        &mut app,
+        &road,
+        Edit::Spawn(visual(&removed, Some(calls[0].clone()))),
+    )
+    .unwrap();
+    let (derived, _) = app.world.query::<Pilot>().iter().next().unwrap();
+    apply(
+        &mut app,
+        &road,
+        Edit::Spawn(visual(&retained, Some(calls[1].clone()))),
+    )
+    .unwrap();
+    apply(
+        &mut app,
+        &road,
+        Edit::Attach(existing, visual(&removed, None)),
+    )
+    .unwrap();
+    apply(&mut app, &road, Edit::Spawn(visual(&independent, None))).unwrap();
+    apply(
+        &mut app,
+        &road,
+        Edit::Attach(unrelated, StackVisual::new(field.clone()).into()),
+    )
+    .unwrap();
+    assert_eq!(road.len(), 5);
+
+    cars.swap(0, 1).unwrap();
+    mirui::core::reactive::flush_signal_dirty(&mut app.world);
+    assert_eq!(calls.each_ref().map(|c| c.get()), [1, 1]);
+    retained.move_to(Pose::at(4, 0, 0));
+    mirui::core::reactive::flush_signal_dirty(&mut app.world);
+    assert_eq!(calls.each_ref().map(|c| c.get()), [1, 2]);
+    apply(&mut app, &garage, Edit::Transfer(derived)).unwrap();
+
+    assert_eq!(fleet.remove_rejected(removed_id), Err(()));
+    assert!(cars.get_by_id(removed_id).is_none());
+    assert!(!app.tick());
+    assert_eq!([road.len(), garage.len()], [3, 0]);
+    assert!(!app.world.is_alive(derived));
+    assert!(app.world.is_alive(existing));
+    assert!(!app.world.has::<StackVisual>(existing));
+    assert!(app.world.has::<StackVisual>(unrelated));
+    assert!(ModelHandle::callback_ready(&independent));
+    assert_eq!(calls.each_ref().map(|c| c.get()), [1, 2]);
+
+    let replacement_id = cars
+        .try_push(Car {
+            pose: Pose::at(5, 0, 0),
+        })
+        .ok()
+        .unwrap();
+    assert_ne!(replacement_id, removed_id);
+    let replacement = cars.get_by_id(replacement_id).unwrap();
+    apply(&mut app, &garage, Edit::Spawn(visual(&replacement, None))).unwrap();
+    assert!(cars.remove(retained_id).is_ok());
+    assert!(!app.tick());
+    assert_eq!([road.len(), garage.len()], [2, 1]);
+    assert!(ModelHandle::callback_ready(&replacement));
+    assert_eq!(calls.each_ref().map(|c| c.get()), [1, 2]);
 }
 
 #[test]

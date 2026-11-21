@@ -87,6 +87,8 @@ fn stage_views(stage: model!(StackStage)) -> Entity {
 
 Each viewport uses its own camera and output frame. Closing a viewport releases that viewport's resources. `commands.stage(&destination).transfer(entity)` keeps the entity and its visual binding while changing the set of viewports that display it. `commands.remove::<StackVisual>(entity)` detaches the visual, and `commands.despawn(entity)` retires the entity.
 
+A model-bound visual follows its source incarnation. When a `ModelList` item is removed, the scene despawns an entity created with `spawn` or detaches the visual from an entity supplied with `attach`. List reordering preserves the existing visual bindings.
+
 An indexed sprite can use `StackVisual::new(asset).at(pose).with_palette(skin).with_flash(hit_flash)`. The borrowed palette must have the same number of entries as the indexed source. Its RGB values apply at every level of detail, with coverage determined by the source alpha. `with_flash` blends visible sprite colors toward white and accepts a `Fixed` amount from zero to one. A visual bound with `StackVisual::from_model` retains its last valid value if the Model supplies an incompatible palette.
 
 ## Shared scenes

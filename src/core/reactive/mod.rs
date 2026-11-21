@@ -1183,6 +1183,14 @@ pub struct Signal<T: 'static> {
     inner: Rc<RefCell<SignalInner<T>>>,
 }
 
+pub(crate) struct WeakSignal<T: 'static>(Weak<RefCell<SignalInner<T>>>);
+
+impl<T: 'static> WeakSignal<T> {
+    pub(crate) fn upgrade(&self) -> Option<Signal<T>> {
+        self.0.upgrade().map(|inner| Signal { inner })
+    }
+}
+
 pub(crate) struct SignalSubscription<T: 'static> {
     inner: Weak<RefCell<SignalInner<T>>>,
     subscriber: OwnedSubscriber,
@@ -1225,6 +1233,10 @@ impl<T: 'static> Drop for Signal<T> {
 }
 
 impl<T: 'static> Signal<T> {
+    pub(crate) fn downgrade(&self) -> WeakSignal<T> {
+        WeakSignal(Rc::downgrade(&self.inner))
+    }
+
     pub(crate) fn has_subscribers(&self) -> bool {
         let inner = self.inner.borrow();
         if !inner.subscribers.is_empty() {

@@ -1,10 +1,12 @@
 use super::{Model, ModelAccess};
+use crate::core::reactive::{Signal, WeakSignal};
 use alloc::rc::{Rc, Weak};
 use core::cell::Cell;
 
 pub(super) struct ModelLifetime {
     generation: Cell<u64>,
     active: Cell<bool>,
+    retirement: Cell<Option<WeakSignal<bool>>>,
 }
 
 impl ModelLifetime {
@@ -12,6 +14,7 @@ impl ModelLifetime {
         Self {
             generation: Cell::new(0),
             active: Cell::new(false),
+            retirement: Cell::new(None),
         }
     }
 
@@ -41,6 +44,20 @@ impl ModelLifetime {
 
     pub(super) fn retire(&self) {
         self.active.set(false);
+        if let Some(live) = self.retirement.take().and_then(|signal| signal.upgrade()) {
+            live.set(false);
+        }
+    }
+
+    fn retirement_signal(&self) -> Signal<bool> {
+        let existing = self.retirement.take();
+        if let Some(live) = existing.as_ref().and_then(WeakSignal::upgrade) {
+            self.retirement.set(existing);
+            return live;
+        }
+        let live = Signal::new(true);
+        self.retirement.set(Some(live.downgrade()));
+        live
     }
 }
 
@@ -61,6 +78,15 @@ impl<M: Model> Clone for ModelRef<M> {
 }
 
 impl<M: Model> ModelRef<M> {
+    /// Returns a tracked inquiry for this incarnation's lifetime.
+    #[doc(hidden)]
+    pub fn observe_lifetime(&self) -> Option<impl Fn() -> bool + use<M>> {
+        let access = self.upgrade()?;
+        let mut live = None;
+        access.metadata(&mut |metadata| live = Some(metadata.lifetime.retirement_signal()));
+        live.map(|live| move || live.get())
+    }
+
     #[cfg(feature = "persistence")]
     pub(crate) fn persistence_target(&self) -> Option<super::PersistenceTarget> {
         let access = self.upgrade()?;
@@ -136,5 +162,20 @@ mod tests {
         assert!(!lifetime.activate());
         assert_eq!(lifetime.current(), None);
         assert!(!lifetime.activate());
+    }
+
+    #[test]
+    fn retirement_watch_is_shared_and_cannot_follow_the_next_incarnation() {
+        let lifetime = ModelLifetime::new();
+        assert!(lifetime.activate());
+        let first = lifetime.retirement_signal();
+        let second = lifetime.retirement_signal();
+        assert!(first.get() && second.get());
+        lifetime.retire();
+        assert!(!first.get() && !second.get());
+        assert!(lifetime.activate());
+        let replacement = lifetime.retirement_signal();
+        assert!(replacement.get());
+        assert!(!first.get() && !second.get());
     }
 }

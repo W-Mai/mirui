@@ -1,7 +1,7 @@
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use core::cell::{Cell, RefCell};
+use core::cell::{Cell, OnceCell, RefCell};
 use mirui::{
-    __macro_support::{DeferredCommands, with_world, with_world_scope},
+    __macro_support::{DeferredCommands, despawn_subtree, with_world, with_world_scope},
     core::{
         model::{BindingOwner, ModelHandle},
         reactive::{Effect, Signal},
@@ -200,16 +200,26 @@ impl StackVisual {
         self.pose
     }
 
-    /// Bind a visual description to the observed fields read from a registered model.
+    /// Bind a visual description to the observed fields read from a registered model. Retirement removes an attached visual or despawns an entity created by the stage.
     pub fn from_model<H: ModelHandle + 'static>(
         model: &H,
         visual: impl Fn(&H) -> Self + 'static,
     ) -> StackVisualInput {
         let owner = BindingOwner::registered(model);
         let model = model.clone();
+        let retirement = OnceCell::new();
         StackVisualInput(VisualInput::Bound {
             owner,
-            read: Box::new(move || model.callback_ready().then(|| visual(&model))),
+            read: Box::new(move || {
+                let live = retirement.get_or_init(|| model.access().observe_lifetime());
+                if !live.as_ref().is_some_and(|observe| observe()) {
+                    VisualRead::Retired
+                } else if model.callback_ready() {
+                    VisualRead::Ready(visual(&model))
+                } else {
+                    VisualRead::Waiting
+                }
+            }),
         })
     }
 
@@ -242,8 +252,20 @@ enum VisualInput {
     Static(StackVisual),
     Bound {
         owner: BindingOwner,
-        read: Box<dyn Fn() -> Option<StackVisual>>,
+        read: Box<dyn Fn() -> VisualRead>,
     },
+}
+
+enum VisualRead {
+    Ready(StackVisual),
+    Waiting,
+    Retired,
+}
+
+#[derive(Clone, Copy)]
+enum OnModelRetirement {
+    Despawn,
+    Detach,
 }
 
 impl From<StackVisual> for StackVisualInput {
@@ -270,6 +292,7 @@ impl StackVisualInput {
         self,
         world: &mut World,
         entity: Entity,
+        retire: OnModelRetirement,
     ) -> Result<Option<Effect>, CommandCommitError> {
         match self.0 {
             VisualInput::Static(visual) => {
@@ -306,6 +329,26 @@ impl StackVisualInput {
                             if !world.is_alive(entity) {
                                 return;
                             }
+                            let next = match next {
+                                VisualRead::Ready(visual) => Some(visual),
+                                VisualRead::Waiting => None,
+                                VisualRead::Retired => {
+                                    if world
+                                        .get::<StackVisual>(entity)
+                                        .is_some_and(|visual| visual.membership.is_some())
+                                    {
+                                        match retire {
+                                            OnModelRetirement::Despawn => {
+                                                despawn_subtree(world, entity)
+                                            }
+                                            OnModelRetirement::Detach => {
+                                                world.remove::<StackVisual>(entity);
+                                            }
+                                        }
+                                    }
+                                    return;
+                                }
+                            };
                             let Some(next) = next.filter(|next| next.check(world).is_ok()) else {
                                 if let Some(visual) = world.get::<StackVisual>(entity) {
                                     let revision = observe_field(&visual.geometry);
@@ -457,7 +500,10 @@ impl<B: IntoBundle + 'static> DeferredOperation for Spawn<B> {
         }
         // The visual argument owns the live stage attachment.
         world.remove::<StackVisual>(entity);
-        let effect = match self.visual.install(world, entity) {
+        let effect = match self
+            .visual
+            .install(world, entity, OnModelRetirement::Despawn)
+        {
             Ok(effect) => effect,
             Err(error) => {
                 world.despawn(entity);
@@ -489,7 +535,9 @@ impl DeferredOperation for Attach {
         let stage = members(&self.stage, world)?;
         stage.check_capacity()?;
         self.visual.check(world)?;
-        let effect = self.visual.install(world, entity)?;
+        let effect = self
+            .visual
+            .install(world, entity, OnModelRetirement::Detach)?;
         finish_mount(world, entity, stage, effect);
         Ok(())
     }
