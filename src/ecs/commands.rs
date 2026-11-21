@@ -12,6 +12,13 @@ const MIN_PAYLOAD_CAPACITY: usize = 64;
 pub(crate) type EntityPayload<T> = (T, fn(&mut World, Entity, T) -> Result<(), CommandError>);
 pub(crate) type ResourcePayload<T> = (T, fn(&mut World, T));
 
+/// A typed command submitted by a framework extension.
+///
+/// The callback's borrows have ended when this runs. Validate the operation before mutating the World if a rejection must preserve the original state.
+pub trait DeferredOperation: 'static {
+    fn apply(self, world: &mut World) -> Result<(), CommandCommitError>;
+}
+
 trait EntityOperation: 'static {
     fn apply(
         self,
@@ -97,6 +104,11 @@ impl CommandCapacity {
     /// Reserve resource removals.
     pub const fn remove_resource<T: 'static>(self, count: usize) -> Self {
         self.empty(count)
+    }
+
+    /// Reserve operations of the given extension command type.
+    pub const fn enqueue<O: DeferredOperation>(self, count: usize) -> Self {
+        self.payload::<O>(count)
     }
 
     pub(crate) const fn entity_value<T: 'static>(self, count: usize) -> Self {
@@ -493,6 +505,12 @@ pub struct DeferredCommands<'queue> {
 }
 
 impl DeferredCommands<'_> {
+    /// Record a typed extension command for execution in the current batch.
+    pub fn enqueue<O: DeferredOperation>(&mut self, operation: O) {
+        self.queue
+            .push_payload(None, operation, apply_operation::<O>);
+    }
+
     pub(crate) fn apply<T: 'static>(
         &mut self,
         entity: Entity,
@@ -547,6 +565,18 @@ impl DeferredCommands<'_> {
     pub fn remove_resource<T: 'static>(&mut self) {
         self.queue.push_empty(None, apply_remove_resource::<T>);
     }
+}
+
+unsafe fn apply_operation<O: DeferredOperation>(
+    world: &mut World,
+    _target: Option<Entity>,
+    payload: *mut u8,
+    _event: Option<&dyn Any>,
+) -> Result<(), CommandError> {
+    // SAFETY: this apply function is paired with a stored O.
+    unsafe { read_stored::<O>(payload) }
+        .apply(world)
+        .map_err(CommandError::Commit)
 }
 
 unsafe fn apply_insert<T: Component>(
@@ -636,6 +666,61 @@ mod tests {
     impl Component for Marker {}
 
     struct Resource(u32);
+
+    struct ReplaceMarker {
+        entity: Entity,
+        value: u32,
+    }
+
+    impl DeferredOperation for ReplaceMarker {
+        fn apply(self, world: &mut World) -> Result<(), CommandCommitError> {
+            let marker =
+                world
+                    .get_mut::<Marker>(self.entity)
+                    .ok_or(CommandCommitError::MissingTarget {
+                        entity: self.entity,
+                    })?;
+            marker.0 = self.value;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn bounded_extension_command_shares_order_capacity_and_commit_errors() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let removed = world.spawn_empty();
+        world.despawn(removed);
+        world.insert(entity, Marker(0));
+        let capacity = CommandCapacity::new()
+            .insert::<Marker>(2)
+            .enqueue::<ReplaceMarker>(1);
+        let mut queue = CommandQueue::bounded(capacity).unwrap();
+        let allocations = tracked_allocations(|| {
+            let mut batch = queue.begin();
+            batch.commands().insert(entity, Marker(1));
+            batch.commands().enqueue(ReplaceMarker { entity, value: 2 });
+            assert_eq!(world.get::<Marker>(entity), Some(&Marker(0)));
+            batch.finish(&mut world).unwrap();
+            assert_eq!(world.get::<Marker>(entity), Some(&Marker(2)));
+
+            let mut batch = queue.begin();
+            batch.commands().insert(entity, Marker(3));
+            batch.commands().enqueue(ReplaceMarker {
+                entity: removed,
+                value: 4,
+            });
+            batch.commands().insert(entity, Marker(5));
+            assert_eq!(
+                batch.finish(&mut world),
+                Err(CommandError::Commit(CommandCommitError::MissingTarget {
+                    entity: removed
+                }))
+            );
+            assert_eq!(world.get::<Marker>(entity), Some(&Marker(3)));
+        });
+        assert_eq!(allocations, 0);
+    }
 
     struct DropMarker(Rc<Cell<u32>>);
 

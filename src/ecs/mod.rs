@@ -10,7 +10,7 @@ pub mod time;
 pub mod world;
 
 pub use bundle::{Component, IntoBundle};
-pub use commands::{CommandCapacity, CommandCommitError, CommandError};
+pub use commands::{CommandCapacity, CommandCommitError, CommandError, DeferredOperation};
 pub use entity::Entity;
 pub use query::QueryBuilder;
 pub use sparse_set::SparseSet;

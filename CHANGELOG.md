@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Queue typed extension operations with `DeferredOperation` in the existing ECS command batch. Operations can return a commit error, and event callbacks can reserve their payload capacity with `CommandCapacity::enqueue`.
+
 - SpriteStack viewports accept an attached overlay component with reactive inputs and in-frame composition.
 
 - Pixel Flight registers its hint font alongside the host's fonts and passes unused keys to other App handlers.
