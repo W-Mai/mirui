@@ -146,43 +146,18 @@ impl<'a> PreparedSpriteStack<'a> {
         palette: &'a [[u8; 4]],
         levels: &'a [SparseLevel<'a>],
     ) -> Option<Self> {
-        let [w, h, layers] = extent;
-        if w == 0
-            || h == 0
-            || layers == 0
-            || w > 256
-            || h > 256
-            || spacing_q8 <= 0
-            || palette.is_empty()
-            || palette.len() > 256
-            || levels.is_empty()
-            || levels[0].step != 1
-        {
+        if !valid_header(extent, spacing_q8, palette, levels.len()) {
             return None;
         }
-        let mut i = 0;
-        while i < levels.len() {
-            let level = levels[i];
-            if level.offsets.len() != layers as usize + 1
-                || (i > 0 && levels[i - 1].step >= level.step)
-            {
+        let mut previous_step = 0;
+        let mut index = 0;
+        while index < levels.len() {
+            let level = levels[index];
+            if !valid_level(extent, palette, level, previous_step) {
                 return None;
             }
-            let mut j = 0;
-            while j < level.samples.len() {
-                let s = level.samples[j];
-                if s.x as u16 >= w
-                    || s.y as u16 >= h
-                    || (s.x as u16).rem_euclid(level.step) != 0
-                    || (s.y as u16).rem_euclid(level.step) != 0
-                    || s.color as usize >= palette.len()
-                    || palette[s.color as usize][3] != 255
-                {
-                    return None;
-                }
-                j += 1;
-            }
-            i += 1;
+            previous_step = level.step;
+            index += 1;
         }
         Some(Self {
             extent,
@@ -207,6 +182,52 @@ impl<'a> PreparedSpriteStack<'a> {
     pub const fn levels(&self) -> &'a [SparseLevel<'a>] {
         self.levels
     }
+}
+
+const fn valid_header(
+    [width, height, layers]: [u16; 3],
+    spacing_q8: i32,
+    palette: &[[u8; 4]],
+    level_count: usize,
+) -> bool {
+    width > 0
+        && height > 0
+        && layers > 0
+        && width <= 256
+        && height <= 256
+        && spacing_q8 > 0
+        && !palette.is_empty()
+        && palette.len() <= 256
+        && level_count > 0
+}
+
+const fn valid_level(
+    [width, height, layers]: [u16; 3],
+    palette: &[[u8; 4]],
+    level: SparseLevel<'_>,
+    previous_step: u16,
+) -> bool {
+    if level.layer_count() != layers as usize
+        || level.step <= previous_step
+        || (previous_step == 0 && level.step != 1)
+    {
+        return false;
+    }
+    let mut index = 0;
+    while index < level.samples.len() {
+        let sample = level.samples[index];
+        if sample.x as u16 >= width
+            || sample.y as u16 >= height
+            || (sample.x as u16).rem_euclid(level.step) != 0
+            || (sample.y as u16).rem_euclid(level.step) != 0
+            || sample.color as usize >= palette.len()
+            || palette[sample.color as usize][3] != 255
+        {
+            return false;
+        }
+        index += 1;
+    }
+    true
 }
 
 #[cfg(test)]
