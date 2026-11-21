@@ -5,6 +5,7 @@ use crate::{
         SceneCanvas,
         sprites::{LayerGrid, StackTransform, ViewStack},
     },
+    stage::Material,
 };
 use mirui::{
     render::RenderError,
@@ -18,7 +19,7 @@ pub struct ObjectPass {
 
 pub(super) trait ObjectSource<I> {
     fn visit(&self, read: impl FnMut(I, &Geometry, Pose));
-    fn with_geometry<R>(&self, id: I, read: impl FnOnce(&Geometry) -> R) -> Option<R>;
+    fn with_geometry<R>(&self, id: I, read: impl FnOnce(&Geometry, Material) -> R) -> Option<R>;
 }
 
 impl ObjectSource<Object> for StackScene {
@@ -26,8 +27,12 @@ impl ObjectSource<Object> for StackScene {
         self.for_each(read);
     }
 
-    fn with_geometry<R>(&self, id: Object, read: impl FnOnce(&Geometry) -> R) -> Option<R> {
-        self.with_object(id, |geometry, _| read(geometry))
+    fn with_geometry<R>(
+        &self,
+        id: Object,
+        read: impl FnOnce(&Geometry, Material) -> R,
+    ) -> Option<R> {
+        self.with_object(id, |geometry, _| read(geometry, Material::default()))
     }
 }
 
@@ -178,20 +183,35 @@ impl<I: Copy, S: ObjectSource<I>> Projected<'_, I, S> {
                 instance,
             };
             self.scene
-                .with_geometry(id, |geometry| -> Result<(), RenderError> {
+                .with_geometry(id, |geometry, material| -> Result<(), RenderError> {
                     match geometry {
-                        Geometry::Sprite(sprite) => {
-                            draw_atlas(tile, &transform, sprite.get(), scale)?
+                        Geometry::Sprite(sprite) if material.is_default() => {
+                            draw_atlas::<false>(tile, &transform, sprite.get(), scale, material)?
                         }
-                        Geometry::Prepared(sprite) => draw_sparse(tile, &transform, sprite, scale),
+                        Geometry::Sprite(sprite) => {
+                            draw_atlas::<true>(tile, &transform, sprite.get(), scale, material)?
+                        }
+                        Geometry::Prepared(sprite) if material.is_default() => {
+                            draw_sparse::<false>(tile, &transform, sprite, scale, material)
+                        }
+                        Geometry::Prepared(sprite) => {
+                            draw_sparse::<true>(tile, &transform, sprite, scale, material)
+                        }
                         Geometry::Sampled(sprite) => {
                             if let Some(view) =
                                 sampled.next().expect("prepared scene instance").view()
                             {
                                 let palette = sprite.palette();
-                                view.draw(tile, &self.camera.projection, |s| {
-                                    u32::from_le_bytes(palette[usize::from(s.color)])
-                                });
+                                if material.is_default() {
+                                    view.draw(tile, &self.camera.projection, |s| {
+                                        u32::from_le_bytes(palette[usize::from(s.color)])
+                                    });
+                                } else {
+                                    view.draw(tile, &self.camera.projection, |s| {
+                                        let index = usize::from(s.color);
+                                        material.shade(palette[index], Some(index))
+                                    });
+                                }
                             }
                         }
                         Geometry::Field(field) => draw_field(tile, &transform, field.get()),
@@ -390,11 +410,12 @@ impl LayerGrid {
         );
     }
 }
-fn draw_atlas(
+fn draw_atlas<const STYLED: bool>(
     tile: &mut SceneCanvas<'_, '_>,
     t: &ObjectProjection<'_>,
     asset: &SpriteStackAsset,
     scale: Fixed,
+    material: Material,
 ) -> Result<(), RenderError> {
     let slice = SliceProjection::new(t);
     let d = asset.descriptor();
@@ -418,14 +439,21 @@ fn draw_atlas(
                 continue;
             }
             for sample in level.layer(i).expect("validated layer") {
-                let rgba = match sample.color {
-                    crate::format::lod::LodColor::Rgba(rgba) => rgba,
+                let (rgba, index) = match sample.color {
+                    crate::format::lod::LodColor::Rgba(rgba) => (rgba, None),
                     crate::format::lod::LodColor::Indexed(index) => {
-                        let start = usize::from(index) * 4;
-                        palette[start..start + 4]
+                        let index = usize::from(index);
+                        let start = index * 4;
+                        let rgba = palette[start..start + 4]
                             .try_into()
-                            .expect("validated palette index")
+                            .expect("validated palette index");
+                        (rgba, Some(index))
                     }
+                };
+                let color = if STYLED {
+                    material.shade(rgba, index)
+                } else {
+                    u32::from_le_bytes(rgba)
                 };
                 grid.cell(
                     &slice,
@@ -433,13 +461,18 @@ fn draw_atlas(
                     [sample.x, sample.y],
                     elevation,
                     level.step(),
-                    u32::from_le_bytes(rgba),
+                    color,
                 );
             }
         }
         return Ok(());
     }
     let image = asset.atlas().read_pixels()?;
+    let table = (STYLED && material.palette.is_some()).then(|| {
+        image
+            .indexed_color_table()
+            .expect("validated indexed atlas")
+    });
     for i in 0..d.layers().len() {
         let region = d.layers().get(i).expect("validated layer");
         let elevation = grid.elevation(i as u16, spacing);
@@ -448,28 +481,37 @@ fn draw_atlas(
         }
         for y in 0..region.height() as i32 {
             for x in 0..region.width() as i32 {
-                let c = image.get_pixel(region.x() as i32 + x, region.y() as i32 + y);
+                let atlas_x = region.x() as i32 + x;
+                let atlas_y = region.y() as i32 + y;
+                let (c, index) = if let Some(table) = table {
+                    let index =
+                        usize::from(image.get_index(atlas_x, atlas_y).expect("atlas sample"));
+                    let c = table.get(index).expect("validated palette index");
+                    (mirui::types::Color::rgba(c.r, c.g, c.b, c.a), Some(index))
+                } else {
+                    (image.get_pixel(atlas_x, atlas_y), None)
+                };
                 if c.a == 0 {
                     continue;
                 }
-                grid.cell(
-                    &slice,
-                    tile,
-                    [x as u16, y as u16],
-                    elevation,
-                    1,
-                    u32::from_le_bytes([c.r, c.g, c.b, c.a]),
-                );
+                let rgba = [c.r, c.g, c.b, c.a];
+                let color = if STYLED {
+                    material.shade(rgba, index)
+                } else {
+                    u32::from_le_bytes(rgba)
+                };
+                grid.cell(&slice, tile, [x as u16, y as u16], elevation, 1, color);
             }
         }
     }
     Ok(())
 }
-fn draw_sparse(
+fn draw_sparse<const STYLED: bool>(
     tile: &mut SceneCanvas<'_, '_>,
     t: &ObjectProjection<'_>,
     asset: &PreparedSpriteStack<'_>,
     scale: Fixed,
+    material: Material,
 ) {
     let slice = SliceProjection::new(t);
     let [_, _, layers] = asset.extent();
@@ -487,14 +529,14 @@ fn draw_sparse(
         }
         for s in samples {
             let (x, y) = (u16::from(s.x), u16::from(s.y));
-            grid.cell(
-                &slice,
-                tile,
-                [x, y],
-                elevation,
-                level.step(),
-                u32::from_le_bytes(asset.palette()[usize::from(s.color)]),
-            );
+            let index = usize::from(s.color);
+            let rgba = asset.palette()[index];
+            let color = if STYLED {
+                material.shade(rgba, Some(index))
+            } else {
+                u32::from_le_bytes(rgba)
+            };
+            grid.cell(&slice, tile, [x, y], elevation, level.step(), color);
         }
     }
 }

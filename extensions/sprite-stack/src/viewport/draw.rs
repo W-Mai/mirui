@@ -59,10 +59,14 @@ impl ObjectSource<Entity> for StageObjects<'_> {
         }
     }
 
-    fn with_geometry<R>(&self, id: Entity, read: impl FnOnce(&Geometry) -> R) -> Option<R> {
+    fn with_geometry<R>(
+        &self,
+        id: Entity,
+        read: impl FnOnce(&Geometry, crate::stage::Material) -> R,
+    ) -> Option<R> {
         self.world
             .get::<StackVisual>(id)
-            .map(|visual| read(visual.geometry()))
+            .map(|visual| read(visual.geometry(), visual.material()))
     }
 }
 

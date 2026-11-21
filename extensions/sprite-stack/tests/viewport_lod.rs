@@ -228,3 +228,97 @@ fn directed_view_uses_projected_cell_size_for_authored_lods() {
         assert!(visible.into_iter().all(|c| c == expected), "depth {z}");
     }
 }
+
+mod stage_material {
+    use super::*;
+    use mirui_sprite_stack::{StackStage, StackStageCommands, StackVisual};
+
+    const SKIN: [[u8; 4]; 4] = [[20, 140, 40, 0], [200, 130, 30, 0], [255; 4], [255; 4]];
+
+    #[mirui::model]
+    struct Car {
+        asset: Handle<SpriteStackAsset>,
+        #[observe]
+        appearance: (&'static [[u8; 4]], Fixed),
+    }
+
+    #[mirui::model]
+    impl Car {
+        fn asset(&self) -> Handle<SpriteStackAsset> {
+            self.asset.clone()
+        }
+
+        fn change(&mut self, palette: &'static [[u8; 4]], flash: Fixed) {
+            self.appearance = (palette, flash);
+        }
+    }
+
+    #[mirui::component]
+    struct Actor;
+
+    #[mirui::system]
+    fn populate(stage: model!(StackStage), car: model!(Car), commands: commands!()) {
+        if stage.is_empty() {
+            commands.stage(stage).spawn(
+                Actor,
+                StackVisual::from_model(car, |car| {
+                    let (palette, flash) = car.appearance();
+                    StackVisual::new(car.asset())
+                        .with_palette(palette)
+                        .with_flash(flash)
+                }),
+            );
+        }
+    }
+
+    #[mirui::compose]
+    fn view(stage: model!(StackStage)) -> Entity {
+        ui! {
+            Row(width: 32, height: 16) {
+                StackViewport(width: 16, height: 16, stage: stage.clone(), camera: Camera { scale: Fixed::from_int(2), ..Camera::overhead() })
+                StackViewport(width: 16, height: 16, stage: stage, camera: Camera { scale: Fixed::HALF, ..Camera::overhead() })
+            }
+        }
+    }
+
+    #[test]
+    fn both_viewports_preserve_lod_and_coverage() {
+        let mut app = App::headless(32, 16);
+        app.with_default_widgets().add_plugin(SpriteStackPlugin);
+        let stage = app.add_model(StackStage::bounded(1)).finish();
+        let car = app
+            .add_model(Car {
+                asset: asset(true, true),
+                appearance: (&SKIN, Fixed::ZERO),
+            })
+            .finish();
+        let root = app.spawn_root().id();
+        app.compose(root, view(stage.clone()));
+        app.add_system(populate::system(stage.clone(), car.clone()));
+        app.tick();
+
+        let capture = |app: &mut App<_, _>, flash| {
+            let snapshot = app.snapshot().unwrap().unwrap();
+            let pixels = snapshot.read_pixels().unwrap();
+            core::array::from_fn::<_, 2, _>(|view| {
+                let [r, g, b, _] = SKIN[view];
+                let expected = Color::lerp(Color::rgb(r, g, b), Color::rgb(255, 255, 255), flash);
+                let x = view as i32 * 16;
+                (0..16)
+                    .flat_map(|dy| (0..16).map(move |dx| (x + dx, dy)))
+                    .filter(|&(x, y)| pixels.get_pixel(x, y) == expected)
+                    .count()
+            })
+        };
+        let coverage = capture(&mut app, Fixed::ZERO);
+        assert!(coverage[0] > coverage[1] && coverage[1] > 0);
+        car.change(&SKIN, Fixed::HALF);
+        assert_eq!(capture(&mut app, Fixed::HALF), coverage);
+        let revision = stage.revision();
+        car.change(&[[0; 4]], Fixed::ONE);
+        assert_eq!(capture(&mut app, Fixed::HALF), coverage);
+        assert_eq!(stage.revision(), revision);
+        car.change(&SKIN, Fixed::ZERO);
+        assert_eq!(capture(&mut app, Fixed::ZERO), coverage);
+    }
+}

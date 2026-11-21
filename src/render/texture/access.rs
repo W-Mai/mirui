@@ -230,22 +230,29 @@ impl<'a> TexturePixels<'a> {
     }
 
     #[inline]
+    fn index_at(&self, index: IndexLayout, x: i32, y: i32) -> Option<u8> {
+        if x < 0 || y < 0 || x >= i32::from(self.width()) || y >= i32::from(self.height()) {
+            return None;
+        }
+        let row = &self.bytes()[y as usize * index.stride..];
+        let bits = index.format.indexed_bit_depth().expect("indexed format");
+        let bit = usize::from(index.bit) + x as usize * usize::from(bits);
+        mirx::image::read_index_at(row, bit, index.format)
+    }
+
+    /// Reads the palette index of a packed sample, returning `None` for direct pixels or coordinates outside the view.
+    #[inline]
+    pub fn get_index(&self, x: i32, y: i32) -> Option<u8> {
+        let (index, _) = self.indexed.as_ref()?;
+        self.index_at(*index, x, y)
+    }
+
+    #[inline]
     pub fn get_pixel(&self, x: i32, y: i32) -> Color {
         if let Some((index, palette)) = &self.indexed {
-            if x < 0 || y < 0 || x >= i32::from(self.width()) || y >= i32::from(self.height()) {
+            let Some(value) = self.index_at(*index, x, y) else {
                 return Color::rgb(0, 0, 0);
-            }
-            let row = &self.bytes()[y as usize * index.stride..];
-            let bit = usize::from(index.bit)
-                + x as usize
-                    * usize::from(
-                        index
-                            .format
-                            .indexed_bit_depth()
-                            .expect("validated indexed format"),
-                    );
-            let value =
-                mirx::image::read_index_at(row, bit, index.format).expect("validated index stride");
+            };
             let color = palette
                 .view()
                 .get(usize::from(value))

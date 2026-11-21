@@ -183,6 +183,7 @@ mod tests {
             for y in 0..2 {
                 for x in 0..10 {
                     let index = index_at(3 + x, 1 + y);
+                    assert_eq!(sub.get_index(x as i32, y as i32), Some(index as u8));
                     assert_eq!(
                         sub.get_pixel(x as i32, y as i32),
                         Color::rgba(index as u8, 12, 28, (255 - index) as u8)

@@ -7,6 +7,7 @@ use mirui::{
         reactive::{Effect, Signal},
     },
     ecs::{CommandCommitError, Component, DeferredOperation, Entity, IntoBundle, World},
+    types::{Color, Fixed},
 };
 
 use crate::{Geometry, Pose};
@@ -112,16 +113,60 @@ impl Drop for Membership {
 pub struct StackVisual {
     geometry: Geometry,
     pose: Pose,
+    material: Material,
     membership: Option<Membership>,
 }
 
 impl Component for StackVisual {}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Material {
+    pub palette: Option<&'static [[u8; 4]]>,
+    flash: Fixed,
+}
+
+impl Material {
+    pub fn is_default(self) -> bool {
+        self.palette.is_none() && self.flash.is_zero()
+    }
+
+    fn fits(self, geometry: &Geometry) -> bool {
+        if self.is_default() {
+            return true;
+        }
+        let Some(palette) = self.palette else {
+            return !matches!(geometry, Geometry::Field(_) | Geometry::LiveField(_));
+        };
+        let palette_size = match geometry {
+            Geometry::Sprite(sprite) => sprite.get().atlas().indexed_color_table().map(|p| p.len()),
+            Geometry::Prepared(sprite) | Geometry::Sampled(sprite) => Some(sprite.palette().len()),
+            Geometry::Field(_) | Geometry::LiveField(_) => None,
+        };
+        palette_size == Some(palette.len())
+    }
+
+    #[inline]
+    pub fn shade(self, [r, g, b, alpha]: [u8; 4], index: Option<usize>) -> u32 {
+        let [r, g, b, _] = match (self.palette, index) {
+            (Some(palette), Some(i)) => palette[i],
+            _ => [r, g, b, alpha],
+        };
+        let color = Color::rgba(r, g, b, alpha);
+        let color = if self.flash.is_zero() {
+            color
+        } else {
+            Color::lerp(color, Color::rgba(255, 255, 255, alpha), self.flash)
+        };
+        u32::from_le_bytes([color.r, color.g, color.b, color.a])
+    }
+}
 
 impl StackVisual {
     pub fn new(geometry: impl Into<Geometry>) -> Self {
         Self {
             geometry: geometry.into(),
             pose: Pose::default(),
+            material: Material::default(),
             membership: None,
         }
     }
@@ -129,6 +174,22 @@ impl StackVisual {
     pub fn at(mut self, pose: Pose) -> Self {
         self.pose = pose;
         self
+    }
+
+    /// Replace the RGB channels of an indexed sprite's palette. The table must have the source length. Source alpha continues to determine coverage.
+    pub fn with_palette(mut self, palette: &'static [[u8; 4]]) -> Self {
+        self.material.palette = Some(palette);
+        self
+    }
+
+    /// Mix the sprite's visible colors with white by an amount between zero and one.
+    pub fn with_flash(mut self, amount: Fixed) -> Self {
+        self.material.flash = amount.clamp(Fixed::ZERO, Fixed::ONE);
+        self
+    }
+
+    pub(crate) const fn material(&self) -> Material {
+        self.material
     }
 
     pub const fn geometry(&self) -> &Geometry {
@@ -164,6 +225,11 @@ impl StackVisual {
                 .map_err(|_| CommandCommitError::ForeignOwner {
                     service: "stack visual geometry",
                 })?;
+        }
+        if !self.material.fits(&self.geometry) {
+            return Err(CommandCommitError::OperationRejected {
+                operation: "stack visual material",
+            });
         }
         Ok(())
     }
@@ -247,6 +313,7 @@ impl StackVisualInput {
                             };
                             if current.pose == next.pose
                                 && same_geometry(&current.geometry, &next.geometry)
+                                && current.material == next.material
                             {
                                 return;
                             }
@@ -258,6 +325,7 @@ impl StackVisualInput {
                                 .expect("mounted visual");
                             visual.pose = next.pose;
                             visual.geometry = next.geometry;
+                            visual.material = next.material;
                             visual
                                 .membership
                                 .as_ref()
