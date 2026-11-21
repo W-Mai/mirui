@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Reuse ray spacing and scale across orthographic terrain rows in SpriteStack.
+
 ### Added
 
 - SpriteStack viewports accept an attached overlay component with reactive inputs and in-frame composition.

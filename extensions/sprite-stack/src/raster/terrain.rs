@@ -60,6 +60,16 @@ impl HeightProjection {
     }
 }
 
+fn ray_step(scale: Fixed, rows: Fixed, denominator: Fixed) -> Fixed {
+    let width_step = Fixed::from_ratio(25, 10) * denominator / scale;
+    let step = if rows.is_zero() {
+        width_step
+    } else {
+        (denominator * denominator / rows).min(width_step)
+    };
+    step.max(Fixed::HALF)
+}
+
 /// One sampled column of a suspended surface. Its layers share the ground depth buffer.
 pub struct TerrainColumn<'a, 'b, 'c> {
     canvas: &'a mut SceneCanvas<'b, 'c>,
@@ -175,30 +185,38 @@ impl TerrainView {
             return;
         }
         let mut row = HeightProjection::new(cy, p.scale / denominator, p.slope, depth, altitude);
+        // An orthographic ray has the same denominator and spacing at every depth.
+        let orthographic = p
+            .perspective
+            .is_zero()
+            .then(|| (ray_step(p.scale, rows, denominator), denominator / p.scale));
+        let mut minimum_y = row.minimum_y(self.heights);
         let mut open_columns = right - left;
         let (sin, cos) = self.yaw;
         while depth < end && open_columns > 0 {
-            let width_step = Fixed::from_ratio(25, 10) * denominator / p.scale;
-            let step = if !rows.is_zero() {
-                (denominator * denominator / rows).min(width_step)
-            } else {
-                width_step
-            }
-            .max(Fixed::HALF);
+            let step =
+                orthographic.map_or_else(|| ray_step(p.scale, rows, denominator), |(step, _)| step);
             if depth > Fixed::MAX - step {
                 break;
             }
             depth += step;
-            denominator = Fixed::ONE + p.apply_perspective(depth);
-            if denominator <= Fixed::ZERO {
-                break;
-            }
             let previous = row;
-            row = HeightProjection::new(cy, p.scale / denominator, p.slope, depth, altitude);
-            if row.minimum_y(self.heights) >= bottom && previous.minimum_y(self.heights) >= bottom {
+            let scale = if orthographic.is_some() {
+                previous.scale
+            } else {
+                denominator = Fixed::ONE + p.apply_perspective(depth);
+                if denominator <= Fixed::ZERO {
+                    break;
+                }
+                p.scale / denominator
+            };
+            row = HeightProjection::new(cy, scale, p.slope, depth, altitude);
+            let previous_minimum = minimum_y;
+            minimum_y = row.minimum_y(self.heights);
+            if minimum_y >= bottom && previous_minimum >= bottom {
                 continue;
             }
-            let width = denominator / p.scale;
+            let width = orthographic.map_or_else(|| denominator / p.scale, |(_, width)| width);
             let dx = cos * width;
             let dz = -sin * width;
             let mut x = self.origin[0] - cx * dx - depth * sin + dx * left;
