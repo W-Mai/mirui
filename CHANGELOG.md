@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Performance
 
 - Reuse sampled sprite layer storage and retain only the required sample offsets in SpriteStack viewports.
+- Store bounded sprite sample offsets at full subpixel precision in half the space.
 - Reuse ray spacing and scale across orthographic terrain rows in SpriteStack.
 - Decode MIRX RLE literals and repeated single-byte blocks with bulk writes.
 

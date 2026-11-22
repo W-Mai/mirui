@@ -165,7 +165,7 @@ impl<'a, const N: usize> ProjectedStack<'a, N> {
             level: self.level,
             layers: &self.layers[..count],
             order: &self.order[..count],
-            offsets: &self.offsets[..self.core.samples * self.core.samples],
+            offsets: SampleOffsets::Wide(&self.offsets[..self.core.samples * self.core.samples]),
         }
     }
 }
@@ -176,20 +176,105 @@ struct PreparedStack {
     offsets: Range<usize>,
 }
 
+#[derive(Clone, Copy)]
+enum SampleOffsets<'a> {
+    Wide(&'a [[Fixed; 2]]),
+    Packed(&'a [[i16; 2]]),
+}
+
+enum OffsetPool {
+    Packed(Vec<[i16; 2]>),
+    Wide(Vec<[Fixed; 2]>),
+}
+
+// A signed sample coordinate with 1/256-pixel precision spans [-128, 128).
+const SAMPLE_FRACTIONS: i32 = 256;
+
+impl Default for OffsetPool {
+    fn default() -> Self {
+        Self::Packed(Vec::new())
+    }
+}
+
+impl OffsetPool {
+    fn append(
+        &mut self,
+        offsets: &[[Fixed; 2]],
+        [min, max]: [[Fixed; 2]; 2],
+    ) -> Result<Range<usize>, RenderError> {
+        const MIN: Fixed = Fixed::from_int(-128);
+        const END: Fixed = Fixed::from_int(128);
+        if let Self::Packed(pool) = self {
+            if min.iter().all(|&v| v >= MIN) && max.iter().all(|&v| v < END) {
+                let start = pool.len();
+                pool.try_reserve_exact(offsets.len())
+                    .map_err(|_| RenderError::MissingWorkspace)?;
+                pool.extend(
+                    offsets
+                        .iter()
+                        .map(|offset| offset.map(|v| (v * SAMPLE_FRACTIONS).to_int() as i16)),
+                );
+                return Ok(start..pool.len());
+            }
+            let mut wide = Vec::new();
+            let capacity = pool
+                .capacity()
+                .max(pool.len().saturating_add(offsets.len()));
+            wide.try_reserve_exact(capacity)
+                .map_err(|_| RenderError::MissingWorkspace)?;
+            wide.extend(pool.iter().copied().map(expand_offset));
+            *self = Self::Wide(wide);
+        }
+        let Self::Wide(pool) = self else {
+            unreachable!()
+        };
+        let start = pool.len();
+        pool.try_reserve_exact(offsets.len())
+            .map_err(|_| RenderError::MissingWorkspace)?;
+        pool.extend_from_slice(offsets);
+        Ok(start..pool.len())
+    }
+
+    fn clear(&mut self) {
+        match self {
+            Self::Packed(pool) => pool.clear(),
+            Self::Wide(pool) => pool.clear(),
+        }
+    }
+
+    fn offsets(&self, range: Range<usize>) -> SampleOffsets<'_> {
+        match self {
+            Self::Packed(pool) => SampleOffsets::Packed(&pool[range]),
+            Self::Wide(pool) => SampleOffsets::Wide(&pool[range]),
+        }
+    }
+
+    fn storage_bytes(&self) -> usize {
+        match self {
+            Self::Packed(pool) => pool.capacity() * size_of::<[i16; 2]>(),
+            Self::Wide(pool) => pool.capacity() * size_of::<[Fixed; 2]>(),
+        }
+    }
+}
+
+fn expand_offset(offset: [i16; 2]) -> [Fixed; 2] {
+    offset.map(|v| Fixed::from_ratio(i32::from(v), SAMPLE_FRACTIONS))
+}
+
 /// Per-viewport projection storage shared by all sampled instances.
 #[derive(Default)]
 pub(crate) struct ViewStacks {
     stacks: Vec<PreparedStack>,
     layers: Vec<Option<PreparedLayer>>,
     order: Vec<usize>,
-    offsets: Vec<[Fixed; 2]>,
+    offsets: OffsetPool,
 }
 impl ViewStacks {
     pub(crate) fn storage_bytes(&self) -> usize {
         self.stacks.capacity() * size_of::<PreparedStack>()
             + self.layers.capacity() * size_of::<Option<PreparedLayer>>()
             + self.order.capacity() * size_of::<usize>()
-            + self.offsets.capacity() * size_of::<[Fixed; 2]>()
+            + self.offsets.storage_bytes()
     }
 
     pub(crate) fn reset(&mut self) {
@@ -201,7 +286,7 @@ impl ViewStacks {
         self.reset();
         self.layers = Vec::new();
         self.order = Vec::new();
-        self.offsets = Vec::new();
+        self.offsets = OffsetPool::default();
     }
 
     pub(crate) fn push(
@@ -244,19 +329,17 @@ impl ViewStacks {
             },
             |_, _| Some(Fixed::ZERO),
         );
-        let offset_start = self.offsets.len();
-        if let Some(core) = core.as_ref() {
+        let offsets = if let Some(core) = core.as_ref() {
             core.prepare_regions(asset.levels()[core.level], layers, p);
-            let count = core.samples * core.samples;
-            self.offsets
-                .try_reserve_exact(count)
-                .map_err(|_| RenderError::MissingWorkspace)?;
-            self.offsets.extend_from_slice(&offsets[..count]);
-        }
+            let samples = &offsets[..core.samples * core.samples];
+            self.offsets.append(samples, core.sample_bounds)?
+        } else {
+            0..0
+        };
         self.stacks.push(PreparedStack {
             core,
             layers: range,
-            offsets: offset_start..self.offsets.len(),
+            offsets,
         });
         Ok(())
     }
@@ -273,7 +356,7 @@ impl ViewStacks {
             level: &asset.levels()[core.level],
             layers: &self.layers[stack.layers.clone()],
             order: &self.order[stack.layers.clone()],
-            offsets: &self.offsets[stack.offsets.clone()],
+            offsets: self.offsets.offsets(stack.offsets.clone()),
         })
     }
 }
@@ -284,7 +367,7 @@ pub struct SpriteView<'s, 'a> {
     level: &'s SparseLevel<'a>,
     layers: &'s [Option<PreparedLayer>],
     order: &'s [usize],
-    offsets: &'s [[Fixed; 2]],
+    offsets: SampleOffsets<'s>,
 }
 impl SpriteView<'_, '_> {
     /// Visits each covered sample that passes the scene depth test, in layer order. The callback can shade the fragment directly or record coverage for a subsequent pass.
@@ -316,11 +399,27 @@ impl SpriteView<'_, '_> {
         &self,
         clip: [i32; 4],
         p: &Projection,
-        mut sample: impl FnMut(i32, i32, &StackSample, Fixed),
+        sample: impl FnMut(i32, i32, &StackSample, Fixed),
     ) {
         mirui::trace_span!("sprite_stack.samples");
+        match self.offsets {
+            SampleOffsets::Wide(offsets) => {
+                self.visit_offsets(clip, p, offsets.iter().copied(), sample)
+            }
+            SampleOffsets::Packed(offsets) => {
+                self.visit_offsets(clip, p, offsets.iter().copied().map(expand_offset), sample)
+            }
+        }
+    }
+
+    fn visit_offsets(
+        &self,
+        clip: [i32; 4],
+        p: &Projection,
+        offsets: impl Iterator<Item = [Fixed; 2]> + Clone,
+        mut sample: impl FnMut(i32, i32, &StackSample, Fixed),
+    ) {
         let center = self.core.center;
-        let offsets = self.offsets;
         {
             for &index in self.order {
                 let Some(layer) = &self.layers[index] else {
@@ -376,7 +475,7 @@ impl SpriteView<'_, '_> {
                         }
                         continue;
                     }
-                    for offset in offsets {
+                    for offset in offsets.clone() {
                         let xx = if fixed_x {
                             xs[0]
                         } else {
@@ -852,6 +951,60 @@ mod tests {
         LEVELS,
     )
     .unwrap();
+
+    #[test]
+    fn viewport_footprints_preserve_wide_and_packed_sample_positions() {
+        let mut work = ViewStacks::default();
+        let mut first = [[Fixed::ZERO; 2]; 64];
+        let mut first_len = 0;
+        for pixels in [3, 400] {
+            let (p, _) = fixture(Fixed::from_int(pixels), false);
+            let transform = || StackTransform {
+                origin: [Fixed::ZERO; 3],
+                axes: [
+                    [Fixed::ONE, Fixed::ZERO, Fixed::ZERO],
+                    [Fixed::ZERO, Fixed::ZERO, Fixed::ONE],
+                    [Fixed::ZERO, Fixed::ONE, Fixed::ZERO],
+                ],
+                scale: Fixed::ONE,
+                layer_spacing: Fixed::ONE,
+                depth_radius: Fixed::ZERO,
+            };
+            let direct = ProjectedStack::<2>::new(&MODEL, transform(), &p, Fixed::ONE, |_, _| {
+                Some(Fixed::ZERO)
+            })
+            .unwrap();
+            let index = work.stacks.len();
+            work.push(&MODEL, transform(), &p).unwrap();
+            let expected = &direct.offsets[..direct.core.samples * direct.core.samples];
+            let offsets = work.view(index, &MODEL).unwrap().offsets;
+            match offsets {
+                SampleOffsets::Packed(offsets) => {
+                    assert_eq!(pixels, 3);
+                    assert!(
+                        offsets
+                            .iter()
+                            .copied()
+                            .map(expand_offset)
+                            .eq(expected.iter().copied())
+                    );
+                    first_len = offsets.len();
+                    first[..first_len].copy_from_slice(expected);
+                }
+                SampleOffsets::Wide(offsets) => {
+                    assert_eq!(pixels, 400);
+                    assert_eq!(offsets, expected);
+                }
+            }
+        }
+        let SampleOffsets::Wide(reused) = work.view(0, &MODEL).unwrap().offsets else {
+            panic!("wide pool must retain the prior offsets");
+        };
+        assert_eq!(reused, &first[..first_len]);
+        work.release_layers();
+        assert_eq!(work.offsets.storage_bytes(), 0);
+    }
+
     fn fixture(scale: Fixed, perspective: bool) -> (Projection, ProjectedStack<'static, 2>) {
         let p = Projection {
             scale,
