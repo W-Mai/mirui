@@ -17,6 +17,8 @@ Local checks can skip cross targets or Linux-only checks when their prerequisite
 
 `tests-std` runs workspace library and binary unit tests, runtime integration tests and doctests. `contracts-std` runs compiler diagnostics and external-crate contract tests. The corresponding `tests-linux-fb` and `contracts-linux-fb` checks retain the Linux framebuffer feature configuration and run on Linux hosts.
 
+Renderer unit tests live under `tests/unit/render/` and keep access to private rendering types through their original module declarations. Run the renderer suite with `cargo test --lib --features sdl-gpu,wgpu render::`. Pixel Flight and SpriteStack keep their unit tests in `tests/unit/` inside each crate.
+
 Integration targets are discovered from Cargo metadata. Packages declare compiler contract targets in `[package.metadata.ci].contract-tests`; every other integration target enters the runtime group automatically. A stale declaration or ambiguous workspace target name fails the check. Adding an ordinary integration test requires no CI list update.
 
 The groups use the same workspace feature selection as full workspace testing. Separating compiler diagnostics does not disable them or replace them with source-text assertions. Native clipboard test binaries retain their own harness behavior.

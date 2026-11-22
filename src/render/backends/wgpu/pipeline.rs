@@ -8,7 +8,7 @@ use bytemuck::{Pod, Zeroable};
 use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 
 #[cfg(test)]
-#[path = "clear_tests.rs"]
+#[path = "../../../../tests/unit/render/backends/wgpu/clear_tests.rs"]
 mod clear_tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -18,7 +18,7 @@ use crate::render::{
 use crate::types::Viewport;
 
 #[cfg(test)]
-#[path = "target_tests.rs"]
+#[path = "../../../../tests/unit/render/backends/sdl_gpu/target_tests.rs"]
 pub(crate) mod tests;
 
 struct Storage<T: RenderTarget> {

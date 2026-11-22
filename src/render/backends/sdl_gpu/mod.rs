@@ -1144,6 +1144,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/unit/render/backends/sdl_gpu/route_tests.rs"]
 mod route_tests;
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {

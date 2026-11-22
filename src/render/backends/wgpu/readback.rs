@@ -10,7 +10,7 @@ use crate::render::{
 use crate::types::PhysicalRect;
 
 #[cfg(test)]
-#[path = "readback_tests.rs"]
+#[path = "../../../../tests/unit/render/backends/wgpu/readback_tests.rs"]
 mod tests;
 
 #[derive(Default)]

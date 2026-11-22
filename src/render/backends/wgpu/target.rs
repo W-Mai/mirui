@@ -18,7 +18,7 @@ use crate::surface::wgpu_surface::{WgpuDeviceContext, WgpuTarget};
 use crate::types::Viewport;
 
 #[cfg(test)]
-#[path = "target_tests.rs"]
+#[path = "../../../../tests/unit/render/backends/wgpu/target_tests.rs"]
 mod tests;
 
 pub(super) struct Storage {

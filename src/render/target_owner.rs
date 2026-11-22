@@ -9,7 +9,7 @@ use core::{any::Any, cell::RefCell, marker::PhantomData};
 use std::{sync::OnceLock, thread::ThreadId};
 
 #[cfg(test)]
-#[path = "target_owner_tests.rs"]
+#[path = "../../tests/unit/render/target_owner_tests.rs"]
 mod tests;
 
 const ARC_HEADER: usize = 2 * core::mem::size_of::<usize>();
