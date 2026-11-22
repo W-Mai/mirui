@@ -29,11 +29,9 @@ pub struct Flame {
     pub points: [[Fixed; 2]; 3],
     pub radius: Fixed,
     pub tip_scale: Fixed,
-    pub power: Fixed,
     pub alpha: Fixed,
     pub visibility: [Fixed; 3],
     pub seed: Fixed,
-    pub length: Fixed,
 }
 pub(crate) struct FlightScene {
     pub palette: &'static Palette,

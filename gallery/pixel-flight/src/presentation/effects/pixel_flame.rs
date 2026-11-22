@@ -1,13 +1,51 @@
-use super::{Flame, ScreenFlame, fract, mix};
+use super::Flame;
 use mirui::types::{Color, Fixed};
 
 const CORE: Color = Color::rgb(255, 242, 187);
 const BODY: Color = Color::rgb(255, 157, 49);
 const EDGE: Color = Color::rgb(244, 75, 21);
 
-/// Samples the curved exhaust silhouette once per native display pixel.
+pub(super) struct ScreenFlame {
+    pub(super) flame: Flame,
+    pub(super) low: [Fixed; 2],
+    pub(super) high: [Fixed; 2],
+}
+
+impl ScreenFlame {
+    pub(super) fn new(mut flame: Flame) -> Option<Self> {
+        if flame.radius <= Fixed::ZERO
+            || flame.alpha <= Fixed::ZERO
+            || flame.visibility.iter().all(|sample| sample.is_zero())
+        {
+            return None;
+        }
+        let max_width = flame.radius * flame.tip_scale.max(Fixed::ONE);
+        let margin = (max_width * Fixed::from_ratio(17, 10)).max(Fixed::ONE);
+        for point in &mut flame.points {
+            for axis in point {
+                *axis += Fixed::HALF;
+            }
+        }
+        let [first, middle, last] = flame.points;
+        let low = core::array::from_fn(|i| first[i].min(middle[i]).min(last[i]) - margin);
+        let high = core::array::from_fn(|i| first[i].max(middle[i]).max(last[i]) + margin);
+        Some(Self { flame, low, high })
+    }
+
+    pub(super) fn native_clip(&self, clip: [i32; 4]) -> [i32; 4] {
+        let [x0, y0] = self.low.map(|value| value.floor().to_int());
+        let [x1, y1] = self.high.map(|value| value.ceil().to_int());
+        [
+            x0.max(clip[0]),
+            y0.max(clip[1]),
+            x1.min(clip[2]),
+            y1.min(clip[3]),
+        ]
+    }
+}
+
+/// Shades the curved exhaust silhouette in scene coordinates.
 pub(super) struct PixelFlame {
-    pub(super) bounds: [i32; 4],
     flame: Flame,
     middle: [Fixed; 2],
     chord: [Fixed; 2],
@@ -16,17 +54,7 @@ pub(super) struct PixelFlame {
 }
 
 impl PixelFlame {
-    pub(super) fn prepare(flame: Flame, time: Fixed, clip: [i32; 4]) -> Option<Self> {
-        if flame.visibility.iter().all(|sample| sample.is_zero()) {
-            return None;
-        }
-        let max_width = flame.radius * flame.tip_scale.max(Fixed::ONE);
-        let margin = (max_width * Fixed::from_ratio(17, 10)).max(Fixed::ONE);
-        let screen = ScreenFlame::with_margin(flame, margin)?;
-        let bounds = screen.native_clip(clip);
-        if bounds[0] >= bounds[2] || bounds[1] >= bounds[3] {
-            return None;
-        }
+    pub(super) fn prepare(screen: ScreenFlame, time: Fixed) -> Self {
         let flame = screen.flame;
         let middle = core::array::from_fn(|i| flame.points[1][i] - flame.points[0][i]);
         let chord = core::array::from_fn(|i| flame.points[2][i] - flame.points[0][i]);
@@ -37,19 +65,17 @@ impl PixelFlame {
             [Fixed::ZERO; 2]
         };
         let phase = fract(time) * 8 + flame.seed * Fixed::from_ratio(3, 10);
-        Some(Self {
-            bounds,
+        Self {
             flame,
             middle,
             chord,
             axial,
             phase,
-        })
+        }
     }
 
-    pub(super) fn shade(&self, pixel: [i32; 2]) -> Option<(Color, Color)> {
+    pub(super) fn shade(&self, point: [Fixed; 2]) -> Option<(Color, Color)> {
         let flame = &self.flame;
-        let point = pixel.map(|coordinate| Fixed::from_int(coordinate) + Fixed::HALF);
         let offset = core::array::from_fn(|i| point[i] - flame.points[0][i]);
         let t = dot(offset, self.axial).clamp(Fixed::ZERO, Fixed::ONE);
         // Work relative to the nozzle so fixed-point weights cannot shift the curve on screen.
@@ -108,6 +134,14 @@ impl PixelFlame {
             Color::rgb(channel(glow, 255), channel(glow, 108), channel(glow, 32)),
         ))
     }
+}
+
+fn fract(value: Fixed) -> Fixed {
+    value - value.floor()
+}
+
+fn mix(a: Fixed, b: Fixed, t: Fixed) -> Fixed {
+    a + (b - a) * t
 }
 
 fn dot([ax, ay]: [Fixed; 2], [bx, by]: [Fixed; 2]) -> Fixed {

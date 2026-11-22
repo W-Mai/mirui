@@ -1,9 +1,6 @@
-#![doc = " Continuous curved flame shading with ordinary SourceOver and Add textures."]
-use super::math::FixedMath as _;
-use super::{
-    flight::smooth,
-    raster::{Canvas, Flame},
-};
+//! Pixel exhaust composition for the desktop and Compact frame layouts.
+
+use super::raster::{Canvas, Flame};
 use mirui::{
     render::{
         command::{CompositeMode, DrawCommand},
@@ -16,523 +13,9 @@ use mirui::{
 pub const TILE: usize = 256;
 #[path = "pixel_flame.rs"]
 mod pixel_flame;
-#[path = "sampling.rs"]
-mod sampling;
 
-use sampling::{SampleAxis, ScreenFlame};
+use pixel_flame::{PixelFlame, ScreenFlame};
 
-const PUFFS: usize = 36;
-// Q24.8 samples of (1 - t)^0.75 at the fixed puff centers.
-const EXTINCTION: [u8; PUFFS] = [
-    253, 247, 242, 236, 230, 225, 219, 214, 208, 203, 197, 191, 186, 179, 173, 167, 161, 155, 149,
-    142, 136, 130, 122, 115, 109, 101, 94, 86, 79, 71, 63, 54, 44, 35, 24, 11,
-];
-const EXTINCTION_SUM: Fixed = {
-    let mut sum = 0;
-    let mut i = 0;
-    while i < PUFFS {
-        sum += EXTINCTION[i] as i32;
-        i += 1;
-    }
-    Fixed::from_ratio(sum, 256)
-};
-const PUFF_DISTANCE_LIMIT: i32 = 16;
-fn mix(a: Fixed, b: Fixed, t: Fixed) -> Fixed {
-    a + (b - a) * t
-}
-fn ramp(a: Fixed, b: Fixed, x: Fixed) -> Fixed {
-    smooth((x - a) / (b - a))
-}
-fn fract(x: Fixed) -> Fixed {
-    x - x.floor()
-}
-fn hash(x: Fixed, y: Fixed) -> Fixed {
-    let offset = Fixed::from_ratio(4532, 100);
-    let dot = x * (x + offset) + y * (y + offset);
-    fract((x + dot) * (y + dot))
-}
-fn noise(p: [Fixed; 2]) -> Fixed {
-    const X_STEP: Fixed = Fixed::from_ratio(12334, 100);
-    const Y_STEP: Fixed = Fixed::from_ratio(45621, 100);
-    let x = fract(p[0].floor() * X_STEP);
-    let y = fract(p[1].floor() * Y_STEP);
-    // Adjacent lattice coordinates differ by one hash step modulo one.
-    let next_x = fract(x + X_STEP);
-    let next_y = fract(y + Y_STEP);
-    let f = p.map(|v| {
-        let f = fract(v);
-        f * f * (Fixed::from_int(3) - Fixed::from_int(2) * f)
-    });
-    mix(
-        mix(hash(x, y), hash(next_x, y), f[0]),
-        mix(hash(x, next_y), hash(next_x, next_y), f[0]),
-        f[1],
-    )
-}
-fn fbm(mut p: [Fixed; 2]) -> Fixed {
-    let mut value = Fixed::ZERO;
-    let mut amplitude = Fixed::from_ratio(5, 10);
-    for _ in 0..4 {
-        value += amplitude * noise(p);
-        p = [
-            p[0] * Fixed::from_ratio(202, 100) + Fixed::from_ratio(131, 10),
-            p[1] * Fixed::from_ratio(202, 100) + Fixed::from_ratio(77, 10),
-        ];
-        amplitude = amplitude * Fixed::from_ratio(5, 10);
-    }
-    value
-}
-fn bezier(f: &Flame, t: Fixed) -> [Fixed; 2] {
-    core::array::from_fn(|k| {
-        (Fixed::ONE - t).powi(2) * f.points[0][k]
-            + Fixed::from_int(2) * (Fixed::ONE - t) * t * f.points[1][k]
-            + t * t * f.points[2][k]
-    })
-}
-fn normalize(v: [Fixed; 2]) -> [Fixed; 2] {
-    let largest = v[0].abs().max(v[1].abs());
-    if largest.is_zero() {
-        return [Fixed::ZERO; 2];
-    }
-    let scaled = v.map(|value| value / largest);
-    let norm = (scaled[0] * scaled[0] + scaled[1] * scaled[1]).sqrt();
-    scaled.map(|value| value / norm)
-}
-#[derive(Clone, Copy, Default)]
-struct Puff {
-    center: [Fixed; 2],
-    inverse: Fixed64,
-    cutoff: Fixed64,
-    extinction: Fixed,
-    t: Fixed,
-    radius: Fixed,
-    reach_squared: Fixed,
-}
-
-struct PuffRow {
-    y: Fixed,
-    density_mask: u64,
-    halo_mask: u64,
-    reach_remaining: [Fixed; PUFFS],
-    halo_y_squared: [Fixed64; PUFFS],
-}
-
-impl PuffRow {
-    fn new() -> Self {
-        Self {
-            y: Fixed::ZERO,
-            density_mask: 0,
-            halo_mask: 0,
-            reach_remaining: [Fixed::ZERO; PUFFS],
-            halo_y_squared: [Fixed64::ZERO; PUFFS],
-        }
-    }
-
-    fn covers(&self, x: Fixed, puffs: &[Puff; PUFFS]) -> bool {
-        self.reach_remaining
-            .iter()
-            .zip(puffs)
-            .any(|(&remaining, puff)| {
-                if remaining < Fixed::ZERO {
-                    return false;
-                }
-                let dx = x - puff.center[0];
-                dx * dx <= remaining
-            })
-    }
-}
-
-impl Puff {
-    fn density_row_may_contribute(&self, interval: [Fixed; 2]) -> bool {
-        let closest = self.center[1].clamp(interval[0], interval[1]);
-        if self.radius >= Fixed::ZERO && self.radius <= Fixed::ONE {
-            // One Q24.8 quantum covers reciprocal truncation in this radius range.
-            (closest - self.center[1]).abs() <= self.radius + Fixed::from_ratio(1, 256)
-        } else {
-            self.scaled_distance([self.center[0], closest]) < Fixed::ONE
-        }
-    }
-    fn scaled_distance(&self, point: [Fixed; 2]) -> Fixed {
-        // Small-screen radii have squares below a Q24.8 unit.
-        let dy = Fixed64::from_fixed(point[1] - self.center[1]);
-        self.row_scaled_distance(point[0], dy * dy)
-    }
-
-    fn row_scaled_distance(&self, x: Fixed, y_squared: Fixed64) -> Fixed {
-        let dx = Fixed64::from_fixed(x - self.center[0]);
-        let distance = dx * dx + y_squared;
-        // Beyond this bound density and the Q24.8 exponential are both zero.
-        // It also bounds the following product to less than 16 * 2^32.
-        if distance >= self.cutoff {
-            Fixed::from_int(PUFF_DISTANCE_LIMIT)
-        } else {
-            (distance * self.inverse).to_fixed()
-        }
-    }
-}
-struct Prepared {
-    flame: Flame,
-    puffs: [Puff; PUFFS],
-    direction: [Fixed; 2],
-    across: [Fixed; 2],
-    per: Fixed,
-    side: Fixed,
-    warp_origin: [Fixed; 2],
-    streak_origin: [Fixed; 2],
-    diamond_power: Fixed,
-    heat_boost: Fixed,
-    glow_power: Fixed,
-}
-impl Prepared {
-    fn new(flame: Flame, time: Fixed) -> Self {
-        mirui::trace_span!("flight.flame_prepare");
-        let direction = normalize([
-            flame.points[1][0] - flame.points[0][0],
-            flame.points[1][1] - flame.points[0][1],
-        ]);
-        let mut puffs = core::array::from_fn(|i| {
-            let t = (Fixed::from_int((i) as i32) + Fixed::from_ratio(5, 10))
-                / Fixed::from_int((PUFFS) as i32);
-            let r = flame.radius
-                * mix(Fixed::ONE, flame.tip_scale, t)
-                * mix(
-                    Fixed::ONE,
-                    Fixed::from_ratio(5, 10),
-                    ramp(Fixed::from_ratio(1, 10), Fixed::ONE, t),
-                );
-            let radius = Fixed64::from_fixed(r);
-            let square = (radius * radius).max(Fixed64::from_ratio(1, 65536));
-            Puff {
-                center: bezier(&flame, t),
-                inverse: Fixed64::ONE / square,
-                cutoff: square * i64::from(PUFF_DISTANCE_LIMIT),
-                extinction: Fixed::from_ratio(i32::from(EXTINCTION[i]), 256),
-                t,
-                radius: r,
-                reach_squared: Fixed::ZERO,
-            }
-        });
-        let glow_radius = ((flame.length / Fixed::from_int((PUFFS) as i32) * EXTINCTION_SUM
-            / Fixed::from_ratio(609, 10000))
-        .max(Fixed::ONE)
-        .ln()
-            / Fixed::from_ratio(42, 100)
-            + Fixed::from_ratio(1, 10000))
-        .sqrt();
-        for puff in &mut puffs {
-            let radius = puff.radius;
-            let reach =
-                (radius * glow_radius).max(radius + Fixed::from_ratio(604, 1000) * flame.radius);
-            puff.reach_squared = reach * reach;
-        }
-        let flow = time.rem_euclid(Fixed::from_int(600))
-            * (Fixed::from_int(5) + Fixed::from_int(6) * flame.power);
-        let length = ((flame.points[2][0] - flame.points[0][0]).powi(2)
-            + (flame.points[2][1] - flame.points[0][1]).powi(2))
-        .sqrt();
-        let side = ramp(
-            Fixed::from_ratio(3, 10),
-            Fixed::from_ratio(6, 10),
-            length / (flame.length * flame.radius),
-        );
-        Self {
-            flame,
-            puffs,
-            direction,
-            across: [-direction[1], direction[0]],
-            per: flame.length / Fixed::from_int(PUFFS as i32),
-            side,
-            warp_origin: [
-                flame.seed * Fixed::from_ratio(53, 10),
-                flow * Fixed::from_ratio(6, 10),
-            ],
-            streak_origin: [
-                flame.seed * Fixed::from_ratio(21, 10),
-                flow * Fixed::from_ratio(15, 10),
-            ],
-            diamond_power: Fixed::from_ratio(3, 10) + Fixed::from_ratio(7, 10) * flame.power,
-            heat_boost: flame.power * Fixed::from_ratio(6, 100),
-            glow_power: Fixed::from_ratio(2, 10) + Fixed::from_ratio(18, 100) * flame.power,
-        }
-    }
-    fn row_support(&self, row: &mut PuffRow, y: Fixed) -> Option<[Fixed; 2]> {
-        row.y = y;
-        let mut left = Fixed::MAX;
-        let mut right = Fixed::MIN;
-        for (puff, cached) in self.puffs.iter().zip(&mut row.reach_remaining) {
-            let dy = y - puff.center[1];
-            let remaining = puff.reach_squared - dy * dy;
-            *cached = remaining;
-            if remaining < Fixed::ZERO {
-                continue;
-            }
-            let span = remaining.sqrt();
-            left = left.min(puff.center[0] - span);
-            right = right.max(puff.center[0] + span);
-        }
-        (left <= right).then_some([left, right])
-    }
-    fn warp_y_interval(&self) -> [Fixed; 2] {
-        // The noise octave weights bound both warp components within half a unit.
-        let a = [-Fixed::HALF * self.across[1], Fixed::HALF * self.across[1]];
-        let b = [
-            -Fixed::HALF * self.direction[1],
-            Fixed::HALF * self.direction[1],
-        ]
-        .map(|v| v * Fixed::from_ratio(6, 10));
-        let ends = [
-            (a[0].min(a[1]) + b[0].min(b[1])) * self.flame.radius,
-            (a[0].max(a[1]) + b[0].max(b[1])) * self.flame.radius,
-        ];
-        [
-            ends[0].min(ends[1]).min(Fixed::ZERO) * Fixed::from_ratio(11, 10),
-            ends[0].max(ends[1]).max(Fixed::ZERO) * Fixed::from_ratio(11, 10),
-        ]
-    }
-    fn row_candidates(&self, row: &mut PuffRow, warp_y: [Fixed; 2]) {
-        let interval = warp_y.map(|d| row.y + d);
-        let mut density_mask = 0;
-        let mut halo_mask = 0;
-        for (index, puff) in self.puffs.iter().enumerate() {
-            let bit = 1 << index;
-            if puff.density_row_may_contribute(interval) {
-                density_mask |= bit;
-            }
-            let dy = Fixed64::from_fixed(row.y - puff.center[1]);
-            let squared = dy * dy;
-            if squared < puff.cutoff {
-                halo_mask |= bit;
-                row.halo_y_squared[index] = squared;
-            }
-        }
-        row.density_mask = density_mask;
-        row.halo_mask = halo_mask;
-    }
-    fn shade_row<const CULL: bool>(&self, x: Fixed, row: &PuffRow) -> [Fixed; 4] {
-        let p = [x, row.y];
-        let f = &self.flame;
-        if CULL && !row.covers(x, &self.puffs) {
-            return [Fixed::ZERO; 4];
-        }
-        let root = [p[0] - f.points[0][0], p[1] - f.points[0][1]];
-        let q = [
-            (root[0] * self.across[0] + root[1] * self.across[1]) / f.radius,
-            (root[0] * self.direction[0] + root[1] * self.direction[1]) / f.radius,
-        ];
-        let pw = if row.density_mask != 0 {
-            let wq = [
-                q[0] * Fixed::from_ratio(6, 10) + self.warp_origin[0],
-                q[1] * Fixed::from_ratio(6, 10) - self.warp_origin[1],
-            ];
-            let warp = [
-                fbm(wq) - Fixed::from_ratio(47, 100),
-                fbm([
-                    wq[0] + Fixed::from_ratio(317, 10),
-                    wq[1] + Fixed::from_ratio(113, 10),
-                ]) - Fixed::from_ratio(47, 100),
-            ];
-            let loose = ramp(Fixed::from_ratio(2, 10), Fixed::from_int(4), q[1]);
-            core::array::from_fn::<_, 2, _>(|k| {
-                p[k] + (self.across[k] * warp[0]
-                    + self.direction[k] * warp[1] * Fixed::from_ratio(6, 10))
-                    * f.radius
-                    * loose
-                    * Fixed::from_ratio(11, 10)
-            })
-        } else {
-            p
-        };
-        let mut density = Fixed::ZERO;
-        let mut halo = Fixed::ZERO;
-        let mut sum = Fixed::ZERO;
-        let mut weighted = Fixed::ZERO;
-        let mut active = row.density_mask | row.halo_mask;
-        while active != 0 {
-            let index = active.trailing_zeros() as usize;
-            let bit = 1 << index;
-            active &= active - 1;
-            let puff = &self.puffs[index];
-            if row.density_mask & bit != 0 {
-                let dd = puff.scaled_distance(pw);
-                if dd < Fixed::ONE {
-                    let g = (Fixed::ONE - dd).powi(2);
-                    density += g * puff.extinction;
-                    sum += g;
-                    weighted += g * puff.t;
-                }
-            }
-            if row.halo_mask & bit != 0 {
-                let d0 = puff.row_scaled_distance(x, row.halo_y_squared[index]);
-                if d0 < Fixed::from_int(PUFF_DISTANCE_LIMIT) {
-                    halo += (-d0 * Fixed::from_ratio(42, 100)).exp() * puff.extinction;
-                }
-            }
-        }
-        let per = self.per;
-        density = density * per;
-        halo = halo * per;
-        let glow =
-            (Fixed::ONE - (-halo * Fixed::from_ratio(5, 10)).exp() - Fixed::from_ratio(3, 100))
-                .max(Fixed::ZERO)
-                * self.glow_power;
-        if density.is_zero() && glow.is_zero() {
-            return [Fixed::ZERO; 4];
-        }
-        let t = if sum > Fixed::from_ratio(1, 1000000) {
-            weighted / sum
-        } else {
-            Fixed::ONE
-        };
-        let finish = |color: [Fixed; 3], alpha: Fixed| {
-            let open = mix(
-                Fixed::ONE,
-                ramp(-Fixed::from_ratio(5, 10), Fixed::from_ratio(3, 10), q[1]),
-                self.side,
-            );
-            let visible = if t < Fixed::from_ratio(5, 10) {
-                mix(f.visibility[0], f.visibility[1], t * Fixed::from_int(2))
-            } else {
-                mix(
-                    f.visibility[1],
-                    f.visibility[2],
-                    t * Fixed::from_int(2) - Fixed::ONE,
-                )
-            };
-            let strength = open * visible * f.alpha;
-            [
-                (color[0] * alpha + glow) * strength,
-                (color[1] * alpha + Fixed::from_ratio(46, 100) * glow) * strength,
-                (color[2] * alpha + Fixed::from_ratio(14, 100) * glow) * strength,
-                (alpha * Fixed::from_ratio(88, 100) + glow * Fixed::from_ratio(2, 10)) * strength,
-            ]
-        };
-        // Zero density cannot activate body heat or alpha; retain the weighted visibility.
-        if density.is_zero() {
-            return finish([Fixed::ZERO; 3], Fixed::ZERO);
-        }
-        let tangent = normalize(core::array::from_fn(|k| {
-            mix(
-                f.points[1][k] - f.points[0][k],
-                f.points[2][k] - f.points[1][k],
-                t,
-            )
-        }));
-        let center = bezier(f, t);
-        let off = [pw[0] - center[0], pw[1] - center[1]];
-        let x = (tangent[0] * off[1] - tangent[1] * off[0])
-            / (f.radius * mix(Fixed::ONE, f.tip_scale, t));
-        let y = t * f.length;
-        let streak = fbm([
-            x * Fixed::from_ratio(24, 10) + self.streak_origin[0],
-            y * Fixed::from_ratio(8, 10) - self.streak_origin[1],
-        ]);
-        let fire = Fixed::ONE - (-density * Fixed::from_ratio(145, 100)).exp();
-        let mut heat = fire * (Fixed::from_ratio(62, 100) + Fixed::from_ratio(6, 10) * streak);
-        let cell = y / Fixed::from_ratio(22, 10) - Fixed::from_ratio(25, 100);
-        let knot = (fract(cell) - Fixed::from_ratio(5, 10)).abs() * Fixed::from_int(2);
-        let diamond = ramp(
-            Fixed::ONE,
-            Fixed::from_ratio(1, 10),
-            knot + x.abs() * Fixed::from_ratio(22, 10),
-        ) * (-t * Fixed::from_ratio(22, 10)).exp()
-            * self.diamond_power
-            * Fixed::from_int((cell >= Fixed::ZERO) as i32);
-        heat = (heat
-            + (diamond * Fixed::from_ratio(5, 10) + self.heat_boost)
-                * ramp(Fixed::from_ratio(5, 100), Fixed::from_ratio(5, 10), fire))
-        .clamp(Fixed::ZERO, Fixed::ONE);
-        let mut color = [
-            Fixed::from_ratio(6, 10),
-            Fixed::from_ratio(7, 100),
-            Fixed::from_ratio(2, 100),
-        ];
-        for (target, a, b) in [
-            (
-                [
-                    Fixed::ONE,
-                    Fixed::from_ratio(34, 100),
-                    Fixed::from_ratio(5, 100),
-                ],
-                Fixed::ZERO,
-                Fixed::from_ratio(28, 100),
-            ),
-            (
-                [
-                    Fixed::ONE,
-                    Fixed::from_ratio(7, 10),
-                    Fixed::from_ratio(2, 10),
-                ],
-                Fixed::from_ratio(24, 100),
-                Fixed::from_ratio(52, 100),
-            ),
-            (
-                [
-                    Fixed::ONE,
-                    Fixed::from_ratio(93, 100),
-                    Fixed::from_ratio(66, 100),
-                ],
-                Fixed::from_ratio(48, 100),
-                Fixed::from_ratio(78, 100),
-            ),
-            (
-                [
-                    Fixed::from_ratio(96, 100),
-                    Fixed::from_ratio(98, 100),
-                    Fixed::ONE,
-                ],
-                Fixed::from_ratio(76, 100),
-                Fixed::ONE,
-            ),
-        ] {
-            let blend = ramp(a, b, heat);
-            for k in 0..3 {
-                color[k] = mix(color[k], target[k], blend);
-            }
-        }
-        let skin = (Fixed::ONE - ramp(Fixed::ZERO, Fixed::from_ratio(4, 10), t))
-            * ramp(Fixed::from_ratio(3, 100), Fixed::from_ratio(14, 100), heat)
-            * (Fixed::ONE - ramp(Fixed::from_ratio(2, 10), Fixed::from_ratio(5, 10), heat));
-        for k in 0..3 {
-            color[k] = mix(
-                color[k],
-                [
-                    Fixed::from_ratio(34, 100),
-                    Fixed::from_ratio(54, 100),
-                    Fixed::ONE,
-                ][k],
-                skin * Fixed::from_ratio(8, 10),
-            );
-        }
-        let alpha = ramp(Fixed::from_ratio(2, 100), Fixed::from_ratio(42, 100), heat);
-        finish(color, alpha)
-    }
-}
-fn encode_sample(value: [Fixed; 4]) -> (Color, Color) {
-    let alpha = value[3].clamp(Fixed::ZERO, Fixed::ONE);
-    let mut base = [0; 3];
-    let mut emission = [0; 3];
-    for (k, channel) in value[..3].iter().enumerate() {
-        let premul = (*channel).clamp(Fixed::ZERO, Fixed::ONE);
-        let straight = if alpha > Fixed::ZERO {
-            (premul / alpha).min(Fixed::ONE)
-        } else {
-            Fixed::ZERO
-        };
-        base[k] = (straight * Fixed::from_int(255)).round().to_int() as u8;
-        emission[k] = ((premul - straight * alpha).max(Fixed::ZERO) * Fixed::from_int(255))
-            .round()
-            .to_int() as u8;
-    }
-    (
-        Color::rgba(
-            base[0],
-            base[1],
-            base[2],
-            (alpha * Fixed::from_int(255)).round().to_int() as u8,
-        ),
-        Color::rgb(emission[0], emission[1], emission[2]),
-    )
-}
 pub(super) fn paint_region(
     canvas: &mut Canvas<'_>,
     flames: &[Flame],
@@ -555,13 +38,20 @@ fn composite_region(
 ) {
     mirui::trace_span!("flight.flames");
     for &flame in flames {
-        let Some(flame) = pixel_flame::PixelFlame::prepare(flame, time, clip) else {
+        let Some(screen) = ScreenFlame::new(flame) else {
             continue;
         };
-        let [left, top, right, bottom] = flame.bounds;
+        let [left, top, right, bottom] = screen.native_clip(clip);
+        if left >= right || top >= bottom {
+            continue;
+        }
+        let flame = PixelFlame::prepare(screen, time);
         for y in top..bottom {
+            let sample_y = Fixed::from_int(y) + Fixed::HALF;
             for x in left..right {
-                let Some((base, emission)) = flame.shade([x, y]) else {
+                let Some((base, emission)) =
+                    flame.shade([Fixed::from_int(x) + Fixed::HALF, sample_y])
+                else {
                     continue;
                 };
                 if base.a != 0 {
@@ -633,6 +123,7 @@ impl Flames {
         display_scale: Fixed,
         viewport: [usize; 2],
     ) -> Result<(), RenderError> {
+        mirui::trace_span!("flight.flames");
         for (i, tile) in self.tiles.iter_mut().enumerate() {
             tile.active = false;
             let Some(screen) = flames.get(i).copied().and_then(ScreenFlame::new) else {
@@ -655,28 +146,35 @@ impl Flames {
                     .clamp(Fixed::ONE, Fixed::from_int(self.limit as i32)))
                 .trunc_to_int() as u16,
             ];
-            let [width, height] = tile.size.map(i32::from);
-            let axes = core::array::from_fn(|k| SampleAxis {
-                origin: low[k],
-                extent: tile.bounds[2 + k],
-                pixels: Fixed::from_int(i32::from(tile.size[k])),
+            let flame = PixelFlame::prepare(screen, time);
+            let step = core::array::from_fn::<_, 2, _>(|k| {
+                Fixed64::from_fixed(tile.bounds[2 + k]) / i64::from(tile.size[k])
             });
+            let [first_x, mut y] =
+                core::array::from_fn(|k| Fixed64::from_fixed(low[k]) + step[k] / 2);
             let mut base = tile.base.pixels_mut()?;
             let mut emission = tile.emission.pixels_mut()?;
-            let bytes = (width * height * 4) as usize;
-            base.bytes_mut()[..bytes].fill(0);
-            emission.bytes_mut()[..bytes].fill(0);
-            Prepared::new(screen.flame, time).sample(
-                [0, 0, width, height],
-                axes,
-                |x, y, color, glow| {
-                    let at = ((y * width + x) * 4) as usize;
-                    base.bytes_mut()[at..at + 4]
-                        .copy_from_slice(&[color.r, color.g, color.b, color.a]);
-                    emission.bytes_mut()[at..at + 4]
-                        .copy_from_slice(&[glow.r, glow.g, glow.b, glow.a]);
-                },
-            );
+            let stride = usize::from(tile.size[0]) * 4;
+            let bytes = stride * usize::from(tile.size[1]);
+            let base_rows = base.bytes_mut()[..bytes].chunks_exact_mut(stride);
+            let emission_rows = emission.bytes_mut()[..bytes].chunks_exact_mut(stride);
+            let transparent = Color::rgba(0, 0, 0, 0);
+            for (base_row, emission_row) in base_rows.zip(emission_rows) {
+                let mut x = first_x;
+                let sample_y = y.to_fixed();
+                for (base, emission) in base_row
+                    .chunks_exact_mut(4)
+                    .zip(emission_row.chunks_exact_mut(4))
+                {
+                    let (color, glow) = flame
+                        .shade([x.to_fixed(), sample_y])
+                        .unwrap_or((transparent, transparent));
+                    base.copy_from_slice(&[color.r, color.g, color.b, color.a]);
+                    emission.copy_from_slice(&[glow.r, glow.g, glow.b, glow.a]);
+                    x += step[0];
+                }
+                y += step[1];
+            }
             tile.active = true;
         }
         Ok(())
