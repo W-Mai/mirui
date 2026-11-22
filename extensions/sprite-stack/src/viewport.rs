@@ -2,7 +2,7 @@ use crate::{
     Geometry, Object, StackScene, StackSceneHandle, StackStage, StackStageHandle,
     raster::{Frame, OverlayFrame},
 };
-use alloc::boxed::Box;
+use alloc::{boxed::Box, rc::Weak};
 use core::{
     cell::{Cell, RefCell},
     num::NonZeroU16,
@@ -193,11 +193,32 @@ enum Storage {
     World(Box<content::WorldStorage>),
 }
 
+struct PreparedFrame {
+    stamp: u64,
+    viewport: [u16; 2],
+    size: FrameSize,
+    overlay: bool,
+    content: Option<Weak<RefCell<dyn SceneContent>>>,
+}
+
+impl PreparedFrame {
+    fn matches(&self, stamp: u64, size: [u16; 2], attachments: Attachments<'_>) -> bool {
+        self.stamp == stamp
+            && self.viewport == size
+            && self.overlay == attachments.overlay.is_some()
+            && match (&self.content, attachments.content) {
+                (None, None) => true,
+                (Some(identity), Some(content)) => content.matches(identity),
+                _ => false,
+            }
+    }
+}
+
 struct Output {
     storage: Option<Storage>,
     world_output: Option<WorldOutput>,
     frame: Option<Frame>,
-    ready: Option<(u64, [u16; 2], FrameSize)>,
+    ready: Option<PreparedFrame>,
     texture_revision: u64,
 }
 
@@ -220,7 +241,8 @@ impl Output {
         let size = [dimension(rect.w)?, dimension(rect.h)?];
         if self
             .ready
-            .is_none_or(|(revision, viewport, _)| (revision, viewport) != (stamp, size))
+            .as_ref()
+            .is_none_or(|ready| !ready.matches(stamp, size, attachments))
         {
             let frame_size = resolution.fit(size);
             let pixels @ [width, height] = frame_size.pixels().map(usize::from);
@@ -309,11 +331,18 @@ impl Output {
             }
             self.texture_revision = self.texture_revision.wrapping_add(1);
             frame.texture.cache_revision = self.texture_revision;
-            self.ready = Some((stamp, size, frame_size));
+            self.ready = Some(PreparedFrame {
+                stamp,
+                viewport: size,
+                size: frame_size,
+                overlay: attachments.overlay.is_some(),
+                content: attachments.content.map(ViewportContent::identity),
+            });
         }
-        let (Some(frame), Some((_, _, frame_size))) = (self.frame.as_ref(), self.ready) else {
+        let (Some(frame), Some(ready)) = (self.frame.as_ref(), self.ready.as_ref()) else {
             return Ok(());
         };
+        let frame_size = ready.size;
         let placement = frame_size.placed(rect);
         let origin = Point::new(placement.x, placement.y);
         let dimensions = Point::new(placement.w, placement.h);
@@ -558,7 +587,7 @@ struct SourceChanged;
 impl Property for SourceChanged {
     type Value = ();
     fn apply(world: &mut World, entity: Entity, _: ()) -> PropertyChange {
-        let Some(view) = world.get_mut::<StackViewport>(entity) else {
+        let Some(view) = world.get::<StackViewport>(entity) else {
             return PropertyChange::Unchanged;
         };
         view.advance_stamp();
@@ -584,6 +613,27 @@ impl Property for Mount {
 fn attach(entity: entity!(), commands: commands!()) {
     commands.set::<Mount>(entity, ());
 }
+
+struct MountOverlay;
+impl Property for MountOverlay {
+    type Value = ();
+
+    fn apply(world: &mut World, entity: Entity, _: ()) -> PropertyChange {
+        if !world.has::<StackViewport>(entity) {
+            return PropertyChange::Unchanged;
+        }
+        ViewportOverlay::attach(world, entity);
+        SourceChanged::apply(world, entity, ())
+    }
+}
+
+#[mirui::event]
+fn attach_overlay(entity: entity!(), commands: commands!()) {
+    commands.set::<MountOverlay>(entity, ());
+}
+
+#[mirui::view(component = ViewportOverlay, attach = attach_overlay::callback(), invalidation = Visual)]
+fn overlay_attachment() {}
 
 fn paint_viewport(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(component) = world.get::<StackViewport>(entity) else {
@@ -629,6 +679,8 @@ fn viewport() -> View {
 pub struct SpriteStackPlugin;
 impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for SpriteStackPlugin {
     fn build(&mut self, app: &mut App<B, F>) {
-        app.with_widget(crate::view()).with_widget(viewport());
+        app.with_widget(crate::view())
+            .with_widget(viewport())
+            .with_widget(overlay_attachment::view());
     }
 }

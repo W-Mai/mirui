@@ -64,8 +64,18 @@ fn screen(
     );
     ui! {
         Row (width: 32, height: 16) {
-            StackViewport (width: 16, height: 16, scene: scene.clone(), resolution: Resolution::Native) [dynamic_overlay]
-            StackViewport (width: 16, height: 16, scene: scene) [static_overlay]
+            StackViewport (
+                id: "dynamic-overlay",
+                width: 16,
+                height: 16,
+                scene: scene.clone(),
+                resolution: Resolution::Native
+            ) [
+                dynamic_overlay,
+            ]
+            StackViewport (width: 16, height: 16, scene: scene) [
+                static_overlay,
+            ]
         }
     }
 }
@@ -102,4 +112,48 @@ fn attached_overlay_observes_its_input_and_reuses_the_completed_frame() {
     assert_ne!(pixels.get_pixel(8, 8), Color::rgb(10, 80, 130));
     assert_eq!(pixels.get_pixel(24, 8), WHITE);
     assert_eq!([draws[0].get(), draws[1].get()], [3, 1]);
+
+    let viewport = app.world.find_by_id("dynamic-overlay").unwrap();
+    let replacement_draws = Rc::new(Cell::new(0));
+    let green = Color::rgb(0, 255, 0);
+    app.world.insert(
+        viewport,
+        ViewportOverlay::new(
+            green,
+            Panel {
+                ink: BLACK,
+                prepares: replacement_draws.clone(),
+            },
+        ),
+    );
+    check(&mut app, green);
+    assert_eq!(replacement_draws.get(), 1);
+
+    let replacement_ink = Signal::new(green);
+    let observe = replacement_ink.clone();
+    app.world.insert(
+        viewport,
+        ViewportOverlay::new(
+            Prop::new(move || observe.get()),
+            Panel {
+                ink: BLACK,
+                prepares: replacement_draws.clone(),
+            },
+        ),
+    );
+    check(&mut app, green);
+    let blue = Color::rgb(0, 0, 255);
+    replacement_ink.set(blue);
+    check(&mut app, blue);
+    assert_eq!(replacement_draws.get(), 3);
+
+    app.world.remove::<ViewportOverlay>(viewport);
+    let snapshot = app.snapshot().unwrap().unwrap();
+    let pixels = snapshot.read_pixels().unwrap();
+    assert_ne!(pixels.get_pixel(8, 8), blue);
+    assert_eq!(pixels.get_pixel(24, 8), WHITE);
+    assert_eq!([draws[0].get(), draws[1].get()], [3, 1]);
+    assert_eq!(replacement_draws.get(), 3);
+    replacement_ink.set(green);
+    assert!(app.dirty_regions().unwrap().is_empty());
 }

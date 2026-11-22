@@ -5,7 +5,7 @@ use crate::{
         CameraWorkspace, Frame, FrameCamera, FrameEffects, FrameOverlay, RollMapping, SceneLayers,
     },
 };
-use alloc::boxed::Box;
+use alloc::rc::{Rc, Weak};
 use core::cell::RefCell;
 use mirui::{
     render::RenderError,
@@ -54,14 +54,22 @@ pub trait SceneContent: 'static {
 /// Attaches procedural scene content to a StackViewport using the component list. Changes are published through the viewport's StackScene.
 #[mirui::component]
 pub struct ViewportContent {
-    pub(super) source: RefCell<Box<dyn SceneContent>>,
+    pub(super) source: Rc<RefCell<dyn SceneContent>>,
 }
 
 impl ViewportContent {
     pub fn new(content: impl SceneContent) -> Self {
         Self {
-            source: RefCell::new(Box::new(content)),
+            source: Rc::new(RefCell::new(content)),
         }
+    }
+
+    pub(super) fn identity(&self) -> Weak<RefCell<dyn SceneContent>> {
+        Rc::downgrade(&self.source)
+    }
+
+    pub(super) fn matches(&self, identity: &Weak<RefCell<dyn SceneContent>>) -> bool {
+        core::ptr::addr_eq(identity.as_ptr(), Rc::as_ptr(&self.source))
     }
 }
 

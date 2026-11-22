@@ -17,15 +17,21 @@ fn attached_content_publishes_once_per_change_and_retries_failed_frames() {
     };
     use std::{cell::Cell, rc::Rc};
 
-    struct Background;
+    const WHITE: Color = Color::rgb(255, 255, 255);
+    const BLUE: Color = Color::rgb(0, 0, 255);
+
+    struct Background(Color);
     impl SceneLayers for Background {
         fn background(&self, tile: &mut SceneCanvas<'_, '_>) {
-            tile.color.bytes.fill(255);
+            let color = self.0;
+            let rgba = u32::from_le_bytes([color.r, color.g, color.b, color.a]);
+            tile.paint_background(|_, _| (), |_, _| (), |_, _, _, _| rgba);
         }
     }
 
     struct Procedural {
         attempts: Rc<Cell<u32>>,
+        color: Color,
     }
     impl SceneContent for Procedural {
         fn camera(&self, _: FrameSize) -> Result<WorldCamera, RenderError> {
@@ -57,14 +63,17 @@ fn attached_content_publishes_once_per_change_and_retries_failed_frames() {
             if count == 2 {
                 return Err(RenderError::MissingWorkspace);
             }
-            frame.layers().0.draw(&Background, &mut ())
+            frame.layers().0.draw(&Background(self.color), &mut ())
         }
     }
     #[mirui::compose]
     fn procedural(scene: StackSceneHandle, attempts: Rc<Cell<u32>>) -> Entity {
         ui! {
-            StackViewport(width: 16, height: 16, scene: scene) [
-                ViewportContent::new(Procedural { attempts })
+            StackViewport (id: "world", width: 16, height: 16, scene: scene) [
+                ViewportContent::new(Procedural {
+                    attempts,
+                    color: WHITE,
+                }),
             ]
         }
     }
@@ -87,6 +96,24 @@ fn attached_content_publishes_once_per_change_and_retries_failed_frames() {
     assert!(matches!(app.snapshot(), Err(RenderError::MissingWorkspace)));
     app.snapshot().unwrap();
     assert_eq!(attempts.get(), 3);
+
+    let world = app.world.find_by_id("world").unwrap();
+    let replacement = Rc::new(Cell::new(0));
+    app.world.insert(
+        world,
+        ViewportContent::new(Procedural {
+            attempts: replacement.clone(),
+            color: BLUE,
+        }),
+    );
+    let frame = app.snapshot().unwrap().unwrap();
+    assert_eq!(frame.read_pixels().unwrap().get_pixel(8, 8), BLUE);
+    assert_eq!(replacement.get(), 1);
+    app.world.remove::<ViewportContent>(world);
+    let frame = app.snapshot().unwrap().unwrap();
+    assert_ne!(frame.read_pixels().unwrap().get_pixel(8, 8), BLUE);
+    assert_eq!(attempts.get(), 3);
+    assert_eq!(replacement.get(), 1);
 }
 
 #[mirui::compose]

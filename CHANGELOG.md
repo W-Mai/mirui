@@ -207,6 +207,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Record native flight terrain, aircraft, cockpit and flame stages in existing performance traces.
 - Use 32-bit integer division for bounded `Fixed` operands on native 32-bit targets, preserving wide fallback and existing 64-bit and WebAssembly paths.
 
+### Fixed
+
+- Refresh the rendered frame and reactive inputs when a SpriteStack viewport attachment is replaced or removed.
+
 ## [0.56.0] - 2026-11-12
 
 - Support observed `ImageSource` Model fields by providing exact equality for fixed-point paths and identity-based texture sources.
