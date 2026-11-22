@@ -576,3 +576,57 @@ fn retired_height_field_disappears_from_both_viewports_and_bound_member_can_reco
     selected.set(replacement);
     assert_eq!(visible(&mut app), [[false, true]; 2]);
 }
+
+#[test]
+fn retired_stage_clears_its_viewports_and_members_can_transfer() {
+    let mut app = App::headless(48, 16);
+    app.with_default_widgets()
+        .add_plugin(crate::SpriteStackPlugin);
+    app.add_system(edit_stage::system());
+    let mut stages = ModelList::bounded(1);
+    assert!(stages.try_push(StackStage::bounded(1)).is_ok());
+    let stages = app.add_model(stages).finish();
+    let (old_id, old) = stages.entries().next().unwrap();
+    let other = app.add_model(StackStage::bounded(1)).finish();
+    let actor = app
+        .add_model(Car {
+            pose: Pose::default(),
+        })
+        .finish();
+    let visual = StackVisual::from_model(&actor, {
+        let field = geometry();
+        move |actor| StackVisual::new(field.clone()).at(actor.pose())
+    });
+    apply(&mut app, &old, Edit::Spawn(visual)).unwrap();
+    let entity = old.read(|stage| stage.with_entities(|members| members[0]));
+    let first = Signal::new(old.clone());
+    let root = app.spawn_root().id();
+    app.compose(root, viewports(first.clone(), old.clone(), other.clone()));
+    let pixels = |app: &mut App<_>, x| {
+        let frame = app.snapshot().unwrap().unwrap();
+        let pixels = frame.read_pixels().unwrap();
+        [0, 16, 32].map(|offset| pixels.get_pixel(offset + x, 7) == Color::rgb(255, 255, 255))
+    };
+    assert_eq!(pixels(&mut app, 8), [true, true, false]);
+    app.render_dirty().unwrap();
+    assert!(stages.remove(old_id).unwrap().is_some());
+    assert_eq!(
+        app.dirty_regions().unwrap().rects,
+        [Rect::new(0, 0, 32, 16)]
+    );
+    app.render_dirty().unwrap();
+    assert_eq!(pixels(&mut app, 8), [false; 3]);
+    assert!(app.world.is_alive(entity));
+
+    apply(&mut app, &other, Edit::Transfer(entity)).unwrap();
+    assert_eq!(pixels(&mut app, 8), [false, false, true]);
+    assert!(apply(&mut app, &old, Edit::Transfer(entity)).is_err());
+    first.set(other.clone());
+    assert_eq!(pixels(&mut app, 8), [true, false, true]);
+    first.set(old);
+    assert_eq!(pixels(&mut app, 8), [false, false, true]);
+    first.set(other);
+    actor.move_to(Pose::at(1, 0, 0));
+    assert_eq!(pixels(&mut app, 8), [false; 3]);
+    assert_eq!(pixels(&mut app, 9), [true, false, true]);
+}

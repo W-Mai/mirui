@@ -4,7 +4,7 @@ use crate::{
 };
 use alloc::{boxed::Box, rc::Weak};
 use core::{
-    cell::{Cell, RefCell},
+    cell::{Cell, OnceCell, RefCell},
     num::NonZeroU16,
 };
 use mirui::{
@@ -471,18 +471,24 @@ impl StackViewport {
 
     fn bind(world: &mut World, entity: Entity) {
         if let Some(stage) = world.get::<Self>(entity).and_then(|v| v.stage.clone()) {
+            let lifetime = OnceCell::new();
             let (_, effects) = with_owned_effects(|| {
                 prepare_widget_effect(entity, BindingRole::Display, move || {
-                    stage.assert_registered_owner();
-                    stage.revision();
-                    mirui::ui::property::apply::<SourceChanged>(entity, ());
+                    let lifetime = lifetime.get_or_init(|| stage.access().observe_lifetime());
+                    if lifetime.as_ref().is_some_and(|live| live()) {
+                        stage.assert_registered_owner();
+                        stage.revision();
+                        mirui::ui::property::apply::<SourceChanged>(entity, ());
+                    } else {
+                        mirui::ui::property::apply::<StageRetired>(entity, ());
+                    }
                 })
                 .install(world);
             });
-            world
-                .get_mut::<Self>(entity)
-                .expect("mounted viewport")
-                .bindings = Some((None, effects));
+            let view = world.get_mut::<Self>(entity).expect("mounted viewport");
+            if view.stage.is_some() {
+                view.bindings = Some((None, effects));
+            }
             return;
         }
         let Some(scene) = world.get::<Self>(entity).and_then(|v| v.scene.clone()) else {
@@ -591,6 +597,26 @@ impl Property for SourceChanged {
             return PropertyChange::Unchanged;
         };
         view.advance_stamp();
+        PropertyChange::Visual
+    }
+}
+
+struct StageRetired;
+impl Property for StageRetired {
+    type Value = ();
+    fn apply(world: &mut World, entity: Entity, _: ()) -> PropertyChange {
+        let Some(view) = world.get_mut::<StackViewport>(entity) else {
+            return PropertyChange::Unchanged;
+        };
+        if view.stage.take().is_none() {
+            return PropertyChange::Unchanged;
+        }
+        view.bindings = None;
+        let output = view.output.get_mut();
+        output.ready = None;
+        output.frame = None;
+        output.storage = None;
+        output.world_output = None;
         PropertyChange::Visual
     }
 }

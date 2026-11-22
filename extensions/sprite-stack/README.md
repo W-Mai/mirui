@@ -87,6 +87,8 @@ fn stage_views(stage: model!(StackStage)) -> Entity {
 
 Each viewport uses its own camera and output frame. Closing a viewport releases that viewport's resources. `commands.stage(&destination).transfer(entity)` keeps the entity and its visual binding while changing the set of viewports that display it. `commands.remove::<StackVisual>(entity)` detaches the visual, and `commands.despawn(entity)` retires the entity.
 
+Retiring a stage registration clears its viewports and releases their rendered frames. Members remain available to the game for transfer or removal.
+
 A model-bound visual follows its source incarnation. When a `ModelList` item is removed, the scene despawns an entity created with `spawn` or detaches the visual from an entity supplied with `attach`. List reordering preserves the existing visual bindings.
 
 When a live height field used as geometry retires, its surface disappears from every viewport. The member stays attached, so a model-bound visual can resume drawing when the model selects another field.
