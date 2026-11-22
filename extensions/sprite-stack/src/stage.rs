@@ -196,6 +196,13 @@ impl StackVisual {
         &self.geometry
     }
 
+    pub(crate) fn drawable_geometry(&self) -> Option<&Geometry> {
+        match &self.geometry {
+            Geometry::LiveField(field) if !field.callback_ready() => None,
+            geometry => Some(geometry),
+        }
+    }
+
     pub const fn pose(&self) -> Pose {
         self.pose
     }
@@ -302,12 +309,14 @@ impl StackVisualInput {
                 };
                 world.insert(entity, visual);
                 Ok(field.map(|field| {
+                    let lifetime = field.access().observe_lifetime();
                     with_world_scope(world, || {
                         Effect::new(move || {
-                            if !field.callback_ready() {
-                                return;
+                            if lifetime.as_ref().is_some_and(|live| live())
+                                && field.callback_ready()
+                            {
+                                field.revision();
                             }
-                            field.revision();
                             with_world(|world| {
                                 if let Some(member) = world
                                     .get::<StackVisual>(entity)
@@ -322,6 +331,7 @@ impl StackVisualInput {
             }
             VisualInput::Bound { read, .. } => {
                 let field_revision = Cell::new(None);
+                let observe_field = field_observer();
                 let effect = with_world_scope(world, || {
                     Effect::new(move || {
                         let next = read();
@@ -400,10 +410,21 @@ impl StackVisualInput {
     }
 }
 
-fn observe_field(geometry: &Geometry) -> Option<u64> {
-    match geometry {
-        Geometry::LiveField(field) if field.callback_ready() => Some(field.revision()),
-        _ => None,
+fn field_observer() -> impl Fn(&Geometry) -> Option<u64> {
+    let lifetime = Cell::new(None);
+    move |geometry| {
+        let Geometry::LiveField(field) = geometry else {
+            lifetime.set(None);
+            return None;
+        };
+        // Keep the last source's signal alive until its replacement is observed.
+        let current = field.access().observe_lifetime();
+        let revision = current
+            .as_ref()
+            .filter(|live| live() && field.callback_ready())
+            .map(|_| field.revision());
+        lifetime.set(current);
+        revision
     }
 }
 

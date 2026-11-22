@@ -503,3 +503,76 @@ fn a_bound_visual_tracks_the_current_live_geometry_until_detached() {
     assert_eq!(sample(&mut app), [None; 2]);
     assert_eq!(stage.revision(), revision);
 }
+
+#[test]
+fn retired_height_field_disappears_from_both_viewports_and_bound_member_can_recover() {
+    const COLORS: [Color; 1] = [Color::rgb(255, 255, 255)];
+    let mut app = App::headless(48, 16);
+    app.with_default_widgets()
+        .add_plugin(crate::SpriteStackPlugin);
+    app.add_system(edit_stage::system());
+    let stage = app.add_model(StackStage::bounded(2)).finish();
+    let other = app.add_model(StackStage::bounded(0)).finish();
+    let mut fields = ModelList::bounded(2);
+    let make_field = || {
+        HeightField::generate(
+            TerrainGrid::finite([1, 1], Fixed::ONE).unwrap(),
+            &COLORS,
+            |_| TerrainCell {
+                level: 0,
+                material: 0,
+            },
+        )
+        .unwrap()
+    };
+    assert!(fields.try_push(make_field()).is_ok());
+    assert!(fields.try_push(make_field()).is_ok());
+    let fields = app.add_model(fields).finish();
+    let mut entries = fields.entries();
+    let (old_id, old) = entries.next().unwrap();
+    let (_, replacement) = entries.next().unwrap();
+    drop(entries);
+    let actor = app
+        .add_model(Car {
+            pose: Pose::at(4, 0, 0),
+        })
+        .finish();
+    let selected = Signal::new(old.clone());
+    apply(
+        &mut app,
+        &stage,
+        Edit::Spawn(StackVisual::new(old).at(Pose::at(-4, 0, 0)).into()),
+    )
+    .unwrap();
+    apply(
+        &mut app,
+        &stage,
+        Edit::Spawn(StackVisual::from_model(&actor, {
+            let selected = selected.clone();
+            move |actor| StackVisual::new(selected.get()).at(actor.pose())
+        })),
+    )
+    .unwrap();
+    let root = app.spawn_root().id();
+    app.compose(
+        root,
+        viewports(Signal::new(stage.clone()), stage.clone(), other),
+    );
+    let visible = |app: &mut App<_>| {
+        let frame = app.snapshot().unwrap().unwrap();
+        let pixels = frame.read_pixels().unwrap();
+        [0, 16].map(|offset| [4, 12].map(|x| pixels.get_pixel(offset + x, 7) == COLORS[0]))
+    };
+    assert_eq!(visible(&mut app), [[true, true]; 2]);
+    app.render_dirty().unwrap();
+    assert!(fields.remove(old_id).unwrap().is_some());
+    assert_eq!(
+        app.dirty_regions().unwrap().rects,
+        [Rect::new(0, 0, 32, 16)]
+    );
+    app.render_dirty().unwrap();
+    assert_eq!(visible(&mut app), [[false, false]; 2]);
+    assert_eq!(stage.len(), 2);
+    selected.set(replacement);
+    assert_eq!(visible(&mut app), [[false, true]; 2]);
+}

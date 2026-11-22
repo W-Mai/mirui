@@ -210,6 +210,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Clear retired live height fields from SpriteStack viewports while keeping the entity's visual binding available for a replacement field.
 - Refresh the rendered frame and reactive inputs when a SpriteStack viewport attachment is replaced or removed.
 
 ## [0.56.0] - 2026-11-12

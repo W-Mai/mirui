@@ -89,6 +89,8 @@ Each viewport uses its own camera and output frame. Closing a viewport releases 
 
 A model-bound visual follows its source incarnation. When a `ModelList` item is removed, the scene despawns an entity created with `spawn` or detaches the visual from an entity supplied with `attach`. List reordering preserves the existing visual bindings.
 
+When a live height field used as geometry retires, its surface disappears from every viewport. The member stays attached, so a model-bound visual can resume drawing when the model selects another field.
+
 An indexed sprite can use `StackVisual::new(asset).at(pose).with_palette(skin).with_flash(hit_flash)`. The borrowed palette must have the same number of entries as the indexed source. Its RGB values apply at every level of detail, with coverage determined by the source alpha. `with_flash` blends visible sprite colors toward white and accepts a `Fixed` amount from zero to one. A visual bound with `StackVisual::from_model` retains its last valid value if the Model supplies an incompatible palette.
 
 ## Shared scenes

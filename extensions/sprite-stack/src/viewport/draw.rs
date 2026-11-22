@@ -53,8 +53,10 @@ struct StageObjects<'a> {
 impl ObjectSource<Entity> for StageObjects<'_> {
     fn visit(&self, mut read: impl FnMut(Entity, &Geometry, Pose)) {
         for &entity in self.entities {
-            if let Some(visual) = self.world.get::<StackVisual>(entity) {
-                read(entity, visual.geometry(), visual.pose());
+            if let Some(visual) = self.world.get::<StackVisual>(entity)
+                && let Some(geometry) = visual.drawable_geometry()
+            {
+                read(entity, geometry, visual.pose());
             }
         }
     }
