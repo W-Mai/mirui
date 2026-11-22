@@ -2,7 +2,8 @@
 
 use mirui::{core::cache::Handle, prelude::*};
 use mirui_sprite_stack::{
-    Camera, Pose, SpriteStackAsset, SpriteStackPlugin, StackScene, StackViewport,
+    Camera, Pose, SpriteStackAsset, SpriteStackPlugin, StackScene, StackStage, StackStageCommands,
+    StackViewport, StackVisual,
     format::{
         self, StackDescriptor,
         lod::{self, LodColor, bake},
@@ -78,35 +79,81 @@ fn asset(indexed: bool, has_levels: bool) -> Handle<SpriteStackAsset> {
 }
 
 #[mirui::compose]
-fn pair(actual: model!(StackScene), reference: model!(StackScene), zoom: Signal<Fixed>) -> Entity {
+fn pair(actual: model!(StackStage), reference: model!(StackStage), zoom: Signal<Fixed>) -> Entity {
     let reference_zoom = zoom.clone();
     ui! {
         Row(width:32,height:16) {
-            StackViewport(width:16,height:16,scene:actual,camera:${ Camera {scale:zoom.get(),..Camera::overhead()} })
-            StackViewport(width:16,height:16,scene:reference,camera:${ Camera {scale:reference_zoom.get(),..Camera::overhead()} })
+            StackViewport(
+                width: 16,
+                height: 16,
+                stage: actual,
+                camera: ${Camera { scale: zoom.get(), ..Camera::overhead() }}
+            )
+            StackViewport(
+                width: 16,
+                height: 16,
+                stage: reference,
+                camera: ${Camera { scale: reference_zoom.get(), ..Camera::overhead() }}
+            )
         }
+    }
+}
+
+#[mirui::model]
+struct Subject {
+    asset: Handle<SpriteStackAsset>,
+    #[observe]
+    pose: Pose,
+}
+
+#[mirui::model]
+impl Subject {
+    fn visual(&self, pose: Pose) -> StackVisual {
+        StackVisual::new(self.asset.clone()).at(pose)
+    }
+
+    fn move_to(&mut self, pose: Pose) {
+        self.pose = pose;
+    }
+}
+
+#[mirui::component]
+struct Actor;
+
+#[mirui::system]
+fn populate(stage: model!(StackStage), subject: model!(Subject), commands: commands!()) {
+    if stage.is_empty() {
+        commands.stage(stage).spawn(
+            Actor,
+            StackVisual::from_model(subject, |subject| subject.visual(subject.pose())),
+        );
     }
 }
 
 #[test]
 fn public_camera_distance_controls_perspective_in_an_ordinary_viewport() {
-    use mirui_sprite_stack::ViewportCamera;
-
     #[mirui::compose]
-    fn screen(scene: model!(StackScene), camera: Camera) -> Entity {
-        ui! { StackViewport(id: "camera", width: 32, height: 32, scene: scene, camera: camera) }
+    fn screen(stage: model!(StackStage), camera: Signal<Camera>) -> Entity {
+        ui! { StackViewport(width: 32, height: 32, stage: stage, camera: ${camera.get()}) }
     }
     let mut app = App::headless(32, 32);
     app.with_default_widgets().add_plugin(SpriteStackPlugin);
-    let mut scene = StackScene::bounded(1);
-    let id = scene.place(asset(false, true), Pose::default()).unwrap();
-    let scene = app.add_model(scene).finish();
+    let stage = app.add_model(StackStage::bounded(1)).finish();
+    let subject = app
+        .add_model(Subject {
+            asset: asset(false, true),
+            pose: Pose::default(),
+        })
+        .finish();
     let camera = Camera {
         scale: Fixed::from_int(4),
         ..Camera::overhead()
     };
     let root = app.spawn_root().id();
-    app.compose(root, screen(scene.clone(), camera));
+    let camera_signal = Signal::new(camera);
+    app.compose(root, screen(stage.clone(), camera_signal.clone()));
+    app.add_system(populate::system(stage, subject.clone()));
+    app.tick();
     let coverage = |app: &mut App<_, _>| {
         let image = app.snapshot().unwrap().unwrap();
         let pixels = image.read_pixels().unwrap();
@@ -120,25 +167,18 @@ fn public_camera_distance_controls_perspective_in_an_ordinary_viewport() {
     };
     let initial = coverage(&mut app);
     assert!(initial > 0);
-    scene.set_pose(id, Pose::at(0, -8, 0)).unwrap();
+    subject.move_to(Pose::at(0, -8, 0));
     assert_eq!(coverage(&mut app), initial);
-    let viewport = app.world.find_by_id("camera").unwrap();
     let distance = |value| Camera {
         focal_distance: Some(Fixed::from_int(value)),
         ..camera
     };
-    app.world
-        .widget_mut(viewport)
-        .unwrap()
-        .set::<ViewportCamera>(distance(8));
+    camera_signal.set(distance(8));
     let far = coverage(&mut app);
     assert!(far > 0 && far < initial);
-    scene.set_pose(id, Pose::default()).unwrap();
+    subject.move_to(Pose::default());
     assert_eq!(coverage(&mut app), initial);
-    app.world
-        .widget_mut(viewport)
-        .unwrap()
-        .set::<ViewportCamera>(distance(0));
+    camera_signal.set(distance(0));
     assert!(matches!(
         app.snapshot(),
         Err(mirui::render::RenderError::InvalidGeometry)
@@ -150,16 +190,24 @@ fn viewport_switches_between_indexed_or_rgba_levels_and_the_odd_sized_base() {
     for indexed in [false, true] {
         let mut app = App::headless(32, 16);
         app.with_default_widgets().add_plugin(SpriteStackPlugin);
-        let mut actual = StackScene::bounded(1);
-        let mut reference = StackScene::bounded(1);
         let pose = Pose::at(-Fixed::HALF, 0, -Fixed::HALF);
-        actual.place(asset(indexed, true), pose).unwrap();
-        reference.place(asset(indexed, false), pose).unwrap();
-        let actual = app.add_model(actual).finish();
-        let reference = app.add_model(reference).finish();
+        let mut stage = |has_levels| {
+            let stage = app.add_model(StackStage::bounded(1)).finish();
+            let subject = app
+                .add_model(Subject {
+                    asset: asset(indexed, has_levels),
+                    pose,
+                })
+                .finish();
+            app.add_system(populate::system(stage.clone(), subject));
+            stage
+        };
+        let actual = stage(true);
+        let reference = stage(false);
         let zoom = Signal::new(Fixed::from_int(2));
         let root = app.spawn_root().id();
         app.compose(root, pair(actual, reference, zoom.clone()));
+        app.tick();
         for scale in [Fixed::from_int(2), Fixed::HALF, Fixed::from_int(2)] {
             zoom.set(scale);
             let snapshot = app.snapshot().unwrap().unwrap();
@@ -316,7 +364,6 @@ fn sampled_layer_workspace_reuses_capacity_across_membership_changes() {
 
 mod stage_material {
     use super::*;
-    use mirui_sprite_stack::{StackStage, StackStageCommands, StackVisual};
 
     const SKIN: [[u8; 4]; 4] = [[20, 140, 40, 0], [200, 130, 30, 0], [255; 4], [255; 4]];
 
@@ -337,9 +384,6 @@ mod stage_material {
             self.appearance = (palette, flash);
         }
     }
-
-    #[mirui::component]
-    struct Actor;
 
     #[mirui::system]
     fn populate(stage: model!(StackStage), car: model!(Car), commands: commands!()) {

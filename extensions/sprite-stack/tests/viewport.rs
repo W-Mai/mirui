@@ -1,8 +1,8 @@
 #![cfg(feature = "widget")]
 use mirui::prelude::*;
 use mirui_sprite_stack::{
-    Camera, HeightField, Pose, SpriteStackPlugin, StackScene, StackViewport, TerrainCell,
-    TerrainGrid,
+    Camera, HeightField, Pose, SpriteStackPlugin, StackScene, StackStage, StackStageCommands,
+    StackViewport, StackVisual, TerrainCell, TerrainGrid,
 };
 const RED: Color = Color::rgb(200, 20, 30);
 const GREEN: Color = Color::rgb(40, 160, 80);
@@ -297,6 +297,26 @@ fn chase_keeps_the_last_live_target_position() {
     ));
 }
 
+struct EdgeSprites(Option<[mirui_sprite_stack::Geometry; 2]>);
+
+#[mirui::component]
+struct EdgeSprite;
+
+#[mirui::system]
+fn populate_edges(
+    stage: model!(StackStage),
+    sprites: res!(mut EdgeSprites),
+    commands: commands!(),
+) {
+    let Some(sprites) = sprites.0.take() else {
+        return;
+    };
+    let mut stage = commands.stage(stage);
+    for (geometry, x) in sprites.into_iter().zip([-1, 1]) {
+        stage.spawn(EdgeSprite, StackVisual::new(geometry).at(Pose::at(x, 0, 0)));
+    }
+}
+
 #[test]
 fn edge_on_camera_draws_the_nearest_slice_cells_for_atlases_and_prepared_levels() {
     use mirui::core::cache::Handle;
@@ -355,24 +375,26 @@ fn edge_on_camera_draws_the_nearest_slice_cells_for_atlases_and_prepared_levels(
     );
     let atlas = Handle::new(SpriteStackAsset::from_mirx(bytes).unwrap());
 
+    #[mirui::compose]
+    fn view(stage: model!(StackStage)) -> Entity {
+        ui! {
+            StackViewport(
+                width: 16,
+                height: 16,
+                stage: stage,
+                camera: Camera { pitch: Fixed::ZERO, scale: Fixed::from_int(4), ..Camera::default() }
+            )
+        }
+    }
+
     let mut app = App::headless(32, 16);
     app.with_default_widgets().add_plugin(SpriteStackPlugin);
-    let mut scene = StackScene::bounded(2);
-    scene.place(atlas, Pose::at(-1, 0, 0)).unwrap();
-    scene.place(&MODEL, Pose::at(1, 0, 0)).unwrap();
-    let scene = app.add_model(scene).finish();
+    let stage = app.add_model(StackStage::bounded(2)).finish();
     let root = app.spawn_root().id();
-    app.compose(
-        root,
-        views(
-            scene,
-            Camera {
-                pitch: Fixed::ZERO,
-                scale: Fixed::from_int(4),
-                ..Camera::default()
-            },
-        ),
-    );
+    app.compose(root, view(stage.clone()));
+    app.add_resource(EdgeSprites(Some([atlas.into(), (&MODEL).into()])));
+    app.add_system(populate_edges::system(stage));
+    app.tick();
     let frame = app.snapshot().unwrap().unwrap();
     let pixels = frame.read_pixels().unwrap();
     for x in [4, 12] {
