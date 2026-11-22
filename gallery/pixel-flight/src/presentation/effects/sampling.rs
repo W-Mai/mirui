@@ -8,7 +8,13 @@ pub(super) struct ScreenFlame {
 }
 
 impl ScreenFlame {
-    pub(super) fn new(mut flame: Flame) -> Option<Self> {
+    pub(super) fn new(flame: Flame) -> Option<Self> {
+        let margin = flame.radius * flame.tip_scale.max(Fixed::ONE) * Fixed::from_ratio(42, 10)
+            + Fixed::from_int(2);
+        Self::with_margin(flame, margin)
+    }
+
+    pub(super) fn with_margin(mut flame: Flame, margin: Fixed) -> Option<Self> {
         if flame.radius <= Fixed::ZERO || flame.alpha <= Fixed::ZERO {
             return None;
         }
@@ -17,8 +23,6 @@ impl ScreenFlame {
                 *axis += Fixed::HALF;
             }
         }
-        let margin = flame.radius * flame.tip_scale.max(Fixed::ONE) * Fixed::from_ratio(42, 10)
-            + Fixed::from_int(2);
         let [first, middle, last] = flame.points;
         let low = core::array::from_fn(|i| first[i].min(middle[i]).min(last[i]) - margin);
         let high = core::array::from_fn(|i| first[i].max(middle[i]).max(last[i]) + margin);
@@ -45,32 +49,18 @@ pub(super) struct SampleAxis {
 }
 
 impl SampleAxis {
-    pub(super) const UNIT: Self = Self {
-        origin: Fixed::ZERO,
-        extent: Fixed::ONE,
-        pixels: Fixed::ONE,
-    };
-
-    fn center<const RESAMPLED: bool>(self, index: i32) -> Fixed {
+    fn center(self, index: i32) -> Fixed {
         let center = Fixed::from_int(index) + Fixed::HALF;
-        if RESAMPLED {
-            self.origin + center / self.pixels * self.extent
-        } else {
-            center
-        }
+        self.origin + center / self.pixels * self.extent
     }
 
-    fn to_sample<const RESAMPLED: bool>(self, position: Fixed) -> Fixed {
-        if RESAMPLED {
-            (position - self.origin) / self.extent * self.pixels
-        } else {
-            position
-        }
+    fn to_sample(self, position: Fixed) -> Fixed {
+        (position - self.origin) / self.extent * self.pixels
     }
 }
 
 impl Prepared {
-    pub(super) fn sample<const RESAMPLED: bool>(
+    pub(super) fn sample(
         &self,
         [left, top, right, bottom]: [i32; 4],
         [columns, rows]: [SampleAxis; 2],
@@ -79,22 +69,22 @@ impl Prepared {
         let warp_y = self.warp_y_interval();
         let mut row = PuffRow::new();
         for y in top..bottom {
-            let sample_y = rows.center::<RESAMPLED>(y);
+            let sample_y = rows.center(y);
             let Some([low, high]) = self.row_support(&mut row, sample_y) else {
                 continue;
             };
-            if RESAMPLED && low >= high {
+            if low >= high {
                 continue;
             }
             // Include the pixel halo around the quantized support boundaries.
-            let start = (columns.to_sample::<RESAMPLED>(low).floor().to_int() - 1).max(left);
-            let end = (columns.to_sample::<RESAMPLED>(high).ceil().to_int() + 1).min(right);
+            let start = (columns.to_sample(low).floor().to_int() - 1).max(left);
+            let end = (columns.to_sample(high).ceil().to_int() + 1).min(right);
             if start >= end {
                 continue;
             }
             self.row_candidates(&mut row, warp_y);
             for x in start..end {
-                let value = self.shade_row::<true>(columns.center::<RESAMPLED>(x), &row);
+                let value = self.shade_row::<true>(columns.center(x), &row);
                 let (base, emission) = encode_sample(value);
                 put(x, y, base, emission);
             }

@@ -14,6 +14,8 @@ use mirui::{
     ui::view::PaintCtx,
 };
 pub const TILE: usize = 256;
+#[path = "pixel_flame.rs"]
+mod pixel_flame;
 #[path = "sampling.rs"]
 mod sampling;
 
@@ -553,17 +555,15 @@ fn composite_region(
 ) {
     mirui::trace_span!("flight.flames");
     for &flame in flames {
-        let Some(screen) = ScreenFlame::new(flame) else {
+        let Some(flame) = pixel_flame::PixelFlame::prepare(flame, time, clip) else {
             continue;
         };
-        let [left, top, right, bottom] = screen.native_clip(clip);
-        if left >= right || top >= bottom {
-            continue;
-        }
-        Prepared::new(screen.flame, time).sample::<false>(
-            [left, top, right, bottom],
-            [SampleAxis::UNIT; 2],
-            |x, y, base, emission| {
+        let [left, top, right, bottom] = flame.bounds;
+        for y in top..bottom {
+            for x in left..right {
+                let Some((base, emission)) = flame.shade([x, y]) else {
+                    continue;
+                };
                 if base.a != 0 {
                     pixels.composite_pixel(
                         x - origin_x,
@@ -580,8 +580,8 @@ fn composite_region(
                         CompositeMode::Add,
                     );
                 }
-            },
-        );
+            }
+        }
     }
 }
 pub struct Tile {
@@ -666,7 +666,7 @@ impl Flames {
             let bytes = (width * height * 4) as usize;
             base.bytes_mut()[..bytes].fill(0);
             emission.bytes_mut()[..bytes].fill(0);
-            Prepared::new(screen.flame, time).sample::<true>(
+            Prepared::new(screen.flame, time).sample(
                 [0, 0, width, height],
                 axes,
                 |x, y, color, glow| {

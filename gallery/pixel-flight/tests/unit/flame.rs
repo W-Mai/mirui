@@ -1,6 +1,41 @@
 use super::*;
 
 #[test]
+fn pixel_flame_clip_and_shading_follow_the_nozzle() {
+    let flame = Flame {
+        points: [[8, 8], [8, 11], [13, 16]].map(|point| point.map(Fixed::from_int)),
+        radius: Fixed::from_int(3),
+        tip_scale: Fixed::ONE,
+        alpha: Fixed::ONE,
+        visibility: [Fixed::ONE; 3],
+        ..Flame::default()
+    };
+    let clip = [0, 0, 128, 128];
+    let prepare = |flame| pixel_flame::PixelFlame::prepare(flame, Fixed::ZERO, clip);
+    let origin = prepare(flame).unwrap();
+    let mut shifted = flame;
+    for point in &mut shifted.points {
+        point[0] += Fixed::from_int(63);
+        point[1] += Fixed::from_int(57);
+    }
+    let shifted = prepare(shifted).unwrap();
+    assert!(origin.shade([8, 8]).unwrap().0.a > 0);
+    for y in 3..=22 {
+        for x in 3..=19 {
+            assert_eq!(origin.shade([x, y]), shifted.shade([x + 63, y + 57]));
+        }
+    }
+    assert!(pixel_flame::PixelFlame::prepare(flame, Fixed::ZERO, [90, 90, 120, 120]).is_none());
+    assert!(
+        prepare(Flame {
+            visibility: [Fixed::ZERO; 3],
+            ..flame
+        })
+        .is_none()
+    );
+}
+
+#[test]
 fn puff_coefficients() {
     for (i, &weight) in EXTINCTION.iter().enumerate() {
         let t = (Fixed::from_int(i as i32) + Fixed::HALF) / Fixed::from_int(PUFFS as i32);
