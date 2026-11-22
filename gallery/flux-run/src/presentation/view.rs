@@ -1,45 +1,59 @@
-use super::assets::{AMBER, BRIGHT, CYAN, INK, PANEL, WATER};
+use super::{
+    CAMERA_YAW,
+    assets::{AMBER, BRIGHT, CYAN, INK, PANEL, STEEL, WATER},
+};
 use crate::{
-    app::FluxRun,
+    app::{Control, FluxRun},
     gameplay::{Mode, Session},
 };
 use alloc::format;
 use core::num::NonZeroU16;
 use mirui::{
     prelude::*,
-    ui::widgets::{Button, Text},
+    ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign, TextOverflow},
 };
 use mirui_sprite_stack::{Camera, Resolution, StackViewport};
 
 #[mirui::compose]
-fn control(model: model!(FluxRun), index: u8, label: &'static str, size: u16) -> Entity {
+fn control(model: model!(FluxRun), input: Control, label: &'static str, size: u16) -> Entity {
     ui! {
         Button (
             text: label,
             grow: 1.0,
-            min_width: 0,
+            min_width: if size <= 20 && matches!(input, Control::Magnet) { 30 } else { 0 },
             height: size,
-            font_size: if size <= 20 { 8 } else { 14 }
-        ) on Pressed { model.button(index, true); } on Released { model.button(index, false); } on PressCancelled { model.cancel_touch(index); }
+            size: ButtonSize::Custom,
+            padding: Padding::all(2),
+            font_size: if size <= 20 { 8 } else { 16 },
+            normal_color: STEEL,
+            pressed_color: CYAN,
+            pressed_text_color: INK,
+            text_color: BRIGHT
+        ) on Pressed { model.button(input, true); } on Released { model.button(input, false); } on PressCancelled { model.cancel_touch(input); }
     }
 }
 
 #[mirui::compose]
 pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
+    use Control::{Down, Left, Magnet, Right, Up};
     if !res!(optional MonoClock).with(|clock| clock.is_some()) {
         res!().insert(MonoClock::from_time_source());
     }
     let camera = Camera {
-        center: [Fixed::from_int(36), Fixed::from_int(2), Fixed::from_int(36)],
-        yaw: Fixed::ZERO,
-        pitch: Fixed::from_int(56),
+        center: [Fixed::from_int(36), Fixed::from_int(3), Fixed::from_int(36)],
+        yaw: CAMERA_YAW,
+        pitch: Fixed::from_int(48),
         scale: if compact {
-            Fixed::from_ratio(4, 5)
+            Fixed::from_ratio(3, 4)
         } else {
             Fixed::from_int(2)
         },
         range: Fixed::from_int(80),
-        ..Camera::default()
+        focal_distance: if compact {
+            None
+        } else {
+            Some(Fixed::from_int(160))
+        },
     };
     let resolution = if compact {
         Resolution::Native
@@ -50,7 +64,7 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
             scale: NonZeroU16::new(2).unwrap(),
         }
     };
-    let font = if compact { 8 } else { 15 };
+    let font = if compact { 8 } else { 16 };
     let controls = if compact { 20 } else { 36 };
     let header_height = if compact { 24 } else { 60 };
     let footer_height = if compact { 40 } else { 116 };
@@ -68,6 +82,11 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
     let scene_grow = if compact { 0.0 } else { 1.0 };
     let pad = if compact { 2 } else { 14 };
     let gap = if compact { 2 } else { 10 };
+    let label = ParagraphStyle {
+        align: TextAlign::Start,
+        overflow: TextOverflow::Ellipsis,
+        ..ParagraphStyle::label()
+    };
     ui! {
         Column (
             grow: 1.0,
@@ -89,20 +108,47 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                     text: if compact { "FLUX" } else { "FLUX RUN" },
                     text_color: CYAN,
                     font_size: font,
+                    paragraph: label.clone(),
+                    height: status_height,
+                    min_width: 0,
                     grow: 1.0
                 )
                 Text (
-                    text: ${ format!("{:02} {}/{}", model.hud().level, model.hud().cores, model.hud().quota) },
+                    text: ${
+                        let hud = model.hud();
+                        format!("{:02} {}/{}", hud.level, hud.cores, hud.quota)
+                    },
                     text_color: BRIGHT,
+                    height: status_height,
+                    shrink: 0.0,
+                    paragraph: label.clone(),
                     font_size: font
                 )
                 if ${ model.hud().session == Session::Running } {
-                    Button (text: "II", height: controls, min_width: 0, font_size: font) on Tap { model.menu(); }
+                    Button (
+                        text: "II",
+                        height: controls,
+                        min_width: 0,
+                        font_size: font,
+                        normal_color: STEEL,
+                        pressed_color: CYAN,
+                        pressed_text_color: INK,
+                        text_color: BRIGHT
+                    ) on Tap { model.menu(); }
                 }
             }
             StackViewport (
                 stage: model.stage(),
-                camera: camera,
+                camera: ${
+                    if compact {
+                        camera
+                    } else {
+                        Camera {
+                            scale: model.camera_scale(),
+                            ..camera
+                        }
+                    }
+                },
                 resolution: resolution,
                 grow: scene_grow,
                 width: scene_width,
@@ -125,13 +171,15 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                         Text (
                             text: if compact { "SALVAGE" } else { "MAGNETIC SALVAGE" },
                             text_color: CYAN,
-                            font_size: font
+                            font_size: font,
+                            height: font,
+                            paragraph: label.clone()
                         )
                         if !compact {
                             Text (
                                 text: "Tow cores. Dodge patrols. Throw through the gate.",
                                 width: Dimension::percent(100),
-                                height: 36,
+                                height: 26,
                                 text_color: BRIGHT,
                                 font_size: 12
                             )
@@ -142,14 +190,26 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                                 grow: 1.0,
                                 height: controls,
                                 min_width: 0,
-                                font_size: font
+                                font_size: font,
+                                size: ButtonSize::Custom,
+                                padding: Padding::all(2),
+                                normal_color: CYAN,
+                                pressed_color: BRIGHT,
+                                pressed_text_color: INK,
+                                text_color: INK
                             ) on Tap { model.start(Mode::Manual); }
                             Button (
                                 text: "AUTO",
                                 grow: 1.0,
                                 height: controls,
                                 min_width: 0,
-                                font_size: font
+                                font_size: font,
+                                size: ButtonSize::Custom,
+                                padding: Padding::all(2),
+                                normal_color: STEEL,
+                                pressed_color: CYAN,
+                                pressed_text_color: INK,
+                                text_color: BRIGHT
                             ) on Tap { model.start(Mode::Auto); }
                         }
                     }
@@ -162,21 +222,37 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                         padding: Padding::all(pad),
                         gap: gap
                     ) {
-                        Text (text: "PAUSED", text_color: CYAN, font_size: font)
+                        Text (
+                            text: "PAUSED",
+                            text_color: CYAN,
+                            font_size: font,
+                            height: font,
+                            paragraph: label.clone()
+                        )
                         Row (height: controls, gap: gap) {
                             Button (
                                 text: "GO",
                                 grow: 1.0,
                                 height: controls,
                                 min_width: 0,
-                                font_size: font
+                                font_size: font,
+                                normal_color: STEEL,
+                                pressed_color: CYAN,
+                                pressed_text_color: INK,
+                                text_color: BRIGHT
                             ) on Tap { model.menu(); }
                             Button (
-                                text: ${ if model.hud().mode == Mode::Auto { "MANUAL" } else { "AUTO" } },
+                                text: ${ if model.hud().mode == Mode::Auto { "HAND" } else { "AUTO" } },
                                 grow: 1.0,
                                 height: controls,
                                 min_width: 0,
-                                font_size: font
+                                font_size: font,
+                                size: ButtonSize::Custom,
+                                padding: Padding::all(2),
+                                normal_color: STEEL,
+                                pressed_color: CYAN,
+                                pressed_text_color: INK,
+                                text_color: BRIGHT
                             ) on Tap { model.set_autoplay(model.hud().mode != Mode::Auto); }
                         }
                         Row (height: controls, gap: gap) {
@@ -185,14 +261,24 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                                 grow: 1.0,
                                 height: controls,
                                 min_width: 0,
-                                font_size: font
+                                font_size: font,
+                                size: ButtonSize::Custom,
+                                padding: Padding::all(1),
+                                normal_color: STEEL,
+                                pressed_color: CYAN,
+                                pressed_text_color: INK,
+                                text_color: BRIGHT
                             ) on Tap { model.retry(); }
                             Button (
                                 text: "END",
                                 grow: 1.0,
                                 height: controls,
                                 min_width: 0,
-                                font_size: font
+                                font_size: font,
+                                normal_color: STEEL,
+                                pressed_color: CYAN,
+                                pressed_text_color: INK,
+                                text_color: BRIGHT
                             ) on Tap { model.finish(); }
                         }
                     }
@@ -215,6 +301,8 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                                 }
                             },
                             text_color: CYAN,
+                            height: font,
+                            paragraph: label.clone(),
                             font_size: font
                         )
                         Text (
@@ -228,19 +316,43 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                             width: Dimension::percent(100),
                             height: status_height,
                             text_color: BRIGHT,
+                            paragraph: label.clone(),
                             font_size: font
                         )
                         if ${ model.hud().session == Session::Departed } {
-                            Button (text: "NEXT", height: controls, min_width: 0, font_size: font) on Tap { model.next(); }
+                            Button (
+                                text: "NEXT",
+                                height: controls,
+                                min_width: 0,
+                                font_size: font,
+                                normal_color: STEEL,
+                                pressed_color: CYAN,
+                                pressed_text_color: INK,
+                                text_color: BRIGHT
+                            ) on Tap { model.next(); }
                         } else {
                             Button (
                                 text: "TITLE",
                                 height: controls,
                                 min_width: 0,
-                                font_size: font
+                                font_size: font,
+                                normal_color: STEEL,
+                                pressed_color: CYAN,
+                                pressed_text_color: INK,
+                                text_color: BRIGHT
                             ) on Tap { model.title(); }
                         }
                     }
+                }
+            } on SizeChanged {
+                if !compact {
+                    let pixels = resolution
+                        .fit([
+                            event.new.width.ceil().to_int().clamp(1, i32::from(u16::MAX)) as u16,
+                            event.new.height.ceil().to_int().clamp(1, i32::from(u16::MAX)) as u16,
+                        ])
+                        .pixels();
+                    model.fit_camera(pixels);
                 }
             }
             if ${ model.hud().session == Session::Running } {
@@ -274,20 +386,26 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                             },
                             text_color: AMBER,
                             font_size: font,
+                            height: status_height,
+                            min_width: 0,
+                            paragraph: label.clone(),
                             grow: 1.0
                         )
                         Text (
                             text: ${ format!("{} HP", model.hud().life) },
                             text_color: BRIGHT,
+                            height: status_height,
+                            shrink: 0.0,
+                            paragraph: label.clone(),
                             font_size: font
                         )
                     }
                     Row (height: controls, gap: gap) {
-                        control (model.clone(), 3, "<", controls)
-                        control (model.clone(), 0, "^", controls)
-                        control (model.clone(), 2, "v", controls)
-                        control (model.clone(), 1, ">", controls)
-                        control (model.clone(), 4, "MAG", controls)
+                        control (model.clone(), Left, "<", controls)
+                        control (model.clone(), Up, "^", controls)
+                        control (model.clone(), Down, "v", controls)
+                        control (model.clone(), Right, ">", controls)
+                        control (model.clone(), Magnet, "MAG", controls)
                     }
                     if !compact {
                         Text (
@@ -300,7 +418,8 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                             width: Dimension::percent(100),
                             height: status_height,
                             text_color: CYAN,
-                            font_size: 10
+                            font_size: 14,
+                            paragraph: label.clone()
                         )
                     }
                 }

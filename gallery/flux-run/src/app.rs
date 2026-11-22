@@ -14,6 +14,15 @@ use mirui::{
 };
 use mirui_sprite_stack::{SpriteStackPlugin, StackStage};
 
+#[derive(Clone, Copy)]
+pub(crate) enum Control {
+    Up,
+    Right,
+    Down,
+    Left,
+    Magnet,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Hud {
     pub session: Session,
@@ -68,6 +77,8 @@ pub struct FluxRun {
     pub(crate) marks: Marks,
     #[observe]
     pub(crate) hud: Hud,
+    #[observe]
+    pub(crate) camera_scale: Fixed,
     held: u8,
     touch: u8,
     suspended: bool,
@@ -90,6 +101,7 @@ impl FluxRun {
             owner,
             marks: Marks::from_game(&game),
             hud: Hud::from_game(&game),
+            camera_scale: Fixed::from_int(2),
             game,
             held: 0,
             touch: 0,
@@ -112,6 +124,17 @@ impl FluxRun {
 
 #[mirui::model]
 impl FluxRun {
+    pub(crate) fn fit_camera(&mut self, size: [u16; 2]) {
+        let [width, height] = size;
+        // The diagonal harbor and its perspective margin fit inside this footprint.
+        self.camera_scale = Fixed::from_ratio(i32::from(width.saturating_sub(8).max(1)), 126)
+            .min(Fixed::from_ratio(
+                i32::from(height.saturating_sub(8).max(1)),
+                110,
+            ))
+            .min(Fixed::from_int(2));
+    }
+
     pub fn set_autoplay(&mut self, enabled: bool) {
         if enabled && self.game.session == Session::Title {
             self.start(Mode::Auto);
@@ -136,12 +159,15 @@ impl FluxRun {
             return;
         }
         let buttons = self.held | self.touch;
-        let pressed = |bit: u8| i8::from(buttons & (1u8 << bit) != 0u8);
+        let pressed = |control: Control| i8::from(buttons & (1u8 << control as u8) != 0);
         self.game.elapsed_ms(
             delta,
             Controls {
-                axis: [pressed(1) - pressed(3), pressed(2) - pressed(0)],
-                magnet: pressed(4) != 0,
+                axis: presentation::steer_on_screen(
+                    pressed(Control::Right) - pressed(Control::Left),
+                    pressed(Control::Up) - pressed(Control::Down),
+                ),
+                magnet: pressed(Control::Magnet) != 0,
             },
         );
         self.refresh();
@@ -177,13 +203,13 @@ impl FluxRun {
         self.refresh();
     }
 
-    pub(crate) fn button(&mut self, bit: u8, down: bool) {
-        set_button(&mut self.touch, bit, down);
+    pub(crate) fn button(&mut self, control: Control, down: bool) {
+        set_button(&mut self.touch, control, down);
     }
 
-    pub(crate) fn cancel_touch(&mut self, bit: u8) {
-        set_button(&mut self.touch, bit, false);
-        if bit == 4 {
+    pub(crate) fn cancel_touch(&mut self, control: Control) {
+        set_button(&mut self.touch, control, false);
+        if matches!(control, Control::Magnet) {
             self.game.cancel();
         }
     }
@@ -205,12 +231,12 @@ impl FluxRun {
 
 impl FluxRun {
     fn on_key(&mut self, key: PhysicalKey, pressed: bool, repeat: bool) -> bool {
-        let bit = match key {
-            PhysicalKey::ArrowUp | PhysicalKey::KeyW => 0,
-            PhysicalKey::ArrowRight | PhysicalKey::KeyD => 1,
-            PhysicalKey::ArrowDown | PhysicalKey::KeyS => 2,
-            PhysicalKey::ArrowLeft | PhysicalKey::KeyA => 3,
-            PhysicalKey::Space | PhysicalKey::KeyJ => 4,
+        let control = match key {
+            PhysicalKey::ArrowUp | PhysicalKey::KeyW => Control::Up,
+            PhysicalKey::ArrowRight | PhysicalKey::KeyD => Control::Right,
+            PhysicalKey::ArrowDown | PhysicalKey::KeyS => Control::Down,
+            PhysicalKey::ArrowLeft | PhysicalKey::KeyA => Control::Left,
+            PhysicalKey::Space | PhysicalKey::KeyJ => Control::Magnet,
             PhysicalKey::Escape | PhysicalKey::KeyP | PhysicalKey::KeyT | PhysicalKey::Enter => {
                 if pressed && !repeat {
                     match key {
@@ -228,13 +254,13 @@ impl FluxRun {
             }
             _ => return false,
         };
-        set_button(&mut self.held, bit, pressed);
+        set_button(&mut self.held, control, pressed);
         true
     }
 }
 
-fn set_button(state: &mut u8, index: u8, pressed: bool) {
-    let bit = 1 << index;
+fn set_button(state: &mut u8, control: Control, pressed: bool) {
+    let bit = 1 << control as u8;
     if pressed {
         *state |= bit;
     } else {

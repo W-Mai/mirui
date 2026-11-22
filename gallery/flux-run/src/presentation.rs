@@ -23,6 +23,12 @@ const LOCK: usize = ALERT_START + GUARDS;
 const FIELD: usize = LOCK + 1;
 const MARKS: usize = FIELD + 1;
 pub(crate) const STAGE_CAPACITY: usize = MARKS + 2;
+pub(crate) const CAMERA_YAW: Fixed = Fixed::from_int(45);
+
+pub(crate) fn steer_on_screen(right: i8, up: i8) -> [i8; 2] {
+    // The inverse of the viewport's 45-degree yaw, omitting the common scale.
+    [right + up, up - right]
+}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Tint {
@@ -226,7 +232,7 @@ pub(crate) fn mount(
         stage_commands.spawn(Member { owner, slot: None }, StackVisual::new(floor));
         stage_commands.spawn(
             Member { owner, slot: None },
-            StackVisual::new(&BRIDGE).at(Pose::at(36, 3, 17)),
+            StackVisual::new(&BRIDGE).at(Pose::at(36, 0, 17)),
         );
     }
     for (slot, (mark, mounted)) in marks.0.into_iter().zip(mounted).enumerate() {

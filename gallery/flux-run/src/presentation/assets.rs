@@ -225,9 +225,10 @@ const DECK_SECTION: [[u8; 14]; 8] = [
 
 const fn bridge() -> PreparedSpriteStack<'static> {
     const SECTIONS: [(usize, usize); 7] =
-        [(0, 0), (8, 4), (16, 4), (24, 4), (32, 4), (40, 4), (45, 4)];
-    const CELLS: Cells<{ 14 * 8 * SECTIONS.len() }, 6> = {
-        let mut art = [[[b'.'; 14]; 53]; 5];
+        [(0, 3), (8, 7), (16, 7), (24, 7), (32, 7), (40, 7), (45, 7)];
+    const HEIGHT: usize = 9;
+    const CELLS: Cells<{ 14 * 8 * SECTIONS.len() + 400 }, { HEIGHT + 1 }> = {
+        let mut art = [[[b'.'; 14]; 53]; HEIGHT];
         let mut section = 0;
         while section < SECTIONS.len() {
             let (distance, layer) = SECTIONS[section];
@@ -237,7 +238,28 @@ const fn bridge() -> PreparedSpriteStack<'static> {
                 if art[layer][start + row][0] == b'.' {
                     art[layer][start + row] = DECK_SECTION[row];
                 }
+                // Edge beams sit beneath the deck. The lanes under the span stay open.
+                art[layer - 1][start + row][0] = b'0';
+                art[layer - 1][start + row][13] = b'0';
+                if row == 2 || row == 3 {
+                    art[layer + 1][start + row][0] = b'4';
+                    art[layer + 1][start + row][13] = b'4';
+                }
                 row += 1;
+            }
+            if section % 2 == 0 {
+                let mut y = 0;
+                while y < layer {
+                    let mut row = start + 3;
+                    while row < start + 6 {
+                        art[y][row][0] = b'0';
+                        art[y][row][1] = b'1';
+                        art[y][row][12] = b'0';
+                        art[y][row][13] = b'1';
+                        row += 1;
+                    }
+                    y += 1;
+                }
             }
             section += 1;
         }
@@ -245,8 +267,14 @@ const fn bridge() -> PreparedSpriteStack<'static> {
     };
     const LEVELS: [SparseLevel<'static>; 1] =
         [SparseLevel::new(1, &CELLS.offsets, CELLS.cells.split_at(CELLS.used).0).unwrap()];
-    PreparedSpriteStack::new([14, 53, 5], [14 * 128, 49 * 256, 0], 256, &ART, &LEVELS)
-        .expect("compile-time bridge cells")
+    PreparedSpriteStack::new(
+        [14, 53, HEIGHT as u16],
+        [14 * 128, 49 * 256, 0],
+        256,
+        &ART,
+        &LEVELS,
+    )
+    .expect("compile-time bridge cells")
 }
 
 pub static BRIDGE: PreparedSpriteStack<'static> = bridge();

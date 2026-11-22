@@ -37,3 +37,62 @@ fn headless_game_uses_the_same_scene_for_title_play_and_restart() {
     assert_eq!(model.hud().cores, 0);
     assert!(!app.tick());
 }
+
+#[test]
+fn keyboard_and_touch_steer_relative_to_the_viewport() {
+    for (key, touch, expected) in [
+        (PhysicalKey::ArrowUp, Control::Up, [1, 1]),
+        (PhysicalKey::ArrowDown, Control::Down, [-1, -1]),
+        (PhysicalKey::ArrowLeft, Control::Left, [-1, 1]),
+        (PhysicalKey::ArrowRight, Control::Right, [1, -1]),
+    ] {
+        let mut app = App::headless(128, 128);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        let model = setup_compact_app(&mut app, root);
+        model.update(|state| {
+            state.start(Mode::Manual);
+            assert!(state.on_key(key, true, false));
+            state.advance(crate::gameplay::STEP_MS);
+            let keyboard = state.game.ship.location;
+            state.retry();
+            state.button(touch, true);
+            state.advance(crate::gameplay::STEP_MS);
+            assert_eq!(state.game.ship.location, keyboard);
+            let start = crate::world::SPAWN.point;
+            for axis in 0..2 {
+                assert!((keyboard.point[axis] - start[axis]) * expected[axis] > Fixed::ZERO);
+            }
+        });
+    }
+}
+
+#[test]
+fn hud_draws_lettering_in_both_host_themes() {
+    for (width, height) in [(128, 128), (320, 300), (800, 600)] {
+        let mut app = App::headless(width, height);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        let model = install(&mut app, root, width == 128);
+        model.start(Mode::Manual);
+        for theme in ["light", "dark"] {
+            app.set_theme(theme).unwrap();
+            assert!(!app.tick());
+            if width == 320 {
+                assert!(model.camera_scale() < Fixed::ONE);
+            }
+            let snapshot = app.snapshot().unwrap().unwrap();
+            let pixels = snapshot.read_pixels().unwrap();
+            let bright = |x, y| {
+                let pixel = pixels.get_pixel(x, y);
+                pixel.g > 180 && pixel.b > 160
+            };
+            let (header, footer) = if width == 128 { (24, 40) } else { (60, 116) };
+            let (width, height) = (i32::from(width), i32::from(height));
+            assert!((0..header).any(|y| (0..width / 2).any(|x| bright(x, y))));
+            assert!(
+                (height - footer..height).any(|y| (width * 4 / 5..width).any(|x| bright(x, y)))
+            );
+        }
+    }
+}
