@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-mirui = { path = "../..", default-features = false }
+mirui = { path = "../..", default-features = false, features = ["audio"] }
 mirui-sprite-stack = { path = "../../extensions/sprite-stack" }
 
 [dev-dependencies]
