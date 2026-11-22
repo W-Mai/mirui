@@ -127,6 +127,20 @@ pub fn extract_focus(src: &str) -> String {
 pub mod demos {
     pub use mirui::gallery::demos::*;
 
+    #[cfg(feature = "flux-run")]
+    pub mod flux_run {
+        pub use mirui_flux_run::{audio_bank, setup_app};
+        pub const DEMO_SIZE: mirui::gallery::DemoSize =
+            mirui::gallery::DemoSize::at_least(320, 300);
+    }
+
+    #[cfg(feature = "flux-run")]
+    pub mod flux_run_compact {
+        pub use mirui_flux_run::{audio_bank, setup_compact_app as setup_app};
+        pub const DEMO_SIZE: mirui::gallery::DemoSize =
+            mirui::gallery::DemoSize::at_least(128, 128);
+    }
+
     #[cfg(feature = "pixel-flight")]
     pub mod pixel_flight {
         pub use mirui_pixel_flight::setup_app;
@@ -215,6 +229,8 @@ register_demos! {
     ("glass_light_toggle",    "Glass Light Toggle",    "Showcase",    glass_light_toggle, source = demo_sources::GLASS_LIGHT_TOGGLE),
     ("pixel_flight",          "Pixel Flight",          "Play",        pixel_flight, source = demo_sources::PIXEL_FLIGHT, preferred_size = mirui_pixel_flight::VIEWPORT),
     ("pixel_flight_compact",  "Pixel Flight Compact",  "Play",        pixel_flight_compact, source = demo_sources::PIXEL_FLIGHT, preferred_size = mirui_pixel_flight::COMPACT_VIEWPORT),
+    ("flux_run",              "Flux Run",              "Play",        flux_run, source = demo_sources::FLUX_RUN, preferred_size = mirui_flux_run::VIEWPORT),
+    ("flux_run_compact",      "Flux Run Compact",      "Play",        flux_run_compact, source = demo_sources::FLUX_RUN, preferred_size = mirui_flux_run::COMPACT_VIEWPORT),
     ("page_studio",          "Page Studio",          "Showcase",    page_studio, source = demo_sources::PAGE_STUDIO),
     ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console, source = demo_sources::KINETIC_CONSOLE),
 

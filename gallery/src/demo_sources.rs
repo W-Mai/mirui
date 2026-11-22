@@ -36,6 +36,12 @@ macro_rules! split_demo_sources {
 }
 
 split_demo_sources! {
+    FLUX_RUN => {
+        demo: "flux_run",
+        root: "gallery/flux-run/src",
+        marker: "fn setup_compact_app",
+        parts: ["app.rs", "world.rs", "gameplay.rs", "gameplay/autopilot.rs", "presentation.rs", "presentation/assets.rs", "presentation/view.rs", "presentation/sound.rs"]
+    },
     PIXEL_FLIGHT => {
         demo: "pixel_flight",
         root: "gallery/pixel-flight/src",

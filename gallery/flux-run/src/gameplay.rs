@@ -228,6 +228,9 @@ impl Game {
     }
 
     pub fn finish(&mut self) {
+        if matches!(self.session, Session::Running | Session::Paused) {
+            self.commit_score();
+        }
         self.cancel();
         self.session = Session::Results;
     }
@@ -402,6 +405,14 @@ impl Game {
     fn depart(&mut self) {
         let spare = 3000u32.saturating_sub(self.result.ticks) / 12;
         self.result.score = self.result.score.saturating_add(spare);
+        self.commit_score();
+        self.cancel();
+        self.advance_delay = 90;
+        self.session = Session::Departed;
+        self.cue = Cue::Depart;
+    }
+
+    fn commit_score(&mut self) {
         self.total = self.total.saturating_add(self.result.score);
         let best = if self.assisted {
             &mut self.best_assisted
@@ -409,10 +420,14 @@ impl Game {
             &mut self.best_manual
         };
         *best = (*best).max(self.total);
-        self.cancel();
-        self.advance_delay = 90;
-        self.session = Session::Departed;
-        self.cue = Cue::Depart;
+    }
+
+    pub(crate) fn best_for_run(&self) -> u32 {
+        if self.assisted {
+            self.best_assisted
+        } else {
+            self.best_manual
+        }
     }
 
     fn move_cores(&mut self) {

@@ -211,19 +211,42 @@ sprite!(
         ],
     ]
 );
-sprite!(
-    DECK,
-    14,
-    8,
-    1,
-    [[
-        *b"14444444444441",
-        *b"16111111111161",
-        *b"16111111111161",
-        *b"16111111111161",
-        *b"16111111111161",
-        *b"16111111111161",
-        *b"16111111111161",
-        *b"14444444444441",
-    ]]
-);
+
+const DECK_SECTION: [[u8; 14]; 8] = [
+    *b"14444444444441",
+    *b"16111111111161",
+    *b"16111111111161",
+    *b"16111111111161",
+    *b"16111111111161",
+    *b"16111111111161",
+    *b"16111111111161",
+    *b"14444444444441",
+];
+
+const fn bridge() -> PreparedSpriteStack<'static> {
+    const SECTIONS: [(usize, usize); 7] =
+        [(0, 0), (8, 4), (16, 4), (24, 4), (32, 4), (40, 4), (45, 4)];
+    const CELLS: Cells<{ 14 * 8 * SECTIONS.len() }, 6> = {
+        let mut art = [[[b'.'; 14]; 53]; 5];
+        let mut section = 0;
+        while section < SECTIONS.len() {
+            let (distance, layer) = SECTIONS[section];
+            let start = 53 - DECK_SECTION.len() - distance;
+            let mut row = 0;
+            while row < DECK_SECTION.len() {
+                if art[layer][start + row][0] == b'.' {
+                    art[layer][start + row] = DECK_SECTION[row];
+                }
+                row += 1;
+            }
+            section += 1;
+        }
+        pack(art)
+    };
+    const LEVELS: [SparseLevel<'static>; 1] =
+        [SparseLevel::new(1, &CELLS.offsets, CELLS.cells.split_at(CELLS.used).0).unwrap()];
+    PreparedSpriteStack::new([14, 53, 5], [14 * 128, 49 * 256, 0], 256, &ART, &LEVELS)
+        .expect("compile-time bridge cells")
+}
+
+pub static BRIDGE: PreparedSpriteStack<'static> = bridge();

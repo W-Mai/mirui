@@ -48,6 +48,7 @@ fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> 
     let audio_bank = match demo.slug {
         "marble_play" => Some(gallery::mirui::gallery::demos::marble_play::audio_bank()),
         "nearby" => Some(gallery::mirui::gallery::demos::nearby::audio_bank()),
+        "flux_run" | "flux_run_compact" => Some(gallery::demos::flux_run::audio_bank()),
         _ => None,
     };
     if let Some(bank) = audio_bank {

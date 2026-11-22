@@ -22,6 +22,7 @@ const ALERT_START: usize = GATE_START + 3;
 const LOCK: usize = ALERT_START + GUARDS;
 const FIELD: usize = LOCK + 1;
 const MARKS: usize = FIELD + 1;
+pub(crate) const STAGE_CAPACITY: usize = MARKS + 2;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Tint {
@@ -223,13 +224,10 @@ pub(crate) fn mount(
         })
         .expect("harbor field");
         stage_commands.spawn(Member { owner, slot: None }, StackVisual::new(floor));
-        for z in [17, 25, 33, 41, 49, 57, 62] {
-            let y = (z - 13_i32).clamp(0, 8) - 1;
-            stage_commands.spawn(
-                Member { owner, slot: None },
-                StackVisual::new(&DECK).at(Pose::at(36, y, z)),
-            );
-        }
+        stage_commands.spawn(
+            Member { owner, slot: None },
+            StackVisual::new(&BRIDGE).at(Pose::at(36, 3, 17)),
+        );
     }
     for (slot, (mark, mounted)) in marks.0.into_iter().zip(mounted).enumerate() {
         if let (Some(mark), false) = (mark, mounted) {

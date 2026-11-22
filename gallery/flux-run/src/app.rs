@@ -52,11 +52,7 @@ impl Hud {
             } else {
                 game.total.saturating_add(game.result.score)
             },
-            best: if game.mode == Mode::Auto {
-                game.best_assisted
-            } else {
-                game.best_manual
-            },
+            best: game.best_for_run(),
             tether: game.tether.is_some(),
             target: game.target().is_some(),
         }
@@ -79,10 +75,18 @@ pub struct FluxRun {
 }
 
 impl FluxRun {
+    pub fn level(&self) -> u32 {
+        self.game.level
+    }
+
+    pub fn recovered(&self) -> u8 {
+        self.game.result.collected
+    }
+
     fn new(owner: Entity) -> Self {
         let game = Game::new(0x4652_554e);
         Self {
-            stage: StackStage::bounded(48).into(),
+            stage: StackStage::bounded(presentation::STAGE_CAPACITY).into(),
             owner,
             marks: Marks::from_game(&game),
             hud: Hud::from_game(&game),

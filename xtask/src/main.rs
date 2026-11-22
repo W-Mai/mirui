@@ -324,6 +324,8 @@ fn cmd_riscv_clippy() -> Result {
             "mirui",
             "-p",
             "mirui-pixel-flight",
+            "-p",
+            "mirui-flux-run",
             "--target",
             "riscv32imc-unknown-none-elf",
             "--",

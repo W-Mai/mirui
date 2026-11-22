@@ -20,7 +20,7 @@ trunk serve
 
 This opens <http://127.0.0.1:8080/> and starts Iris in the homepage workbench. Use `?demo=orbit_console` or another registered slug to open a demo directly.
 
-The watcher includes the gallery, Mirui, MIRX and macro sources, plus the Pixel Flight package (including its aircraft atlas) and the sprite-stack extension. Editing the aircraft atlas rebuilds the running WebAssembly bundle and regenerates the gallery previews.
+The watcher includes the gallery, Mirui, MIRX and macro sources, the Pixel Flight and Flux Run packages, and the SpriteStack extension. Changes to demo assets rebuild the running WebAssembly bundle and regenerate the gallery previews.
 
 ## Site structure
 

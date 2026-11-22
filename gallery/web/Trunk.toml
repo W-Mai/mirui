@@ -17,6 +17,7 @@ watch = [
     ".",
     "../src",
     "../pixel-flight",
+    "../flux-run",
     "../../extensions/sprite-stack",
     "../Cargo.toml",
     "../../src",

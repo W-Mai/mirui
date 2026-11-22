@@ -12,6 +12,7 @@ if [ -f "$stamp" ] && [ -d "$output_dir" ]; then
         "$repo_root/src" \
         "$repo_root/gallery/src" \
         "$repo_root/gallery/pixel-flight" \
+        "$repo_root/gallery/flux-run" \
         "$repo_root/extensions/sprite-stack" \
         "$repo_root/gallery/examples/tools" \
         "$repo_root/Cargo.toml" \

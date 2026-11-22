@@ -11,6 +11,7 @@ sdl-gpu = ["mirui/sdl-gpu", "mirui/sdl-audio", "dep:sdl2"]
 wgpu = ["mirui/wgpu"]
 web-canvas = [
     "pixel-flight",
+    "flux-run",
     "mirui/web-canvas",
     "mirui/web-audio",
     "dep:wasm-bindgen",
@@ -20,11 +21,13 @@ linux-fb = ["mirui/linux-fb"]
 linux-drm = ["mirui/linux-drm"]
 perf = ["mirui/perf"]
 persistence = ["mirui/persistence"]
-snapshot = ["mirui/std", "persistence", "pixel-flight"]
+snapshot = ["mirui/std", "persistence", "pixel-flight", "flux-run"]
 pixel-flight = ["dep:mirui-pixel-flight"]
+flux-run = ["dep:mirui-flux-run"]
 
 [dependencies]
 mirui-pixel-flight = { path = "pixel-flight", optional = true }
+mirui-flux-run = { path = "flux-run", optional = true }
 mirui = { path = "..", default-features = false, features = ["quad-aa", "gallery"] }
 mirui-macros = { path = "../mirui-macros" }
 mirx = { path = "../mirx" }
@@ -54,6 +57,10 @@ required-features = ["pixel-flight"]
 [[example]]
 name = "pixel_flight_compact_demo"
 required-features = ["pixel-flight"]
+
+[[example]]
+name = "flux_run_demo"
+required-features = ["flux-run"]
 
 [[example]]
 name = "pixel_flight_snapshot"
