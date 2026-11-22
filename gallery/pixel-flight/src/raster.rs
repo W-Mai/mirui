@@ -6,33 +6,35 @@ use super::jet;
 use super::math::FixedMath as _;
 use super::{
     flight::{Flight, Projection, V3, aircraft_axes_with_heading},
-    runtime::FlightObjects,
-    world::{Ground, World},
+    world::Ground,
 };
 #[cfg(test)]
 use crate::flight::cockpit_center;
+#[cfg(test)]
+use crate::world::World;
 use mirui::render::renderer::RenderError;
 #[cfg(test)]
 use mirui::types::Color;
 use mirui::types::Fixed;
 #[cfg(test)]
 use mirui_sprite_stack::raster::{
-    CameraWorkspace, FrameOverlay, FramePass, RollMapping, Workspace, draw_layers,
+    CameraWorkspace, FrameOverlay, FramePass, Workspace, draw_layers,
 };
 pub use mirui_sprite_stack::raster::{Canvas, Frame};
-use mirui_sprite_stack::{
-    ObjectPass, ProjectedObjects, WorldLayers,
-    raster::{SceneCanvas, SceneLayers},
-};
+use mirui_sprite_stack::raster::{FrameEffects, RollMapping, SceneCanvas, SceneLayers};
 mod aircraft;
 mod exhaust;
 mod landscape;
 mod palette;
 mod wake;
 
+#[cfg(test)]
 use aircraft::PreparedJet;
-use exhaust::{ExhaustFrame, PendingFlame, project_flames};
-use landscape::{PreparedTerrain, draw_sky, draw_world, terrain_distance};
+pub(crate) use aircraft::aircraft_lights;
+#[cfg(test)]
+use exhaust::ExhaustFrame;
+use exhaust::{PendingFlame, finish_flames, project_flames};
+use landscape::{PreparedTerrain, draw_sky, draw_world};
 pub use palette::{BAYER, Daylight, Palette, blend, rgba};
 use wake::{draw_smoke, draw_trails};
 pub const MAX_WIDTH: usize = 480;
@@ -49,17 +51,17 @@ pub struct Flame {
     pub length: Fixed,
 }
 pub(crate) struct FlightScene {
-    pub palette: Palette,
+    pub palette: &'static Palette,
     pub flames: [Flame; 6],
     pub flame_count: usize,
     seen: [[Fixed; 3]; 6],
+    prepared_seen: [[Fixed; 3]; 6],
 }
 
 #[cfg(test)]
 pub(crate) struct Raster {
     compact: bool,
     workspace: CameraWorkspace,
-    objects: ObjectPass,
     pub(crate) scene: FlightScene,
 }
 
@@ -69,14 +71,15 @@ pub(crate) struct PlacedAircraft {
     pub(crate) position: V3,
     heading: (Fixed, Fixed),
     roll: Fixed,
-    axes: [V3; 3],
+    pub(crate) axes: [V3; 3],
+    #[cfg(test)]
     pub(crate) model: &'static mirui_sprite_stack::format::PreparedSpriteStack<'static>,
 }
 impl PlacedAircraft {
     pub(crate) fn new(
         position: V3,
         [yaw, pitch, roll]: V3,
-        model: &'static mirui_sprite_stack::format::PreparedSpriteStack<'static>,
+        #[cfg(test)] model: &'static mirui_sprite_stack::format::PreparedSpriteStack<'static>,
     ) -> Self {
         let heading = yaw.sin_cos();
         Self {
@@ -84,6 +87,7 @@ impl PlacedAircraft {
             heading,
             roll,
             axes: aircraft_axes_with_heading(heading, pitch, roll),
+            #[cfg(test)]
             model,
         }
     }
@@ -103,21 +107,9 @@ impl PlacedAircraft {
     }
 }
 pub(crate) type Placements = [Option<PlacedAircraft>; 3];
-pub(super) enum SceneObjects<'a> {
-    Placed {
-        scene: &'a mirui_sprite_stack::StackScene,
-        world: &'a World,
-        objects: &'a FlightObjects,
-    },
-    #[cfg(test)]
-    Samples {
-        ground: Ground<'a>,
-        aircraft: &'a Placements,
-    },
-}
 
 struct Scene<'a> {
-    placed: &'a Placements,
+    placed: Placements,
     ground: Ground<'a>,
     flight: &'a Flight,
     palette: &'a Palette,
@@ -129,7 +121,7 @@ struct Scene<'a> {
 impl<'a> Scene<'a> {
     #[cfg(test)]
     fn new(
-        placed: &'a Placements,
+        placed: &Placements,
         ground: Ground<'a>,
         flight: &'a Flight,
         palette: &'a Palette,
@@ -148,7 +140,7 @@ impl<'a> Scene<'a> {
     }
 
     fn with_heading(
-        placed: &'a Placements,
+        placed: &Placements,
         ground: Ground<'a>,
         flight: &'a Flight,
         palette: &'a Palette,
@@ -158,7 +150,7 @@ impl<'a> Scene<'a> {
     ) -> Self {
         let terrain = PreparedTerrain::new(ground, flight, &projection, palette, placed);
         Self {
-            placed,
+            placed: *placed,
             ground,
             flight,
             palette,
@@ -197,10 +189,11 @@ impl<'a> Scene<'a> {
     fn draw(&self, canvas: &mut SceneCanvas<'_, '_>) -> [usize; 3] {
         let order = self.order();
         let prepared = self.prepare([canvas.color.width, canvas.color.height]);
-        self.draw_ordered::<false>(canvas, &order, &prepared, None, Fixed::MAX)
+        self.draw_ordered::<false>(canvas, &order, &prepared, Fixed::MAX)
             .unwrap();
         order
     }
+    #[cfg(test)]
     fn prepare(&self, size: [usize; 2]) -> [Option<PreparedJet>; 3] {
         core::array::from_fn(|index| {
             PreparedJet::new(
@@ -235,14 +228,12 @@ impl<'a> Scene<'a> {
         canvas: &mut SceneCanvas<'_, '_>,
         order: &[usize; 3],
         prepared: &[Option<PreparedJet>; 3],
-        objects: Option<&ProjectedObjects<'_>>,
         limit: Fixed,
     ) -> Result<(), RenderError> {
         let layers = FlightLayers {
             scene: self,
             order,
             prepared,
-            objects,
         };
         let pass = if DEPTH_ONLY {
             FramePass::Depth { limit }
@@ -253,55 +244,61 @@ impl<'a> Scene<'a> {
     }
 }
 
+#[cfg(test)]
 struct FlightLayers<'a> {
     scene: &'a Scene<'a>,
     order: &'a [usize; 3],
     prepared: &'a [Option<PreparedJet>; 3],
-    objects: Option<&'a ProjectedObjects<'a>>,
 }
 
-impl SceneLayers for FlightLayers<'_> {
+impl SceneLayers for Scene<'_> {
     fn terrain(&self, canvas: &mut SceneCanvas<'_, '_>, depth_limit: Option<Fixed>) {
         match depth_limit {
-            Some(limit) => self.scene.draw_ground::<true>(canvas, limit),
-            None => self.scene.draw_ground::<false>(canvas, Fixed::MAX),
+            Some(limit) => self.draw_ground::<true>(canvas, limit),
+            None => self.draw_ground::<false>(canvas, Fixed::MAX),
         }
     }
 
     fn background(&self, canvas: &mut SceneCanvas<'_, '_>) {
-        let scene = self.scene;
         draw_sky(
             canvas,
-            &scene.projection,
-            scene.heading,
-            scene.palette,
-            scene.frame_height,
+            &self.projection,
+            self.heading,
+            self.palette,
+            self.frame_height,
         );
-    }
-
-    fn objects(&self, canvas: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
-        if let Some(objects) = self.objects {
-            objects.draw(canvas)?;
-        }
-        Ok(())
     }
 
     fn effects_behind_sprites(&self, canvas: &mut SceneCanvas<'_, '_>) {
-        let scene = self.scene;
         draw_trails(
             canvas,
-            scene.flight,
-            &scene.projection,
-            scene.heading,
-            scene.palette,
+            self.flight,
+            &self.projection,
+            self.heading,
+            self.palette,
         );
         draw_smoke(
             canvas,
-            scene.flight,
-            &scene.projection,
-            scene.heading,
-            scene.palette.day,
+            self.flight,
+            &self.projection,
+            self.heading,
+            self.palette.day,
         );
+    }
+}
+
+#[cfg(test)]
+impl SceneLayers for FlightLayers<'_> {
+    fn terrain(&self, canvas: &mut SceneCanvas<'_, '_>, limit: Option<Fixed>) {
+        self.scene.terrain(canvas, limit);
+    }
+
+    fn background(&self, canvas: &mut SceneCanvas<'_, '_>) {
+        self.scene.background(canvas);
+    }
+
+    fn effects_behind_sprites(&self, canvas: &mut SceneCanvas<'_, '_>) {
+        self.scene.effects_behind_sprites(canvas);
     }
 
     fn sprites(&self, canvas: &mut SceneCanvas<'_, '_>) {
@@ -311,6 +308,34 @@ impl SceneLayers for FlightLayers<'_> {
                 jet.draw(canvas, &scene.projection, scene.palette);
             }
         }
+    }
+}
+
+struct PreparedExhaust<'a> {
+    queries: [PendingFlame; 6],
+    flames: &'a mut [Flame],
+    visibility: &'a mut [[Fixed; 3]; 6],
+    time: Fixed,
+}
+
+impl FrameEffects for PreparedExhaust<'_> {
+    type Query = PendingFlame;
+
+    fn queries(&mut self) -> &mut [PendingFlame] {
+        &mut self.queries[..self.flames.len()]
+    }
+
+    fn finish_queries(&mut self, mapping: &RollMapping) {
+        finish_flames(
+            mapping,
+            &self.queries[..self.flames.len()],
+            self.visibility,
+            self.flames,
+        );
+    }
+
+    fn composite(&self, canvas: &mut Canvas<'_>) -> Result<(), RenderError> {
+        crate::flame::paint_region(canvas, self.flames, self.time)
     }
 }
 
@@ -356,23 +381,14 @@ pub fn scene_size(width: u16, height: u16) -> (usize, usize, usize) {
 #[cfg(test)]
 impl Raster {
     pub fn new(size: [usize; 2], compact: bool) -> Result<Self, RenderError> {
-        Self::with_palette(size, compact, Palette::new(Daylight::Day))
-    }
-
-    pub(super) fn with_palette(
-        size: [usize; 2],
-        compact: bool,
-        palette: Palette,
-    ) -> Result<Self, RenderError> {
         Ok(Self {
             compact,
             workspace: CameraWorkspace::new(size, cockpit_center(size[1]), compact)?,
-            objects: Default::default(),
-            scene: FlightScene::new(palette),
+            scene: FlightScene::new(Palette::shared(Daylight::Day)),
         })
     }
     pub fn bytes(&self) -> usize {
-        self.workspace.bytes() + self.objects.storage_bytes() + core::mem::size_of::<Self>()
+        self.workspace.bytes() + core::mem::size_of::<Self>()
     }
     #[cfg(test)]
     pub(crate) fn render(
@@ -387,10 +403,8 @@ impl Raster {
             frame,
             flight,
             (projection, None),
-            SceneObjects::Samples {
-                ground: world.at(Some(Default::default())),
-                aircraft: placed,
-            },
+            world.at(Some(Default::default())),
+            placed,
         )
         .unwrap();
     }
@@ -407,7 +421,7 @@ impl Raster {
         let projection = flight.projection(frame.width, frame.height);
         let ground = world.at(Some(Default::default()));
         let overlay = cockpit
-            .prepare(flight, projection, &self.scene.palette)
+            .prepare(flight, projection, self.scene.palette)
             .map(|prepared| CockpitOverlay {
                 cockpit,
                 prepared,
@@ -420,10 +434,8 @@ impl Raster {
                 projection,
                 overlay.as_ref().map(|overlay| overlay as &dyn FrameOverlay),
             ),
-            SceneObjects::Samples {
-                ground,
-                aircraft: placed,
-            },
+            ground,
+            placed,
         )
         .unwrap();
     }
@@ -433,11 +445,11 @@ impl Raster {
         frame: &mut Frame,
         flight: &Flight,
         (screen, overlay): (Projection, Option<&dyn FrameOverlay>),
-        scene_objects: SceneObjects<'_>,
+        ground: Ground<'_>,
+        placed: &Placements,
     ) -> Result<(), RenderError> {
         let (projection, mapping) = map_projection(screen, frame.width, frame.height);
-        self.scene.prepare(
-            &mut self.objects,
+        self.scene.prepare_reference(
             flight,
             SceneView {
                 projection,
@@ -445,7 +457,8 @@ impl Raster {
                 height: frame.height,
                 compact: self.compact,
             },
-            scene_objects,
+            ground,
+            placed,
             |layers, effects| {
                 self.workspace
                     .render_layers(frame, &mapping, overlay, layers, effects)
@@ -456,46 +469,87 @@ impl Raster {
 
 pub(super) struct SceneView {
     pub projection: Projection,
+    #[cfg(test)]
     pub source_size: [usize; 2],
     pub height: usize,
+    #[cfg(test)]
     pub compact: bool,
 }
 
 impl FlightScene {
-    pub(super) fn new(palette: Palette) -> Self {
+    pub(super) fn new(palette: &'static Palette) -> Self {
         Self {
             palette,
             flames: [Flame::default(); 6],
             flame_count: 0,
             seen: [[Fixed::ONE; 3]; 6],
+            prepared_seen: [[Fixed::ONE; 3]; 6],
         }
     }
 
     pub(super) fn set_daylight(&mut self, day: Daylight) {
         if self.palette.day != day {
-            self.palette = Palette::new(day);
+            self.palette = Palette::shared(day);
         }
     }
 
-    pub(super) fn draw(
-        &mut self,
-        target: WorldLayers<'_>,
-        objects: &mut ObjectPass,
-        flight: &Flight,
+    pub(super) fn prepare_frame<'a>(
+        &'a mut self,
+        flight: &'a Flight,
         view: SceneView,
-        scene: SceneObjects<'_>,
-    ) -> Result<(), RenderError> {
-        self.prepare(objects, flight, view, scene, |layers, effects| {
-            target.draw(layers, effects)
-        })
+        ground: Ground<'a>,
+        placed: &Placements,
+    ) -> (impl SceneLayers + use<'a>, impl FrameEffects + use<'a>) {
+        let projection = view.projection;
+        let heading = projection.yaw.sin_cos();
+        let scene = Scene::with_heading(
+            placed,
+            ground,
+            flight,
+            self.palette,
+            view.height,
+            projection,
+            heading,
+        );
+        let order = scene.order();
+        let mut queries = [PendingFlame::default(); 6];
+        let mut count = 0;
+        for &index in &order[..flight.count] {
+            if let Some(jet) = placed[index] {
+                project_flames(
+                    flight,
+                    (index, jet),
+                    &projection,
+                    heading,
+                    &mut queries,
+                    &mut count,
+                );
+            }
+        }
+        self.prepared_seen = self.seen;
+        self.flame_count = count;
+        (
+            scene,
+            PreparedExhaust {
+                queries,
+                flames: &mut self.flames[..count],
+                visibility: &mut self.prepared_seen,
+                time: flight.time,
+            },
+        )
     }
 
-    fn prepare(
+    pub(crate) fn finish_frame(&mut self) {
+        self.seen = self.prepared_seen;
+    }
+
+    #[cfg(test)]
+    fn prepare_reference(
         &mut self,
-        objects: &mut ObjectPass,
         flight: &Flight,
         view: SceneView,
-        scene_objects: SceneObjects<'_>,
+        ground: Ground<'_>,
+        placed: &Placements,
         draw: impl FnOnce(&FlightLayers<'_>, &mut ExhaustFrame<'_>) -> Result<(), RenderError>,
     ) -> Result<(), RenderError> {
         let Self {
@@ -503,40 +557,10 @@ impl FlightScene {
             flames,
             flame_count,
             seen,
+            ..
         } = self;
         let projection = view.projection;
         let heading = projection.yaw.sin_cos();
-        let mut aircraft: Placements = [None; 3];
-        let (ground, placed, extra) = match scene_objects {
-            SceneObjects::Placed {
-                scene,
-                world,
-                objects: styled,
-            } => {
-                let [x, z, altitude] = projection.position;
-                let (sin, cos) = heading;
-                let camera = mirui_sprite_stack::ViewProjection::horizontal(
-                    projection.camera,
-                    [x, altitude, -z],
-                    [-sin, cos],
-                    terrain_distance(altitude),
-                );
-                let mut ground = None;
-                let mut has_other = false;
-                let prepared = objects.prepare(scene, camera, |id, geometry, pose| {
-                    let ordinary =
-                        !styled.collect_styled(id, geometry, pose, &mut ground, &mut aircraft);
-                    has_other |= ordinary;
-                    ordinary
-                })?;
-                (world.at(ground), &aircraft, has_other.then_some(prepared))
-            }
-            #[cfg(test)]
-            SceneObjects::Samples { ground, aircraft } => {
-                objects.clear();
-                (ground, aircraft, None)
-            }
-        };
         let scene = Scene::with_heading(
             placed,
             ground,
@@ -573,7 +597,6 @@ impl FlightScene {
                 scene: &scene,
                 order: &order,
                 prepared: &models,
-                objects: extra.as_ref(),
             },
             &mut ExhaustFrame {
                 queries: &mut pending[..count],
@@ -620,11 +643,11 @@ mod tests {
                     scene.draw_ground::<true>(tile, Fixed::MAX);
                 } else if only_depth {
                     scene
-                        .draw_ordered::<true>(tile, &order, &models, None, Fixed::MAX)
+                        .draw_ordered::<true>(tile, &order, &models, Fixed::MAX)
                         .unwrap();
                 } else {
                     scene
-                        .draw_ordered::<false>(tile, &order, &models, None, Fixed::MAX)
+                        .draw_ordered::<false>(tile, &order, &models, Fixed::MAX)
                         .unwrap();
                 }
                 tile.depth.to_vec()
@@ -697,7 +720,7 @@ mod tests {
                 &placed,
                 world.at(Some(Default::default())),
                 &flight,
-                &raster.scene.palette,
+                raster.scene.palette,
                 128,
                 flight.projection(128, 128),
             );

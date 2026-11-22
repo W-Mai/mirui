@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Attach `FrameContent` to prepare procedural viewport layers from an observed Model. SpriteStack draws stage members with the prepared layers and depth effects.
+- Share runtime-generated sprite stack assets across viewports and bind sampled materials through `StackVisual::from_model`.
+- Render Pixel Flight and its minimap from a shared ECS stage. The stage owns aircraft and terrain membership, and the flight Model supplies camera and simulation state.
+
 - Queue typed extension operations with `DeferredOperation` in the existing ECS command batch. Operations can return a commit error, and event callbacks can reserve their payload capacity with `CommandCapacity::enqueue`.
 - Create, attach and transfer ECS entities across bounded `StackStage` groups. `StackVisual` accepts static geometry and pose or follows observed model values, and its subscriptions are released when the entity leaves the stage or is destroyed.
 - `StackViewport(stage: ...)` shares ECS stage members between independent cameras and redraws the viewports that use a changed stage.

@@ -97,14 +97,14 @@ pub fn draw_layers(
     tile: &mut SceneCanvas<'_, '_>,
     pass: FramePass,
 ) -> Result<(), RenderError> {
-    draw_layers_with_objects(layers, tile, pass, |_| Ok(()))
+    draw_layers_with_objects(layers, tile, pass, |_, _| Ok(()))
 }
 
 pub(crate) fn draw_layers_with_objects(
     layers: &impl SceneLayers,
     tile: &mut SceneCanvas<'_, '_>,
     pass: FramePass,
-    objects: impl FnOnce(&mut SceneCanvas<'_, '_>) -> Result<(), RenderError>,
+    mut objects: impl FnMut(&mut SceneCanvas<'_, '_>, bool) -> Result<(), RenderError>,
 ) -> Result<(), RenderError> {
     tile.clear_depth();
     let depth_limit = match pass {
@@ -116,12 +116,12 @@ pub(crate) fn draw_layers_with_objects(
         layers.background(tile);
     }
     layers.objects(tile)?;
-    objects(tile)?;
+    objects(tile, false)?;
     if depth_limit.is_none() {
         layers.effects_behind_sprites(tile);
     }
     layers.sprites(tile);
-    Ok(())
+    objects(tile, true)
 }
 
 impl DepthQuery for core::convert::Infallible {
@@ -154,6 +154,10 @@ pub struct CameraWorkspace {
 }
 
 impl CameraWorkspace {
+    pub(crate) fn coverage_pixels(&self) -> usize {
+        self.workspace.mask.len()
+    }
+
     /// Bounded rendering reuses small source tiles and an output band.
     pub fn new(
         [width, height]: [usize; 2],

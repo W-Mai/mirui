@@ -5,10 +5,11 @@ use super::{
     world::World as Terrain,
 };
 use core::cell::Cell;
-use mirui_sprite_stack::{SpriteStackPlugin, StackScene, StackViewport};
+use mirui_sprite_stack::{Pose, SpriteStackPlugin, StackStage, StackViewport};
+pub(crate) mod aircraft_palette;
 mod objects;
-pub(crate) use objects::FlightObjects;
 mod renderer;
+mod stage_members;
 use renderer::{cockpit_layer, flight_content};
 
 use mirui::input::event::{
@@ -31,9 +32,9 @@ const FLIGHT_FONT: FontToken = FontToken::Custom("pixel-flight-ui");
 pub struct FlightModel {
     profile: Profile,
     terrain: Handle<Terrain>,
+    ground_pose: Option<Pose>,
     flight: Flight,
-    pub scene: model!(owned StackScene),
-    objects: FlightObjects,
+    pub stage: model!(owned StackStage),
     day: Daylight,
     display_bytes: Cell<usize>,
     cockpit_bytes: Cell<usize>,
@@ -54,13 +55,12 @@ impl FlightModel {
             Profile::Compact => Terrain::with_size(7, Fixed::from_ratio(33, 100), 64, 32, 16),
         };
         let flight = Flight::new(&terrain, Settings::default());
-        let (scene, objects) = FlightObjects::new(&terrain, &flight);
         Self {
             profile,
             terrain: Handle::new(terrain),
+            ground_pose: Some(Pose::default()),
             flight,
-            scene: scene.into(),
-            objects,
+            stage: StackStage::bounded(8).into(),
             display_bytes: Cell::new(0),
             cockpit_bytes: Cell::new(0),
             day: Daylight::default(),
@@ -88,16 +88,6 @@ impl FlightModel {
         self.view_elapsed_ms = 0;
         self.flight.controls.release_all();
     }
-    /// The procedural terrain object used by the flight camera and ground-clearance controls.
-    pub fn ground(&self) -> mirui_sprite_stack::Object {
-        self.objects.ground()
-    }
-
-    /// Returns the scene object used by the pilot and chase cameras.
-    pub fn player(&self) -> mirui_sprite_stack::Object {
-        self.objects.player()
-    }
-
     #[observe]
     pub fn autoplay(&self) -> bool {
         self.autoplay
@@ -105,6 +95,11 @@ impl FlightModel {
     #[observe]
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+    #[cfg(test)]
+    fn place_ground(&mut self, pose: Option<Pose>) {
+        self.ground_pose = pose;
+        self.revision = self.revision.wrapping_add(1);
     }
     #[observe]
     pub fn hint_color(&self) -> Color {
@@ -122,6 +117,12 @@ impl FlightModel {
     pub fn view(&self) -> CameraView {
         self.flight.view
     }
+    /// Current player position in the stage's Y-up coordinates.
+    #[observe]
+    pub fn player_position(&self) -> [Fixed; 3] {
+        objects::position(&self.flight.jets[0])
+    }
+
     pub fn select_view(&mut self, view: CameraView) {
         self.flight.view = view;
         self.hint_time = Fixed::ZERO;
@@ -200,7 +201,7 @@ impl FlightModel {
             }
             PhysicalKey::KeyT => {
                 self.day = self.day.next();
-                self.scene.invalidate();
+                self.revision = self.revision.wrapping_add(1);
             }
             _ => return false,
         }
@@ -244,14 +245,12 @@ impl FlightModel {
             self.flight.release_pointer(true);
         }
         self.flight.step_above(
-            self.terrain.at(self.scene.pose(self.objects.ground())),
+            self.terrain.at(self.ground_pose),
             milliseconds,
             scene_width,
             scene_height,
         );
         self.hint_time += Fixed::from_int(milliseconds.into()) / Fixed::from_int(1000);
-        self.objects.sync(&mut self.scene, &mut self.flight);
-        self.scene.invalidate();
         self.revision = self.revision.wrapping_add(1);
     }
     pub fn resident_bytes(&self) -> usize {
@@ -265,8 +264,9 @@ impl FlightModel {
 #[mirui::component]
 struct FlightInput {
     pub model: model!(FlightModel),
+    observed_members: Cell<u8>,
 }
-#[mirui::view(component = FlightInput, name = "Flight controls",systems = [animate::system()])]
+#[mirui::view(component = FlightInput, name = "Flight controls",systems = [animate::system(), stage_members::sync::system()])]
 fn flight_input() {}
 
 # [mirui :: system (order = Animation)]
@@ -341,7 +341,7 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
 
     ui! {
         StackViewport (
-            scene: model.scene(),
+            stage: model.stage(),
             resolution: profile.resolution(),
             grow: 1.0,
             clip_children: true,
@@ -356,6 +356,7 @@ fn build_widgets(model: model!(FlightModel), profile: Profile) {
         ) [
             FlightInput {
                 model: model.clone(),
+                observed_members: Cell::new(0),
             },
             content,
             cockpit,
@@ -424,6 +425,23 @@ fn setup_profile<B: Surface, F: RendererFactory<B>>(
     parent: Entity,
     profile: Profile,
 ) -> FlightModelHandle {
+    if profile == Profile::Compact {
+        app.require_text_layout_capacity(mirui::text::TextLayoutCapacity {
+            layout_slots: 3,
+            measurements: 8,
+            lines: 6,
+            runs: 6,
+            glyphs: 32,
+            carets: 40,
+            workspace: mirui::text::WorkspaceCapacity {
+                runs: 4,
+                glyphs: 16,
+                scratch_glyphs: 16,
+                lines: 4,
+            },
+        })
+        .expect("register compact flight hint layout");
+    }
     let (width, height) = app.viewport().logical_size();
     let model = app
         .add_model(if profile == Profile::Desktop {
@@ -447,7 +465,6 @@ fn setup_profile<B: Surface, F: RendererFactory<B>>(
 mod tests {
     use super::*;
     use crate::raster::{FlightScene, Palette};
-    use mirui::core::model::OwnedModel;
     use mirui_sprite_stack::Camera;
 
     fn assert_hint_fits(world: &mirui::ecs::World) {
@@ -527,17 +544,18 @@ mod tests {
     #[test]
     fn additional_scene_viewports_share_one_simulation_step() {
         #[mirui::compose]
-        fn minimap(scene: model!(StackScene), player: mirui_sprite_stack::Object) -> Entity {
+        fn minimap(game: model!(FlightModel)) -> Entity {
+            let stage = game.stage();
             ui! {
                 StackViewport (
                     width: 16,
                     height: 16,
-                    scene: scene,
-                    camera: Camera {
-                        target: Some(player),
+                    stage: stage,
+                    camera: ${Camera {
+                        center: game.player_position(),
                         range: Fixed::from_int(8),
                         ..Camera::overhead()
-                    }
+                    }}
                 )
             }
         }
@@ -545,7 +563,7 @@ mod tests {
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
         let game = setup_compact_app(&mut app, root);
-        app.compose(root, minimap(game.scene(), game.player()));
+        let map = app.compose(root, minimap(game.clone()));
         app.prepare_text_layout().unwrap();
         app.snapshot().unwrap();
         let rev = game.revision();
@@ -553,11 +571,14 @@ mod tests {
         assert_eq!(game.revision(), rev + 1);
         app.snapshot().unwrap();
         assert_eq!(game.revision(), rev + 1);
+        assert_eq!(
+            app.world.get::<StackViewport>(map).unwrap().camera.center,
+            game.player_position()
+        );
     }
 
     #[test]
     fn moving_and_removing_the_ground_keeps_the_scene_and_cameras_live() {
-        use mirui_sprite_stack::Pose;
         let mut app = App::headless(128, 128);
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
@@ -566,9 +587,8 @@ mod tests {
         for _ in 0..45 {
             game.advance(32, 128, 128, None);
         }
-        let scene = game.scene();
-        let ground = game.ground();
-        let player = game.player();
+        app.tick();
+        let stage = game.stage();
         let frame = |app: &mut App<_>| app.snapshot().unwrap().unwrap();
         let differs = |a: &mirui::render::texture::Texture, b: &mirui::render::texture::Texture| {
             a.read_pixels()
@@ -579,57 +599,70 @@ mod tests {
                 .any(|(a, b)| a != b)
         };
         let original = frame(&mut app);
+        game.set_focus(false);
         let mut moved = Pose::at(123, 26, 17);
         moved.yaw = Fixed::from_int(90);
-        scene.set_pose(ground, moved).unwrap();
+        game.place_ground(Some(moved));
+        app.tick();
         let raised = frame(&mut app);
         assert!(differs(&original, &raised));
-        let p = scene.pose(player).unwrap();
-        let pos = p.position;
-        let expected = scene
-            .height_at(
-                ground,
-                Fixed::from_int(pos[0].trunc_to_int()),
-                Fixed::from_int(pos[2].trunc_to_int()),
-            )
-            .unwrap()
+        let position = game.read(|game| game.flight.jets[0].position);
+        let terrain = app.world.query::<stage_members::FlightTerrain>();
+        let (entity, _) = terrain.iter().next().unwrap();
+        let ground = app
+            .world
+            .get::<mirui_sprite_stack::StackVisual>(entity)
+            .unwrap();
+        assert_eq!(ground.pose(), moved);
+        let [x, y, _] = position;
+        let expected = ground
+            .geometry()
+            .with_field(|field| {
+                let coordinate = |value: Fixed| Fixed::from_int(value.trunc_to_int());
+                let dx = coordinate(x) - moved.position[0];
+                let dz = -coordinate(y) - moved.position[2];
+                let (sin, cos) = (Fixed::sin_deg(moved.yaw), Fixed::cos_deg(moved.yaw));
+                let i = field
+                    .address_at(dx * cos - dz * sin, dx * sin + dz * cos)
+                    .unwrap();
+                Fixed::from_int(i32::from(field.levels()[i])) + moved.position[1]
+            })
             .unwrap();
         let sampled = game.read(|game| {
             game.terrain
-                .at(Some(moved))
-                .height(pos[0].trunc_to_int(), -pos[2].trunc_to_int())
+                .at(game.ground_pose)
+                .height(x.trunc_to_int(), y.trunc_to_int())
         });
         assert_eq!(sampled, expected);
-        scene.set_pose(ground, Pose::default()).unwrap();
+        game.place_ground(Some(Pose::default()));
+        app.tick();
         assert!(!differs(&original, &frame(&mut app)));
-        scene.set_pose(ground, moved).unwrap();
+        game.place_ground(Some(moved));
+        app.tick();
+        game.set_focus(true);
         let rev = game.revision();
         game.advance(32, 128, 128, None);
         assert_eq!(game.revision(), rev + 1);
-        assert_ne!(scene.pose(player), Some(p));
+        assert_ne!(game.read(|game| game.flight.jets[0].position), position);
         let with_ground = frame(&mut app);
-        scene.remove(ground).unwrap();
+        game.place_ground(None);
+        app.tick();
+        assert_eq!(stage.len(), 1);
         let no_ground = frame(&mut app);
         assert!(differs(&with_ground, &no_ground));
-        let p = scene.pose(player).unwrap();
+        let p = game.read(|game| game.flight.jets[0].position);
         game.select_view(CameraView::Chase);
         for _ in 0..32 {
             game.advance(32, 128, 128, None);
         }
-        assert_ne!(scene.pose(player), Some(p));
+        assert_ne!(game.read(|game| game.flight.jets[0].position), p);
         assert!(differs(&no_ground, &frame(&mut app)));
-        let same_view = frame(&mut app);
-        scene.remove(player).unwrap();
-        assert!(
-            differs(&same_view, &frame(&mut app)),
-            "the aircraft was visible with no ground"
-        );
     }
 
     #[test]
     fn lighting_updates_palette_without_allocating() {
         use crate::raster::Daylight;
-        let mut scene = FlightScene::new(Palette::new(Daylight::Day));
+        let mut scene = FlightScene::new(Palette::shared(Daylight::Day));
         for day in [Daylight::Sunset, Daylight::Night, Daylight::Day] {
             assert_eq!(
                 crate::test_support::tracked_allocations(|| scene.set_daylight(day)),
@@ -707,7 +740,7 @@ mod tests {
     }
     #[test]
     fn compact_keeps_all_views_and_bounds_workspaces_across_resizes() {
-        use crate::raster::{Frame, Raster, SceneObjects};
+        use crate::raster::{Frame, PlacedAircraft, Raster};
         use mirui::render::texture::ColorFormat;
 
         let mut scene = FlightModel::with_profile(128, 128, Profile::Compact);
@@ -724,20 +757,12 @@ mod tests {
             let mut raster = Raster::new([w, h], true).unwrap();
             let mut frame = Frame::with_format(w, h, ColorFormat::RGB565).unwrap();
             let mut draw = |scene: &FlightModel| {
-                scene.scene.read(|shared| {
-                    raster
-                        .render_scene(
-                            &mut frame,
-                            &scene.flight,
-                            (scene.flight.projection(w, h), None),
-                            SceneObjects::Placed {
-                                scene: shared,
-                                world: &scene.terrain,
-                                objects: &scene.objects,
-                            },
-                        )
-                        .unwrap()
-                });
+                raster.render(
+                    &mut frame,
+                    &scene.terrain,
+                    &scene.flight,
+                    &PlacedAircraft::from_flight(&scene.flight),
+                );
             };
             for view in [CameraView::Overhead, CameraView::Chase, CameraView::Cockpit] {
                 scene.select_view(view);

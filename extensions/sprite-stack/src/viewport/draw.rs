@@ -1,9 +1,9 @@
 use super::{Camera, FrameSize};
 use crate::{
-    Geometry, Pose, StackScene, StackStage, StackVisual,
+    Geometry, Pose, SampledStyle, StackScene, StackStage, StackVisual,
     raster::{
         Frame, FrameCamera, FrameOverlay, FramePass, SceneCanvas, SceneLayers, Workspace,
-        draw_layers_with_objects,
+        draw_layers,
     },
 };
 mod objects;
@@ -14,7 +14,7 @@ use mirui::{
     render::RenderError,
 };
 pub use objects::{ObjectPass, ProjectedObjects};
-use objects::{ObjectSource, ObjectWork};
+use objects::{ObjectSource, ObjectWork, Projected};
 pub use projection::ViewProjection;
 
 const BAND: usize = 16;
@@ -25,7 +25,7 @@ pub(super) struct DefaultRenderer {
     objects: ViewObjects,
 }
 
-enum ViewObjects {
+pub(super) enum ViewObjects {
     Scene(ObjectPass),
     Stage(ObjectWork<Entity>),
 }
@@ -48,15 +48,84 @@ pub(super) enum DrawSource<'a> {
 struct StageObjects<'a> {
     entities: &'a [Entity],
     world: &'a World,
+    terrain: Option<Entity>,
+}
+
+pub(super) struct PreparedStageObjects<'a, 'scene>(Projected<'a, Entity, StageObjects<'scene>>);
+
+#[derive(Clone, Copy)]
+pub(super) struct StageFrame {
+    pub(super) camera: FrameCamera,
+    pub(super) size: [usize; 2],
+    pub(super) bounded: bool,
+    pub(super) terrain: Option<Entity>,
+    pub(super) mask_pixels: usize,
+}
+
+impl PreparedStageObjects<'_, '_> {
+    pub(super) fn draw(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
+        self.0.draw(tile)
+    }
+
+    pub(super) fn draw_styled(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
+        self.0.draw_styled(tile)
+    }
+}
+
+impl ViewObjects {
+    pub(super) fn storage_bytes(&self) -> usize {
+        match self {
+            Self::Scene(pass) => pass.storage_bytes(),
+            Self::Stage(pass) => pass.storage_bytes(),
+        }
+    }
+
+    pub(super) fn legacy(&mut self) -> &mut ObjectPass {
+        if !matches!(self, Self::Scene(_)) {
+            *self = Self::default();
+        }
+        let Self::Scene(objects) = self else {
+            unreachable!()
+        };
+        objects
+    }
+
+    pub(super) fn with_stage<R>(
+        &mut self,
+        stage: &StackStage,
+        world: &World,
+        camera: ViewProjection,
+        frame: Option<StageFrame>,
+        use_objects: impl FnOnce(&PreparedStageObjects<'_, '_>) -> Result<R, RenderError>,
+    ) -> Result<R, RenderError> {
+        if !matches!(self, Self::Stage(_)) {
+            *self = Self::Stage(ObjectWork::default());
+        }
+        let Self::Stage(objects) = self else {
+            unreachable!()
+        };
+        stage.with_entities(|entities| {
+            let source = StageObjects {
+                entities,
+                world,
+                terrain: frame.and_then(|frame| frame.terrain),
+            };
+            let objects = objects.prepare(&source, camera, frame, |_, _, _| true)?;
+            use_objects(&PreparedStageObjects(objects))
+        })
+    }
 }
 
 impl ObjectSource<Entity> for StageObjects<'_> {
-    fn visit(&self, mut read: impl FnMut(Entity, &Geometry, Pose)) {
+    fn visit(&self, mut read: impl FnMut(Entity, &Geometry, Pose, Option<&SampledStyle>)) {
         for &entity in self.entities {
+            if Some(entity) == self.terrain {
+                continue;
+            }
             if let Some(visual) = self.world.get::<StackVisual>(entity)
                 && let Some(geometry) = visual.drawable_geometry()
             {
-                read(entity, geometry, visual.pose());
+                read(entity, geometry, visual.pose(), visual.sampled_style());
             }
         }
     }
@@ -64,11 +133,11 @@ impl ObjectSource<Entity> for StageObjects<'_> {
     fn with_geometry<R>(
         &self,
         id: Entity,
-        read: impl FnOnce(&Geometry, crate::stage::Material) -> R,
+        read: impl FnOnce(&Geometry, crate::stage::Material, Option<&SampledStyle>) -> R,
     ) -> Option<R> {
         self.world
             .get::<StackVisual>(id)
-            .map(|visual| read(visual.geometry(), visual.material()))
+            .map(|visual| read(visual.geometry(), visual.material(), visual.sampled_style()))
     }
 }
 
@@ -113,27 +182,17 @@ impl DefaultRenderer {
         let (_, work) = self.workspace.as_mut().expect("viewport storage");
         match source {
             DrawSource::Scene(scene) => {
-                if !matches!(self.objects, ViewObjects::Scene(_)) {
-                    self.objects = ViewObjects::default();
-                }
-                let ViewObjects::Scene(objects) = &mut self.objects else {
-                    unreachable!()
-                };
-                let objects = objects.prepare(scene, projection, |_, _, _| true)?;
-                render_rows(work, frame, overlay, |tile| objects.draw(tile))
+                let objects = self
+                    .objects
+                    .legacy()
+                    .prepare(scene, projection, |_, _, _| true)?;
+                render_rows(work, frame, overlay, &objects)
             }
             DrawSource::Stage { stage, world } => {
-                if !matches!(self.objects, ViewObjects::Stage(_)) {
-                    self.objects = ViewObjects::Stage(ObjectWork::default());
-                }
-                let ViewObjects::Stage(objects) = &mut self.objects else {
-                    unreachable!()
-                };
-                stage.with_entities(|entities| {
-                    let source = StageObjects { entities, world };
-                    let objects = objects.prepare(&source, projection, |_, _, _| true)?;
-                    render_rows(work, frame, overlay, |tile| objects.draw(tile))
-                })
+                self.objects
+                    .with_stage(stage, world, projection, None, |objects| {
+                        render_rows(work, frame, overlay, objects)
+                    })
             }
         }
     }
@@ -143,23 +202,26 @@ fn render_rows(
     work: &mut Workspace,
     frame: &mut Frame,
     overlay: Option<&dyn FrameOverlay>,
-    draw_objects: impl Fn(&mut SceneCanvas<'_, '_>) -> Result<(), RenderError>,
+    layers: &impl SceneLayers,
 ) -> Result<(), RenderError> {
     work.render_rows_with_overlay(frame, overlay, |tile| {
-        draw_layers_with_objects(&Transparent, tile, FramePass::Color, &draw_objects)
+        draw_layers(layers, tile, FramePass::Color)
     })
-}
-
-struct Transparent;
-impl SceneLayers for Transparent {
-    fn background(&self, tile: &mut SceneCanvas<'_, '_>) {
-        tile.color.bytes.fill(0);
-    }
 }
 
 impl SceneLayers for ProjectedObjects<'_> {
     fn background(&self, tile: &mut SceneCanvas<'_, '_>) {
-        Transparent.background(tile);
+        tile.color.bytes.fill(0);
+    }
+
+    fn objects(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
+        self.draw(tile)
+    }
+}
+
+impl SceneLayers for PreparedStageObjects<'_, '_> {
+    fn background(&self, tile: &mut SceneCanvas<'_, '_>) {
+        tile.color.bytes.fill(0);
     }
 
     fn objects(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {

@@ -15,7 +15,7 @@ use mirui::{
     },
     app::{App, RendererFactory, plugin::Plugin},
     core::model::{ModelHandle, ModelInvalidation, ModelSubscription, SharedValue},
-    ecs::{Entity, World},
+    ecs::{CommandCommitError, DeferredOperation, Entity, World},
     render::{
         RenderError,
         command::{CompositeMode, DrawCommand},
@@ -33,7 +33,8 @@ mod content;
 mod draw;
 mod overlay;
 pub use content::{
-    SceneContent, ViewportContent, WorldCamera, WorldFrame, WorldLayers, WorldOutput,
+    ContentFrame, FrameContent, TerrainMember, TerrainTarget, ViewportContent, ViewportOutput,
+    WorldCamera,
 };
 pub use draw::{ObjectPass, ProjectedObjects, ViewProjection};
 pub use overlay::ViewportOverlay;
@@ -198,7 +199,7 @@ struct PreparedFrame {
     viewport: [u16; 2],
     size: FrameSize,
     overlay: bool,
-    content: Option<Weak<RefCell<dyn SceneContent>>>,
+    content: Option<Weak<RefCell<dyn content::FrameSource>>>,
 }
 
 impl PreparedFrame {
@@ -216,7 +217,7 @@ impl PreparedFrame {
 
 struct Output {
     storage: Option<Storage>,
-    world_output: Option<WorldOutput>,
+    world_output: Option<ViewportOutput>,
     frame: Option<Frame>,
     ready: Option<PreparedFrame>,
     texture_revision: u64,
@@ -252,6 +253,7 @@ impl Output {
             self.ready = None;
             let mut content = attachments
                 .content
+                .filter(|content| content.available())
                 .map(|content| content.source.borrow_mut());
             let world = content
                 .as_ref()
@@ -286,7 +288,7 @@ impl Output {
                 .flatten();
             if new_frame {
                 let mut frame = match world_output {
-                    Some(WorldOutput::Bounded) => {
+                    Some(ViewportOutput::Bounded) => {
                         Frame::with_format(width, height, paint.opaque_output_format(2)?)?
                     }
                     _ => Frame::new(width, height)?,
@@ -301,9 +303,6 @@ impl Output {
             }
             let frame = self.frame.as_mut().expect("viewport frame");
             if let Some((view, policy)) = world {
-                let draw::DrawSource::Scene(scene) = source else {
-                    return Err(RenderError::InvalidGeometry);
-                };
                 if !matches!(&self.storage, Some(Storage::World(storage)) if storage.matches(pixels, view.pivot))
                 {
                     self.storage = None;
@@ -314,12 +313,18 @@ impl Output {
                 let Some(Storage::World(storage)) = &mut self.storage else {
                     unreachable!()
                 };
-                let mut frame = storage.begin(frame_size, view, overlay.as_deref(), frame);
+                let mut frame = storage.begin(
+                    frame_size,
+                    view,
+                    source,
+                    camera.range,
+                    overlay.as_deref(),
+                    frame,
+                );
                 content
                     .as_deref_mut()
                     .expect("viewport content")
-                    .prepare(scene, &mut frame)?;
-                frame.finish()?;
+                    .prepare(&mut frame)?;
             } else {
                 let storage = self
                     .storage
@@ -365,7 +370,7 @@ impl Output {
             radius: Fixed::ZERO,
             composite: CompositeMode::SourceOver,
         });
-        if let Some(content) = attachments.content {
+        if let Some(content) = attachments.content.filter(|content| content.available()) {
             content.source.borrow().present(paint, origin, scale);
         }
         Ok(())
@@ -624,23 +629,27 @@ impl Property for StageRetired {
     }
 }
 
-struct Mount;
-impl Property for Mount {
-    type Value = ();
-    fn apply(world: &mut World, entity: Entity, _: ()) -> PropertyChange {
-        if world
-            .get::<StackViewport>(entity)
-            .is_some_and(|v| (v.stage.is_some() || v.scene.is_some()) && v.bindings.is_none())
-        {
+struct Mount(Entity);
+impl DeferredOperation for Mount {
+    fn apply(self, world: &mut World) -> Result<(), CommandCommitError> {
+        let Self(entity) = self;
+        let Some(view) = world.get::<StackViewport>(entity) else {
+            return Ok(());
+        };
+        if (view.stage.is_some() || view.scene.is_some()) && view.bindings.is_none() {
             StackViewport::bind(world, entity);
         }
         ViewportOverlay::attach(world, entity);
-        PropertyChange::Unchanged
+        ViewportContent::attach(world, entity)
     }
 }
 #[mirui::event]
 fn attach(entity: entity!(), commands: commands!()) {
-    commands.set::<Mount>(entity, ());
+    commands.enqueue(Mount(entity));
+}
+
+fn prepare_mount(world: &mut World) -> Result<PreparedAttach, RuntimeInstallError> {
+    prepare_attach(world, attach::callback())
 }
 
 struct MountOverlay;
@@ -686,13 +695,10 @@ fn paint_viewport(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
 }
 
 fn viewport() -> View {
-    fn mount(world: &mut World) -> Result<PreparedAttach, RuntimeInstallError> {
-        prepare_attach(world, attach::callback())
-    }
     assemble_view::<StackViewport>(ViewDescriptor {
         name: "StackViewport",
         paint: Some((60, paint_viewport)),
-        attach: Some(AttachDefinition::Callback(mount)),
+        attach: Some(AttachDefinition::Callback(prepare_mount)),
         input: None,
         observation: None,
         query_dependencies: &[
@@ -704,12 +710,26 @@ fn viewport() -> View {
     })
 }
 
+fn content_attachment() -> View {
+    assemble_view::<ViewportContent>(ViewDescriptor {
+        name: "ViewportContent",
+        paint: None,
+        attach: Some(AttachDefinition::Callback(prepare_mount)),
+        input: None,
+        observation: None,
+        query_dependencies: &[],
+        systems: &[],
+        invalidation: ViewInvalidation::Visual,
+    })
+}
+
 /// Registers SpriteStack and StackViewport paint and attachment views at priority 60.
 pub struct SpriteStackPlugin;
 impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for SpriteStackPlugin {
     fn build(&mut self, app: &mut App<B, F>) {
         app.with_widget(crate::view())
             .with_widget(viewport())
-            .with_widget(overlay_attachment::view());
+            .with_widget(overlay_attachment::view())
+            .with_widget(content_attachment());
     }
 }

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1120" height="834" viewBox="0 0 1120 834" role="img" aria-labelledby="title desc">
   <title id="title">Pixel Flight architecture</title>
-  <desc id="desc">The build turns jet.mirx into two sparse detail levels. FlightModel advances the aircraft from controls or autopilot and publishes their poses to a StackScene containing the procedural island. One FlightCamera switches between overhead, chase and cockpit. SpriteStack projects the scene, tests visibility and presents the frame. Pixel Flight supplies materials, shadows and effects. Compact combines scene colors and effects in bounded tiles before Mirui writes the output format.</desc>
+  <desc id="desc">The build turns jet.mirx into two sparse detail levels. FlightModel advances the aircraft from controls or autopilot. The stage system attaches the island and aircraft, and the aircraft visuals follow the model. The main view chooses an overhead, chase or cockpit camera. SpriteStack projects the scene and presents the frame. Compact combines scene colors and effects in bounded tiles before Mirui writes the output format.</desc>
   <defs>
     <style>
       text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "DejaVu Sans", sans-serif; }
@@ -58,12 +58,12 @@
     <path d="m66 280 14-7 14 7-14 7z"/>
     <path d="m66 286 14 7 14-7"/>
   </g>
-  <text x="110" y="292" class="code mint">StackScene</text>
+  <text x="110" y="292" class="code mint">StackStage</text>
   <text x="299" y="291" class="body">Holds the terrain and placed models. Each flight tick updates the aircraft poses.</text>
   <path class="line" d="M560 313v28"/>
 
   <rect class="card" x="40" y="346" width="1040" height="186" rx="8"/>
-  <text x="60" y="383" class="code">FlightCamera</text>
+  <text x="60" y="383" class="code">WorldCamera</text>
   <text x="261" y="382" class="body">Select a view of the same scene.</text>
 
   <g transform="translate(60 397)" aria-hidden="true">

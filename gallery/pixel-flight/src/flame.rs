@@ -852,7 +852,7 @@ mod tests {
         let world = World::new(7, Fixed::from_ratio(33, 100));
         let flight = Flight::new(&world, Settings::default());
         let raster = Raster::new([480, 300], false).unwrap();
-        let cockpit = Cockpit::new(480, 300, &raster.scene.palette);
+        let cockpit = Cockpit::new(480, 300, raster.scene.palette);
         let mut flames = Flames::new().unwrap();
         let total = world.bytes()
             + core::mem::size_of::<World>()

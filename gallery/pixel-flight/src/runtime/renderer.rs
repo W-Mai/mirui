@@ -1,9 +1,12 @@
-use super::{FlightModelHandle, Profile, Terrain};
+use super::{
+    FlightModel, FlightModelHandle, Profile, Terrain,
+    stage_members::{FlightTerrain, placements},
+};
 use crate::{
     cockpit::{Cockpit, PreparedCockpit},
     flame::Flames,
     flight::cockpit_center,
-    raster::{Canvas, Daylight, FlightScene, Palette, SceneObjects, SceneView},
+    raster::{Canvas, Daylight, FlightScene, Palette, SceneView},
 };
 use mirui::{
     core::{cache::Handle, model::ModelHandle},
@@ -12,89 +15,100 @@ use mirui::{
     ui::{Prop, view::PaintCtx},
 };
 use mirui_sprite_stack::{
-    FrameSize, Pose, SceneContent, StackScene, ViewportContent, ViewportOverlay, WorldCamera,
-    WorldFrame, WorldOutput,
-    raster::{FrameOverlay, OverlayFrame},
+    ContentFrame, FrameContent, FrameSize, Pose, TerrainTarget, ViewportContent, ViewportOutput,
+    ViewportOverlay, WorldCamera,
+    raster::{FrameEffects, FrameOverlay, OverlayFrame, SceneLayers},
 };
 
 struct FlightContent {
-    model: FlightModelHandle,
     scene: FlightScene,
     flames: Option<Flames>,
 }
 
 pub(super) fn flight_content(model: FlightModelHandle, profile: Profile) -> ViewportContent {
-    ViewportContent::new(FlightContent {
-        model,
-        scene: FlightScene::new(Palette::new(Daylight::Day)),
-        flames: (profile == Profile::Desktop).then(|| Flames::new().expect("flight flame storage")),
-    })
+    ViewportContent::from_model(
+        &model,
+        FlightModelHandle::revision,
+        FlightContent {
+            scene: FlightScene::new(Palette::shared(Daylight::Day)),
+            flames: (profile == Profile::Desktop)
+                .then(|| Flames::new().expect("flight flame storage")),
+        },
+    )
 }
 
-impl SceneContent for FlightContent {
-    fn output(&self) -> WorldOutput {
+impl FrameContent<FlightModel> for FlightContent {
+    fn terrain(&self) -> Option<TerrainTarget> {
+        Some(TerrainTarget::role::<FlightTerrain>())
+    }
+
+    fn output(&self) -> ViewportOutput {
         if self.flames.is_some() {
-            WorldOutput::Full
+            ViewportOutput::Full
         } else {
-            WorldOutput::Bounded
+            ViewportOutput::Bounded
         }
     }
 
-    fn camera(&self, size: FrameSize) -> Result<WorldCamera, RenderError> {
+    fn camera(&self, model: &FlightModel, size: FrameSize) -> Result<WorldCamera, RenderError> {
         let [width, height] = size.pixels().map(usize::from);
-        Ok(self.model.read(|model| {
-            let projection = model.flight.projection(width, height);
-            WorldCamera {
-                camera: projection.frame_camera(),
-                pivot: cockpit_center(height),
-                roll: projection.cockpit > Fixed::ZERO,
-            }
-        }))
+        let projection = model.flight.projection(width, height);
+        Ok(WorldCamera {
+            camera: projection.frame_camera(),
+            pivot: cockpit_center(height),
+            roll: projection.cockpit > Fixed::ZERO,
+        })
     }
 
-    fn prepare(
+    fn prepare<'a>(
+        &'a mut self,
+        model: &'a FlightModel,
+        frame: ContentFrame,
+    ) -> Result<(impl SceneLayers + 'a, impl FrameEffects + 'a), RenderError> {
+        let [_, height] = frame.size.pixels().map(usize::from);
+        self.scene.set_daylight(model.day);
+        let aircraft = placements(model);
+        Ok(self.scene.prepare_frame(
+            &model.flight,
+            SceneView {
+                projection: model.flight.render_projection(frame.camera),
+                #[cfg(test)]
+                source_size: frame.source_size,
+                height,
+                #[cfg(test)]
+                compact: self.output() == ViewportOutput::Bounded,
+            },
+            model.terrain.at(frame.terrain.and(model.ground_pose)),
+            &aircraft,
+        ))
+    }
+
+    fn finish(
         &mut self,
-        scene: &StackScene,
-        frame: &mut WorldFrame<'_>,
+        model: &FlightModel,
+        frame: ContentFrame,
+        storage: usize,
     ) -> Result<(), RenderError> {
-        let size = frame.size();
-        let pixels @ [_, height] = size.pixels().map(usize::from);
-        let camera = frame.camera();
-        let source_size = frame.source_size();
-        let compact = self.output() == WorldOutput::Bounded;
-        self.model.read(|model| {
-            self.scene.set_daylight(model.day);
-            let (target, objects) = frame.layers();
-            self.scene.draw(
-                target,
-                objects,
-                &model.flight,
-                SceneView {
-                    projection: model.flight.render_projection(camera),
-                    source_size,
-                    height,
-                    compact,
-                },
-                SceneObjects::Placed {
-                    scene,
-                    world: &model.terrain,
-                    objects: &model.objects,
-                },
+        self.scene.finish_frame();
+        let mut storage = storage + core::mem::size_of::<Self>();
+        if let Some(flames) = &mut self.flames {
+            let scale = Fixed::from(
+                frame
+                    .size
+                    .integer_scale()
+                    .expect("flight frame scale")
+                    .get(),
+            );
+            flames.prepare(
+                &self.scene.flames[..self.scene.flame_count],
+                model.flight.time,
+                scale,
+                frame.size.pixels().map(usize::from),
             )?;
-            let mut storage = frame.storage_bytes() + core::mem::size_of::<Self>();
-            if let Some(flames) = &mut self.flames {
-                let scale = Fixed::from(size.integer_scale().expect("flight frame scale").get());
-                flames.prepare(
-                    &self.scene.flames[..self.scene.flame_count],
-                    model.flight.time,
-                    scale,
-                    pixels,
-                )?;
-                storage += flames.bytes() - core::mem::size_of::<Flames>();
-            }
-            model.display_bytes.set(storage);
-            Ok(())
-        })
+            storage += flames.bytes() - core::mem::size_of::<Flames>();
+        }
+        model.display_bytes.set(storage);
+        Ok(())
     }
 
     fn present(&self, paint: &mut PaintCtx<'_>, origin: Point, scale: Fixed) {
@@ -153,15 +167,15 @@ impl FrameOverlay<u64> for CockpitLayer {
         });
         self.model.read(|model| {
             if self.day != Some(model.day) {
-                let palette = Palette::new(model.day);
+                let palette = Palette::shared(model.day);
                 self.sun = palette.sun;
-                artwork.set_palette(&palette);
+                artwork.set_palette(palette);
                 self.day = Some(model.day);
             }
             let projection = model.flight.render_projection(camera);
             self.prepared = artwork.prepare_lit(&model.flight, projection, model.day, self.sun);
             if self.prepared.is_some() {
-                self.pose = model.scene.pose(model.objects.ground());
+                self.pose = model.ground_pose;
             }
             model.cockpit_bytes.set(artwork.bytes());
         });

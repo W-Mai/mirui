@@ -2,10 +2,12 @@ use mirui::app::plugins::{FrameRateCapPlugin, StdInstantClockPlugin};
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::ui::IgnoreHitTest;
-use mirui_sprite_stack::{Camera, Object, StackScene, StackViewport};
+use mirui_pixel_flight::FlightModel;
+use mirui_sprite_stack::{Camera, StackViewport};
 
 #[compose]
-fn minimap(scene: model!(StackScene), player: Object) -> Entity {
+fn minimap(game: model!(FlightModel)) -> Entity {
+    let stage = game.stage();
     ui! {
         StackViewport (
             position: Position::Absolute,
@@ -13,11 +15,11 @@ fn minimap(scene: model!(StackScene), player: Object) -> Entity {
             left: 8,
             width: 160,
             height: 160,
-            scene: scene,
-            camera: Camera {
-                target: Some(player),
+            stage: stage,
+            camera: ${Camera {
+                center: game.player_position(),
                 ..Camera::overhead()
-            }
+            }}
         ) [
             IgnoreHitTest,
         ]
@@ -32,6 +34,6 @@ fn main() {
         .add_plugin(FrameRateCapPlugin::new(60));
     let root = app.spawn_root().id();
     let game = mirui_pixel_flight::setup_app(&mut app, root);
-    app.compose(root, minimap(game.scene(), game.player()));
+    app.compose(root, minimap(game));
     app.run();
 }

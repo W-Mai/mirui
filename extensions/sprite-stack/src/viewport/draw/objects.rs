@@ -1,12 +1,17 @@
-use super::projection::{InstancePose, ObjectProjection, V3, ViewProjection};
+use super::{
+    StageFrame,
+    projection::{InstancePose, ObjectProjection, V3, ViewProjection},
+};
 use crate::{
-    Geometry, HeightField, Object, Pose, PreparedSpriteStack, SpriteStackAsset, StackScene,
+    Geometry, HeightField, Object, Pose, PreparedSpriteStack, SampledStyle, SpriteStackAsset,
+    StackScene,
     raster::{
-        SceneCanvas,
-        sprites::{LayerGrid, StackTransform, ViewStacks},
+        Projection, SceneCanvas,
+        sprites::{LayerGrid, SampleSource, SpritePaint, SpriteView, StackTransform, ViewStacks},
     },
     stage::Material,
 };
+use core::cell::RefCell;
 use mirui::{
     render::RenderError,
     types::{Fixed, Fixed64},
@@ -18,34 +23,42 @@ pub struct ObjectPass {
 }
 
 pub(super) trait ObjectSource<I> {
-    fn visit(&self, read: impl FnMut(I, &Geometry, Pose));
-    fn with_geometry<R>(&self, id: I, read: impl FnOnce(&Geometry, Material) -> R) -> Option<R>;
+    fn visit(&self, read: impl FnMut(I, &Geometry, Pose, Option<&SampledStyle>));
+    fn with_geometry<R>(
+        &self,
+        id: I,
+        read: impl FnOnce(&Geometry, Material, Option<&SampledStyle>) -> R,
+    ) -> Option<R>;
 }
 
 impl ObjectSource<Object> for StackScene {
-    fn visit(&self, read: impl FnMut(Object, &Geometry, Pose)) {
-        self.for_each(read);
+    fn visit(&self, mut read: impl FnMut(Object, &Geometry, Pose, Option<&SampledStyle>)) {
+        self.for_each(|id, geometry, pose| read(id, geometry, pose, None));
     }
 
     fn with_geometry<R>(
         &self,
         id: Object,
-        read: impl FnOnce(&Geometry, Material) -> R,
+        read: impl FnOnce(&Geometry, Material, Option<&SampledStyle>) -> R,
     ) -> Option<R> {
-        self.with_object(id, |geometry, _| read(geometry, Material::default()))
+        self.with_object(id, |geometry, _| read(geometry, Material::default(), None))
     }
 }
 
-pub(super) struct ObjectWork<I> {
-    objects: alloc::vec::Vec<(I, InstancePose, Fixed)>,
+pub(in crate::viewport) struct ObjectWork<I> {
+    objects: alloc::vec::Vec<(I, InstancePose, Fixed, Option<usize>)>,
+    styled: alloc::vec::Vec<(I, usize, Fixed)>,
     sampled: ViewStacks,
+    wide_mask: RefCell<alloc::vec::Vec<u8>>,
 }
 
 impl<I> Default for ObjectWork<I> {
     fn default() -> Self {
         Self {
             objects: alloc::vec::Vec::new(),
+            styled: alloc::vec::Vec::new(),
             sampled: ViewStacks::default(),
+            wide_mask: RefCell::default(),
         }
     }
 }
@@ -70,49 +83,76 @@ impl ObjectPass {
         include: impl FnMut(Object, &Geometry, Pose) -> bool,
     ) -> Result<ProjectedObjects<'a>, RenderError> {
         self.work
-            .prepare(scene, camera, include)
+            .prepare(scene, camera, None, include)
             .map(ProjectedObjects)
     }
 }
 
 impl<I: Copy> ObjectWork<I> {
-    fn storage_bytes(&self) -> usize {
-        self.objects.capacity() * core::mem::size_of::<(I, InstancePose, Fixed)>()
+    pub(in crate::viewport) fn storage_bytes(&self) -> usize {
+        self.objects.capacity() * core::mem::size_of::<(I, InstancePose, Fixed, Option<usize>)>()
+            + self.styled.capacity() * core::mem::size_of::<(I, usize, Fixed)>()
             + self.sampled.storage_bytes()
+            + self.wide_mask.borrow().capacity()
     }
 
     pub(super) fn prepare<'a, S: ObjectSource<I>>(
         &'a mut self,
         scene: &'a S,
         camera: ViewProjection,
+        frame: Option<StageFrame>,
         mut include: impl FnMut(I, &Geometry, Pose) -> bool,
     ) -> Result<Projected<'a, I, S>, RenderError> {
         self.objects.clear();
+        self.styled.clear();
         self.sampled.reset();
         let mut result: Result<(), RenderError> = Ok(());
-        scene.visit(|id, geometry, pose| {
+        scene.visit(|id, geometry, pose, style| {
             if result.is_err() || !include(id, geometry, pose) {
                 return;
             }
             result = (|| {
+                if let (Some(frame), Some(style)) = (frame, style) {
+                    match geometry {
+                        Geometry::Sampled(asset) => {
+                            return self.prepare_styled(
+                                id,
+                                *asset,
+                                pose,
+                                &camera.projection,
+                                style,
+                                frame,
+                            );
+                        }
+                        Geometry::Generated(asset) => {
+                            return self.prepare_styled(
+                                id,
+                                asset.data(),
+                                pose,
+                                &camera.projection,
+                                style,
+                                frame,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
                 let instance = InstancePose::new(pose);
                 let transform = ObjectProjection {
                     camera: &camera,
                     instance,
                 };
                 let mut scale = camera.projection.scale;
+                let mut sample = None;
                 match geometry {
                     Geometry::Sampled(asset) => {
-                        let stack = transform.stack(Fixed::from_ratio(asset.spacing_q8(), 256));
-                        let stack = LayerGrid::prepared(asset).with_depth_extent(
-                            stack,
-                            asset.extent()[2],
-                            &camera,
-                        );
-                        self.sampled.push(asset, stack, &camera.projection)?;
+                        sample = Some(self.prepare_sampled(*asset, &transform)?);
+                    }
+                    Geometry::Generated(asset) => {
+                        sample = Some(self.prepare_sampled(asset.data(), &transform)?);
                     }
                     Geometry::Prepared(asset) if !camera.projection.perspective.is_zero() => {
-                        scale = LayerGrid::prepared(asset).nearest_scale(
+                        scale = LayerGrid::prepared(*asset).nearest_scale(
                             &transform,
                             asset.extent()[2],
                             Fixed::from_ratio(asset.spacing_q8(), 256),
@@ -133,16 +173,76 @@ impl<I: Copy> ObjectWork<I> {
                 self.objects
                     .try_reserve(1)
                     .map_err(|_| RenderError::MissingWorkspace)?;
-                self.objects.push((id, instance, scale));
+                self.objects.push((id, instance, scale, sample));
                 Ok(())
             })();
         });
         result?;
+        self.styled
+            .sort_unstable_by(|a, b| b.2.cmp(&a.2).then(a.1.cmp(&b.1)));
         Ok(Projected {
             scene,
             camera,
             pass: self,
         })
+    }
+
+    fn prepare_styled(
+        &mut self,
+        id: I,
+        asset: &dyn SampleSource,
+        pose: Pose,
+        projection: &Projection,
+        style: &SampledStyle,
+        frame: StageFrame,
+    ) -> Result<(), RenderError> {
+        let Some((transform, depth)) = styled_transform(pose, asset.extent()[1], style, frame)
+        else {
+            return Ok(());
+        };
+        if narrow_palette_offset(asset.palette()).is_none() {
+            let mask = self.wide_mask.get_mut();
+            let count = frame.mask_pixels.div_ceil(4);
+            if mask.len() < count {
+                mask.try_reserve_exact(count - mask.len())
+                    .map_err(|_| RenderError::MissingWorkspace)?;
+                mask.resize(count, 0);
+            }
+        }
+        let sample = self.sampled.push_with(
+            asset,
+            transform,
+            projection,
+            style.max_cell_pixels,
+            frame.bounded,
+            |layer, first| style.entrance.offset(layer, first, frame.size[1]),
+        )?;
+        self.styled
+            .try_reserve_exact(1)
+            .map_err(|_| RenderError::MissingWorkspace)?;
+        self.styled.push((id, sample, depth));
+        Ok(())
+    }
+
+    fn prepare_sampled(
+        &mut self,
+        asset: &impl SampleSource,
+        transform: &ObjectProjection<'_>,
+    ) -> Result<usize, RenderError> {
+        let stack = transform.stack(Fixed::from_ratio(asset.spacing_q8(), 256));
+        let stack = LayerGrid::prepared(asset).with_depth_extent(
+            stack,
+            asset.extent()[2],
+            transform.camera,
+        );
+        self.sampled.push_with(
+            asset,
+            stack,
+            &transform.camera.projection,
+            Fixed::ONE,
+            true,
+            |_, _| Some(Fixed::ZERO),
+        )
     }
 }
 
@@ -163,14 +263,13 @@ pub(super) struct Projected<'a, I, S> {
 
 impl<I: Copy, S: ObjectSource<I>> Projected<'_, I, S> {
     pub(super) fn draw(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
-        let mut sampled = 0;
-        for &(id, instance, scale) in &self.pass.objects {
+        for &(id, instance, scale, sample) in &self.pass.objects {
             let transform = ObjectProjection {
                 camera: &self.camera,
                 instance,
             };
             self.scene
-                .with_geometry(id, |geometry, material| -> Result<(), RenderError> {
+                .with_geometry(id, |geometry, material, _| -> Result<(), RenderError> {
                     match geometry {
                         Geometry::Sprite(sprite) if material.is_default() => {
                             draw_atlas::<false>(tile, &transform, sprite.get(), scale, material)?
@@ -185,22 +284,19 @@ impl<I: Copy, S: ObjectSource<I>> Projected<'_, I, S> {
                             draw_sparse::<true>(tile, &transform, sprite, scale, material)
                         }
                         Geometry::Sampled(sprite) => {
-                            let view = self.pass.sampled.view(sampled, sprite);
-                            sampled += 1;
+                            let view = self
+                                .pass
+                                .sampled
+                                .view(sample.expect("prepared sampled instance"), sprite);
                             if let Some(view) = view {
-                                let palette = sprite.palette();
-                                if material.is_default() {
-                                    view.draw(tile, &self.camera.projection, |s| {
-                                        u32::from_le_bytes(palette[usize::from(s.color)])
-                                    });
-                                } else {
-                                    view.draw(tile, &self.camera.projection, |s| {
-                                        let index = usize::from(s.color);
-                                        material.shade(palette[index], Some(index))
-                                    });
-                                }
+                                self.draw_sampled(tile, view, sprite.palette(), material);
                             }
                         }
+                        Geometry::Generated(sprite) => self.pass.sampled.with_generated_view(
+                            sample.expect("prepared generated instance"),
+                            sprite.data(),
+                            |view| self.draw_sampled(tile, view, sprite.data().palette(), material),
+                        ),
                         Geometry::Field(field) => draw_field(tile, &transform, field.get()),
                         Geometry::LiveField(field) => {
                             use mirui::core::model::ModelHandle;
@@ -213,6 +309,162 @@ impl<I: Copy, S: ObjectSource<I>> Projected<'_, I, S> {
         }
         Ok(())
     }
+
+    fn draw_sampled(
+        &self,
+        tile: &mut SceneCanvas<'_, '_>,
+        view: SpriteView<'_, '_>,
+        palette: &[[u8; 4]],
+        material: Material,
+    ) {
+        if material.is_default() {
+            view.draw(tile, &self.camera.projection, |s| {
+                u32::from_le_bytes(palette[usize::from(s.color)])
+            });
+        } else {
+            view.draw(tile, &self.camera.projection, |s| {
+                let index = usize::from(s.color);
+                material.shade(palette[index], Some(index))
+            });
+        }
+    }
+    pub(super) fn draw_styled(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
+        for &(id, sample, _) in &self.pass.styled {
+            self.scene
+                .with_geometry(id, |geometry, material, style| {
+                    let Some(style) = style else {
+                        return;
+                    };
+                    let mut draw = |view: SpriteView<'_, '_>, pivot, palette: &[[u8; 4]]| {
+                        self.draw_styled_view(tile, view, pivot, palette, style, material)
+                    };
+                    match geometry {
+                        Geometry::Sampled(sprite) => {
+                            if let Some(view) = self.pass.sampled.view(sample, sprite) {
+                                draw(view, sprite.pivot_q8()[0], sprite.palette());
+                            }
+                        }
+                        Geometry::Generated(sprite) => {
+                            let sprite = sprite.data();
+                            self.pass
+                                .sampled
+                                .with_generated_view(sample, sprite, |view| {
+                                    draw(view, sprite.pivot_q8()[0], sprite.palette());
+                                });
+                        }
+                        _ => {}
+                    }
+                })
+                .expect("borrowed scene retains its instances");
+        }
+        Ok(())
+    }
+
+    fn draw_styled_view(
+        &self,
+        tile: &mut SceneCanvas<'_, '_>,
+        view: SpriteView<'_, '_>,
+        pivot_q8: i32,
+        palette: &[[u8; 4]],
+        style: &SampledStyle,
+        material: Material,
+    ) {
+        let pivot = Fixed::from_ratio(pivot_q8, 256);
+        let split = (pivot - (Fixed::from(view.step()) - Fixed::ONE) / 2)
+            .ceil()
+            .to_int();
+        let offset = narrow_palette_offset(palette);
+        if material.is_default() {
+            self.draw_styled_cells(tile, view, split, offset, style.paint, |bank, index| {
+                style.palettes[bank][index]
+            });
+        } else {
+            self.draw_styled_cells(tile, view, split, offset, style.paint, |bank, index| {
+                material.shade(style.palettes[bank][index].to_le_bytes(), Some(index))
+            });
+        }
+    }
+
+    fn draw_styled_cells(
+        &self,
+        tile: &mut SceneCanvas<'_, '_>,
+        view: SpriteView<'_, '_>,
+        split: i32,
+        offset: Option<u8>,
+        paint: SpritePaint,
+        shade: impl Fn(usize, usize) -> u32,
+    ) {
+        if let Some(offset) = offset {
+            view.draw_masked(
+                tile,
+                &self.camera.projection,
+                paint,
+                |voxel| (voxel.color + offset) | (u8::from(i32::from(voxel.x) >= split) << 7),
+                |tag| shade(usize::from(tag >> 7), usize::from((tag & 0x7f) - offset)),
+            );
+        } else {
+            view.draw_masked_wide(
+                tile,
+                &mut self.pass.wide_mask.borrow_mut(),
+                &self.camera.projection,
+                paint,
+                |voxel| 1 + u16::from(voxel.color) + (u16::from(i32::from(voxel.x) >= split) << 8),
+                |tag| {
+                    let index = usize::from(tag - 1);
+                    shade(index >> 8, index & 255)
+                },
+            );
+        }
+    }
+}
+
+fn narrow_palette_offset(palette: &[[u8; 4]]) -> Option<u8> {
+    match palette.len() {
+        1..=127 => Some(u8::from(palette[0][3] != 0)),
+        128 if palette[0][3] == 0 => Some(0),
+        _ => None,
+    }
+}
+
+fn styled_transform(
+    pose: Pose,
+    length: u16,
+    style: &SampledStyle,
+    frame: StageFrame,
+) -> Option<(StackTransform, Fixed)> {
+    if !style.paint.opacity.is_positive() {
+        return None;
+    }
+    let yaw = -frame.camera.yaw;
+    let (sin, cos) = (Fixed::sin_rad(yaw), Fixed::cos_rad(yaw));
+    let into_camera = |[x, y, z]: V3| {
+        let horizontal = -z;
+        [x * cos - horizontal * sin, -(x * sin + horizontal * cos), y]
+    };
+    let offset = core::array::from_fn(|i| pose.position[i] - frame.camera.position[i]);
+    let [x, depth, up] = into_camera(offset);
+    let center = frame.camera.projection.project_camera(x, up, depth)?;
+    if !center[2].is_positive() {
+        return None;
+    }
+    let reach = Fixed::from(length) * style.scale * center[2] + style.cull_margin;
+    let [w, h] = frame.size.map(|v| Fixed::from_int(v as i32));
+    if center[0] < -reach
+        || center[1] < -reach - h
+        || center[0] > w + reach
+        || center[1] > h + reach
+    {
+        return None;
+    }
+    Some((
+        StackTransform {
+            scale: style.scale,
+            layer_spacing: style.layer_spacing,
+            depth_radius: style.depth_radius,
+            ..StackTransform::from_basis(offset, style.axes, into_camera)
+        },
+        depth,
+    ))
 }
 
 fn top(

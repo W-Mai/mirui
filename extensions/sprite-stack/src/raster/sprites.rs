@@ -1,12 +1,74 @@
 //! Camera-space sampling and coverage for sparse indexed sprite layers.
-use super::{Projection, SceneCanvas};
+use super::{Canvas, Projection, SceneCanvas};
 use crate::{PreparedSpriteStack, SparseLevel, StackSample};
 use alloc::vec::Vec;
 use core::ops::Range;
 use mirui::render::RenderError;
 use mirui::types::{Fixed, Fixed64, GridBasis};
 
+pub(crate) trait SampleSource {
+    fn extent(&self) -> [u16; 3];
+    fn pivot_q8(&self) -> [i32; 3];
+    fn spacing_q8(&self) -> i32;
+    fn palette(&self) -> &[[u8; 4]];
+    fn level_count(&self) -> usize;
+    fn level(&self, index: usize) -> SparseLevel<'_>;
+}
+
+impl SampleSource for PreparedSpriteStack<'_> {
+    fn extent(&self) -> [u16; 3] {
+        self.extent()
+    }
+
+    fn pivot_q8(&self) -> [i32; 3] {
+        self.pivot_q8()
+    }
+
+    fn spacing_q8(&self) -> i32 {
+        self.spacing_q8()
+    }
+
+    fn palette(&self) -> &[[u8; 4]] {
+        self.palette()
+    }
+
+    fn level_count(&self) -> usize {
+        self.levels().len()
+    }
+
+    fn level(&self, index: usize) -> SparseLevel<'_> {
+        self.levels()[index]
+    }
+}
+
+impl SampleSource for crate::format::GeneratedStack {
+    fn extent(&self) -> [u16; 3] {
+        self.extent()
+    }
+
+    fn pivot_q8(&self) -> [i32; 3] {
+        self.pivot_q8()
+    }
+
+    fn spacing_q8(&self) -> i32 {
+        self.spacing_q8()
+    }
+
+    fn palette(&self) -> &[[u8; 4]] {
+        self.palette()
+    }
+
+    fn level_count(&self) -> usize {
+        self.level_count()
+    }
+
+    fn level(&self, index: usize) -> SparseLevel<'_> {
+        self.level(index).expect("validated level index")
+    }
+}
+
 /// Paints the completed sprite coverage once per pixel, allowing palette lighting, a silhouette outline, and opacity over the scene.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SpritePaint {
     /// Subtracted from camera depth for both visibility tests and writes.
     pub depth_bias: Fixed,
@@ -58,7 +120,7 @@ impl LayerGrid {
             layer_pivot,
         }
     }
-    pub(crate) fn prepared(asset: &PreparedSpriteStack<'_>) -> Self {
+    pub(crate) fn prepared(asset: &(impl SampleSource + ?Sized)) -> Self {
         let [w, h, _] = asset.extent();
         Self::new([w, h], asset.pivot_q8())
     }
@@ -80,16 +142,16 @@ pub fn select_level<'a>(
 }
 
 fn select_matching_level(
-    asset: &PreparedSpriteStack<'_>,
+    asset: &(impl SampleSource + ?Sized),
     scale: Fixed,
     max_pixels: Fixed,
     accepts_step: impl Fn(u16) -> bool,
 ) -> usize {
-    asset
-        .levels()
-        .iter()
-        .rposition(|level| {
-            fits_level(scale, level.step(), max_pixels) && accepts_step(level.step())
+    (0..asset.level_count())
+        .rev()
+        .find(|&index| {
+            let step = asset.level(index).step();
+            fits_level(scale, step, max_pixels) && accepts_step(step)
         })
         .unwrap_or(0)
 }
@@ -187,9 +249,6 @@ enum OffsetPool {
     Wide(Vec<[Fixed; 2]>),
 }
 
-// A signed sample coordinate with 1/256-pixel precision spans [-128, 128).
-const SAMPLE_FRACTIONS: i32 = 256;
-
 impl Default for OffsetPool {
     fn default() -> Self {
         Self::Packed(Vec::new())
@@ -212,7 +271,7 @@ impl OffsetPool {
                 pool.extend(
                     offsets
                         .iter()
-                        .map(|offset| offset.map(|v| (v * SAMPLE_FRACTIONS).to_int() as i16)),
+                        .map(|offset| offset.map(|v| (v * 256).to_int() as i16)),
                 );
                 return Ok(start..pool.len());
             }
@@ -258,7 +317,7 @@ impl OffsetPool {
 }
 
 fn expand_offset(offset: [i16; 2]) -> [Fixed; 2] {
-    offset.map(|v| Fixed::from_ratio(i32::from(v), SAMPLE_FRACTIONS))
+    offset.map(|v| Fixed::from_ratio(i32::from(v), 256))
 }
 
 /// Per-viewport projection storage shared by all sampled instances.
@@ -289,12 +348,15 @@ impl ViewStacks {
         self.offsets = OffsetPool::default();
     }
 
-    pub(crate) fn push(
+    pub(crate) fn push_with(
         &mut self,
-        asset: &PreparedSpriteStack<'_>,
+        asset: &(impl SampleSource + ?Sized),
         transform: StackTransform,
         p: &Projection,
-    ) -> Result<(), RenderError> {
+        max_cell_pixels: Fixed,
+        prepare_regions: bool,
+        layer_offset: impl FnMut(usize, usize) -> Option<Fixed>,
+    ) -> Result<usize, RenderError> {
         let count = usize::from(asset.extent()[2]);
         self.stacks
             .try_reserve_exact(1)
@@ -321,27 +383,30 @@ impl ViewStacks {
             asset,
             transform,
             p,
-            Fixed::ONE,
+            max_cell_pixels,
             ProjectionBuffers {
                 layers,
                 order: &mut self.order[range.clone()],
                 offsets: &mut offsets,
             },
-            |_, _| Some(Fixed::ZERO),
+            layer_offset,
         );
         let offsets = if let Some(core) = core.as_ref() {
-            core.prepare_regions(asset.levels()[core.level], layers, p);
-            let samples = &offsets[..core.samples * core.samples];
-            self.offsets.append(samples, core.sample_bounds)?
+            if prepare_regions {
+                core.prepare_regions(asset.level(core.level), layers, p);
+            }
+            self.offsets
+                .append(&offsets[..core.samples * core.samples], core.sample_bounds)?
         } else {
             0..0
         };
+        let index = self.stacks.len();
         self.stacks.push(PreparedStack {
             core,
             layers: range,
             offsets,
         });
-        Ok(())
+        Ok(index)
     }
 
     pub(crate) fn view<'a>(
@@ -351,13 +416,35 @@ impl ViewStacks {
     ) -> Option<SpriteView<'_, 'a>> {
         let stack = &self.stacks[index];
         let core = stack.core.as_ref()?;
-        Some(SpriteView {
+        Some(self.view_level(stack, core, &asset.levels()[core.level]))
+    }
+
+    pub(crate) fn with_generated_view(
+        &self,
+        index: usize,
+        asset: &crate::format::GeneratedStack,
+        draw: impl FnOnce(SpriteView<'_, '_>),
+    ) {
+        let stack = &self.stacks[index];
+        if let Some(core) = &stack.core {
+            let level = SampleSource::level(asset, core.level);
+            draw(self.view_level(stack, core, &level));
+        }
+    }
+
+    fn view_level<'s, 'a>(
+        &'s self,
+        stack: &PreparedStack,
+        core: &'s ProjectionWork,
+        level: &'s SparseLevel<'a>,
+    ) -> SpriteView<'s, 'a> {
+        SpriteView {
             core,
-            level: &asset.levels()[core.level],
+            level,
             layers: &self.layers[stack.layers.clone()],
             order: &self.order[stack.layers.clone()],
             offsets: self.offsets.offsets(stack.offsets.clone()),
-        })
+        }
     }
 }
 
@@ -370,6 +457,9 @@ pub struct SpriteView<'s, 'a> {
     offsets: SampleOffsets<'s>,
 }
 impl SpriteView<'_, '_> {
+    pub(crate) fn step(&self) -> u16 {
+        self.level.step()
+    }
     /// Visits each covered sample that passes the scene depth test, in layer order. The callback can shade the fragment directly or record coverage for a subsequent pass.
     pub fn rasterize(
         &self,
@@ -521,7 +611,49 @@ impl SpriteView<'_, '_> {
         projection: &Projection,
         paint: SpritePaint,
         tag: impl Fn(&StackSample) -> u8,
-        mut shade: impl FnMut(u8) -> u32,
+        shade: impl FnMut(u8) -> u32,
+    ) {
+        self.draw_masked_impl(
+            (canvas.color, canvas.depth),
+            NarrowMask(canvas.mask),
+            projection,
+            paint,
+            tag,
+            shade,
+        );
+    }
+
+    pub(crate) fn draw_masked_wide(
+        &self,
+        canvas: &mut SceneCanvas<'_, '_>,
+        upper: &mut [u8],
+        projection: &Projection,
+        paint: SpritePaint,
+        tag: impl Fn(&StackSample) -> u16,
+        shade: impl FnMut(u16) -> u32,
+    ) {
+        let size = canvas.mask.len().div_ceil(4);
+        self.draw_masked_impl(
+            (canvas.color, canvas.depth),
+            WideMask {
+                bytes: canvas.mask,
+                upper: &mut upper[..size],
+            },
+            projection,
+            paint,
+            tag,
+            shade,
+        );
+    }
+
+    fn draw_masked_impl<T: Mask>(
+        &self,
+        (color, depths): (&mut Canvas<'_>, &mut [Fixed]),
+        mut mask: T,
+        projection: &Projection,
+        paint: SpritePaint,
+        tag: impl Fn(&StackSample) -> T::Tag,
+        mut shade: impl FnMut(T::Tag) -> u32,
     ) {
         let SpritePaint {
             opacity,
@@ -531,23 +663,23 @@ impl SpriteView<'_, '_> {
         if !opacity.is_positive() {
             return;
         }
-        canvas.mask.fill(0);
-        let [l, t, r, b] = canvas.color.clip;
+        mask.clear();
+        let [l, t, r, b] = color.clip;
         let halo = i32::from(outline.is_some());
         let clip = [l - halo, t - halo, r + halo, b + halo];
         let mut bounds = [r, b, l - 1, t - 1];
         let mut missing = [clip[2], clip[3], clip[0], clip[1]];
         self.visit(clip, projection, |x, y, sample, depth| {
             let material = tag(sample);
-            if material == 0 {
+            if material == T::Tag::default() {
                 return;
             }
-            if canvas.color.contains(x, y) {
-                let at = canvas.color.index(x, y);
+            if color.contains(x, y) {
+                let at = color.index(x, y);
                 let z = depth - depth_bias;
-                if z <= canvas.depth[at] {
-                    canvas.depth[at] = z;
-                    canvas.mask[at] = material;
+                if z <= depths[at] {
+                    depths[at] = z;
+                    mask.set(at, material);
                     bounds = [
                         bounds[0].min(x),
                         bounds[1].min(y),
@@ -556,7 +688,7 @@ impl SpriteView<'_, '_> {
                     ];
                     return;
                 }
-                if canvas.mask[at] != 0 {
+                if mask.get(at) != T::Tag::default() {
                     return;
                 }
             }
@@ -571,15 +703,15 @@ impl SpriteView<'_, '_> {
         });
         for y in (bounds[1] - halo).max(t)..=(bounds[3] + halo).min(b - 1) {
             for x in (bounds[0] - halo).max(l)..=(bounds[2] + halo).min(r - 1) {
-                let at = canvas.color.index(x, y);
-                let material = canvas.mask[at];
-                if material == 0 {
+                let at = color.index(x, y);
+                let material = mask.get(at);
+                if material == T::Tag::default() {
                     if let Some(outline) = outline {
-                        let pitch = canvas.color.pitch;
+                        let pitch = color.pitch;
                         let mut nearest = Fixed::MAX;
                         let mut neighbor = |n: usize| {
-                            if canvas.mask[n] != 0 {
-                                nearest = nearest.min(canvas.depth[n]);
+                            if mask.get(n) != T::Tag::default() {
+                                nearest = nearest.min(depths[n]);
                             }
                         };
                         if x > l {
@@ -594,18 +726,18 @@ impl SpriteView<'_, '_> {
                         if y + 1 < b {
                             neighbor(at + pitch);
                         }
-                        if nearest < canvas.depth[at] {
-                            canvas.depth[at] = nearest;
-                            canvas.put(at, outline);
+                        if nearest < depths[at] {
+                            depths[at] = nearest;
+                            color.put(at, outline);
                         }
                     }
                     continue;
                 }
-                let mut color = shade(material);
+                let mut shaded = shade(material);
                 if opacity < Fixed::ONE {
-                    let [r, g, b, a] = canvas.get(at).to_le_bytes();
+                    let [r, g, b, a] = color.get(at).to_le_bytes();
                     let background = mirui::types::Color::rgba(r, g, b, a);
-                    let [r, g, b, _] = color.to_le_bytes();
+                    let [r, g, b, _] = shaded.to_le_bytes();
                     let material = mirui::types::Color::rgb(r, g, b);
                     let mixed = if a == 255 {
                         mirui::types::Color::lerp(background, material, opacity)
@@ -617,9 +749,9 @@ impl SpriteView<'_, '_> {
                             alpha,
                         )
                     };
-                    color = u32::from_le_bytes([mixed.r, mixed.g, mixed.b, mixed.a]);
+                    shaded = u32::from_le_bytes([mixed.r, mixed.g, mixed.b, mixed.a]);
                 }
-                canvas.put(at, color);
+                color.put(at, shaded);
             }
         }
         let Some(outline) = outline.filter(|_| missing[0] < missing[2]) else {
@@ -629,26 +761,74 @@ impl SpriteView<'_, '_> {
         // A clipped or occluded center can still contribute a visible contour on
         // its neighbor. Fully visible sprites already resolved all four neighbors.
         self.visit(missing, projection, |x, y, sample, depth| {
-            if canvas.color.contains(x, y) && canvas.mask[canvas.color.index(x, y)] != 0 {
+            if color.contains(x, y) && mask.get(color.index(x, y)) != T::Tag::default() {
                 return;
             }
-            if tag(sample) == 0 {
+            if tag(sample) == T::Tag::default() {
                 return;
             }
             let z = depth - depth_bias;
             for (x, y) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
-                if !canvas.color.contains(x, y) {
+                if !color.contains(x, y) {
                     continue;
                 }
-                let at = canvas.color.index(x, y);
-                if canvas.mask[at] == 0 && z < canvas.depth[at] {
-                    canvas.depth[at] = z;
-                    canvas.put(at, outline);
+                let at = color.index(x, y);
+                if mask.get(at) == T::Tag::default() && z < depths[at] {
+                    depths[at] = z;
+                    color.put(at, outline);
                 }
             }
         });
     }
 }
+
+trait Mask {
+    type Tag: Copy + Default + Eq;
+    fn clear(&mut self);
+    fn get(&self, index: usize) -> Self::Tag;
+    fn set(&mut self, index: usize, tag: Self::Tag);
+}
+
+struct NarrowMask<'a>(&'a mut [u8]);
+
+impl Mask for NarrowMask<'_> {
+    type Tag = u8;
+    fn clear(&mut self) {
+        self.0.fill(0);
+    }
+    fn get(&self, index: usize) -> u8 {
+        self.0[index]
+    }
+    fn set(&mut self, index: usize, tag: u8) {
+        self.0[index] = tag;
+    }
+}
+
+struct WideMask<'a> {
+    bytes: &'a mut [u8],
+    upper: &'a mut [u8],
+}
+
+impl Mask for WideMask<'_> {
+    type Tag = u16;
+    fn clear(&mut self) {
+        self.bytes.fill(0);
+        self.upper.fill(0);
+    }
+    fn get(&self, index: usize) -> u16 {
+        let shift = (index & 3) * 2;
+        let upper = (self.upper[index >> 2] >> shift) & 3;
+        u16::from(self.bytes[index]) | (u16::from(upper) << 8)
+    }
+    fn set(&mut self, index: usize, tag: u16) {
+        debug_assert!(tag <= 512);
+        self.bytes[index] = tag as u8;
+        let shift = (index & 3) * 2;
+        let byte = &mut self.upper[index >> 2];
+        *byte = (*byte & !(3 << shift)) | ((tag >> 8) as u8) << shift;
+    }
+}
+
 struct ProjectionWork {
     center: [Fixed; 4],
     grid: GridBasis,
@@ -664,7 +844,7 @@ struct ProjectionBuffers<'a> {
 }
 impl ProjectionWork {
     fn new(
-        model: &PreparedSpriteStack<'_>,
+        model: &(impl SampleSource + ?Sized),
         transform: StackTransform,
         projection: &Projection,
         max_cell_pixels: Fixed,
@@ -728,7 +908,7 @@ impl ProjectionWork {
         let level_index = select_matching_level(model, big, max_cell_pixels, |step| {
             width.is_multiple_of(step) && length.is_multiple_of(step)
         });
-        let level = &model.levels()[level_index];
+        let level = model.level(level_index);
         let cell_scale = Fixed::from(level.step());
         let cell_center = (cell_scale - Fixed::ONE) / 2;
         // Coarse cells reuse the existing grid over a larger footprint at lower density.
@@ -951,60 +1131,6 @@ mod tests {
         LEVELS,
     )
     .unwrap();
-
-    #[test]
-    fn viewport_footprints_preserve_wide_and_packed_sample_positions() {
-        let mut work = ViewStacks::default();
-        let mut first = [[Fixed::ZERO; 2]; 64];
-        let mut first_len = 0;
-        for pixels in [3, 400] {
-            let (p, _) = fixture(Fixed::from_int(pixels), false);
-            let transform = || StackTransform {
-                origin: [Fixed::ZERO; 3],
-                axes: [
-                    [Fixed::ONE, Fixed::ZERO, Fixed::ZERO],
-                    [Fixed::ZERO, Fixed::ZERO, Fixed::ONE],
-                    [Fixed::ZERO, Fixed::ONE, Fixed::ZERO],
-                ],
-                scale: Fixed::ONE,
-                layer_spacing: Fixed::ONE,
-                depth_radius: Fixed::ZERO,
-            };
-            let direct = ProjectedStack::<2>::new(&MODEL, transform(), &p, Fixed::ONE, |_, _| {
-                Some(Fixed::ZERO)
-            })
-            .unwrap();
-            let index = work.stacks.len();
-            work.push(&MODEL, transform(), &p).unwrap();
-            let expected = &direct.offsets[..direct.core.samples * direct.core.samples];
-            let offsets = work.view(index, &MODEL).unwrap().offsets;
-            match offsets {
-                SampleOffsets::Packed(offsets) => {
-                    assert_eq!(pixels, 3);
-                    assert!(
-                        offsets
-                            .iter()
-                            .copied()
-                            .map(expand_offset)
-                            .eq(expected.iter().copied())
-                    );
-                    first_len = offsets.len();
-                    first[..first_len].copy_from_slice(expected);
-                }
-                SampleOffsets::Wide(offsets) => {
-                    assert_eq!(pixels, 400);
-                    assert_eq!(offsets, expected);
-                }
-            }
-        }
-        let SampleOffsets::Wide(reused) = work.view(0, &MODEL).unwrap().offsets else {
-            panic!("wide pool must retain the prior offsets");
-        };
-        assert_eq!(reused, &first[..first_len]);
-        work.release_layers();
-        assert_eq!(work.offsets.storage_bytes(), 0);
-    }
-
     fn fixture(scale: Fixed, perspective: bool) -> (Projection, ProjectedStack<'static, 2>) {
         let p = Projection {
             scale,

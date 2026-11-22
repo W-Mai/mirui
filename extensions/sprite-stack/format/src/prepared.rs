@@ -1,5 +1,7 @@
 //! Borrowed sparse slices for preprocessed indexed sprite stacks.
 
+use alloc::vec::Vec;
+
 /// Coordinates are in base-level cells, including at coarser resolutions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StackSample {
@@ -228,6 +230,134 @@ const fn valid_level(
         index += 1;
     }
     true
+}
+
+pub struct GeneratedLevel {
+    step: u16,
+    offsets: Vec<usize>,
+    samples: Vec<StackSample>,
+    bounds: Vec<LayerBounds>,
+}
+
+impl GeneratedLevel {
+    pub fn new(step: u16, offsets: Vec<usize>, samples: Vec<StackSample>) -> Self {
+        Self {
+            step,
+            offsets,
+            samples,
+            bounds: Vec::new(),
+        }
+    }
+
+    fn view(&self) -> SparseLevel<'_> {
+        SparseLevel {
+            step: self.step,
+            offsets: &self.offsets,
+            samples: &self.samples,
+            bounds: Some(&self.bounds),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum GeneratedError {
+    Invalid,
+    Budget,
+    Allocation,
+}
+
+pub struct GeneratedStack {
+    extent: [u16; 3],
+    pivot_q8: [i32; 3],
+    spacing_q8: i32,
+    palette: Vec<[u8; 4]>,
+    levels: Vec<GeneratedLevel>,
+    storage_bytes: usize,
+}
+
+impl GeneratedStack {
+    pub fn new(
+        extent: [u16; 3],
+        pivot_q8: [i32; 3],
+        spacing_q8: i32,
+        palette: Vec<[u8; 4]>,
+        mut levels: Vec<GeneratedLevel>,
+        budget: usize,
+    ) -> Result<Self, GeneratedError> {
+        use GeneratedError::{Allocation, Budget, Invalid};
+        if !valid_header(extent, spacing_q8, &palette, levels.len()) {
+            return Err(Invalid);
+        }
+        let mut bytes = 0usize;
+        let mut count = |elements: usize, element_bytes: usize| -> Result<(), GeneratedError> {
+            bytes = elements
+                .checked_mul(element_bytes)
+                .and_then(|value| bytes.checked_add(value))
+                .filter(|total| *total <= budget)
+                .ok_or(Budget)?;
+            Ok(())
+        };
+        count(palette.capacity(), size_of::<[u8; 4]>())?;
+        count(levels.capacity(), size_of::<GeneratedLevel>())?;
+        let layer_count = usize::from(extent[2]);
+        let mut previous_step = 0;
+        for level in &levels {
+            let input =
+                SparseLevel::new(level.step, &level.offsets, &level.samples).ok_or(Invalid)?;
+            if !valid_level(extent, &palette, input, previous_step) {
+                return Err(Invalid);
+            }
+            previous_step = input.step;
+            count(level.offsets.capacity(), size_of::<usize>())?;
+            count(level.samples.capacity(), size_of::<StackSample>())?;
+            count(layer_count, size_of::<LayerBounds>())?;
+        }
+        for level in &mut levels {
+            let input =
+                SparseLevel::new(level.step, &level.offsets, &level.samples).ok_or(Invalid)?;
+            level
+                .bounds
+                .try_reserve_exact(layer_count)
+                .map_err(|_| Allocation)?;
+            level
+                .bounds
+                .extend((0..layer_count).map(|index| input.measure_bounds(index)));
+            count(
+                level.bounds.capacity() - layer_count,
+                size_of::<LayerBounds>(),
+            )?;
+        }
+        Ok(Self {
+            extent,
+            pivot_q8,
+            spacing_q8,
+            palette,
+            levels,
+            storage_bytes: bytes,
+        })
+    }
+
+    pub fn storage_bytes(&self) -> usize {
+        self.storage_bytes
+    }
+    pub fn extent(&self) -> [u16; 3] {
+        self.extent
+    }
+    pub fn pivot_q8(&self) -> [i32; 3] {
+        self.pivot_q8
+    }
+    pub fn spacing_q8(&self) -> i32 {
+        self.spacing_q8
+    }
+    pub fn palette(&self) -> &[[u8; 4]] {
+        &self.palette
+    }
+    pub fn level_count(&self) -> usize {
+        self.levels.len()
+    }
+    pub fn level(&self, index: usize) -> Option<SparseLevel<'_>> {
+        self.levels.get(index).map(GeneratedLevel::view)
+    }
 }
 
 #[cfg(test)]

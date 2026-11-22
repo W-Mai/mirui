@@ -582,13 +582,10 @@ mod tests {
     use super::*;
     #[test]
     fn scene_and_simulation_sample_the_same_generated_planes() {
-        use mirui_sprite_stack::{Pose, StackScene};
         for side in [64, SIDE] {
             let world = World::with_size(7, Fixed::from_ratio(33, 100), side, 32, 16);
             let field = world.field();
             assert!(field.ptr_eq(&world.field()));
-            let mut scene = StackScene::bounded(1);
-            let object = scene.place(field.clone(), Pose::default()).unwrap();
             let cell_size = (SIDE / side) as i32;
             for row in 0..side {
                 for col in 0..side {
@@ -598,8 +595,8 @@ mod tests {
                     assert_eq!(field.materials()[index], world.material(x, y));
                     assert_eq!(field.levels()[index], world.height(x, y));
                     assert_eq!(
-                        scene.height_at(object, Fixed::from_int(x), Fixed::from_int(-y)),
-                        Ok(Some(Fixed::from_int(i32::from(world.height(x, y)))))
+                        field.height_at(Fixed::from_int(x), Fixed::from_int(-y)),
+                        Some(Fixed::from_int(i32::from(world.height(x, y))))
                     );
                     let [r, g, b] = TOP[usize::from(world.material(x, y))];
                     assert_eq!(field.color(field.materials()[index]), Color::rgb(r, g, b));
@@ -614,7 +611,7 @@ mod tests {
                         let (col, row) = (x.trunc_to_int(), y.trunc_to_int());
                         assert_eq!(field.materials()[address], world.material(col, row));
                         assert_eq!(
-                            scene.height_at(object, x, -y).unwrap(),
+                            field.height_at(x, -y),
                             Some(Fixed::from_int(i32::from(world.height(col, row))))
                         );
                     }

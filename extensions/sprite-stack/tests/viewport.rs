@@ -12,8 +12,8 @@ const COLORS: [Color; 2] = [RED, GREEN];
 fn attached_content_publishes_once_per_change_and_retries_failed_frames() {
     use mirui::render::RenderError;
     use mirui_sprite_stack::{
-        FrameSize, SceneContent, StackSceneHandle, ViewportContent, WorldCamera, WorldFrame,
-        raster::{FrameCamera, Projection, SceneCanvas, SceneLayers},
+        ContentFrame, FrameContent, FrameSize, StackStageHandle, ViewportContent, WorldCamera,
+        raster::{FrameCamera, FrameEffects, Projection, SceneCanvas, SceneLayers},
     };
     use std::{cell::Cell, rc::Rc};
 
@@ -33,8 +33,8 @@ fn attached_content_publishes_once_per_change_and_retries_failed_frames() {
         attempts: Rc<Cell<u32>>,
         color: Color,
     }
-    impl SceneContent for Procedural {
-        fn camera(&self, _: FrameSize) -> Result<WorldCamera, RenderError> {
+    impl FrameContent for Procedural {
+        fn camera(&self, _: &(), _: FrameSize) -> Result<WorldCamera, RenderError> {
             Ok(WorldCamera {
                 camera: FrameCamera {
                     projection: Projection {
@@ -55,21 +55,21 @@ fn attached_content_publishes_once_per_change_and_retries_failed_frames() {
 
         fn prepare(
             &mut self,
-            _: &StackScene,
-            frame: &mut WorldFrame<'_>,
-        ) -> Result<(), RenderError> {
+            _: &(),
+            _: ContentFrame,
+        ) -> Result<(impl SceneLayers, impl FrameEffects), RenderError> {
             let count = self.attempts.get() + 1;
             self.attempts.set(count);
             if count == 2 {
                 return Err(RenderError::MissingWorkspace);
             }
-            frame.layers().0.draw(&Background(self.color), &mut ())
+            Ok((Background(self.color), ()))
         }
     }
     #[mirui::compose]
-    fn procedural(scene: StackSceneHandle, attempts: Rc<Cell<u32>>) -> Entity {
+    fn procedural(stage: StackStageHandle, attempts: Rc<Cell<u32>>) -> Entity {
         ui! {
-            StackViewport (id: "world", width: 16, height: 16, scene: scene) [
+            StackViewport (id: "world", width: 16, height: 16, stage: stage) [
                 ViewportContent::new(Procedural {
                     attempts,
                     color: WHITE,
@@ -80,10 +80,10 @@ fn attached_content_publishes_once_per_change_and_retries_failed_frames() {
 
     let mut app = App::headless(16, 16);
     app.with_default_widgets().add_plugin(SpriteStackPlugin);
-    let scene = app.add_model(StackScene::new()).finish();
+    let stage = app.add_model(StackStage::bounded(0)).finish();
     let attempts = Rc::new(Cell::new(0));
     let root = app.spawn_root().id();
-    app.compose(root, procedural(scene.clone(), attempts.clone()));
+    let view = app.compose(root, procedural(stage, attempts.clone()));
     for _ in 0..2 {
         let frame = app.snapshot().unwrap().unwrap();
         assert_eq!(
@@ -92,7 +92,11 @@ fn attached_content_publishes_once_per_change_and_retries_failed_frames() {
         );
     }
     assert_eq!(attempts.get(), 1);
-    scene.invalidate();
+    let replacement = app.add_model(StackStage::bounded(0)).finish();
+    app.world
+        .widget_mut(view)
+        .unwrap()
+        .set::<mirui_sprite_stack::ViewportStage>(replacement);
     assert!(matches!(app.snapshot(), Err(RenderError::MissingWorkspace)));
     app.snapshot().unwrap();
     assert_eq!(attempts.get(), 3);

@@ -1,6 +1,6 @@
 use crate::{
     Camera, Pose,
-    raster::{Projection, SceneCanvas, sprites::StackTransform},
+    raster::{FrameCamera, Projection, SceneCanvas, sprites::StackTransform},
 };
 use mirui::types::{Fixed, Fixed64};
 
@@ -24,6 +24,17 @@ pub struct ViewProjection {
     pub(super) radius: Fixed,
 }
 impl ViewProjection {
+    pub(in crate::viewport) fn from_frame(camera: FrameCamera, range: Fixed) -> Self {
+        let sin_cos = |radians| (Fixed::sin_rad(radians), Fixed::cos_rad(radians));
+        Self {
+            projection: camera.projection,
+            origin: camera.position,
+            yaw: sin_cos(camera.yaw),
+            pitch: sin_cos(camera.pitch),
+            radius: range,
+        }
+    }
+
     /// Maps a scene camera with a resolved target to a viewport in pixels.
     pub fn from_camera(
         camera: Camera,

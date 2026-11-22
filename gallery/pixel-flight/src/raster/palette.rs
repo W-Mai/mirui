@@ -1,4 +1,4 @@
-use crate::{jet, world};
+use crate::{runtime::aircraft_palette::AIRCRAFT_PALETTES, world};
 use mirui::types::{Color, Fixed};
 
 pub const BAYER: [u8; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
@@ -47,12 +47,20 @@ pub struct Palette {
     pub sun: [Fixed; 2],
     pub sun_color: u32,
     pub sun_glow: u32,
-    pub jets: [[u32; 96]; 3],
+    pub jets: &'static [[u32; 96]; 3],
     pub outline: u32,
     pub spark: [u32; 2],
     pub foam: u32,
     pub trails: [u32; 3],
 }
+include!("frame_palettes.rs");
+
+impl Palette {
+    pub(crate) fn shared(day: Daylight) -> &'static Self {
+        &FRAME_PALETTES[day as usize]
+    }
+}
+
 fn grade(c: [u8; 3], day: Daylight, amount: Fixed) -> u32 {
     let [r, g, b] = c.map(|value| Fixed::from_int(i32::from(value)));
     let target = match day {
@@ -157,33 +165,6 @@ impl Palette {
                 )
             }
         });
-        let mut jets = [[0; 96]; 3];
-        for row in jet::PALETTE {
-            jets[0][usize::from(row[0])] = grade(
-                [row[1], row[2], row[3]],
-                day,
-                if day == Daylight::Sunset {
-                    Fixed::from_ratio(5, 10)
-                } else if day == Daylight::Night {
-                    Fixed::from_ratio(16, 100)
-                } else {
-                    Fixed::ZERO
-                },
-            );
-        }
-        for row in jet::PALETTE {
-            let i = usize::from(row[0]);
-            jets[1][i] = if row[4] < 3 && jets[0][i + 1] != 0 {
-                jets[0][i + 1]
-            } else {
-                jets[0][i]
-            };
-            jets[2][i] = if row[4] < 3 && (i - 1) & 15 > 0 {
-                jets[0][i - 1]
-            } else {
-                jets[0][i]
-            };
-        }
         Self {
             day,
             top,
@@ -206,7 +187,7 @@ impl Palette {
             } else {
                 [255, 222, 150]
             }),
-            jets,
+            jets: &AIRCRAFT_PALETTES[day as usize],
             outline: if day == Daylight::Night {
                 pack([44, 64, 118])
             } else {

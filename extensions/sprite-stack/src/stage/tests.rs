@@ -304,8 +304,9 @@ fn foreign_stages_and_model_sources_are_rejected_before_mounting() {
             service: "stack stage"
         }))
     );
-    let visual =
-        StackVisual::from_model(&foreign_car, |_| panic!("foreign getter must stay unread"));
+    let visual = StackVisual::from_model(&foreign_car, |_| -> StackVisual {
+        panic!("foreign getter must stay unread")
+    });
     assert_eq!(
         apply(&mut app, &stage, Edit::Spawn(visual)),
         Err(CommandError::Commit(CommandCommitError::ForeignOwner {

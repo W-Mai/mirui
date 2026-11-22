@@ -5,31 +5,43 @@ struct TrackingAllocator;
 
 std::thread_local! {
     static TRACK_ALLOCATIONS: Cell<bool> = const { Cell::new(false) };
-    static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
+    static ALLOCATIONS: Cell<AllocationStats> = const { Cell::new(AllocationStats { count: 0, allocated: 0, freed: 0 }) };
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct AllocationStats {
+    pub count: usize,
+    pub allocated: usize,
+    pub freed: usize,
+}
+
+fn count(allocated: usize, freed: usize) {
+    TRACK_ALLOCATIONS.with(|tracking| {
+        if tracking.get() {
+            let mut stats = ALLOCATIONS.get();
+            stats.count += usize::from(allocated != 0);
+            stats.allocated += allocated;
+            stats.freed += freed;
+            ALLOCATIONS.set(stats);
+        }
+    });
 }
 
 unsafe impl GlobalAlloc for TrackingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        TRACK_ALLOCATIONS.with(|tracking| {
-            if tracking.get() {
-                ALLOCATION_COUNT.with(|count| count.set(count.get() + 1));
-            }
-        });
+        count(layout.size(), 0);
         // SAFETY: `layout` is forwarded unchanged to the system allocator.
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        count(0, layout.size());
         // SAFETY: `ptr` and `layout` came from this allocator's system allocation.
         unsafe { System.dealloc(ptr, layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        TRACK_ALLOCATIONS.with(|tracking| {
-            if tracking.get() {
-                ALLOCATION_COUNT.with(|count| count.set(count.get() + 1));
-            }
-        });
+        count(new_size, layout.size());
         // SAFETY: the allocation remains owned by the system allocator.
         unsafe { System.realloc(ptr, layout, new_size) }
     }
@@ -39,9 +51,13 @@ unsafe impl GlobalAlloc for TrackingAllocator {
 static ALLOCATOR: TrackingAllocator = TrackingAllocator;
 
 pub fn tracked_allocations(run: impl FnOnce()) -> usize {
-    ALLOCATION_COUNT.with(|count| count.set(0));
+    tracked_storage(run).count
+}
+
+pub fn tracked_storage(run: impl FnOnce()) -> AllocationStats {
+    ALLOCATIONS.set(AllocationStats::default());
     TRACK_ALLOCATIONS.with(|tracking| tracking.set(true));
     run();
     TRACK_ALLOCATIONS.with(|tracking| tracking.set(false));
-    ALLOCATION_COUNT.with(Cell::get)
+    ALLOCATIONS.get()
 }

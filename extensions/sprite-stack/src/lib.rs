@@ -14,12 +14,16 @@ pub use mirui_sprite_stack_format as format;
 #[cfg(feature = "widget")]
 mod asset;
 #[cfg(feature = "widget")]
+mod generated;
+#[cfg(feature = "widget")]
 pub mod raster;
 #[cfg(feature = "widget")]
 mod widget;
 
 #[cfg(feature = "widget")]
 pub use asset::{SpriteStackAsset, SpriteStackError, SpriteStackReaderExt};
+#[cfg(feature = "widget")]
+pub use generated::{GeneratedError, GeneratedLevel, GeneratedStackAsset};
 #[cfg(feature = "widget")]
 pub use widget::props as prop;
 #[cfg(feature = "widget")]
@@ -35,7 +39,8 @@ pub use scene::{Geometry, Object, Pose, StackScene, StackSceneHandle, StackScene
 mod stage;
 #[cfg(feature = "widget")]
 pub use stage::{
-    StackStage, StackStageCommands, StackStageHandle, StackVisual, StackVisualInput, StageCommands,
+    LayerEntrance, SampledStyle, SampledVisual, StackStage, StackStageCommands, StackStageHandle,
+    StackVisual, StackVisualInput, StageCommands,
 };
 #[cfg(feature = "widget")]
 pub use terrain::{
@@ -46,8 +51,8 @@ pub use terrain::{
 mod viewport;
 #[cfg(feature = "widget")]
 pub use viewport::{
-    Camera, FrameSize, ObjectPass, ProjectedObjects, Resolution, SceneContent, SpriteStackPlugin,
-    StackViewport, ViewProjection, ViewportCamera, ViewportContent, ViewportOverlay,
-    ViewportResolution, ViewportScene, ViewportStage, WorldCamera, WorldFrame, WorldLayers,
-    WorldOutput,
+    Camera, ContentFrame, FrameContent, FrameSize, ObjectPass, ProjectedObjects, Resolution,
+    SpriteStackPlugin, StackViewport, TerrainMember, TerrainTarget, ViewProjection, ViewportCamera,
+    ViewportContent, ViewportOutput, ViewportOverlay, ViewportResolution, ViewportScene,
+    ViewportStage, WorldCamera,
 };

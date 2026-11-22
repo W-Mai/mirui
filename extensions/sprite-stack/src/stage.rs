@@ -1,5 +1,8 @@
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use core::cell::{Cell, OnceCell, RefCell};
+use core::{
+    any::TypeId,
+    cell::{Cell, OnceCell, RefCell},
+};
 use mirui::{
     __macro_support::{DeferredCommands, despawn_subtree, with_world, with_world_scope},
     core::{
@@ -11,6 +14,8 @@ use mirui::{
 };
 
 use crate::{Geometry, Pose};
+mod sampled;
+pub use sampled::{LayerEntrance, SampledStyle};
 
 /// The entities and terrain displayed together by a set of stack viewports.
 #[mirui::model]
@@ -130,6 +135,8 @@ pub struct StackVisual {
     geometry: Geometry,
     pose: Pose,
     material: Material,
+    role: Option<fn() -> TypeId>,
+    sampled_style: Option<Box<SampledStyle>>,
     membership: Option<Membership>,
 }
 
@@ -156,6 +163,7 @@ impl Material {
         let palette_size = match geometry {
             Geometry::Sprite(sprite) => sprite.get().atlas().indexed_color_table().map(|p| p.len()),
             Geometry::Prepared(sprite) | Geometry::Sampled(sprite) => Some(sprite.palette().len()),
+            Geometry::Generated(sprite) => Some(sprite.data().palette().len()),
             Geometry::Field(_) | Geometry::LiveField(_) => None,
         };
         palette_size == Some(palette.len())
@@ -183,6 +191,8 @@ impl StackVisual {
             geometry: geometry.into(),
             pose: Pose::default(),
             material: Material::default(),
+            role: None,
+            sampled_style: None,
             membership: None,
         }
     }
@@ -208,6 +218,27 @@ impl StackVisual {
         self.material
     }
 
+    pub fn with_sampled_style(self, style: SampledStyle) -> SampledVisual {
+        SampledVisual {
+            visual: self,
+            style,
+        }
+    }
+
+    /// Names the visual for selection by procedural viewport content.
+    pub fn with_role<R: 'static>(mut self) -> Self {
+        self.role = Some(TypeId::of::<R>);
+        self
+    }
+
+    pub(crate) fn role(&self) -> Option<TypeId> {
+        self.role.map(|role| role())
+    }
+
+    pub(crate) fn sampled_style(&self) -> Option<&SampledStyle> {
+        self.sampled_style.as_deref()
+    }
+
     pub const fn geometry(&self) -> &Geometry {
         &self.geometry
     }
@@ -224,26 +255,12 @@ impl StackVisual {
     }
 
     /// Bind a visual description to the observed fields read from a registered model. Retirement removes an attached visual or despawns an entity created by the stage.
-    pub fn from_model<H: ModelHandle + 'static>(
-        model: &H,
-        visual: impl Fn(&H) -> Self + 'static,
-    ) -> StackVisualInput {
-        let owner = BindingOwner::registered(model);
-        let model = model.clone();
-        let retirement = OnceCell::new();
-        StackVisualInput(VisualInput::Bound {
-            owner,
-            read: Box::new(move || {
-                let live = retirement.get_or_init(|| model.access().observe_lifetime());
-                if !live.as_ref().is_some_and(|observe| observe()) {
-                    VisualRead::Retired
-                } else if model.callback_ready() {
-                    VisualRead::Ready(visual(&model))
-                } else {
-                    VisualRead::Waiting
-                }
-            }),
-        })
+    pub fn from_model<H, V>(model: &H, visual: impl Fn(&H) -> V + 'static) -> StackVisualInput
+    where
+        H: ModelHandle + 'static,
+        V: Into<(Self, Option<SampledStyle>)> + 'static,
+    {
+        StackVisualInput::bind(model, visual, Into::into)
     }
 
     fn check(&self, world: &World) -> Result<(), CommandCommitError> {
@@ -264,23 +281,70 @@ impl StackVisual {
                 operation: "stack visual material",
             });
         }
-        Ok(())
+        check_sampled_style(&self.geometry, self.sampled_style())
     }
+}
+
+/// Visual input for sampled geometry with its own projection and paint parameters.
+pub struct SampledVisual {
+    visual: StackVisual,
+    style: SampledStyle,
+}
+
+impl From<StackVisual> for (StackVisual, Option<SampledStyle>) {
+    fn from(visual: StackVisual) -> Self {
+        (visual, None)
+    }
+}
+
+impl From<SampledVisual> for (StackVisual, Option<SampledStyle>) {
+    fn from(sampled: SampledVisual) -> Self {
+        (sampled.visual, Some(sampled.style))
+    }
+}
+
+fn check_sampled_style(
+    geometry: &Geometry,
+    style: Option<&SampledStyle>,
+) -> Result<(), CommandCommitError> {
+    if let Some(style) = style {
+        let palette_len = match geometry {
+            Geometry::Sampled(asset) => asset.palette().len(),
+            Geometry::Generated(asset) => asset.data().palette().len(),
+            _ => {
+                return Err(CommandCommitError::OperationRejected {
+                    operation: "sampled style geometry",
+                });
+            }
+        };
+        if style.entrance.duration <= Fixed::ZERO
+            || style.palettes.iter().any(|p| p.len() != palette_len)
+        {
+            return Err(CommandCommitError::OperationRejected {
+                operation: "sampled style colors or timing",
+            });
+        }
+    }
+    Ok(())
 }
 
 /// A static description or a model binding supplied to a stage command.
 pub struct StackVisualInput(VisualInput);
 
+type InstallVisual = Box<
+    dyn FnOnce(&mut World, Entity, OnModelRetirement) -> Result<Option<Effect>, CommandCommitError>,
+>;
+
 enum VisualInput {
     Static(StackVisual),
     Bound {
         owner: BindingOwner,
-        read: Box<dyn Fn() -> VisualRead>,
+        install: InstallVisual,
     },
 }
 
-enum VisualRead {
-    Ready(StackVisual),
+enum VisualRead<V> {
+    Ready(V),
     Waiting,
     Retired,
 }
@@ -297,7 +361,44 @@ impl From<StackVisual> for StackVisualInput {
     }
 }
 
+impl From<SampledVisual> for StackVisualInput {
+    fn from(sampled: SampledVisual) -> Self {
+        let SampledVisual { mut visual, style } = sampled;
+        visual.sampled_style = Some(Box::new(style));
+        visual.into()
+    }
+}
+
 impl StackVisualInput {
+    fn bind<H: ModelHandle + 'static, V: 'static>(
+        model: &H,
+        visual: impl Fn(&H) -> V + 'static,
+        parts: fn(V) -> (StackVisual, Option<SampledStyle>),
+    ) -> Self {
+        let owner = BindingOwner::registered(model);
+        let model = model.clone();
+        let install = Box::new(move |world: &mut World, entity, retire| {
+            let retirement = OnceCell::new();
+            install_bound(
+                world,
+                entity,
+                retire,
+                move || {
+                    let live = retirement.get_or_init(|| model.access().observe_lifetime());
+                    if !live.as_ref().is_some_and(|observe| observe()) {
+                        VisualRead::Retired
+                    } else if model.callback_ready() {
+                        VisualRead::Ready(visual(&model))
+                    } else {
+                        VisualRead::Waiting
+                    }
+                },
+                parts,
+            )
+        });
+        Self(VisualInput::Bound { owner, install })
+    }
+
     fn check(&self, world: &World) -> Result<(), CommandCommitError> {
         match &self.0 {
             VisualInput::Static(visual) => visual.check(world),
@@ -345,85 +446,103 @@ impl StackVisualInput {
                     })
                 }))
             }
-            VisualInput::Bound { read, .. } => {
-                let field_revision = Cell::new(None);
-                let observe_field = field_observer();
-                let effect = with_world_scope(world, || {
-                    Effect::new(move || {
-                        let next = read();
-                        with_world(|world| {
-                            if !world.is_alive(entity) {
-                                return;
-                            }
-                            let next = match next {
-                                VisualRead::Ready(visual) => Some(visual),
-                                VisualRead::Waiting => None,
-                                VisualRead::Retired => {
-                                    if world
-                                        .get::<StackVisual>(entity)
-                                        .is_some_and(|visual| visual.membership.is_some())
-                                    {
-                                        match retire {
-                                            OnModelRetirement::Despawn => {
-                                                despawn_subtree(world, entity)
-                                            }
-                                            OnModelRetirement::Detach => {
-                                                world.remove::<StackVisual>(entity);
-                                            }
-                                        }
-                                    }
-                                    return;
-                                }
-                            };
-                            let Some(next) = next.filter(|next| next.check(world).is_ok()) else {
-                                if let Some(visual) = world.get::<StackVisual>(entity) {
-                                    let revision = observe_field(&visual.geometry);
-                                    if field_revision.replace(revision) != revision
-                                        && let Some(member) = &visual.membership
-                                    {
-                                        member.members.publish();
-                                    }
-                                }
-                                return;
-                            };
-                            field_revision.set(observe_field(&next.geometry));
-                            let Some(current) = world.get::<StackVisual>(entity) else {
-                                world.insert(entity, next);
-                                return;
-                            };
-                            if current.pose == next.pose
-                                && same_geometry(&current.geometry, &next.geometry)
-                                && current.material == next.material
-                            {
-                                return;
-                            }
-                            if current.membership.is_none() {
-                                return;
-                            }
-                            let visual = world
-                                .get_mut::<StackVisual>(entity)
-                                .expect("mounted visual");
-                            visual.pose = next.pose;
-                            visual.geometry = next.geometry;
-                            visual.material = next.material;
-                            visual
-                                .membership
-                                .as_ref()
-                                .expect("mounted visual")
-                                .members
-                                .publish();
-                        });
-                    })
-                });
-                if !world.has::<StackVisual>(entity) {
-                    return Err(CommandCommitError::OperationRejected {
-                        operation: "initial stack visual",
-                    });
-                }
-                Ok(Some(effect))
-            }
+            VisualInput::Bound { install, .. } => install(world, entity, retire),
         }
     }
+}
+
+fn install_bound<V: 'static>(
+    world: &mut World,
+    entity: Entity,
+    retire: OnModelRetirement,
+    read: impl Fn() -> VisualRead<V> + 'static,
+    parts: fn(V) -> (StackVisual, Option<SampledStyle>),
+) -> Result<Option<Effect>, CommandCommitError> {
+    let field_revision = Cell::new(None);
+    let observe_field = field_observer();
+    let effect = with_world_scope(world, || {
+        Effect::new(move || {
+            let next = read();
+            with_world(|world| {
+                if !world.is_alive(entity) {
+                    return;
+                }
+                let next = match next {
+                    VisualRead::Ready(visual) => Some(parts(visual)),
+                    VisualRead::Waiting => None,
+                    VisualRead::Retired => {
+                        if world
+                            .get::<StackVisual>(entity)
+                            .is_some_and(|visual| visual.membership.is_some())
+                        {
+                            match retire {
+                                OnModelRetirement::Despawn => despawn_subtree(world, entity),
+                                OnModelRetirement::Detach => {
+                                    world.remove::<StackVisual>(entity);
+                                }
+                            }
+                        }
+                        return;
+                    }
+                };
+                let Some((mut next, style)) = next.filter(|(next, style)| {
+                    next.check(world).is_ok()
+                        && check_sampled_style(&next.geometry, style.as_ref()).is_ok()
+                }) else {
+                    if let Some(visual) = world.get::<StackVisual>(entity) {
+                        let revision = observe_field(&visual.geometry);
+                        if field_revision.replace(revision) != revision
+                            && let Some(member) = &visual.membership
+                        {
+                            member.members.publish();
+                        }
+                    }
+                    return;
+                };
+                field_revision.set(observe_field(&next.geometry));
+                let Some(current) = world.get::<StackVisual>(entity) else {
+                    next.sampled_style = style.map(Box::new);
+                    world.insert(entity, next);
+                    return;
+                };
+                if current.pose == next.pose
+                    && same_geometry(&current.geometry, &next.geometry)
+                    && current.material == next.material
+                    && current.role() == next.role()
+                    && current.sampled_style() == style.as_ref()
+                {
+                    return;
+                }
+                if current.membership.is_none() {
+                    return;
+                }
+                let visual = world
+                    .get_mut::<StackVisual>(entity)
+                    .expect("mounted visual");
+                visual.pose = next.pose;
+                visual.geometry = next.geometry;
+                visual.material = next.material;
+                visual.role = next.role;
+                match (visual.sampled_style.as_deref_mut(), style) {
+                    (Some(current), Some(style)) => *current = style,
+                    (None, Some(style)) => visual.sampled_style = Some(Box::new(style)),
+                    (_, None) => visual.sampled_style = None,
+                }
+                visual
+                    .membership
+                    .as_ref()
+                    .expect("mounted visual")
+                    .members
+                    .publish();
+            });
+        })
+    });
+    if !world.has::<StackVisual>(entity) {
+        return Err(CommandCommitError::OperationRejected {
+            operation: "initial stack visual",
+        });
+    }
+    Ok(Some(effect))
 }
 
 fn field_observer() -> impl Fn(&Geometry) -> Option<u64> {
@@ -450,6 +569,7 @@ fn same_geometry(left: &Geometry, right: &Geometry) -> bool {
         (Geometry::Prepared(a), Geometry::Prepared(b))
         | (Geometry::Sampled(a), Geometry::Sampled(b)) => core::ptr::eq(*a, *b),
         (Geometry::Field(a), Geometry::Field(b)) => a.ptr_eq(b),
+        (Geometry::Generated(a), Geometry::Generated(b)) => a == b,
         _ => false,
     }
 }

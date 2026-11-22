@@ -1535,7 +1535,7 @@ mod tests {
         }
         let mut raster = Raster::new([480, 300], false).unwrap();
         let mut frame = crate::raster::Frame::new(480, 300).unwrap();
-        let art = Cockpit::new(480, 300, &raster.scene.palette);
+        let art = Cockpit::new(480, 300, raster.scene.palette);
         assert!(art.bytes() < 3 * 1024 * 1024);
         assert!(art.layers.iter().all(|layer| {
             (0..layer.width * layer.height).any(|at| layer.ink_at(at as usize) != 0)
@@ -1547,7 +1547,7 @@ mod tests {
             &crate::raster::PlacedAircraft::from_flight(&flight),
         );
         let allocations = crate::test_support::tracked_allocations(|| {
-            frame.with_canvas(|canvas| art.draw(canvas, &world, &flight, &raster.scene.palette))
+            frame.with_canvas(|canvas| art.draw(canvas, &world, &flight, raster.scene.palette))
         });
         assert_eq!(allocations, 0);
         let pixels = frame.texture.read_pixels().unwrap();

@@ -23,7 +23,7 @@ mod tests {
         for day in [Daylight::Day, Daylight::Sunset, Daylight::Night] {
             full.scene.set_daylight(day);
             native.scene.set_daylight(day);
-            let cockpit = Cockpit::new_compact(128, 128, &full.scene.palette);
+            let cockpit = Cockpit::new_compact(128, 128, full.scene.palette);
             for view in [View::Overhead, View::Chase, View::Cockpit] {
                 flight.view = view;
                 for (frames, degrees) in [(1, 0), (12, 60), (100, 150), (200, 240), (1, 315)] {

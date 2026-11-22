@@ -54,6 +54,11 @@ impl Projection {
     }
 }
 impl Flight {
+    pub(crate) fn aircraft_opacity(&self) -> Fixed {
+        let cockpit = self.cockpit[2].to_fixed();
+        Fixed::ONE - smooth((cockpit - Fixed::from_ratio(12, 100)) / Fixed::from_ratio(4, 10))
+    }
+
     pub(crate) fn render_projection(
         &self,
         camera: mirui_sprite_stack::raster::FrameCamera,
@@ -64,8 +69,7 @@ impl Flight {
             yaw: -camera.yaw,
             camera: camera.projection,
             roll: camera.roll,
-            jet_alpha: Fixed::ONE
-                - smooth((cockpit - Fixed::from_ratio(12, 100)) / Fixed::from_ratio(4, 10)),
+            jet_alpha: self.aircraft_opacity(),
             cockpit,
             steer_y: camera.projection.center[1],
         }

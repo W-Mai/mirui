@@ -1,4 +1,4 @@
-use crate::{HeightField, HeightFieldHandle, SpriteStackAsset, TerrainError};
+use crate::{GeneratedStackAsset, HeightField, HeightFieldHandle, SpriteStackAsset, TerrainError};
 use mirui::{
     core::{
         cache::Handle,
@@ -35,6 +35,7 @@ pub enum Geometry {
     Prepared(&'static crate::PreparedSpriteStack<'static>),
     /// Samples projected cells of a sparse model and depth-tests them against other scene objects.
     Sampled(&'static crate::PreparedSpriteStack<'static>),
+    Generated(GeneratedStackAsset),
     Field(Handle<HeightField>),
     LiveField(HeightFieldHandle),
 }
@@ -48,6 +49,12 @@ impl From<&'static crate::PreparedSpriteStack<'static>> for Geometry {
 impl From<Handle<SpriteStackAsset>> for Geometry {
     fn from(s: Handle<SpriteStackAsset>) -> Self {
         Self::Sprite(s)
+    }
+}
+
+impl From<GeneratedStackAsset> for Geometry {
+    fn from(asset: GeneratedStackAsset) -> Self {
+        Self::Generated(asset)
     }
 }
 impl From<Handle<HeightField>> for Geometry {
@@ -71,7 +78,7 @@ impl Geometry {
         match self {
             Self::Field(field) => Some(read(field.get())),
             Self::LiveField(field) => Some(field.read(read)),
-            Self::Sprite(_) | Self::Prepared(_) | Self::Sampled(_) => None,
+            Self::Sprite(_) | Self::Prepared(_) | Self::Sampled(_) | Self::Generated(_) => None,
         }
     }
 }

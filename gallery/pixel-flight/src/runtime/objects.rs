@@ -1,110 +1,93 @@
-use super::{Flight, Terrain};
-use crate::{
-    flight::{Aircraft, V3},
-    jet,
-    raster::{PlacedAircraft, Placements},
-};
+use crate::flight::Aircraft;
 use mirui::types::{Fixed, Fixed64};
-use mirui_sprite_stack::{Geometry, Object, Pose, StackScene, StackSceneOwned};
-
-pub(crate) struct FlightObjects {
-    ground: Object,
-    aircraft: [Option<Object>; 3],
-}
+use mirui_sprite_stack::Pose;
 
 fn degrees(radians: Fixed) -> Fixed {
     (Fixed64::from(radians) * 180 / Fixed64::from(Fixed::PI)).to_fixed()
 }
-fn radians(degrees: Fixed) -> Fixed {
+pub(super) fn radians(degrees: Fixed) -> Fixed {
     (Fixed64::from(degrees) * Fixed64::from(Fixed::PI) / 180 + Fixed64::from_ratio(1, 512))
         .to_fixed()
 }
 
-fn pose(aircraft: &Aircraft) -> Pose {
+pub(super) fn position(aircraft: &Aircraft) -> [Fixed; 3] {
     let [x, y, altitude] = aircraft.position;
+    [x, altitude, -y]
+}
+
+pub(super) fn pose(aircraft: &Aircraft) -> Pose {
     Pose {
-        position: [x, altitude, -y],
+        position: position(aircraft),
         yaw: degrees(aircraft.yaw),
         pitch: degrees(aircraft.pitch),
         roll: -degrees(aircraft.roll + aircraft.spin()),
     }
 }
 
-impl FlightObjects {
-    pub fn ground(&self) -> Object {
-        self.ground
-    }
-    pub fn player(&self) -> Object {
-        self.aircraft[0].expect("the player aircraft is always active")
-    }
-    pub fn new(terrain: &Terrain, flight: &Flight) -> (StackScene, Self) {
-        let mut scene = StackScene::with_capacity(4);
-        let ground = scene
-            .place(terrain.field(), Pose::default())
-            .expect("prepared terrain slot");
-        let aircraft = core::array::from_fn(|i| {
-            (i < flight.count).then(|| {
-                scene
-                    .place(Geometry::Sampled(&jet::MODEL), pose(&flight.jets[i]))
-                    .expect("prepared aircraft slot")
-            })
-        });
-        (scene, Self { ground, aircraft })
-    }
-    pub fn sync(&mut self, scene: &mut StackSceneOwned, flight: &mut Flight) {
-        for (i, entry) in self.aircraft.iter_mut().enumerate() {
-            match (*entry, i < flight.count) {
-                (Some(id), true) => {
-                    let _ = scene.set_pose(id, pose(&flight.jets[i]));
-                }
-                (None, true) => {
-                    match scene.place(Geometry::Sampled(&jet::MODEL), pose(&flight.jets[i])) {
-                        Ok(id) => *entry = Some(id),
-                        Err(reason) => {
-                            flight.count = i;
-                            mirui::warn!("flight wingman placement failed: {reason:?}");
-                        }
-                    }
-                }
-                (Some(id), false) => {
-                    let _ = scene.remove(id);
-                    *entry = None;
-                }
-                (None, false) => {}
-            }
-        }
-    }
-    pub(crate) fn collect_styled(
-        &self,
-        id: Object,
-        geometry: &Geometry,
-        pose: Pose,
-        ground: &mut Option<Pose>,
-        aircraft: &mut Placements,
-    ) -> bool {
-        if self.ground == id {
-            *ground = Some(pose);
-            return true;
-        }
-        let Some(index) = self.aircraft.iter().position(|entry| *entry == Some(id)) else {
-            return false;
-        };
-        if let Geometry::Sampled(model) = geometry {
-            let [x, altitude, z] = pose.position;
-            let position: V3 = [x, -z, altitude];
-            aircraft[index] = Some(PlacedAircraft::new(
-                position,
-                [pose.yaw, pose.pitch, -pose.roll].map(radians),
-                model,
-            ));
-        }
-        true
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jet;
+    use core::cell::RefCell;
+    use mirui::prelude::*;
+    use mirui_sprite_stack::{Geometry, StackStage, StackStageCommands, StackVisual};
+
+    #[mirui::component]
+    struct AddedObject;
+
+    struct PendingEdit {
+        old: Option<Entity>,
+        new: Option<(Geometry, Pose)>,
+    }
+
+    #[derive(Default)]
+    struct ObjectEdit(RefCell<Option<PendingEdit>>);
+
+    #[mirui::system]
+    fn edit(stage: model!(StackStage), pending: res!(ObjectEdit), commands: commands!()) {
+        let Some(PendingEdit { old, new }) = pending.0.borrow_mut().take() else {
+            return;
+        };
+        if let Some(id) = old {
+            if new.is_none() {
+                commands.despawn(id);
+                return;
+            }
+            commands.remove::<StackVisual>(id);
+        }
+        if let Some((geometry, pose)) = new {
+            let visual = StackVisual::new(geometry).at(pose);
+            if let Some(id) = old {
+                commands.stage(stage).attach(id, visual);
+            } else {
+                commands.stage(stage).spawn(AddedObject, visual);
+            }
+        }
+    }
+
+    fn run_edit<B, F>(
+        app: &mut App<B, F>,
+        old: Option<Entity>,
+        new: Option<(Geometry, Pose)>,
+    ) -> Option<Entity>
+    where
+        B: mirui::surface::Surface,
+        F: mirui::render::RendererFactory<B>,
+    {
+        let previous: alloc::vec::Vec<_> = app
+            .world
+            .query::<AddedObject>()
+            .iter()
+            .map(|(id, _)| id)
+            .collect();
+        app.add_resource(ObjectEdit(RefCell::new(Some(PendingEdit { old, new }))));
+        app.tick();
+        app.world
+            .query::<AddedObject>()
+            .iter()
+            .map(|(id, _)| id)
+            .find(|id| !previous.contains(id))
+    }
     #[test]
     fn placed_ground_uses_the_flight_camera_depth_and_live_materials() {
         use crate::math::FixedMath;
@@ -125,8 +108,11 @@ mod tests {
                 .unwrap(),
             )
             .finish();
-        let scene = game.scene();
-        let player = scene.pose(game.player()).unwrap();
+        app.add_resource(ObjectEdit::default());
+        app.add_system(edit::system(game.stage()));
+        game.set_focus(false);
+        app.tick();
+        let player = game.read(|state| pose(&state.flight.jets[0]));
         let mut pose = player;
         pose.position[0] += Fixed::from_int(42);
         pose.yaw = Fixed::ZERO;
@@ -145,7 +131,7 @@ mod tests {
         let sample = |frame: &mirui::render::texture::Texture, (x, y): (i32, i32)| {
             frame.read_pixels().unwrap().get_pixel(x, y)
         };
-        let object = scene.place(field.clone(), pose).unwrap();
+        let object = run_edit(&mut app, None, Some((field.clone().into(), pose))).unwrap();
         let added = app.snapshot().unwrap().unwrap();
         assert_eq!(sample(&added, a), COLORS[0], "field at {a:?}");
         field
@@ -167,16 +153,12 @@ mod tests {
             back.position[1] -= Fixed::from_int(30);
             back
         });
-        let rear = scene
-            .place(
-                HeightField::generate(grid, &COLORS, |_| TerrainCell {
-                    level: 0,
-                    material: 0,
-                })
-                .unwrap(),
-                back,
-            )
-            .unwrap();
+        let rear_field = HeightField::generate(grid, &COLORS, |_| TerrainCell {
+            level: 0,
+            material: 0,
+        })
+        .unwrap();
+        let rear = run_edit(&mut app, None, Some((rear_field.into(), back))).unwrap();
         let overlapped = app.snapshot().unwrap().unwrap();
         assert_eq!(
             sample(&overlapped, a),
@@ -184,7 +166,7 @@ mod tests {
             "near field covers a later placement"
         );
         pose.position[0] -= Fixed::from_int(96);
-        scene.set_pose(object, pose).unwrap();
+        run_edit(&mut app, Some(object), Some((field.clone().into(), pose)));
         let b = point(pose);
         let moved = app.snapshot().unwrap().unwrap();
         assert_eq!(
@@ -192,9 +174,9 @@ mod tests {
             COLORS[0],
             "moving the near field exposes the far field"
         );
-        scene.remove(rear).unwrap();
+        run_edit(&mut app, Some(rear), None);
         assert_eq!(sample(&moved, b), COLORS[1]);
-        scene.remove(object).unwrap();
+        run_edit(&mut app, Some(object), None);
         let after = app.snapshot().unwrap().unwrap();
         assert_eq!(sample(&after, b), sample(&before, b));
         assert_eq!(sample(&after, a), sample(&before, a));
@@ -208,17 +190,13 @@ mod tests {
             },
         )
         .unwrap();
-        let sheet = scene
-            .place(
-                repeating,
-                Pose::at(pose.position[0], player.position[1], pose.position[2]),
-            )
-            .unwrap();
+        let repeating = mirui::core::cache::Handle::new(repeating);
+        let sheet_pose = Pose::at(pose.position[0], player.position[1], pose.position[2]);
+        let sheet = run_edit(&mut app, None, Some((repeating.clone().into(), sheet_pose))).unwrap();
         let visible = app.snapshot().unwrap().unwrap();
         assert_eq!(sample(&visible, a), COLORS[0]);
-        scene
-            .set_pose(sheet, Pose::at(pose.position[0], -250, pose.position[2]))
-            .unwrap();
+        let buried_pose = Pose::at(pose.position[0], -250, pose.position[2]);
+        run_edit(&mut app, Some(sheet), Some((repeating.into(), buried_pose)));
         let buried = app.snapshot().unwrap().unwrap();
         assert_eq!(
             sample(&buried, a),
@@ -237,7 +215,9 @@ mod tests {
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
         let game = super::super::setup_compact_app(&mut app, root);
-        let scene = game.scene();
+        use mirui::core::model::ModelHandle;
+        app.add_resource(ObjectEdit::default());
+        app.add_system(edit::system(game.stage()));
         // Expanded layers turn off exhaust so its visibility smoothing cannot change a paused frame.
         game.key(mirui::input::event::input::PhysicalKey::KeyE, true, false);
         // Fill every flight slot before adding a game-authored object.
@@ -249,7 +229,9 @@ mod tests {
             for _ in 0..180 {
                 game.advance(16, 128, 128, None);
             }
-            let mut pose = scene.pose(game.player()).unwrap();
+            game.set_focus(false);
+            app.tick();
+            let mut pose = game.read(|state| pose(&state.flight.jets[0]));
             pose.position[0] += Fixed::from_int(30);
             pose.position[1] += Fixed::from_int(8);
             for geometry in [
@@ -258,7 +240,7 @@ mod tests {
                 Geometry::Sampled(&jet::MODEL),
             ] {
                 let before = app.snapshot().unwrap().unwrap();
-                let id = scene.place(geometry, pose).unwrap();
+                let id = run_edit(&mut app, None, Some((geometry, pose))).unwrap();
                 let added = app.snapshot().unwrap().unwrap();
                 let pixels = added.read_pixels().unwrap();
                 let before = before.read_pixels().unwrap();
@@ -272,7 +254,7 @@ mod tests {
                         > 8,
                     "camera {camera:?}"
                 );
-                scene.remove(id).unwrap();
+                run_edit(&mut app, Some(id), None);
                 let restored = app.snapshot().unwrap().unwrap();
                 assert_eq!(
                     restored
@@ -286,6 +268,7 @@ mod tests {
                     "camera {camera:?}"
                 );
             }
+            game.set_focus(true);
         }
     }
     #[test]
