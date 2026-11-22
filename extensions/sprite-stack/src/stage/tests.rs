@@ -318,11 +318,15 @@ fn foreign_stages_and_model_sources_are_rejected_before_mounting() {
 }
 
 #[mirui::compose]
-fn viewports(stage: model!(StackStage), other: model!(StackStage)) -> Entity {
+fn viewports(
+    first: Signal<StackStageHandle>,
+    stage: model!(StackStage),
+    other: model!(StackStage),
+) -> Entity {
     use crate::{Camera, StackViewport};
     ui! {
         Row {
-            StackViewport(stage: stage.clone(), camera: Camera::overhead(), width: 16, height: 16)
+            StackViewport(stage: ${first.get()}, camera: Camera::overhead(), width: 16, height: 16)
             StackViewport(stage: stage, camera: Camera::overhead(), width: 16, height: 16)
             StackViewport(stage: other, camera: Camera::overhead(), width: 16, height: 16)
         }
@@ -348,7 +352,11 @@ fn two_viewports_draw_stage_updates_without_dirtying_another_stage() {
     });
     apply(&mut app, &stage, Edit::Spawn(visual)).unwrap();
     let root = app.spawn_root().id();
-    let row = app.compose(root, viewports(stage.clone(), other));
+    let first_stage = Signal::new(stage.clone());
+    let row = app.compose(
+        root,
+        viewports(first_stage.clone(), stage.clone(), other.clone()),
+    );
     app.render().unwrap();
     let before = |app: &mut App<_>, offset| {
         let image = app.snapshot().unwrap().unwrap();
@@ -356,6 +364,7 @@ fn two_viewports_draw_stage_updates_without_dirtying_another_stage() {
         (0..16)
             .flat_map(|y| (offset..offset + 16).map(move |x| (x, y)))
             .filter(|&(x, y)| pixels.get_pixel(x, y) == Color::rgb(255, 255, 255))
+            .map(|(x, y)| (x - offset, y))
             .collect::<Vec<_>>()
     };
     let left = before(&mut app, 0);
@@ -370,13 +379,43 @@ fn two_viewports_draw_stage_updates_without_dirtying_another_stage() {
     assert_ne!(before(&mut app, 0), left);
     assert_ne!(before(&mut app, 16), right);
 
+    first_stage.set(other.clone());
+    app.render_dirty().unwrap();
+    assert!(before(&mut app, 0).is_empty());
+    car.move_to(Pose::at(1, 0, 0));
+    assert_eq!(
+        app.dirty_regions().unwrap().rects,
+        [Rect::new(16, 0, 16, 16)]
+    );
+    app.render_dirty().unwrap();
+    assert!(before(&mut app, 0).is_empty());
+    assert!(!before(&mut app, 16).is_empty());
+
+    apply(
+        &mut app,
+        &other,
+        Edit::Spawn(StackVisual::new(geometry()).into()),
+    )
+    .unwrap();
+    assert_eq!(
+        app.dirty_regions().unwrap().rects,
+        [Rect::new(0, 0, 16, 16), Rect::new(32, 0, 16, 16)]
+    );
+    app.render_dirty().unwrap();
+    assert_eq!(before(&mut app, 0), left);
+    assert_eq!(before(&mut app, 32), right);
+
+    first_stage.set(stage.clone());
+    app.render_dirty().unwrap();
+    assert!(!before(&mut app, 0).is_empty());
+
     let first = app.world.get::<mirui::ui::Children>(row).unwrap().0[0];
     apply(&mut app, &stage, Edit::Despawn(first)).unwrap();
     assert_eq!(stage.len(), 1);
     car.move_to(Pose::at(3, 0, 0));
     app.render_dirty().unwrap();
     assert!(!before(&mut app, 0).is_empty());
-    assert!(before(&mut app, 16).is_empty());
+    assert_eq!(before(&mut app, 16), right);
 }
 
 #[test]
@@ -418,7 +457,10 @@ fn a_bound_visual_tracks_the_current_live_geometry_until_detached() {
     });
     apply(&mut app, &stage, Edit::Spawn(visual)).unwrap();
     let root = app.spawn_root().id();
-    app.compose(root, viewports(stage.clone(), other));
+    app.compose(
+        root,
+        viewports(Signal::new(stage.clone()), stage.clone(), other),
+    );
     let sample = |app: &mut App<_>| {
         let frame = app.snapshot().unwrap().unwrap();
         let pixels = frame.read_pixels().unwrap();
