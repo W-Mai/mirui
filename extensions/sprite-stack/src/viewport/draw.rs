@@ -102,7 +102,7 @@ impl ObjectSource<Entity> for StageObjects<'_> {
     fn with_geometry<R>(
         &self,
         id: Entity,
-        read: impl FnOnce(&Geometry, crate::stage::Material, Option<&SampledStyle>) -> R,
+        read: impl FnOnce(&Geometry, crate::visual::Material, Option<&SampledStyle>) -> R,
     ) -> Option<R> {
         self.world
             .get::<StackVisual>(id)

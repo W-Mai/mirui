@@ -128,7 +128,7 @@ Procedural games can pass their existing height and material planes to `HeightFi
 
 ### Game-directed cameras
 
-`StackViewport` renders at the logical viewport size by default. Use its `resolution` property with `Resolution::Integer` to limit raster dimensions and preserve whole-pixel scaling. `Resolution::fit` also supplies the placement used by `FrameSize::frame_point` for input mapping. [Pixel Flight](../../gallery/pixel-flight/src/runtime.rs) uses this policy with its animated flight camera. The viewport owns the texture, assigns its revision and requests a new image when the scene, camera or viewport size changes. Additional viewports can follow the same objects independently.
+`StackViewport` renders at the logical viewport size by default. Use its `resolution` property with `Resolution::Integer` to limit raster dimensions and preserve whole-pixel scaling. `Resolution::fit` also supplies the placement used by `FrameSize::frame_point` for input mapping. [Pixel Flight](../../gallery/pixel-flight/src/app/view.rs) uses this policy with its animated flight camera. The viewport owns the texture, assigns its revision and requests a new image when the scene, camera or viewport size changes. Additional viewports can follow the same objects independently.
 
 Attach `ViewportContent::from_model(&game, GameHandle::revision, content)` in the same component list as an optional `ViewportOverlay`. The `FrameContent<Game>` implementation provides the camera and prepares borrowed procedural layers and optional depth-dependent effects. The viewport renders those layers with its Stage members. The revision drives changes from the existing game Model.
 
@@ -145,7 +145,7 @@ The landscape implements `FrameContent<Game>`. The instrument painter implements
 
 `SceneLayers` defines terrain, background, objects, world effects and sprites. SpriteStack uses one tile order for color and depth sampling, applies the screen-space overlay, and publishes the resulting texture. Use `ViewportOutput::Bounded` to draw through a reusable working tile and an opaque output of at most two bytes per pixel.
 
-`StackVisual::with_role::<T>()` identifies a field that a `FrameContent` implementation wants to shade. The viewport resolves its pose in `ContentFrame::terrain` and schedules the remaining members automatically. [Pixel Flight's attached content](../../gallery/pixel-flight/src/runtime/renderer.rs) prepares the landscape and exhaust. Its [stage system](../../gallery/pixel-flight/src/runtime/stage_members.rs) publishes aircraft placement and material.
+`StackVisual::with_role::<T>()` identifies a field that a `FrameContent` implementation wants to shade. The viewport resolves its pose in `ContentFrame::terrain` and schedules the remaining members automatically. [Pixel Flight's attached content](../../gallery/pixel-flight/src/presentation/frame.rs) prepares the landscape and exhaust. Its [stage system](../../gallery/pixel-flight/src/presentation/stage.rs) publishes aircraft placement and material.
 
 ### Generate or load a sprite
 
@@ -165,3 +165,7 @@ fn generated_visual() -> Result<StackVisual, mirui_sprite_stack::GeneratedError>
 ```
 
 A model can publish a new generated asset through the same `StackVisual::from_model` binding. The initial build checks the storage budget and level data. [Generated asset integration test](tests/stage_generated.rs) exercises replacement and budget failure with two viewports.
+
+## Source layout
+
+[Stage](src/stage.rs) tracks entities and membership. [Stage commands](src/stage/commands.rs) commit changes to that membership. [Visual](src/visual.rs) binds model state to geometry, pose and material. [Viewport](src/viewport.rs) attaches and observes these inputs, and [output](src/viewport/output.rs) prepares and publishes the frame. [Raster](src/raster.rs) provides the shared color, depth and tile work.

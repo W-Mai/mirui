@@ -1,5 +1,5 @@
 use super::*;
-use crate::{HeightField, TerrainCell, TerrainGrid};
+use crate::{HeightField, Pose, StackVisual, StackVisualInput, TerrainCell, TerrainGrid};
 use mirui::core::model::{ModelItemId, ModelList};
 use mirui::{core::cache::Handle, ecs::CommandError, prelude::*};
 

@@ -24,6 +24,8 @@ Append `-- --auto` to either command for automatic flight with camera changes ev
 
 The flight model advances controls, aircraft and trail history. The stage system attaches the aircraft and ground as shared members. Each camera reads the same simulation. The attached `FrameContent` supplies the landscape and exhaust. SpriteStack projects the stage members using their material and pose. The cockpit builds its artwork on resize and reads the current flight state for its live instruments. [Model](src/gameplay/flight.rs) · [Camera](src/presentation/camera.rs) · [Stage system](src/presentation/stage.rs) · [Frame content](src/presentation/frame.rs) · [Layers](src/presentation/layers.rs) · [Artwork](src/presentation/hud/artwork.rs) · [Instruments](src/presentation/hud/instruments.rs)
 
+[App](src/app.rs) wires host input and view composition. [Gameplay](src/gameplay.rs) advances and publishes state. [World](src/world.rs) supplies shared terrain to gameplay and presentation. [Presentation](src/presentation) binds the camera, stage members and layers to SpriteStack. The same layout scales down to a model, a height field and ordinary viewports in [Passing Lane](../../extensions/sprite-stack/examples/passing_lane.rs).
+
 ![Pixel Flight updates the aircraft poses once per simulation tick. The active camera projects the island and aircraft into a desktop or Compact frame.](docs/architecture.svg)
 
 Edit the RGB swatches in [atmosphere](src/presentation/palette/environment.rs), [terrain](src/presentation/palette/terrain.rs), and [aircraft](src/presentation/palette/aircraft.rs) to change the scene colors. The renderer reads palettes baked at compile time from these swatches.

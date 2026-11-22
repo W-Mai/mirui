@@ -41,14 +41,15 @@ pub use geometry::{Geometry, Pose};
 #[cfg(feature = "widget")]
 mod stage;
 #[cfg(feature = "widget")]
-pub use stage::{
-    LayerEntrance, SampledStyle, SampledVisual, StackStage, StackStageCommands, StackStageHandle,
-    StackVisual, StackVisualInput, StageCommands,
-};
+pub use stage::{StackStage, StackStageCommands, StackStageHandle, StageCommands};
+#[cfg(feature = "widget")]
+mod visual;
 #[cfg(feature = "widget")]
 pub use terrain::{
     HeightField, HeightFieldHandle, HeightFieldOwned, TerrainCell, TerrainError, TerrainGrid,
 };
+#[cfg(feature = "widget")]
+pub use visual::{LayerEntrance, SampledStyle, SampledVisual, StackVisual, StackVisualInput};
 
 #[cfg(feature = "widget")]
 mod viewport;

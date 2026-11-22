@@ -8,7 +8,7 @@ use crate::{
         Projection, SceneCanvas,
         sprites::{LayerGrid, SampleSource, SpritePaint, SpriteView, StackTransform, ViewStacks},
     },
-    stage::Material,
+    visual::Material,
 };
 use core::cell::RefCell;
 use mirui::{

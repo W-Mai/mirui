@@ -1,12 +1,5 @@
-use crate::{
-    StackStage, StackStageHandle,
-    raster::{Frame, OverlayFrame},
-};
-use alloc::{boxed::Box, rc::Weak};
-use core::{
-    cell::{Cell, OnceCell, RefCell},
-    num::NonZeroU16,
-};
+use crate::{StackStage, StackStageHandle};
+use core::cell::{Cell, OnceCell, RefCell};
 use mirui::{
     __macro_support::{
         AttachDefinition, BindingRole, OwnedEffects, PreparedAttach, QueryReadScope,
@@ -16,13 +9,9 @@ use mirui::{
     app::{App, RendererFactory, plugin::Plugin},
     core::model::{ModelHandle, SharedValue},
     ecs::{CommandCommitError, DeferredOperation, Entity, World},
-    render::{
-        RenderError,
-        command::{CompositeMode, DrawCommand},
-        texture::AlphaMode,
-    },
+    render::RenderError,
     surface::Surface,
-    types::{Fixed, Point, Rect},
+    types::Fixed,
     ui::{
         property::{Property, PropertyChange},
         view::{PaintCtx, View, ViewInvalidation},
@@ -30,6 +19,11 @@ use mirui::{
 };
 
 mod content;
+mod content_draw;
+mod output;
+mod resolution;
+use output::Output;
+pub use resolution::{FrameSize, Resolution};
 mod draw;
 mod overlay;
 pub use content::{
@@ -72,303 +66,6 @@ impl Camera {
     }
 }
 
-/// Output pixel dimensions and their placement in a scene viewport.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FrameSize {
-    pixels: [u16; 2],
-    scale: Option<NonZeroU16>,
-}
-
-/// Selects the raster dimensions independently of layout.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Resolution {
-    /// Render at one pixel per logical viewport unit.
-    #[default]
-    Native,
-    /// Render at an integer scale within the maximum frame extent.
-    Integer {
-        limit: [NonZeroU16; 2],
-        minimum: [u16; 2],
-        scale: NonZeroU16,
-    },
-}
-
-impl Resolution {
-    /// Resolves the frame pixels and placement for this viewport.
-    pub fn fit(self, viewport: [u16; 2]) -> FrameSize {
-        let Self::Integer {
-            limit,
-            minimum,
-            scale,
-        } = self
-        else {
-            return FrameSize::stretch(viewport);
-        };
-        let [max_width, max_height] = limit.map(NonZeroU16::get);
-        let [width, height] = viewport;
-        let scale = scale
-            .get()
-            .max(width.div_ceil(max_width))
-            .max(height.div_ceil(max_height));
-        let pixels = [
-            width.div_ceil(scale).max(minimum[0].min(max_width)),
-            height.div_ceil(scale).max(minimum[1].min(max_height)),
-        ];
-        FrameSize::integer(
-            pixels,
-            NonZeroU16::new(scale).expect("positive placement scale"),
-        )
-    }
-}
-
-impl FrameSize {
-    pub const fn stretch(pixels: [u16; 2]) -> Self {
-        Self {
-            pixels,
-            scale: None,
-        }
-    }
-
-    pub const fn integer(pixels: [u16; 2], scale: NonZeroU16) -> Self {
-        Self {
-            pixels,
-            scale: Some(scale),
-        }
-    }
-
-    pub const fn pixels(self) -> [u16; 2] {
-        self.pixels
-    }
-
-    pub const fn integer_scale(self) -> Option<NonZeroU16> {
-        self.scale
-    }
-
-    fn placed(self, viewport: Rect) -> Rect {
-        let Some(scale) = self.scale else {
-            return viewport;
-        };
-        let [w, h] = self
-            .pixels
-            .map(|side| Fixed::from(side) * Fixed::from(scale.get()));
-        Rect::new(
-            viewport.x + ((viewport.w - w) / 2).round(),
-            viewport.y + ((viewport.h - h) / 2).round(),
-            w,
-            h,
-        )
-    }
-
-    /// Maps a point in the viewport's coordinate space into the frame.
-    pub fn frame_point(self, viewport: Rect, point: Point) -> Option<Point> {
-        if !viewport.w.is_positive() || !viewport.h.is_positive() || self.pixels.contains(&0) {
-            return None;
-        }
-        let rect = self.placed(viewport);
-        let delta = Point::new(point.x - rect.x, point.y - rect.y);
-        let [sx, sy] = if let Some(scale) = self.scale {
-            [Fixed::from(scale.get()); 2]
-        } else {
-            [
-                rect.w / Fixed::from(self.pixels[0]),
-                rect.h / Fixed::from(self.pixels[1]),
-            ]
-        };
-        if !sx.is_positive() || !sy.is_positive() {
-            return None;
-        }
-        Some(Point::new(delta.x / sx, delta.y / sy))
-    }
-}
-
-enum Storage {
-    Rows(Box<draw::DefaultRenderer>),
-    World(Box<content::WorldStorage>),
-}
-
-struct PreparedFrame {
-    stamp: u64,
-    viewport: [u16; 2],
-    size: FrameSize,
-    overlay: bool,
-    content: Option<Weak<RefCell<dyn content::FrameSource>>>,
-}
-
-impl PreparedFrame {
-    fn matches(&self, stamp: u64, size: [u16; 2], attachments: Attachments<'_>) -> bool {
-        self.stamp == stamp
-            && self.viewport == size
-            && self.overlay == attachments.overlay.is_some()
-            && match (&self.content, attachments.content) {
-                (None, None) => true,
-                (Some(identity), Some(content)) => content.matches(identity),
-                _ => false,
-            }
-    }
-}
-
-struct Output {
-    storage: Option<Storage>,
-    world_output: Option<ViewportOutput>,
-    frame: Option<Frame>,
-    ready: Option<PreparedFrame>,
-    texture_revision: u64,
-}
-
-impl Output {
-    fn paint(
-        &mut self,
-        source: draw::DrawSource<'_>,
-        camera: Camera,
-        resolution: Resolution,
-        stamp: u64,
-        paint: &mut PaintCtx<'_>,
-        attachments: Attachments<'_>,
-    ) -> Result<(), RenderError> {
-        let rect = paint.rect();
-        if !rect.w.is_positive() || !rect.h.is_positive() {
-            return Ok(());
-        }
-        let dimension =
-            |v: Fixed| u16::try_from(v.ceil().to_int()).map_err(|_| RenderError::InvalidGeometry);
-        let size = [dimension(rect.w)?, dimension(rect.h)?];
-        if self
-            .ready
-            .as_ref()
-            .is_none_or(|ready| !ready.matches(stamp, size, attachments))
-        {
-            let frame_size = resolution.fit(size);
-            let pixels @ [width, height] = frame_size.pixels().map(usize::from);
-            if width == 0 || height == 0 {
-                return Err(RenderError::InvalidGeometry);
-            }
-            self.ready = None;
-            let mut content = attachments
-                .content
-                .filter(|content| content.available())
-                .map(|content| content.source.borrow_mut());
-            let world = content
-                .as_ref()
-                .map(|c| c.camera(frame_size).map(|camera| (camera, c.output())))
-                .transpose()?;
-            let world_output = world.map(|(_, output)| output);
-            let new_frame = self.world_output != world_output
-                || self
-                    .frame
-                    .as_ref()
-                    .is_none_or(|f| [f.width, f.height] != pixels);
-            if new_frame {
-                self.frame = None;
-                self.storage = None;
-            }
-            let frame_camera = match world {
-                Some((view, _)) => Some(view.camera),
-                None if attachments.overlay.is_some() => {
-                    Some(draw::DefaultRenderer::frame_camera(camera, frame_size)?)
-                }
-                None => None,
-            };
-            let overlay = attachments
-                .overlay
-                .map(|layer| {
-                    layer.prepare(OverlayFrame {
-                        size: pixels,
-                        camera: frame_camera,
-                    })
-                })
-                .transpose()?
-                .flatten();
-            if new_frame {
-                let mut frame = match world_output {
-                    Some(ViewportOutput::Bounded) => {
-                        Frame::with_format(width, height, paint.opaque_output_format(2)?)?
-                    }
-                    _ => Frame::new(width, height)?,
-                };
-                frame.texture.alpha_mode = if world_output.is_some() {
-                    AlphaMode::Opaque
-                } else {
-                    AlphaMode::Blend
-                };
-                self.frame = Some(frame);
-                self.world_output = world_output;
-            }
-            let frame = self.frame.as_mut().expect("viewport frame");
-            if let Some((view, policy)) = world {
-                if !matches!(&self.storage, Some(Storage::World(storage)) if storage.matches(pixels, view.pivot))
-                {
-                    self.storage = None;
-                    self.storage = Some(Storage::World(Box::new(content::WorldStorage::new(
-                        pixels, view.pivot, policy,
-                    )?)));
-                }
-                let Some(Storage::World(storage)) = &mut self.storage else {
-                    unreachable!()
-                };
-                let mut frame = storage.begin(
-                    frame_size,
-                    view,
-                    source,
-                    camera.range,
-                    overlay.as_deref(),
-                    frame,
-                );
-                content
-                    .as_deref_mut()
-                    .expect("viewport content")
-                    .prepare(&mut frame)?;
-            } else {
-                let storage = self
-                    .storage
-                    .get_or_insert_with(|| Storage::Rows(Box::default()));
-                let Storage::Rows(renderer) = storage else {
-                    unreachable!()
-                };
-                renderer.render(source, camera, frame_camera, overlay.as_deref(), frame)?;
-            }
-            self.texture_revision = self.texture_revision.wrapping_add(1);
-            frame.texture.cache_revision = self.texture_revision;
-            self.ready = Some(PreparedFrame {
-                stamp,
-                viewport: size,
-                size: frame_size,
-                overlay: attachments.overlay.is_some(),
-                content: attachments.content.map(ViewportContent::identity),
-            });
-        }
-        let (Some(frame), Some(ready)) = (self.frame.as_ref(), self.ready.as_ref()) else {
-            return Ok(());
-        };
-        let frame_size = ready.size;
-        let placement = frame_size.placed(rect);
-        let origin = Point::new(placement.x, placement.y);
-        let dimensions = Point::new(placement.w, placement.h);
-        let scale = frame_size
-            .integer_scale()
-            .map_or(Fixed::ONE, |scale| Fixed::from(scale.get()));
-        if frame.texture.alpha_mode == AlphaMode::Opaque
-            && dimensions.x >= rect.w
-            && dimensions.y >= rect.h
-        {
-            paint.set_background_handled(true);
-        }
-        paint.draw(&DrawCommand::Blit {
-            pos: origin,
-            size: dimensions,
-            transform: paint.transform(),
-            quad: None,
-            texture: &frame.texture,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        });
-        if let Some(content) = attachments.content.filter(|content| content.available()) {
-            content.source.borrow().present(paint, origin, scale);
-        }
-        Ok(())
-    }
-}
-
 #[mirui::component]
 pub struct StackViewport {
     #[property(ViewportStage)]
@@ -389,13 +86,7 @@ impl Default for StackViewport {
             camera: Camera::default(),
             resolution: Resolution::Native,
             bindings: None,
-            output: RefCell::new(Output {
-                storage: None,
-                world_output: None,
-                frame: None,
-                ready: None,
-                texture_revision: 0,
-            }),
+            output: RefCell::new(Output::default()),
             stamp: Cell::new(0),
         }
     }
@@ -527,11 +218,7 @@ impl Property for StageRetired {
             return PropertyChange::Unchanged;
         }
         view.bindings = None;
-        let output = view.output.get_mut();
-        output.ready = None;
-        output.frame = None;
-        output.storage = None;
-        output.world_output = None;
+        view.output.get_mut().clear();
         PropertyChange::Visual
     }
 }
