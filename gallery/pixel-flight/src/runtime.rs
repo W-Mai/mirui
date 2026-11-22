@@ -6,7 +6,6 @@ use super::{
 };
 use core::cell::Cell;
 use mirui_sprite_stack::{Pose, SpriteStackPlugin, StackStage, StackViewport};
-pub(crate) mod aircraft_palette;
 mod objects;
 mod renderer;
 mod stage_members;

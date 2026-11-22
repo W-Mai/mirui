@@ -1,5 +1,6 @@
 #![doc = " Seeded, wrapping terrain and cloud fields. Map generation is a cold path."]
 use super::math::FixedMath as _;
+pub use crate::palette::terrain::{TOP, WALL};
 use alloc::{vec, vec::Vec};
 use mirui::core::cache::Handle;
 use mirui::types::{Color, Fixed};
@@ -78,25 +79,6 @@ pub const CLOUD_SIDE: usize = 512;
 pub const CLOUD_ALT: Fixed = Fixed::from_int(40);
 pub const CLOUD_LAYERS: usize = 8;
 pub const MAX_HEIGHT: usize = 48;
-pub const TOP: [[u8; 3]; 17] = [
-    [36, 104, 180],
-    [44, 124, 198],
-    [66, 160, 216],
-    [104, 204, 214],
-    [238, 220, 164],
-    [222, 200, 140],
-    [96, 178, 52],
-    [70, 148, 44],
-    [134, 206, 76],
-    [70, 158, 64],
-    [42, 122, 54],
-    [28, 92, 46],
-    [146, 140, 134],
-    [118, 112, 110],
-    [178, 172, 162],
-    [246, 250, 255],
-    [214, 226, 244],
-];
 const TERRAIN_COLORS: [Color; TOP.len()] = {
     let mut colors = [Color::rgb(0, 0, 0); TOP.len()];
     let mut index = 0;
@@ -108,25 +90,6 @@ const TERRAIN_COLORS: [Color; TOP.len()] = {
     colors
 };
 
-pub const WALL: [[u8; 3]; 17] = [
-    [36, 104, 180],
-    [44, 124, 198],
-    [66, 160, 216],
-    [104, 204, 214],
-    [204, 180, 122],
-    [204, 180, 122],
-    [56, 120, 44],
-    [50, 108, 42],
-    [60, 128, 46],
-    [24, 78, 42],
-    [22, 72, 40],
-    [20, 64, 38],
-    [96, 90, 92],
-    [86, 82, 86],
-    [104, 98, 98],
-    [186, 202, 228],
-    [176, 192, 220],
-];
 pub fn hash8(value: u32) -> u8 {
     let mut h = (value ^ (value >> 13)).wrapping_mul(0x5bd1_e995);
     h ^= h >> 15;

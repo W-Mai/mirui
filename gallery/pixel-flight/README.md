@@ -26,6 +26,8 @@ The flight model advances controls, aircraft and trail history. The stage system
 
 ![Pixel Flight updates the aircraft poses once per simulation tick. The active camera projects the island and aircraft into a desktop or Compact frame.](docs/architecture.svg)
 
+Edit the RGB swatches in [atmosphere](src/palette/environment.rs), [terrain](src/palette/terrain.rs), and [aircraft](src/palette/aircraft.rs) to change the scene colors. The renderer reads palettes baked at compile time from these swatches.
+
 ## Add a tracking minimap
 
 ![Rust code for a second StackViewport. Both cameras draw the same StackStage. The map follows the player's observed position and lets pointer input reach the flight controls.](docs/authoring.svg)

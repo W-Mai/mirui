@@ -1,11 +1,10 @@
 use super::{
-    Daylight, FlightInput, FlightModel,
-    aircraft_palette::*,
+    FlightInput, FlightModel,
     objects::{pose, radians},
 };
 use crate::{
     jet,
-    raster::{PlacedAircraft, Placements, aircraft_lights},
+    raster::{Palette, PlacedAircraft, Placements, aircraft_lights},
 };
 use mirui::{core::model::ModelHandle, prelude::*};
 use mirui_sprite_stack::{
@@ -39,18 +38,13 @@ pub(super) fn placements(model: &FlightModel) -> Placements {
 fn visual(model: &FlightModel, slot: usize) -> SampledVisual {
     let (pose, placed) = aircraft(model, slot);
     let flight = &model.flight;
-    let sun = match model.day {
-        Daylight::Day => [Fixed::from_ratio(5, 10), Fixed::from_ratio(32, 100)],
-        Daylight::Sunset => [Fixed::from_ratio(95, 100), Fixed::from_ratio(5, 10)],
-        Daylight::Night => [Fixed::from_ratio(3, 10), Fixed::from_ratio(42, 100)],
-    };
+    let palette = Palette::shared(model.day);
     let opacity = if slot == 0 {
         flight.aircraft_opacity()
     } else {
         Fixed::ONE
     };
-    let day = model.day as usize;
-    let lights = aircraft_lights(placed.axes, sun, model.day);
+    let lights = aircraft_lights(placed.axes, palette.sun, palette.day);
     StackVisual::new(Geometry::Sampled(&jet::MODEL))
         .at(pose)
         .with_sampled_style(SampledStyle {
@@ -72,10 +66,9 @@ fn visual(model: &FlightModel, slot: usize) -> SampledVisual {
             paint: SpritePaint {
                 depth_bias: Fixed::ONE,
                 opacity,
-                outline: (opacity >= Fixed::HALF).then_some(AIRCRAFT_OUTLINE[day]),
+                outline: (opacity >= Fixed::HALF).then_some(palette.outline),
             },
-            palettes: lights
-                .map(|index| &AIRCRAFT_PALETTES[day][index][..jet::MODEL.palette().len()]),
+            palettes: lights.map(|index| &palette.jets[index][..jet::MODEL.palette().len()]),
         })
 }
 

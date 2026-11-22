@@ -19,6 +19,7 @@ pub mod flame;
 pub mod flight;
 pub mod jet;
 mod math;
+mod palette;
 pub mod raster;
 mod runtime;
 pub mod world;

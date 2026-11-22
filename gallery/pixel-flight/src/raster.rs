@@ -11,13 +11,12 @@ use mirui_sprite_stack::raster::{FrameEffects, RollMapping, SceneCanvas, SceneLa
 mod aircraft;
 mod exhaust;
 mod landscape;
-mod palette;
 mod wake;
 
+pub use crate::palette::{BAYER, Daylight, Palette, blend, rgba};
 pub(crate) use aircraft::aircraft_lights;
 use exhaust::{PendingFlame, finish_flames, project_flames};
 use landscape::{PreparedTerrain, draw_sky, draw_world};
-pub use palette::{BAYER, Daylight, Palette, blend, rgba};
 use wake::{draw_smoke, draw_trails};
 pub const MAX_WIDTH: usize = 480;
 pub const MAX_HEIGHT: usize = 300;
