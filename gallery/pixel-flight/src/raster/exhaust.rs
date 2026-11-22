@@ -4,11 +4,7 @@ use crate::{
     jet,
     math::FixedMath as _,
 };
-#[cfg(test)]
-use mirui::render::RenderError;
 use mirui::types::Fixed;
-#[cfg(test)]
-use mirui_sprite_stack::raster::{Canvas, FrameEffects};
 use mirui_sprite_stack::raster::{DepthQuery, DepthSamples, RollMapping, SceneCanvas};
 
 #[derive(Clone, Copy, Default)]
@@ -174,30 +170,5 @@ pub(super) fn finish_flames(
                 *point = mapping.unroll(*point);
             }
         }
-    }
-}
-
-#[cfg(test)]
-pub(super) struct ExhaustFrame<'a> {
-    pub queries: &'a mut [PendingFlame],
-    pub visibility: &'a mut [[Fixed; 3]; 6],
-    pub flames: &'a mut [Flame],
-    pub time: Fixed,
-}
-
-#[cfg(test)]
-impl FrameEffects for ExhaustFrame<'_> {
-    type Query = PendingFlame;
-
-    fn queries(&mut self) -> &mut [PendingFlame] {
-        self.queries
-    }
-
-    fn finish_queries(&mut self, mapping: &RollMapping) {
-        finish_flames(mapping, self.queries, self.visibility, self.flames);
-    }
-
-    fn composite(&self, canvas: &mut Canvas<'_>) -> Result<(), RenderError> {
-        crate::flame::paint_region(canvas, self.flames, self.time)
     }
 }

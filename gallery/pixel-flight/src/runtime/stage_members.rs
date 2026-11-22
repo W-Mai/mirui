@@ -28,8 +28,6 @@ pub(super) fn aircraft(model: &FlightModel, slot: usize) -> (Pose, PlacedAircraf
     let placed = PlacedAircraft::new(
         [x, -z, altitude],
         [pose.yaw, pose.pitch, -pose.roll].map(radians),
-        #[cfg(test)]
-        &jet::MODEL,
     );
     (pose, placed)
 }

@@ -254,4 +254,5 @@ impl<'a> LodLevel<'a> {
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/lod.rs"]
 mod tests;

@@ -743,4 +743,5 @@ impl DeferredOperation for Transfer {
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/stage.rs"]
 mod tests;

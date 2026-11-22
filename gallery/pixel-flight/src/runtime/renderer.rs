@@ -72,11 +72,7 @@ impl FrameContent<FlightModel> for FlightContent {
             &model.flight,
             SceneView {
                 projection: model.flight.render_projection(frame.camera),
-                #[cfg(test)]
-                source_size: frame.source_size,
                 height,
-                #[cfg(test)]
-                compact: self.output() == ViewportOutput::Bounded,
             },
             model.terrain.at(frame.terrain.and(model.ground_pose)),
             &aircraft,

@@ -239,4 +239,5 @@ pub const fn relocation_policy() -> Policy {
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/lib.rs"]
 mod tests;
