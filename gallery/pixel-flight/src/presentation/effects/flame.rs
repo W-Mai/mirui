@@ -44,30 +44,26 @@ fn ramp(a: Fixed, b: Fixed, x: Fixed) -> Fixed {
 fn fract(x: Fixed) -> Fixed {
     x - x.floor()
 }
-fn hash(p: [Fixed; 2]) -> Fixed {
-    let mut p = [
-        fract(p[0] * Fixed::from_ratio(12334, 100)),
-        fract(p[1] * Fixed::from_ratio(45621, 100)),
-    ];
-    let dot =
-        p[0] * (p[0] + Fixed::from_ratio(4532, 100)) + p[1] * (p[1] + Fixed::from_ratio(4532, 100));
-    p[0] += dot;
-    p[1] += dot;
-    fract(p[0] * p[1])
+fn hash(x: Fixed, y: Fixed) -> Fixed {
+    let offset = Fixed::from_ratio(4532, 100);
+    let dot = x * (x + offset) + y * (y + offset);
+    fract((x + dot) * (y + dot))
 }
 fn noise(p: [Fixed; 2]) -> Fixed {
-    let i = p.map(Fixed::floor);
+    const X_STEP: Fixed = Fixed::from_ratio(12334, 100);
+    const Y_STEP: Fixed = Fixed::from_ratio(45621, 100);
+    let x = fract(p[0].floor() * X_STEP);
+    let y = fract(p[1].floor() * Y_STEP);
+    // Adjacent lattice coordinates differ by one hash step modulo one.
+    let next_x = fract(x + X_STEP);
+    let next_y = fract(y + Y_STEP);
     let f = p.map(|v| {
         let f = fract(v);
         f * f * (Fixed::from_int(3) - Fixed::from_int(2) * f)
     });
     mix(
-        mix(hash(i), hash([i[0] + Fixed::ONE, i[1]]), f[0]),
-        mix(
-            hash([i[0], i[1] + Fixed::ONE]),
-            hash([i[0] + Fixed::ONE, i[1] + Fixed::ONE]),
-            f[0],
-        ),
+        mix(hash(x, y), hash(next_x, y), f[0]),
+        mix(hash(x, next_y), hash(next_x, next_y), f[0]),
         f[1],
     )
 }
