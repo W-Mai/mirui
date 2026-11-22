@@ -1,4 +1,6 @@
 #![doc = " Seeded, wrapping terrain and cloud fields. Map generation is a cold path."]
+pub(crate) mod coordinates;
+
 use super::math::FixedMath as _;
 pub use crate::palette::terrain::{TOP, WALL};
 use alloc::{vec, vec::Vec};

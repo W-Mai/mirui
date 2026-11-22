@@ -14,16 +14,19 @@ extern crate std;
 #[path = "../../../tests/support/tracking_allocator.rs"]
 mod test_support;
 
+mod app;
 pub mod cockpit;
 pub mod flame;
 pub mod flight;
+mod gameplay;
 pub mod jet;
 mod math;
 mod palette;
+mod presentation;
 pub mod raster;
-mod runtime;
 pub mod world;
-pub use runtime::{FlightModel, FlightModelHandle, setup_app, setup_compact_app};
+pub use app::{setup_app, setup_compact_app};
+pub use gameplay::{FlightModel, FlightModelHandle};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {

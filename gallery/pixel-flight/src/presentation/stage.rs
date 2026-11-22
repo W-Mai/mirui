@@ -1,6 +1,7 @@
-use super::{
-    FlightInput, FlightModel,
-    objects::{pose, radians},
+use crate::{
+    app::input::FlightViewState,
+    gameplay::FlightModel,
+    world::coordinates::{pose, radians},
 };
 use crate::{
     jet,
@@ -19,7 +20,7 @@ struct FlightMember {
 }
 
 #[mirui::component]
-pub(super) struct FlightTerrain;
+pub(crate) struct FlightTerrain;
 
 pub(super) fn aircraft(model: &FlightModel, slot: usize) -> (Pose, PlacedAircraft) {
     let pose = pose(&model.flight.jets[slot]);
@@ -73,8 +74,8 @@ fn visual(model: &FlightModel, slot: usize) -> SampledVisual {
 }
 
 #[mirui::system(order = Animation)]
-pub(super) fn sync(
-    views: query!(Entity, FlightInput),
+pub(crate) fn sync(
+    views: query!(Entity, FlightViewState),
     members: query!(Entity, FlightMember, StackVisual),
     commands: commands!(),
 ) {

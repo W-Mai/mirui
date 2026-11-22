@@ -69,7 +69,7 @@ fn placed_ground_uses_the_flight_camera_depth_and_live_materials() {
     let mut app = App::headless(128, 128);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
-    let game = super::super::setup_compact_app(&mut app, root);
+    let game = crate::setup_compact_app(&mut app, root);
     let grid = TerrainGrid::finite([1, 1], Fixed::from_int(24)).unwrap();
     let field = app
         .add_model(
@@ -186,7 +186,7 @@ fn the_flight_view_draws_placed_atlases_and_both_sparse_coverage_modes() {
     let mut app = App::headless(128, 128);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
-    let game = super::super::setup_compact_app(&mut app, root);
+    let game = crate::setup_compact_app(&mut app, root);
     use mirui::core::model::ModelHandle;
     app.add_resource(ObjectEdit::default());
     app.add_system(edit::system(game.stage()));

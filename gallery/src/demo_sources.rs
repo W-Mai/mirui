@@ -40,7 +40,7 @@ split_demo_sources! {
         demo: "pixel_flight",
         root: "gallery/pixel-flight/src",
         marker: "let content = flight_content",
-        parts: ["world.rs", "jet.rs", "flight.rs", "raster.rs", "raster/compact.rs", "cockpit.rs", "flame.rs", "math.rs", "runtime.rs", "runtime/renderer.rs", "runtime/objects.rs"]
+        parts: ["app.rs", "app/view.rs", "app/input.rs", "gameplay.rs", "flight.rs", "world.rs", "world/coordinates.rs", "presentation/stage.rs", "presentation/frame.rs", "presentation/cockpit.rs", "raster.rs", "cockpit.rs", "flame.rs", "jet.rs", "math.rs"]
     },
     CHORD_PROMPTER => {
         demo: "chord_prompter",

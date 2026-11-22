@@ -60,7 +60,7 @@
     <text class="label" x="693" y="171">Keep the simulation in the game</text>
     <text class="note" x="693" y="202">Each animation tick advances FlightModel</text>
     <text class="note" x="693" y="227">and publishes the player position.</text>
-    <text class="source" x="693" y="257">src/runtime.rs</text>
+    <text class="source" x="693" y="257">src/gameplay.rs</text>
     <rect x="692" y="271" width="386" height="68" rx="6" fill="#21353c"/>
     <text class="symbol" x="706" y="298">let center =</text>
     <text class="symbol" x="730" y="324">game.player_position();</text>

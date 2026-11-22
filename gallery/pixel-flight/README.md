@@ -22,7 +22,7 @@ Append `-- --auto` to either command for automatic flight with camera changes ev
 
 ## How a frame is drawn
 
-The flight model advances controls, aircraft and trail history. The stage system attaches the aircraft and ground as shared members. Each camera reads the same simulation. The attached `FrameContent` supplies the landscape and exhaust. SpriteStack projects the stage members using their material and pose. The cockpit builds its artwork on resize and reads the current flight state for its live instruments. [Model](src/flight.rs) · [Camera](src/flight/camera.rs) · [Stage system](src/runtime/stage_members.rs) · [Frame content](src/runtime/renderer.rs) · [Layers](src/raster.rs) · [Artwork](src/cockpit/artwork.rs) · [Instruments](src/cockpit/instruments.rs)
+The flight model advances controls, aircraft and trail history. The stage system attaches the aircraft and ground as shared members. Each camera reads the same simulation. The attached `FrameContent` supplies the landscape and exhaust. SpriteStack projects the stage members using their material and pose. The cockpit builds its artwork on resize and reads the current flight state for its live instruments. [Model](src/flight.rs) · [Camera](src/flight/camera.rs) · [Stage system](src/presentation/stage.rs) · [Frame content](src/presentation/frame.rs) · [Layers](src/raster.rs) · [Artwork](src/cockpit/artwork.rs) · [Instruments](src/cockpit/instruments.rs)
 
 ![Pixel Flight updates the aircraft poses once per simulation tick. The active camera projects the island and aircraft into a desktop or Compact frame.](docs/architecture.svg)
 
@@ -38,4 +38,4 @@ Run the [minimap example](examples/minimap.rs):
 cargo run -p mirui-pixel-flight --example minimap --features mirui/sdl --profile release-opt
 ```
 
-Press Space to switch the main camera. The inset keeps tracking the aircraft from above. Set the minimap camera's pitch to `Fixed::from_int(35)` for an angled view. Both viewports read the same [flight update](src/runtime.rs) and [stage members](src/runtime/stage_members.rs).
+Press Space to switch the main camera. The inset keeps tracking the aircraft from above. Set the minimap camera's pitch to `Fixed::from_int(35)` for an angled view. Both viewports read the same [flight update](src/gameplay.rs) and [stage members](src/presentation/stage.rs).

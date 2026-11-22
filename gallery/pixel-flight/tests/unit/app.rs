@@ -1,6 +1,15 @@
+use super::view::FLIGHT_FONT;
 use super::*;
 use crate::raster::{FlightScene, Palette};
+use crate::{flight::View as CameraView, presentation::stage as stage_members};
+use mirui::{
+    core::model::ModelHandle,
+    input::event::input::PhysicalKey,
+    render::font::{Font, FontManager, FontToken},
+    ui::{ComputedRect, widgets::Text},
+};
 use mirui_sprite_stack::Camera;
+use mirui_sprite_stack::{Pose, StackViewport};
 
 fn assert_hint_fits(world: &mirui::ecs::World) {
     let fits = mirui::gallery::demos::text_fits(world);
