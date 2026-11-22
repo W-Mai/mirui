@@ -206,19 +206,20 @@ fn support_culling_preserves_quantized_shader_output() {
                 length,
             };
             let prepared = Prepared::new(flame, Fixed::from_int(12));
+            let mut row = PuffRow::new();
             for y in -16..40 {
+                let sample_y = Fixed::from_int(y) * Fixed::from_ratio(7, 10);
+                let support = prepared.row_support(&mut row, sample_y);
+                prepared.row_candidates(&mut row, prepared.warp_y_interval());
                 for x in -20..20 {
                     let position = [
                         Fixed::from_int(x) * Fixed::from_ratio(7, 10),
                         Fixed::from_int(y) * Fixed::from_ratio(7, 10),
                     ];
-                    let row = prepared.row_candidates(position[1], prepared.warp_y_interval());
                     let optimized = prepared.shade_row::<true>(position[0], &row);
                     let reference = prepared.shade::<false>(position);
                     if optimized != [Fixed::ZERO; 4] {
-                        let [left, right] = prepared
-                            .row_support(position[1])
-                            .expect("nonzero sample has row support");
+                        let [left, right] = support.expect("nonzero sample has row support");
                         assert!(
                             position[0] >= left.floor() - Fixed::ONE
                                 && position[0] < right.ceil() + Fixed::ONE
@@ -244,13 +245,14 @@ fn support_culling_preserves_quantized_shader_output() {
 
 impl Prepared {
     fn shade<const CULL: bool>(&self, p: [Fixed; 2]) -> [Fixed; 4] {
-        self.shade_row::<CULL>(
-            p[0],
-            &PuffRow {
-                y: p[1],
-                density_mask: (1 << PUFFS) - 1,
-                halo_mask: (1 << PUFFS) - 1,
-            },
-        )
+        let mut row = PuffRow::new();
+        self.row_support(&mut row, p[1]);
+        row.density_mask = (1 << PUFFS) - 1;
+        row.halo_mask = (1 << PUFFS) - 1;
+        for (puff, squared) in self.puffs.iter().zip(&mut row.halo_y_squared) {
+            let dy = Fixed64::from_fixed(p[1] - puff.center[1]);
+            *squared = dy * dy;
+        }
+        self.shade_row::<CULL>(p[0], &row)
     }
 }

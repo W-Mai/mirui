@@ -111,6 +111,33 @@ struct PuffRow {
     y: Fixed,
     density_mask: u64,
     halo_mask: u64,
+    reach_remaining: [Fixed; PUFFS],
+    halo_y_squared: [Fixed64; PUFFS],
+}
+
+impl PuffRow {
+    fn new() -> Self {
+        Self {
+            y: Fixed::ZERO,
+            density_mask: 0,
+            halo_mask: 0,
+            reach_remaining: [Fixed::ZERO; PUFFS],
+            halo_y_squared: [Fixed64::ZERO; PUFFS],
+        }
+    }
+
+    fn covers(&self, x: Fixed, puffs: &[Puff; PUFFS]) -> bool {
+        self.reach_remaining
+            .iter()
+            .zip(puffs)
+            .any(|(&remaining, puff)| {
+                if remaining < Fixed::ZERO {
+                    return false;
+                }
+                let dx = x - puff.center[0];
+                dx * dx <= remaining
+            })
+    }
 }
 
 impl Puff {
@@ -125,9 +152,13 @@ impl Puff {
     }
     fn scaled_distance(&self, point: [Fixed; 2]) -> Fixed {
         // Small-screen radii have squares below a Q24.8 unit.
-        let dx = Fixed64::from_fixed(point[0] - self.center[0]);
         let dy = Fixed64::from_fixed(point[1] - self.center[1]);
-        let distance = dx * dx + dy * dy;
+        self.row_scaled_distance(point[0], dy * dy)
+    }
+
+    fn row_scaled_distance(&self, x: Fixed, y_squared: Fixed64) -> Fixed {
+        let dx = Fixed64::from_fixed(x - self.center[0]);
+        let distance = dx * dx + y_squared;
         // Beyond this bound density and the Q24.8 exponential are both zero.
         // It also bounds the following product to less than 16 * 2^32.
         if distance >= self.cutoff {
@@ -222,12 +253,14 @@ impl Prepared {
             glow_power: Fixed::from_ratio(2, 10) + Fixed::from_ratio(18, 100) * flame.power,
         }
     }
-    fn row_support(&self, y: Fixed) -> Option<[Fixed; 2]> {
+    fn row_support(&self, row: &mut PuffRow, y: Fixed) -> Option<[Fixed; 2]> {
+        row.y = y;
         let mut left = Fixed::MAX;
         let mut right = Fixed::MIN;
-        for puff in &self.puffs {
+        for (puff, cached) in self.puffs.iter().zip(&mut row.reach_remaining) {
             let dy = y - puff.center[1];
             let remaining = puff.reach_squared - dy * dy;
+            *cached = remaining;
             if remaining < Fixed::ZERO {
                 continue;
             }
@@ -254,8 +287,8 @@ impl Prepared {
             ends[0].max(ends[1]).max(Fixed::ZERO) * Fixed::from_ratio(11, 10),
         ]
     }
-    fn row_candidates(&self, y: Fixed, warp_y: [Fixed; 2]) -> PuffRow {
-        let interval = warp_y.map(|d| y + d);
+    fn row_candidates(&self, row: &mut PuffRow, warp_y: [Fixed; 2]) {
+        let interval = warp_y.map(|d| row.y + d);
         let mut density_mask = 0;
         let mut halo_mask = 0;
         for (index, puff) in self.puffs.iter().enumerate() {
@@ -263,26 +296,20 @@ impl Prepared {
             if puff.density_row_may_contribute(interval) {
                 density_mask |= bit;
             }
-            let dy = Fixed64::from_fixed(y - puff.center[1]);
-            if dy * dy < puff.cutoff {
+            let dy = Fixed64::from_fixed(row.y - puff.center[1]);
+            let squared = dy * dy;
+            if squared < puff.cutoff {
                 halo_mask |= bit;
+                row.halo_y_squared[index] = squared;
             }
         }
-        PuffRow {
-            y,
-            density_mask,
-            halo_mask,
-        }
+        row.density_mask = density_mask;
+        row.halo_mask = halo_mask;
     }
     fn shade_row<const CULL: bool>(&self, x: Fixed, row: &PuffRow) -> [Fixed; 4] {
         let p = [x, row.y];
         let f = &self.flame;
-        if CULL
-            && !self.puffs.iter().any(|puff| {
-                (p[0] - puff.center[0]).powi(2) + (p[1] - puff.center[1]).powi(2)
-                    <= puff.reach_squared
-            })
-        {
+        if CULL && !row.covers(x, &self.puffs) {
             return [Fixed::ZERO; 4];
         }
         let root = [p[0] - f.points[0][0], p[1] - f.points[0][1]];
@@ -333,7 +360,7 @@ impl Prepared {
                 }
             }
             if row.halo_mask & bit != 0 {
-                let d0 = puff.scaled_distance(p);
+                let d0 = puff.row_scaled_distance(x, row.halo_y_squared[index]);
                 if d0 < Fixed::from_int(PUFF_DISTANCE_LIMIT) {
                     halo += (-d0 * Fixed::from_ratio(42, 100)).exp() * puff.extinction;
                 }

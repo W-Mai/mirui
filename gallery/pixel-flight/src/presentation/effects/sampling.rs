@@ -1,4 +1,4 @@
-use super::{Flame, Prepared, encode_sample};
+use super::{Flame, Prepared, PuffRow, encode_sample};
 use mirui::types::{Color, Fixed};
 
 pub(super) struct ScreenFlame {
@@ -77,9 +77,10 @@ impl Prepared {
         mut put: impl FnMut(i32, i32, Color, Color),
     ) {
         let warp_y = self.warp_y_interval();
+        let mut row = PuffRow::new();
         for y in top..bottom {
             let sample_y = rows.center::<RESAMPLED>(y);
-            let Some([low, high]) = self.row_support(sample_y) else {
+            let Some([low, high]) = self.row_support(&mut row, sample_y) else {
                 continue;
             };
             if RESAMPLED && low >= high {
@@ -91,7 +92,7 @@ impl Prepared {
             if start >= end {
                 continue;
             }
-            let row = self.row_candidates(sample_y, warp_y);
+            self.row_candidates(&mut row, warp_y);
             for x in start..end {
                 let value = self.shade_row::<true>(columns.center::<RESAMPLED>(x), &row);
                 let (base, emission) = encode_sample(value);

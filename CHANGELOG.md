@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Reuse lattice coordinates and scanline distance terms in Pixel Flight exhaust shading.
 - Reuse sampled sprite layer storage and retain only the required sample offsets in SpriteStack viewports.
 - Store bounded sprite sample offsets at full subpixel precision in half the space.
 - Store Pixel Flight radar bearings and coverage flags in two bytes per cell without changing instrument precision.
