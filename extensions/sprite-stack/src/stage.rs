@@ -3,7 +3,7 @@ use core::cell::{Cell, OnceCell, RefCell};
 use mirui::{
     __macro_support::{DeferredCommands, despawn_subtree, with_world, with_world_scope},
     core::{
-        model::{BindingOwner, ModelHandle},
+        model::{BindingOwner, ModelHandle, ModelOwnerError},
         reactive::{Effect, Signal},
     },
     ecs::{CommandCommitError, Component, DeferredOperation, Entity, IntoBundle, World},
@@ -25,6 +25,7 @@ impl StackStage {
             members: Rc::new(Members {
                 entities: RefCell::new(Vec::with_capacity(capacity)),
                 capacity,
+                owner: Cell::new(BindingOwner::unbound()),
                 revision: Signal::new(0),
             }),
         }
@@ -32,6 +33,10 @@ impl StackStage {
 
     pub(crate) fn with_entities<R>(&self, read: impl FnOnce(&[Entity]) -> R) -> R {
         read(&self.members.entities.borrow())
+    }
+
+    pub(crate) fn check_member_owner(&self, world: &World) -> Result<(), ModelOwnerError> {
+        self.members.owner.get().check_world(world)
     }
 }
 
@@ -55,6 +60,7 @@ impl StackStage {
 struct Members {
     entities: RefCell<Vec<Entity>>,
     capacity: usize,
+    owner: Cell<BindingOwner>,
     revision: Signal<u64>,
 }
 
@@ -68,7 +74,8 @@ impl Members {
         Ok(())
     }
 
-    fn insert(&self, entity: Entity) {
+    fn insert(&self, entity: Entity, owner: BindingOwner) {
+        self.owner.set(owner);
         self.entities.borrow_mut().push(entity);
     }
 
@@ -76,6 +83,9 @@ impl Members {
         let mut entities = self.entities.borrow_mut();
         if let Some(index) = entities.iter().position(|&member| member == entity) {
             entities.remove(index);
+            if entities.is_empty() {
+                self.owner.set(BindingOwner::unbound());
+            }
         }
     }
 
@@ -85,15 +95,21 @@ impl Members {
     }
 }
 
-fn members(stage: &StackStageHandle, world: &World) -> Result<Rc<Members>, CommandCommitError> {
+fn members(
+    stage: &StackStageHandle,
+    world: &World,
+) -> Result<(Rc<Members>, BindingOwner), CommandCommitError> {
     let service = "stack stage";
-    BindingOwner::registered(stage)
-        .check_world(world)
-        .map_err(|_| CommandCommitError::ForeignOwner { service })?;
+    let foreign_owner = |_| CommandCommitError::ForeignOwner { service };
+    let owner = BindingOwner::registered(stage);
+    owner.check_world(world).map_err(foreign_owner)?;
     if !stage.callback_ready() {
         return Err(CommandCommitError::MissingService { service });
     }
-    Ok(stage.read(|stage| stage.members.clone()))
+    stage.read(|stage| {
+        stage.check_member_owner(world).map_err(foreign_owner)?;
+        Ok((stage.members.clone(), owner))
+    })
 }
 
 struct Membership {
@@ -490,7 +506,13 @@ impl StageCommands<'_, '_> {
     }
 }
 
-fn finish_mount(world: &mut World, entity: Entity, stage: Rc<Members>, effect: Option<Effect>) {
+fn finish_mount(
+    world: &mut World,
+    entity: Entity,
+    stage: Rc<Members>,
+    owner: BindingOwner,
+    effect: Option<Effect>,
+) {
     let visual = world
         .get_mut::<StackVisual>(entity)
         .expect("installed visual");
@@ -499,7 +521,7 @@ fn finish_mount(world: &mut World, entity: Entity, stage: Rc<Members>, effect: O
         entity,
         _effect: effect,
     });
-    stage.insert(entity);
+    stage.insert(entity, owner);
     stage.publish();
 }
 
@@ -511,7 +533,7 @@ struct Spawn<B> {
 
 impl<B: IntoBundle + 'static> DeferredOperation for Spawn<B> {
     fn apply(self, world: &mut World) -> Result<(), CommandCommitError> {
-        let stage = members(&self.stage, world)?;
+        let (stage, owner) = members(&self.stage, world)?;
         stage.check_capacity()?;
         self.visual.check(world)?;
         let entity = world.spawn_empty();
@@ -531,7 +553,7 @@ impl<B: IntoBundle + 'static> DeferredOperation for Spawn<B> {
                 return Err(error);
             }
         };
-        finish_mount(world, entity, stage, effect);
+        finish_mount(world, entity, stage, owner, effect);
         Ok(())
     }
 }
@@ -553,13 +575,13 @@ impl DeferredOperation for Attach {
                 operation: "occupied stack visual",
             });
         }
-        let stage = members(&self.stage, world)?;
+        let (stage, owner) = members(&self.stage, world)?;
         stage.check_capacity()?;
         self.visual.check(world)?;
         let effect = self
             .visual
             .install(world, entity, OnModelRetirement::Detach)?;
-        finish_mount(world, entity, stage, effect);
+        finish_mount(world, entity, stage, owner, effect);
         Ok(())
     }
 }
@@ -575,7 +597,7 @@ impl DeferredOperation for Transfer {
         if !world.is_alive(entity) {
             return Err(CommandCommitError::MissingTarget { entity });
         }
-        let stage = members(&self.stage, world)?;
+        let (stage, owner) = members(&self.stage, world)?;
         let source = world
             .get::<StackVisual>(entity)
             .and_then(|visual| visual.membership.as_ref())
@@ -593,7 +615,7 @@ impl DeferredOperation for Transfer {
             .expect("checked stage member");
         let previous = core::mem::replace(&mut source.members, stage.clone());
         previous.remove(entity);
-        stage.insert(entity);
+        stage.insert(entity, owner);
         previous.publish();
         stage.publish();
         Ok(())

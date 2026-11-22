@@ -89,6 +89,8 @@ Each viewport uses its own camera and output frame. Closing a viewport releases 
 
 Retiring a stage registration clears its viewports and releases their rendered frames. Members remain available to the game for transfer or removal.
 
+A populated stage retains the App ownership of its members even if its Model value is registered again. Detach or transfer the remaining members in their original App before moving the empty stage to another App.
+
 A model-bound visual follows its source incarnation. When a `ModelList` item is removed, the scene despawns an entity created with `spawn` or detaches the visual from an entity supplied with `attach`. List reordering preserves the existing visual bindings.
 
 When a live height field used as geometry retires, its surface disappears from every viewport. The member stays attached, so a model-bound visual can resume drawing when the model selects another field.

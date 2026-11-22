@@ -459,6 +459,9 @@ impl StackViewport {
         paint: &mut PaintCtx<'_>,
         attachments: Attachments<'_>,
     ) -> Result<(), RenderError> {
+        stage
+            .check_member_owner(world)
+            .map_err(|_| RenderError::InvalidGeometry)?;
         self.output.borrow_mut().paint(
             draw::DrawSource::Stage { stage, world },
             self.camera,

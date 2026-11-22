@@ -630,3 +630,62 @@ fn retired_stage_clears_its_viewports_and_members_can_transfer() {
     assert_eq!(pixels(&mut app, 8), [false; 3]);
     assert_eq!(pixels(&mut app, 9), [true, false, true]);
 }
+
+#[test]
+fn a_stage_with_members_cannot_be_used_in_another_world() {
+    let mut origin = App::headless(48, 16);
+    let mut other = App::headless(48, 16);
+    origin.add_system(edit_stage::system());
+    other
+        .with_default_widgets()
+        .add_plugin(crate::SpriteStackPlugin);
+    other.add_system(edit_stage::system());
+    let mut stages = ModelList::bounded(1);
+    assert!(stages.try_push(StackStage::bounded(2)).is_ok());
+    let stages = origin.add_model(stages).finish();
+    let (id, stage) = stages.entries().next().unwrap();
+    let visual = || StackVisual::new(geometry()).into();
+    apply(&mut origin, &stage, Edit::Spawn(visual())).unwrap();
+    let (source_entity, _) = origin.world.query::<Pilot>().iter().next().unwrap();
+    let own = other.add_model(StackStage::bounded(1)).finish();
+    apply(&mut other, &own, Edit::Spawn(visual())).unwrap();
+    let (other_entity, _) = other.world.query::<Pilot>().iter().next().unwrap();
+    assert_eq!(source_entity, other_entity);
+    let moved = other
+        .add_model(stages.remove(id).unwrap().unwrap())
+        .finish();
+
+    let root = other.spawn_root().id();
+    other.compose(
+        root,
+        viewports(Signal::new(moved.clone()), moved.clone(), own),
+    );
+    assert!(matches!(
+        other.snapshot(),
+        Err(mirui::render::RenderError::InvalidGeometry)
+    ));
+    assert!(matches!(
+        apply(&mut other, &moved, Edit::Transfer(other_entity)),
+        Err(CommandError::Commit(
+            CommandCommitError::ForeignOwner { .. }
+        ))
+    ));
+    assert!(matches!(
+        apply(&mut other, &moved, Edit::Spawn(visual())),
+        Err(CommandError::Commit(
+            CommandCommitError::ForeignOwner { .. }
+        ))
+    ));
+
+    apply(&mut origin, &stage, Edit::Leave(source_entity)).unwrap();
+    assert!(origin.world.is_alive(source_entity));
+    assert!(moved.is_empty());
+    apply(&mut other, &moved, Edit::Transfer(other_entity)).unwrap();
+    assert_eq!(moved.len(), 1);
+    let frame = other.snapshot().unwrap().unwrap();
+    let pixels = frame.read_pixels().unwrap();
+    assert_eq!(
+        [0, 16, 32].map(|x| pixels.get_pixel(x + 8, 7) == Color::rgb(255, 255, 255)),
+        [true, true, false]
+    );
+}

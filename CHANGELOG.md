@@ -210,6 +210,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep populated SpriteStack stages tied to the App that owns their member entities.
 - Release SpriteStack viewport frames when their stage registration retires. Stage members remain transferable by the game.
 - Clear retired live height fields from SpriteStack viewports while keeping the entity's visual binding available for a replacement field.
 - Refresh the rendered frame and reactive inputs when a SpriteStack viewport attachment is replaced or removed.
