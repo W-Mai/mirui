@@ -221,13 +221,14 @@ impl Instruments {
         }
     }
 }
-struct RadarCell {
-    bearing: Fixed,
-    flags: u8,
-}
+struct RadarCell(u16);
 impl RadarCell {
-    const RING: u8 = 1;
-    const INSIDE: u8 = 2;
+    // The [-π, π] angle fits in eleven bits at 1/256 radian precision.
+    const BEARING_SCALE: i32 = 256;
+    const BEARING_BIAS: i32 = 1 << 10;
+    const BEARING_MASK: u16 = (1 << 11) - 1;
+    const RING: u16 = 1 << 11;
+    const INSIDE: u16 = 1 << 12;
 
     fn new(x: i32, y: i32, width: i32, height: i32) -> Self {
         let dx = x - width / 2;
@@ -242,14 +243,25 @@ impl RadarCell {
         .into_iter()
         .any(|ring| (distance / radius - ring).abs() < Fixed::from_ratio(5, 10) / radius);
         let inside = distance <= radius;
-        Self {
-            bearing: if inside {
-                Fixed::from_int(dx).atan2(Fixed::from_int(-dy))
-            } else {
-                Fixed::ZERO
-            },
-            flags: (u8::from(ring) * Self::RING) | (u8::from(inside) * Self::INSIDE),
+        let ring_flag = u16::from(ring) * Self::RING;
+        if !inside {
+            return Self(ring_flag);
         }
+        let bearing = Fixed::from_int(dx).atan2(Fixed::from_int(-dy));
+        let encoded = (bearing * Self::BEARING_SCALE).to_int() + Self::BEARING_BIAS;
+        debug_assert!((0..=i32::from(Self::BEARING_MASK)).contains(&encoded));
+        Self(encoded as u16 | ring_flag | Self::INSIDE)
+    }
+
+    fn on_ring(&self) -> bool {
+        self.0 & Self::RING != 0
+    }
+
+    fn bearing(&self) -> Option<Fixed> {
+        (self.0 & Self::INSIDE != 0).then(|| {
+            let scaled = i32::from(self.0 & Self::BEARING_MASK) - Self::BEARING_BIAS;
+            Fixed::from_ratio(scaled, Self::BEARING_SCALE)
+        })
     }
 }
 impl RowPixels<'_> {
@@ -1262,6 +1274,7 @@ mod tests {
 
     #[test]
     fn radar_geometry_preserves_ring_and_bearing_at_all_native_cells() {
+        assert_eq!(core::mem::size_of::<RadarCell>(), 2);
         for (width, height) in [(1, 1), (2, 3), (37, 22), (86, 51)] {
             let radius = Fixed::from_int(width.min(height)) * Fixed::from_ratio(47, 100);
             for y in 0..height {
@@ -1279,14 +1292,10 @@ mod tests {
                     .any(|ring| {
                         (distance / radius - ring).abs() < Fixed::from_ratio(5, 10) / radius
                     });
-                    assert_eq!(cell.flags & RadarCell::RING != 0, ring);
-                    assert_eq!(cell.flags & RadarCell::INSIDE != 0, distance <= radius);
-                    if distance <= radius {
-                        assert_eq!(
-                            cell.bearing,
-                            Fixed::from_int(dx).atan2(Fixed::from_int(-dy))
-                        );
-                    }
+                    assert_eq!(cell.on_ring(), ring);
+                    let bearing = (distance <= radius)
+                        .then(|| Fixed::from_int(dx).atan2(Fixed::from_int(-dy)));
+                    assert_eq!(cell.bearing(), bearing);
                 }
             }
         }

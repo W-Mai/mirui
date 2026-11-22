@@ -66,11 +66,11 @@ impl Cockpit {
                 if mat < 4 && (dx == 0 || dy == 0) {
                     tone = 2;
                 }
-                if mat < 12 && cell.flags & RadarCell::RING != 0 {
+                if mat < 12 && cell.on_ring() {
                     tone = tone.max(if mat >= 4 { 4 } else { 2 });
                 }
-                if cell.flags & RadarCell::INSIDE != 0 {
-                    let angle = (sweep - cell.bearing).rem_euclid(TAU);
+                if let Some(bearing) = cell.bearing() {
+                    let angle = (sweep - bearing).rem_euclid(TAU);
                     if angle < Fixed::from_ratio(12, 100) {
                         tone = 5;
                     } else if angle < Fixed::from_ratio(7, 10) && tone < 5 {
