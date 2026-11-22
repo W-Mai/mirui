@@ -1,5 +1,5 @@
 use crate::{
-    Geometry, Object, StackScene, StackSceneHandle, StackStage, StackStageHandle,
+    StackStage, StackStageHandle,
     raster::{Frame, OverlayFrame},
 };
 use alloc::{boxed::Box, rc::Weak};
@@ -14,7 +14,7 @@ use mirui::{
         report_query_reads, with_owned_effects,
     },
     app::{App, RendererFactory, plugin::Plugin},
-    core::model::{ModelHandle, ModelInvalidation, ModelSubscription, SharedValue},
+    core::model::{ModelHandle, SharedValue},
     ecs::{CommandCommitError, DeferredOperation, Entity, World},
     render::{
         RenderError,
@@ -36,13 +36,12 @@ pub use content::{
     ContentFrame, FrameContent, TerrainMember, TerrainTarget, ViewportContent, ViewportOutput,
     WorldCamera,
 };
-pub use draw::{ObjectPass, ProjectedObjects, ViewProjection};
+pub use draw::ViewProjection;
 pub use overlay::ViewportOverlay;
 
 /// Camera around a world point or a moving object. Positive pitch looks down.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Camera {
-    pub target: Option<Object>,
     pub center: [Fixed; 3],
     pub yaw: Fixed,
     pub pitch: Fixed,
@@ -55,7 +54,6 @@ pub struct Camera {
 impl Default for Camera {
     fn default() -> Self {
         Self {
-            target: None,
             center: [Fixed::ZERO; 3],
             yaw: Fixed::ZERO,
             pitch: Fixed::from_int(35),
@@ -66,12 +64,6 @@ impl Default for Camera {
     }
 }
 impl Camera {
-    pub fn chase(object: Object) -> Self {
-        Self {
-            target: Some(object),
-            ..Self::default()
-        }
-    }
     pub fn overhead() -> Self {
         Self {
             pitch: Fixed::from_int(90),
@@ -379,25 +371,20 @@ impl Output {
 
 #[mirui::component]
 pub struct StackViewport {
-    #[property(ViewportScene)]
-    pub scene: Option<StackSceneHandle>,
     #[property(ViewportStage)]
     pub stage: Option<StackStageHandle>,
     #[property(ViewportCamera)]
     pub camera: Camera,
     #[property(ViewportResolution)]
     pub resolution: Resolution,
-    bindings: Option<(Option<ModelSubscription>, OwnedEffects)>,
+    bindings: Option<OwnedEffects>,
     output: RefCell<Output>,
     stamp: Cell<u64>,
-    seen_scene: Cell<u64>,
-    tracked: Cell<Option<[Fixed; 3]>>,
 }
 
 impl Default for StackViewport {
     fn default() -> Self {
         Self {
-            scene: None,
             stage: None,
             camera: Camera::default(),
             resolution: Resolution::Native,
@@ -410,8 +397,6 @@ impl Default for StackViewport {
                 texture_revision: 0,
             }),
             stamp: Cell::new(0),
-            seen_scene: Cell::new(0),
-            tracked: Cell::new(None),
         }
     }
 }
@@ -427,36 +412,6 @@ impl StackViewport {
         self.stamp.set(self.stamp.get().wrapping_add(1));
     }
 
-    fn paint_scene(
-        &self,
-        scene: &StackScene,
-        paint: &mut PaintCtx<'_>,
-        attachments: Attachments<'_>,
-    ) -> Result<(), RenderError> {
-        let revision = scene.revision();
-        if self.seen_scene.replace(revision) != revision {
-            self.advance_stamp();
-        }
-        let mut camera = self.camera;
-        if let Some(target) = camera.target.filter(|_| attachments.content.is_none()) {
-            let position = scene
-                .pose(target)
-                .map(|p| p.position)
-                .or_else(|| self.tracked.get())
-                .ok_or(RenderError::InvalidGeometry)?;
-            self.tracked.set(Some(position));
-            camera.center = core::array::from_fn(|i| position[i] + camera.center[i]);
-        }
-        self.output.borrow_mut().paint(
-            draw::DrawSource::Scene(scene),
-            camera,
-            self.resolution,
-            self.stamp.get(),
-            paint,
-            attachments,
-        )
-    }
-
     fn paint_stage(
         &self,
         stage: &StackStage,
@@ -468,7 +423,7 @@ impl StackViewport {
             .check_member_owner(world)
             .map_err(|_| RenderError::InvalidGeometry)?;
         self.output.borrow_mut().paint(
-            draw::DrawSource::Stage { stage, world },
+            draw::DrawSource { stage, world },
             self.camera,
             self.resolution,
             self.stamp.get(),
@@ -495,52 +450,9 @@ impl StackViewport {
             });
             let view = world.get_mut::<Self>(entity).expect("mounted viewport");
             if view.stage.is_some() {
-                view.bindings = Some((None, effects));
+                view.bindings = Some(effects);
             }
-            return;
         }
-        let Some(scene) = world.get::<Self>(entity).and_then(|v| v.scene.clone()) else {
-            return;
-        };
-        // The ordinary field observer drives pose changes. The effect only tracks source membership and mutable geometry.
-        let sub = scene.__mirui_subscribe_revision(world, entity, ModelInvalidation::Visual);
-        let (_, effects) = with_owned_effects(|| {
-            prepare_widget_effect(entity, BindingRole::Display, move || {
-                scene.assert_registered_owner();
-                scene.membership();
-                scene.read(|scene| {
-                    scene.for_each(|_, geometry, _| {
-                        if let Geometry::LiveField(field) = geometry {
-                            field.assert_registered_owner();
-                            field.revision();
-                        }
-                    })
-                });
-                mirui::ui::property::apply::<SourceChanged>(entity, ());
-            })
-            .install(world);
-        });
-        world
-            .get_mut::<Self>(entity)
-            .expect("mounted viewport")
-            .bindings = Some((Some(sub), effects));
-    }
-}
-
-pub struct ViewportScene;
-impl Property for ViewportScene {
-    type Value = StackSceneHandle;
-    fn apply(world: &mut World, entity: Entity, scene: Self::Value) -> PropertyChange {
-        let Some(view) = world.get_mut::<StackViewport>(entity) else {
-            return PropertyChange::Unchanged;
-        };
-        view.bindings = None;
-        view.tracked.set(None);
-        view.advance_stamp();
-        view.scene = Some(scene);
-        view.stage = None;
-        StackViewport::bind(world, entity);
-        PropertyChange::Visual
     }
 }
 
@@ -552,9 +464,7 @@ impl Property for ViewportStage {
             return PropertyChange::Unchanged;
         };
         view.bindings = None;
-        view.tracked.set(None);
         view.advance_stamp();
-        view.scene = None;
         view.stage = Some(stage);
         StackViewport::bind(world, entity);
         PropertyChange::Visual
@@ -570,9 +480,6 @@ impl Property for ViewportCamera {
         };
         if view.camera == camera {
             return PropertyChange::Unchanged;
-        }
-        if camera.target != view.camera.target {
-            view.tracked.set(None);
         }
         view.camera = camera;
         view.advance_stamp();
@@ -636,7 +543,7 @@ impl DeferredOperation for Mount {
         let Some(view) = world.get::<StackViewport>(entity) else {
             return Ok(());
         };
-        if (view.stage.is_some() || view.scene.is_some()) && view.bindings.is_none() {
+        if view.stage.is_some() && view.bindings.is_none() {
             StackViewport::bind(world, entity);
         }
         ViewportOverlay::attach(world, entity);
@@ -683,8 +590,6 @@ fn paint_viewport(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     };
     let result = if let Some(stage) = &component.stage {
         stage.read(|stage| component.paint_stage(stage, world, paint, attachments))
-    } else if let Some(scene) = &component.scene {
-        scene.read(|scene| component.paint_scene(scene, paint, attachments))
     } else {
         return;
     };

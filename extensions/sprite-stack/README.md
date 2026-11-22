@@ -132,6 +132,17 @@ Procedural games can pass their existing height and material planes to `HeightFi
 
 Attach `ViewportContent::from_model(&game, GameHandle::revision, content)` in the same component list as an optional `ViewportOverlay`. The `FrameContent<Game>` implementation provides the camera and prepares borrowed procedural layers and optional depth-dependent effects. The viewport renders those layers with its Stage members. The revision drives changes from the existing game Model.
 
+```rust
+ui! {
+    StackViewport(stage: stage) [
+        ViewportContent::from_model(&game, GameHandle::revision, landscape),
+        ViewportOverlay::new(instrument_input, instruments),
+    ]
+}
+```
+
+The landscape implements `FrameContent<Game>`. The instrument painter implements `FrameOverlay<T>` for its input type. For fixed procedural content, use `ViewportContent::new(landscape)`. [Attachment test](tests/stage_content.rs) demonstrates replacement and removal.
+
 `SceneLayers` defines terrain, background, objects, world effects and sprites. SpriteStack uses one tile order for color and depth sampling, applies the screen-space overlay, and publishes the resulting texture. Use `ViewportOutput::Bounded` to draw through a reusable working tile and an opaque output of at most two bytes per pixel.
 
 `StackVisual::with_role::<T>()` identifies a field that a `FrameContent` implementation wants to shade. The viewport resolves its pose in `ContentFrame::terrain` and schedules the remaining members automatically. [Pixel Flight's attached content](../../gallery/pixel-flight/src/runtime/renderer.rs) prepares the landscape and exhaust. Its [stage system](../../gallery/pixel-flight/src/runtime/stage_members.rs) publishes aircraft placement and material.

@@ -2,7 +2,7 @@
 
 use mirui::{core::cache::Handle, prelude::*};
 use mirui_sprite_stack::{
-    Camera, Pose, SpriteStackAsset, SpriteStackPlugin, StackScene, StackStage, StackStageCommands,
+    Camera, Pose, SpriteStackAsset, SpriteStackPlugin, StackStage, StackStageCommands,
     StackViewport, StackVisual,
     format::{
         self, StackDescriptor,
@@ -240,126 +240,80 @@ fn viewport_switches_between_indexed_or_rgba_levels_and_the_odd_sized_base() {
 
 #[test]
 fn directed_view_uses_projected_cell_size_for_authored_lods() {
-    use mirui::types::Fixed64;
+    use mirui::{render::RenderError, types::Fixed64};
     use mirui_sprite_stack::{
-        ObjectPass, ViewProjection,
-        raster::{Frame, Projection, Workspace},
+        ContentFrame, FrameContent, FrameSize, ViewportContent, WorldCamera,
+        raster::{FrameCamera, FrameEffects, Projection, SceneCanvas, SceneLayers},
     };
-    let mut scene = StackScene::new();
-    let id = scene.place(asset(true, true), Pose::default()).unwrap();
-    let mut pass = ObjectPass::default();
-    let mut frame = Frame::new(16, 16).unwrap();
-    let mut work = Workspace::new(16, 16).unwrap();
-    for (z, expected) in [(0, RED), (32, BLUE), (0, RED)] {
-        scene.set_pose(id, Pose::at(0, -z, z)).unwrap();
-        let camera = ViewProjection::horizontal(
-            Projection {
-                perspective: Fixed64::from_ratio(1, 8),
-                slope: Fixed::ONE,
-                scale: Fixed::from_int(2),
-                center: [Fixed::from_int(8); 2],
-            },
-            [Fixed::ZERO; 3],
-            [Fixed::ZERO, Fixed::ONE],
-            Fixed::from_int(50),
-        );
-        let objects = pass.prepare(&scene, camera, |_, _, _| true).unwrap();
-        work.render_rows(&mut frame, |tile| {
-            tile.color.bytes.fill(0);
-            tile.clear_depth();
-            objects.draw(tile)
-        })
-        .unwrap();
-        let pixels = frame.texture.read_pixels().unwrap();
-        let visible = pixels.bytes().chunks_exact(4).filter(|c| c[3] != 0);
-        assert!(visible.clone().count() > 0, "depth {z}");
-        assert!(visible.into_iter().all(|c| c == expected), "depth {z}");
-    }
-}
 
-#[test]
-fn sampled_layer_workspace_reuses_capacity_across_membership_changes() {
-    use mirui_sprite_stack::{
-        Geometry, ObjectPass, PreparedSpriteStack, SparseLevel, StackSample, ViewProjection,
-        raster::{Frame, Projection, Workspace},
-    };
-    const CELL: StackSample = StackSample {
-        x: 0,
-        y: 0,
-        color: 0,
-    };
-    const SHORT: PreparedSpriteStack<'static> = PreparedSpriteStack::new(
-        [1, 1, 1],
-        [0; 3],
-        256,
-        &[RED],
-        &[SparseLevel::new(1, &[0, 1], &[CELL]).unwrap()],
-    )
-    .unwrap();
-    const TALL: PreparedSpriteStack<'static> = PreparedSpriteStack::new(
-        [1, 1, 3],
-        [0; 3],
-        256,
-        &[BLUE],
-        &[SparseLevel::new(1, &[0, 1, 2, 3], &[CELL; 3]).unwrap()],
-    )
-    .unwrap();
-    let mut scene = StackScene::bounded(2);
-    scene
-        .place(Geometry::Sampled(&SHORT), Pose::at(-3, 0, 0))
-        .unwrap();
-    let mut second = scene
-        .place(Geometry::Sampled(&TALL), Pose::at(3, 0, 0))
-        .unwrap();
-    let mut pass = ObjectPass::default();
-    let mut frame = Frame::new(16, 16).unwrap();
-    let mut work = Workspace::new(16, 4).unwrap();
-    let mut draw = |pass: &mut ObjectPass, scene: &StackScene| {
-        let camera = ViewProjection::horizontal(
-            Projection {
-                perspective: Default::default(),
-                slope: Fixed::ZERO,
-                scale: Fixed::ONE,
-                center: [Fixed::from_int(8); 2],
-            },
-            [Fixed::ZERO; 3],
-            [Fixed::ZERO, Fixed::ONE],
-            Fixed::from_int(32),
-        );
-        let objects = pass.prepare(scene, camera, |_, _, _| true).unwrap();
-        work.render_rows(&mut frame, |tile| {
+    struct Background;
+    impl SceneLayers for Background {
+        fn background(&self, tile: &mut SceneCanvas<'_, '_>) {
             tile.color.bytes.fill(0);
-            tile.clear_depth();
-            objects.draw(tile)
-        })
-        .unwrap();
-        let pixels = frame.texture.read_pixels().unwrap();
-        let mut counts = [0, 0];
-        for color in pixels.bytes().chunks_exact(4) {
-            counts[0] += usize::from(color == RED);
-            counts[1] += usize::from(color == BLUE);
         }
-        counts
-    };
-    let expected = draw(&mut pass, &scene);
-    assert!(expected.into_iter().all(|count| count > 0));
-    let capacity = pass.storage_bytes();
-    let two_largest_footprints = size_of::<[[Fixed; 2]; 64]>() * 2;
-    assert!(capacity < two_largest_footprints, "{capacity} bytes");
-    for _ in 0..3 {
-        scene.remove(second).unwrap();
-        assert_eq!(draw(&mut pass, &scene), [expected[0], 0]);
-        second = scene
-            .place(Geometry::Sampled(&TALL), Pose::at(3, 0, 0))
-            .unwrap();
-        let allocations = allocations::tracked_allocations(|| {
-            assert_eq!(draw(&mut pass, &scene), expected);
-        });
-        assert_eq!(allocations, 0);
-        assert_eq!(pass.storage_bytes(), capacity);
     }
-    pass.clear();
-    assert!(pass.storage_bytes() < capacity);
+    impl FrameContent for Background {
+        fn camera(&self, _: &(), _: FrameSize) -> Result<WorldCamera, RenderError> {
+            Ok(WorldCamera {
+                camera: FrameCamera {
+                    projection: Projection {
+                        perspective: Fixed64::from_ratio(1, 8),
+                        slope: Fixed::ONE,
+                        scale: Fixed::from_int(2),
+                        center: [Fixed::from_int(8); 2],
+                    },
+                    position: [Fixed::ZERO; 3],
+                    yaw: Fixed::ZERO,
+                    pitch: Fixed::ZERO,
+                    roll: Fixed::ZERO,
+                },
+                pivot: Fixed::from_int(8),
+                roll: false,
+            })
+        }
+
+        fn prepare(
+            &mut self,
+            _: &(),
+            _: ContentFrame,
+        ) -> Result<(impl SceneLayers, impl FrameEffects), RenderError> {
+            Ok((Background, ()))
+        }
+    }
+
+    #[mirui::compose]
+    fn screen(stage: model!(StackStage)) -> Entity {
+        ui! { StackViewport(width: 16, height: 16, stage: stage) [ViewportContent::new(Background)] }
+    }
+    let mut app = App::headless(16, 16);
+    app.with_default_widgets().add_plugin(SpriteStackPlugin);
+    let stage = app.add_model(StackStage::bounded(1)).finish();
+    let subject = app
+        .add_model(Subject {
+            asset: asset(true, true),
+            pose: Pose::default(),
+        })
+        .finish();
+    let root = app.spawn_root().id();
+    app.compose(root, screen(stage.clone()));
+    app.add_system(populate::system(stage, subject.clone()));
+    app.tick();
+    for (z, expected) in [(0, RED), (32, BLUE), (0, RED)] {
+        subject.move_to(Pose::at(0, -z, z));
+        let frame = app.snapshot().unwrap().unwrap();
+        let pixels = frame.read_pixels().unwrap();
+        let mut coverage = [0; 2];
+        for y in 0..16 {
+            for x in 0..16 {
+                let pixel = pixels.get_pixel(x, y);
+                let rgba = [pixel.r, pixel.g, pixel.b, pixel.a];
+                coverage[0] += usize::from(rgba == expected);
+                coverage[1] += usize::from(rgba == if expected == RED { BLUE } else { RED });
+            }
+        }
+        assert!(coverage[0] > 0, "depth {z}");
+        assert_eq!(coverage[1], 0, "depth {z}");
+    }
 }
 
 mod stage_material {

@@ -3,7 +3,7 @@
 use core::cell::Cell;
 use mirui::{prelude::*, render::RenderError};
 use mirui_sprite_stack::{
-    Resolution, SpriteStackPlugin, StackScene, StackViewport, ViewportOverlay,
+    Resolution, SpriteStackPlugin, StackStage, StackViewport, ViewportOverlay,
     raster::{Canvas, FrameOverlay, OverlayFrame},
 };
 use std::rc::Rc;
@@ -43,7 +43,7 @@ impl FrameOverlay<Color> for Panel {
 
 #[mirui::compose]
 fn screen(
-    scene: model!(StackScene),
+    stage: model!(StackStage),
     paint: Signal<Color>,
     first: Rc<Cell<usize>>,
     second: Rc<Cell<usize>>,
@@ -68,12 +68,12 @@ fn screen(
                 id: "dynamic-overlay",
                 width: 16,
                 height: 16,
-                scene: scene.clone(),
+                stage: stage.clone(),
                 resolution: Resolution::Native
             ) [
                 dynamic_overlay,
             ]
-            StackViewport (width: 16, height: 16, scene: scene) [
+            StackViewport (width: 16, height: 16, stage: stage) [
                 static_overlay,
             ]
         }
@@ -85,12 +85,12 @@ fn attached_overlay_observes_its_input_and_reuses_the_completed_frame() {
     let mut app = App::headless(32, 16);
     app.with_default_widgets().add_plugin(SpriteStackPlugin);
     let root = app.spawn_root().id();
-    let scene = app.add_model(StackScene::new()).finish();
+    let stage = app.add_model(StackStage::bounded(0)).finish();
     let ink = Signal::new(Color::rgb(179, 25, 40));
     let draws = [Rc::new(Cell::new(0)), Rc::new(Cell::new(0))];
     app.compose(
         root,
-        screen(scene, ink.clone(), draws[0].clone(), draws[1].clone()),
+        screen(stage, ink.clone(), draws[0].clone(), draws[1].clone()),
     );
     let check = |app: &mut App<_, _>, expected: Color| {
         let snapshot = app.snapshot().unwrap().unwrap();

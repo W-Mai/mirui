@@ -369,9 +369,7 @@ impl FrameDraw<'_> {
     }
 
     fn resolve_terrain(&self, target: TerrainTarget) -> Result<Option<TerrainMember>, RenderError> {
-        let DrawSource::Stage { stage, world } = self.source else {
-            return Ok(None);
-        };
+        let DrawSource { stage, world } = self.source;
         stage.with_entities(|members| {
             let mut matched = None;
             for &entity in members {
@@ -405,43 +403,34 @@ impl FrameDraw<'_> {
         effects: &mut impl FrameEffects,
         terrain: Option<TerrainMember>,
     ) -> Result<(), RenderError> {
-        match self.source {
-            DrawSource::Stage { stage, world } => self.objects.with_stage(
-                stage,
-                world,
-                ViewProjection::from_frame(self.camera, self.range),
-                Some(StageFrame {
-                    camera: self.camera,
-                    size: self.mapping.size,
-                    bounded: self.bounded,
-                    terrain: terrain.map(|member| member.entity),
-                    mask_pixels: self.workspace.coverage_pixels(),
-                }),
-                |objects| {
-                    self.workspace.render_with_effects(
-                        self.output,
-                        &self.mapping,
-                        self.overlay,
-                        effects,
-                        |tile, pass| {
-                            draw_layers_with_objects(layers, tile, pass, |tile, styled| {
-                                if styled {
-                                    objects.draw_styled(tile)
-                                } else {
-                                    objects.draw(tile)
-                                }
-                            })
-                        },
-                    )
-                },
-            ),
-            DrawSource::Scene(_) => self.workspace.render_layers(
-                self.output,
-                &self.mapping,
-                self.overlay,
-                layers,
-                effects,
-            ),
-        }
+        self.objects.with_stage(
+            self.source.stage,
+            self.source.world,
+            ViewProjection::from_frame(self.camera, self.range),
+            Some(StageFrame {
+                camera: self.camera,
+                size: self.mapping.size,
+                bounded: self.bounded,
+                terrain: terrain.map(|member| member.entity),
+                mask_pixels: self.workspace.coverage_pixels(),
+            }),
+            |objects| {
+                self.workspace.render_with_effects(
+                    self.output,
+                    &self.mapping,
+                    self.overlay,
+                    effects,
+                    |tile, pass| {
+                        draw_layers_with_objects(layers, tile, pass, |tile, styled| {
+                            if styled {
+                                objects.draw_styled(tile)
+                            } else {
+                                objects.draw(tile)
+                            }
+                        })
+                    },
+                )
+            },
+        )
     }
 }

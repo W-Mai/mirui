@@ -1,6 +1,6 @@
 use super::{Camera, FrameSize};
 use crate::{
-    Geometry, Pose, SampledStyle, StackScene, StackStage, StackVisual,
+    Geometry, Pose, SampledStyle, StackStage, StackVisual,
     raster::{
         Frame, FrameCamera, FrameOverlay, FramePass, SceneCanvas, SceneLayers, Workspace,
         draw_layers,
@@ -13,7 +13,6 @@ use mirui::{
     ecs::{Entity, World},
     render::RenderError,
 };
-pub use objects::{ObjectPass, ProjectedObjects};
 use objects::{ObjectSource, ObjectWork, Projected};
 pub use projection::ViewProjection;
 
@@ -25,24 +24,13 @@ pub(super) struct DefaultRenderer {
     objects: ViewObjects,
 }
 
-pub(super) enum ViewObjects {
-    Scene(ObjectPass),
-    Stage(ObjectWork<Entity>),
-}
-
-impl Default for ViewObjects {
-    fn default() -> Self {
-        Self::Scene(ObjectPass::default())
-    }
-}
+#[derive(Default)]
+pub(super) struct ViewObjects(ObjectWork<Entity>);
 
 #[derive(Clone, Copy)]
-pub(super) enum DrawSource<'a> {
-    Scene(&'a StackScene),
-    Stage {
-        stage: &'a StackStage,
-        world: &'a World,
-    },
+pub(super) struct DrawSource<'a> {
+    pub(super) stage: &'a StackStage,
+    pub(super) world: &'a World,
 }
 
 struct StageObjects<'a> {
@@ -74,20 +62,7 @@ impl PreparedStageObjects<'_, '_> {
 
 impl ViewObjects {
     pub(super) fn storage_bytes(&self) -> usize {
-        match self {
-            Self::Scene(pass) => pass.storage_bytes(),
-            Self::Stage(pass) => pass.storage_bytes(),
-        }
-    }
-
-    pub(super) fn legacy(&mut self) -> &mut ObjectPass {
-        if !matches!(self, Self::Scene(_)) {
-            *self = Self::default();
-        }
-        let Self::Scene(objects) = self else {
-            unreachable!()
-        };
-        objects
+        self.0.storage_bytes()
     }
 
     pub(super) fn with_stage<R>(
@@ -98,19 +73,13 @@ impl ViewObjects {
         frame: Option<StageFrame>,
         use_objects: impl FnOnce(&PreparedStageObjects<'_, '_>) -> Result<R, RenderError>,
     ) -> Result<R, RenderError> {
-        if !matches!(self, Self::Stage(_)) {
-            *self = Self::Stage(ObjectWork::default());
-        }
-        let Self::Stage(objects) = self else {
-            unreachable!()
-        };
         stage.with_entities(|entities| {
             let source = StageObjects {
                 entities,
                 world,
                 terrain: frame.and_then(|frame| frame.terrain),
             };
-            let objects = objects.prepare(&source, camera, frame, |_, _, _| true)?;
+            let objects = self.0.prepare(&source, camera, frame)?;
             use_objects(&PreparedStageObjects(objects))
         })
     }
@@ -180,21 +149,10 @@ impl DefaultRenderer {
             self.workspace = Some(([w, h], Workspace::new(w, BAND.min(h))?));
         }
         let (_, work) = self.workspace.as_mut().expect("viewport storage");
-        match source {
-            DrawSource::Scene(scene) => {
-                let objects = self
-                    .objects
-                    .legacy()
-                    .prepare(scene, projection, |_, _, _| true)?;
-                render_rows(work, frame, overlay, &objects)
-            }
-            DrawSource::Stage { stage, world } => {
-                self.objects
-                    .with_stage(stage, world, projection, None, |objects| {
-                        render_rows(work, frame, overlay, objects)
-                    })
-            }
-        }
+        self.objects
+            .with_stage(source.stage, source.world, projection, None, |objects| {
+                render_rows(work, frame, overlay, objects)
+            })
     }
 }
 
@@ -207,16 +165,6 @@ fn render_rows(
     work.render_rows_with_overlay(frame, overlay, |tile| {
         draw_layers(layers, tile, FramePass::Color)
     })
-}
-
-impl SceneLayers for ProjectedObjects<'_> {
-    fn background(&self, tile: &mut SceneCanvas<'_, '_>) {
-        tile.color.bytes.fill(0);
-    }
-
-    fn objects(&self, tile: &mut SceneCanvas<'_, '_>) -> Result<(), RenderError> {
-        self.draw(tile)
-    }
 }
 
 impl SceneLayers for PreparedStageObjects<'_, '_> {

@@ -7,6 +7,9 @@
 extern crate alloc;
 #[cfg(test)]
 extern crate std;
+#[cfg(all(test, feature = "widget"))]
+#[path = "../tests/support/allocations.rs"]
+mod allocations;
 
 pub use format::{PreparedSpriteStack, SparseLevel, StackSample};
 pub use mirui_sprite_stack_format as format;
@@ -30,11 +33,11 @@ pub use widget::props as prop;
 pub use widget::{LayerSpacing, SpriteStack, view};
 
 #[cfg(feature = "widget")]
-mod scene;
+mod geometry;
 #[cfg(feature = "widget")]
 mod terrain;
 #[cfg(feature = "widget")]
-pub use scene::{Geometry, Object, Pose, StackScene, StackSceneHandle, StackSceneOwned};
+pub use geometry::{Geometry, Pose};
 #[cfg(feature = "widget")]
 mod stage;
 #[cfg(feature = "widget")]
@@ -51,8 +54,7 @@ pub use terrain::{
 mod viewport;
 #[cfg(feature = "widget")]
 pub use viewport::{
-    Camera, ContentFrame, FrameContent, FrameSize, ObjectPass, ProjectedObjects, Resolution,
-    SpriteStackPlugin, StackViewport, TerrainMember, TerrainTarget, ViewProjection, ViewportCamera,
-    ViewportContent, ViewportOutput, ViewportOverlay, ViewportResolution, ViewportScene,
-    ViewportStage, WorldCamera,
+    Camera, ContentFrame, FrameContent, FrameSize, Resolution, SpriteStackPlugin, StackViewport,
+    TerrainMember, TerrainTarget, ViewProjection, ViewportCamera, ViewportContent, ViewportOutput,
+    ViewportOverlay, ViewportResolution, ViewportStage, WorldCamera,
 };

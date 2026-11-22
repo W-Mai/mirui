@@ -12,8 +12,7 @@ use mirui::{
 };
 
 #[cfg(test)]
-#[path = "../../tests/support/allocations.rs"]
-mod allocations;
+use crate::allocations;
 
 /// Composites a screen-space layer into the attached scene viewport.
 #[mirui::component]

@@ -1,8 +1,8 @@
 #![cfg(feature = "widget")]
 use mirui::prelude::*;
 use mirui_sprite_stack::{
-    Camera, HeightField, Pose, SpriteStackPlugin, StackScene, StackStage, StackStageCommands,
-    StackViewport, StackVisual, TerrainCell, TerrainGrid,
+    Camera, HeightField, Pose, SpriteStackPlugin, StackStage, StackStageCommands, StackViewport,
+    StackVisual, StackVisualInput, TerrainCell, TerrainGrid,
 };
 const RED: Color = Color::rgb(200, 20, 30);
 const GREEN: Color = Color::rgb(40, 160, 80);
@@ -121,14 +121,33 @@ fn attached_content_publishes_once_per_change_and_retries_failed_frames() {
 }
 
 #[mirui::compose]
-fn views(source: model!(StackScene), camera: Camera) -> Entity {
+fn views(source: model!(StackStage), camera: Camera) -> Entity {
     ui! {
         Row(width:32,height:16) {
-            StackViewport(id:"left",width:16,height:16,scene:source.clone(),camera:camera)
-            StackViewport(width:16,height:16,scene:source,camera:Camera{center:[Fixed::from_int(1),Fixed::ZERO,Fixed::ZERO],..camera})
+            StackViewport(id:"left",width:16,height:16,stage:source.clone(),camera:camera)
+            StackViewport(width:16,height:16,stage:source,camera:Camera{center:[Fixed::from_int(1),Fixed::ZERO,Fixed::ZERO],..camera})
         }
     }
 }
+struct FixtureVisual(Option<StackVisualInput>);
+
+#[mirui::component]
+struct FixtureMember;
+
+#[mirui::system]
+fn mount_fixture(stage: model!(StackStage), input: res!(mut FixtureVisual), commands: commands!()) {
+    if let Some(visual) = input.0.take() {
+        commands.stage(stage).spawn(FixtureMember, visual);
+    }
+}
+
+#[mirui::system]
+fn detach_fixture(members: query!(Entity, FixtureMember, StackVisual), commands: commands!()) {
+    for (entity, _, _) in members {
+        commands.remove::<StackVisual>(entity);
+    }
+}
+
 #[test]
 fn two_cameras_repaint_a_live_field_and_release_retired_sources() {
     let mut app = App::headless(32, 16);
@@ -143,20 +162,26 @@ fn two_cameras_repaint_a_live_field_and_release_retired_sources() {
             .unwrap(),
         )
         .finish();
-    let mut scene = StackScene::bounded(1);
-    let item = scene.place(field.clone(), Pose::at(0, 0, 0)).unwrap();
-    let scene = app.add_model(scene).finish();
+    let stage = app.add_model(StackStage::bounded(1)).finish();
+    let pose = Signal::new(Pose::default());
+    let visual = StackVisual::from_model(&field, {
+        let pose = pose.clone();
+        move |field| StackVisual::new(field.clone()).at(pose.get())
+    });
+    app.add_resource(FixtureVisual(Some(visual)));
+    app.add_system(mount_fixture::system(stage.clone()));
     let root = app.spawn_root().id();
     app.compose(
         root,
         views(
-            scene.clone(),
+            stage,
             Camera {
                 scale: Fixed::from_int(2),
                 ..Camera::overhead()
             },
         ),
     );
+    app.tick();
     let initial = app.snapshot().unwrap().unwrap();
     let initial = initial.read_pixels().unwrap();
     assert_eq!(initial.get_pixel(8, 6), RED);
@@ -177,10 +202,11 @@ fn two_cameras_repaint_a_live_field_and_release_retired_sources() {
     let pixels = frame.read_pixels().unwrap();
     assert_eq!(pixels.get_pixel(8, 6), GREEN);
     assert_eq!(pixels.get_pixel(22, 6), GREEN);
-    scene.set_pose(item, Pose::at(2, 0, 0)).unwrap();
+    pose.set(Pose::at(2, 0, 0));
     let frame = app.snapshot().unwrap().unwrap();
     assert_eq!(frame.read_pixels().unwrap().get_pixel(12, 6), GREEN);
-    scene.remove(item).unwrap();
+    app.add_system(detach_fixture::system());
+    app.tick();
     app.snapshot().unwrap();
     app.render_dirty().unwrap();
     field
@@ -193,112 +219,6 @@ fn two_cameras_repaint_a_live_field_and_release_retired_sources() {
         )
         .unwrap();
     assert!(app.dirty_region().unwrap().is_none());
-}
-
-#[test]
-fn replacing_the_scene_invalidates_the_frame_and_releases_the_old_camera_target() {
-    use mirui_sprite_stack::{ViewportCamera, ViewportScene};
-    let mut app = App::headless(32, 16);
-    app.with_default_widgets().add_plugin(SpriteStackPlugin);
-    let make = |material| {
-        let grid = TerrainGrid::finite([1, 1], Fixed::from_int(2)).unwrap();
-        let mut scene = StackScene::bounded(1);
-        let target = scene
-            .place(
-                HeightField::generate(grid, &COLORS, |_| TerrainCell { level: 0, material })
-                    .unwrap(),
-                Pose::default(),
-            )
-            .unwrap();
-        (scene, target)
-    };
-    let (mut old, target) = make(0);
-    old.invalidate();
-    let old = app.add_model(old).finish();
-    let (new, _) = make(1);
-    let new = app.add_model(new).finish();
-    let root = app.spawn_root().id();
-    app.compose(root, views(old.clone(), Camera::overhead()));
-    assert_eq!(
-        app.snapshot()
-            .unwrap()
-            .unwrap()
-            .read_pixels()
-            .unwrap()
-            .get_pixel(8, 7),
-        RED
-    );
-    let left = app.world.find_by_id("left").unwrap();
-    app.world
-        .widget_mut(left)
-        .unwrap()
-        .set::<ViewportScene>(new.clone());
-    assert_eq!(
-        app.snapshot()
-            .unwrap()
-            .unwrap()
-            .read_pixels()
-            .unwrap()
-            .get_pixel(8, 7),
-        GREEN
-    );
-    app.world
-        .widget_mut(left)
-        .unwrap()
-        .set::<ViewportScene>(old);
-    app.world
-        .widget_mut(left)
-        .unwrap()
-        .set::<ViewportCamera>(Camera::chase(target));
-    app.snapshot().unwrap();
-    app.world
-        .widget_mut(left)
-        .unwrap()
-        .set::<ViewportScene>(new);
-    assert!(matches!(
-        app.snapshot(),
-        Err(mirui::render::RenderError::InvalidGeometry)
-    ));
-}
-
-#[test]
-fn chase_keeps_the_last_live_target_position() {
-    let mut app = App::headless(32, 16);
-    app.with_default_widgets().add_plugin(SpriteStackPlugin);
-    let grid = TerrainGrid::finite([1, 1], Fixed::ONE).unwrap();
-    let make = |material| {
-        HeightField::generate(grid, &COLORS, |_| TerrainCell { level: 0, material }).unwrap()
-    };
-    let mut scene = StackScene::bounded(2);
-    let follow = scene.place(make(0), Pose::at(30, 0, 0)).unwrap();
-    scene.place(make(1), Pose::at(32, 0, 0)).unwrap();
-    let scene = app.add_model(scene).finish();
-    let root = app.spawn_root().id();
-    app.compose(
-        root,
-        views(
-            scene.clone(),
-            Camera {
-                target: Some(follow),
-                scale: Fixed::from_int(2),
-                ..Camera::overhead()
-            },
-        ),
-    );
-    let initial = app.snapshot().unwrap().unwrap();
-    assert_eq!(initial.read_pixels().unwrap().get_pixel(12, 7), GREEN);
-    scene.remove(follow).unwrap();
-    let removed = app.snapshot().unwrap().unwrap();
-    assert_eq!(removed.read_pixels().unwrap().get_pixel(12, 7), GREEN);
-    let mut next = App::headless(32, 16);
-    next.with_default_widgets().add_plugin(SpriteStackPlugin);
-    let scene = next.add_model(StackScene::new()).finish();
-    let root = next.spawn_root().id();
-    next.compose(root, views(scene, Camera::chase(follow)));
-    assert!(matches!(
-        next.snapshot(),
-        Err(mirui::render::RenderError::InvalidGeometry)
-    ));
 }
 
 struct EdgeSprites(Option<[mirui_sprite_stack::Geometry; 2]>);
@@ -419,25 +339,23 @@ fn translated_finite_source_uses_the_same_local_cell_for_height_and_drawing() {
     })
     .unwrap()
     .with_coordinate_map(|[x, z]| [x + Fixed::from_int(2), z]);
-    let mut scene = StackScene::bounded(1);
-    let ground = scene.place(field, Pose::default()).unwrap();
-    assert_eq!(
-        scene.height_at(ground, -Fixed::ONE, Fixed::ONE),
-        Ok(Some(Fixed::ZERO))
-    );
-    assert_eq!(scene.height_at(ground, Fixed::ONE, Fixed::ONE), Ok(None));
-    let scene = app.add_model(scene).finish();
+    assert_eq!(field.height_at(-Fixed::ONE, Fixed::ONE), Some(Fixed::ZERO));
+    assert_eq!(field.height_at(Fixed::ONE, Fixed::ONE), None);
+    let stage = app.add_model(StackStage::bounded(1)).finish();
+    app.add_resource(FixtureVisual(Some(StackVisual::new(field).into())));
+    app.add_system(mount_fixture::system(stage.clone()));
     let root = app.spawn_root().id();
     app.compose(
         root,
         views(
-            scene,
+            stage,
             Camera {
                 scale: Fixed::from_int(2),
                 ..Camera::overhead()
             },
         ),
     );
+    app.tick();
     let frame = app.snapshot().unwrap().unwrap();
     let pixels = frame.read_pixels().unwrap();
     assert_eq!(pixels.get_pixel(6, 6), RED);
@@ -473,18 +391,22 @@ fn sampled_models_use_all_layers_and_reuse_their_projection_across_viewport_band
     )
     .unwrap();
     #[mirui::compose]
-    fn viewport(scene: model!(StackScene)) -> Entity {
-        ui! { StackViewport(width:32,height:48,scene:scene,camera:Camera{scale:Fixed::from_int(2),..Camera::overhead()}) }
+    fn viewport(stage: model!(StackStage)) -> Entity {
+        ui! { StackViewport(width:32,height:48,stage:stage,camera:Camera{scale:Fixed::from_int(2),..Camera::overhead()}) }
     }
     let mut app = App::headless(32, 48);
     app.with_default_widgets().add_plugin(SpriteStackPlugin);
-    let mut scene = StackScene::bounded(2);
-    let moving = scene
-        .place(Geometry::Sampled(&ASSET), Pose::at(0, 0, 6))
-        .unwrap();
-    let scene = app.add_model(scene).finish();
+    let stage = app.add_model(StackStage::bounded(1)).finish();
+    let pose = Signal::new(Pose::at(0, 0, 6));
+    let visual = StackVisual::from_model(&stage, {
+        let pose = pose.clone();
+        move |_| StackVisual::new(Geometry::Sampled(&ASSET)).at(pose.get())
+    });
+    app.add_resource(FixtureVisual(Some(visual)));
+    app.add_system(mount_fixture::system(stage.clone()));
     let root = app.spawn_root().id();
-    app.compose(root, viewport(scene.clone()));
+    app.compose(root, viewport(stage));
+    app.tick();
     let check = |app: &mut App<_>, x| {
         let frame = app.snapshot().unwrap().unwrap();
         let pixels = frame.read_pixels().unwrap();
@@ -492,9 +414,10 @@ fn sampled_models_use_all_layers_and_reuse_their_projection_across_viewport_band
         assert_eq!(pixels.get_pixel(x, 28), GREEN);
     };
     check(&mut app, 16);
-    scene.set_pose(moving, Pose::at(4, 0, 6)).unwrap();
+    pose.set(Pose::at(4, 0, 6));
     check(&mut app, 24);
-    scene.remove(moving).unwrap();
+    app.add_system(detach_fixture::system());
+    app.tick();
     let frame = app.snapshot().unwrap().unwrap();
     assert_ne!(frame.read_pixels().unwrap().get_pixel(24, 28), GREEN);
 }

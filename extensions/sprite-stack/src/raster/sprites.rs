@@ -341,13 +341,6 @@ impl ViewStacks {
         self.offsets.clear();
     }
 
-    pub(crate) fn release_layers(&mut self) {
-        self.reset();
-        self.layers = Vec::new();
-        self.order = Vec::new();
-        self.offsets = OffsetPool::default();
-    }
-
     pub(crate) fn push_with(
         &mut self,
         asset: &(impl SampleSource + ?Sized),

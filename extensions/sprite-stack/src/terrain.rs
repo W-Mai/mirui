@@ -9,9 +9,6 @@ pub enum TerrainError {
     Allocation,
     OutsideGrid,
     ReadOnly,
-    MissingObject,
-    NotHeightField,
-    Tilted,
 }
 
 /// X/Z cells, with positive Y pointing up. Repeated grids wrap independently on each axis.

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1120 768" width="1120" height="768" role="img" aria-labelledby="title desc">
-  <title id="title">SpriteStack · from atlas to scene</title>
-  <desc id="desc">The car.mirx atlas contains eleven horizontal slices. SSTK is optional in a MIRX image and required to interpret it as a sprite stack. Its records give each slice a position in the stack with a common pivot and spacing. A SpriteStack widget projects one sprite into an offscreen output. In a game, one StackScene holds models and height fields. Each StackViewport projects that scene, chooses detail for its camera and depth-tests visible geometry in reusable tiles.</desc>
+  <title id="title">SpriteStack · from atlas to stage</title>
+  <desc id="desc">The car.mirx atlas contains eleven horizontal slices. SSTK is optional in a MIRX image and required to interpret it as a sprite stack. Its records give each slice a position in the stack with a common pivot and spacing. A SpriteStack widget projects one sprite into an offscreen output. A StackStage groups entities with models and height fields. Each StackViewport draws its stage, chooses detail for its camera and depth-tests visible geometry in reusable tiles.</desc>
   <defs>
     <style>
       text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -134,7 +134,7 @@
   <text x="62" y="670" class="small">Draw the ordered slices into</text>
   <text x="62" y="695" class="small">the widget’s offscreen output.</text>
 
-  <text x="385" y="514" class="api" fill="#ffd080">StackScene</text>
+  <text x="385" y="514" class="api" fill="#ffd080">StackStage</text>
   <path d="M546 506h39m-7-6 7 6-7 6" fill="none" stroke="#ffd080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   <text x="603" y="514" class="api" fill="#ffd080">StackViewport</text>
   <text x="385" y="543" class="body">Place models and height fields once. Each camera draws its own view.</text>
