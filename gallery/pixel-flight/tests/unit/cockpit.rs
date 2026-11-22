@@ -2,6 +2,7 @@ use super::super::{
     flight::{Settings, View},
     raster::tests::reference::Raster,
 };
+use super::layer::LayerPixels;
 use super::*;
 #[test]
 fn digit_group_clipping_preserves_partial_glyphs_and_skips_empty_groups() {

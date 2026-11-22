@@ -1,4 +1,4 @@
-use super::{Flight, V3, View, follow, smooth, wrap_angle};
+use crate::flight::{Flight, V3, View, follow, smooth, wrap_angle};
 use crate::{
     jet,
     math::{FixedMath as _, PI},
@@ -164,7 +164,7 @@ impl Flight {
         p
     }
 
-    pub(super) fn follow_camera(
+    pub(crate) fn follow_camera(
         &mut self,
         world: Ground<'_>,
         old_camera: &Projection,

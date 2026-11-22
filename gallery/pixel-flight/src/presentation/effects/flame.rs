@@ -14,6 +14,7 @@ use mirui::{
     ui::view::PaintCtx,
 };
 pub const TILE: usize = 256;
+#[path = "sampling.rs"]
 mod sampling;
 
 use sampling::{SampleAxis, ScreenFlame};
@@ -697,5 +698,5 @@ impl Flames {
     }
 }
 #[cfg(test)]
-#[path = "../tests/unit/flame.rs"]
+#[path = "../../../tests/unit/flame.rs"]
 mod tests;

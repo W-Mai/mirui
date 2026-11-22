@@ -15,14 +15,17 @@ extern crate std;
 mod test_support;
 
 mod app;
+#[path = "presentation/hud/cockpit.rs"]
 pub mod cockpit;
+#[path = "presentation/effects/flame.rs"]
 pub mod flame;
+#[path = "gameplay/flight.rs"]
 pub mod flight;
 mod gameplay;
 pub mod jet;
 mod math;
-mod palette;
 mod presentation;
+#[path = "presentation/layers.rs"]
 pub mod raster;
 pub mod world;
 pub use app::{setup_app, setup_compact_app};

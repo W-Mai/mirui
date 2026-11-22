@@ -22,11 +22,11 @@ Append `-- --auto` to either command for automatic flight with camera changes ev
 
 ## How a frame is drawn
 
-The flight model advances controls, aircraft and trail history. The stage system attaches the aircraft and ground as shared members. Each camera reads the same simulation. The attached `FrameContent` supplies the landscape and exhaust. SpriteStack projects the stage members using their material and pose. The cockpit builds its artwork on resize and reads the current flight state for its live instruments. [Model](src/flight.rs) · [Camera](src/flight/camera.rs) · [Stage system](src/presentation/stage.rs) · [Frame content](src/presentation/frame.rs) · [Layers](src/raster.rs) · [Artwork](src/cockpit/artwork.rs) · [Instruments](src/cockpit/instruments.rs)
+The flight model advances controls, aircraft and trail history. The stage system attaches the aircraft and ground as shared members. Each camera reads the same simulation. The attached `FrameContent` supplies the landscape and exhaust. SpriteStack projects the stage members using their material and pose. The cockpit builds its artwork on resize and reads the current flight state for its live instruments. [Model](src/gameplay/flight.rs) · [Camera](src/presentation/camera.rs) · [Stage system](src/presentation/stage.rs) · [Frame content](src/presentation/frame.rs) · [Layers](src/presentation/layers.rs) · [Artwork](src/presentation/hud/artwork.rs) · [Instruments](src/presentation/hud/instruments.rs)
 
 ![Pixel Flight updates the aircraft poses once per simulation tick. The active camera projects the island and aircraft into a desktop or Compact frame.](docs/architecture.svg)
 
-Edit the RGB swatches in [atmosphere](src/palette/environment.rs), [terrain](src/palette/terrain.rs), and [aircraft](src/palette/aircraft.rs) to change the scene colors. The renderer reads palettes baked at compile time from these swatches.
+Edit the RGB swatches in [atmosphere](src/presentation/palette/environment.rs), [terrain](src/presentation/palette/terrain.rs), and [aircraft](src/presentation/palette/aircraft.rs) to change the scene colors. The renderer reads palettes baked at compile time from these swatches.
 
 ## Add a tracking minimap
 

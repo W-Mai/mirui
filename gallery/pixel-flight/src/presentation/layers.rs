@@ -8,12 +8,16 @@ use mirui::render::renderer::RenderError;
 use mirui::types::Fixed;
 pub use mirui_sprite_stack::raster::{Canvas, Frame};
 use mirui_sprite_stack::raster::{FrameEffects, RollMapping, SceneCanvas, SceneLayers};
+#[path = "aircraft.rs"]
 mod aircraft;
+#[path = "effects/exhaust.rs"]
 mod exhaust;
+#[path = "landscape.rs"]
 mod landscape;
+#[path = "effects/wake.rs"]
 mod wake;
 
-pub use crate::palette::{BAYER, Daylight, Palette, blend, rgba};
+pub use crate::presentation::palette::{BAYER, Daylight, Palette, blend, rgba};
 pub(crate) use aircraft::aircraft_lights;
 use exhaust::{PendingFlame, finish_flames, project_flames};
 use landscape::{PreparedTerrain, draw_sky, draw_world};
@@ -277,5 +281,5 @@ impl FlightScene {
 }
 
 #[cfg(test)]
-#[path = "../tests/unit/raster.rs"]
+#[path = "../../tests/unit/raster.rs"]
 pub(crate) mod tests;

@@ -7,10 +7,10 @@ use mirui::{
     anim::Spring,
     types::{Fixed, Fixed64},
 };
-mod camera;
+#[path = "simulation.rs"]
 mod simulation;
-pub use camera::Projection;
-pub(crate) use camera::cockpit_center;
+pub use crate::presentation::camera::Projection;
+pub(crate) use crate::presentation::camera::cockpit_center;
 
 pub const TRAIL_CAPACITY: usize = 160;
 pub const SMOKE_CAPACITY: usize = 96;
@@ -18,7 +18,7 @@ pub type V3 = [Fixed; 3];
 pub fn wrap_angle(angle: Fixed) -> Fixed {
     angle - TAU * (angle / TAU).round()
 }
-fn follow(value: &mut Fixed, target: Fixed, rate: Fixed, dt: Fixed) {
+pub(crate) fn follow(value: &mut Fixed, target: Fixed, rate: Fixed, dt: Fixed) {
     *value += (target - *value) * (Fixed::ONE - (-dt * rate).exp());
 }
 pub fn smooth(value: Fixed) -> Fixed {
@@ -237,17 +237,17 @@ pub struct Flight {
     pub chase: [Fixed64; 3],
     pub cockpit: [Fixed64; 3],
     pub head: [Spring; 2],
-    follow: V3,
-    camera_yaw: Fixed,
-    chase_yaw: Fixed,
-    yaw_diff: Fixed,
-    spin_camera: Fixed,
+    pub(crate) follow: V3,
+    pub(crate) camera_yaw: Fixed,
+    pub(crate) chase_yaw: Fixed,
+    pub(crate) yaw_diff: Fixed,
+    pub(crate) spin_camera: Fixed,
     altitude_goal: Fixed,
     climb_velocity: Fixed,
     pub climb_tilt: Fixed,
     floor: Fixed,
-    camera_floor: Fixed,
-    camera_fix: Fixed,
+    pub(crate) camera_floor: Fixed,
+    pub(crate) camera_fix: Fixed,
     auto_stunt: Fixed,
     smoke_clock: Fixed,
 }
@@ -384,5 +384,5 @@ impl Flight {
     }
 }
 #[cfg(test)]
-#[path = "../tests/unit/flight.rs"]
+#[path = "../../tests/unit/flight.rs"]
 mod tests;

@@ -1,7 +1,7 @@
 use crate::{
     Profile,
     flight::{Flight, Settings, View as CameraView},
-    palette::Daylight,
+    presentation::palette::Daylight,
     world::{World as Terrain, coordinates},
 };
 use core::cell::Cell;

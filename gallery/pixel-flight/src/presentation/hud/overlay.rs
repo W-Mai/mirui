@@ -2,7 +2,7 @@ use crate::{
     Profile,
     cockpit::{Cockpit, PreparedCockpit},
     gameplay::FlightModelHandle,
-    palette::{Daylight, Palette},
+    presentation::palette::{Daylight, Palette},
     raster::Canvas,
     world::World as Terrain,
 };
