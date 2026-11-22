@@ -1,0 +1,12 @@
+[package]
+name = "mirui-flux-run"
+version = "0.56.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+mirui = { path = "../..", default-features = false }
+mirui-sprite-stack = { path = "../../extensions/sprite-stack" }
+
+[dev-dependencies]
+mirui = { path = "../..", default-features = false, features = ["std"] }

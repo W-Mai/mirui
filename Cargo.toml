@@ -14,7 +14,7 @@ categories = ["gui", "embedded"]
 rust-version = "1.85"
 
 [workspace]
-members = [".", "xtask", "mirui-macros", "mirx", "gallery", "gallery/web", "gallery/pixel-flight", "extensions/sprite-stack", "extensions/sprite-stack/format"]
+members = [".", "xtask", "mirui-macros", "mirx", "gallery", "gallery/web", "gallery/pixel-flight", "gallery/flux-run", "extensions/sprite-stack", "extensions/sprite-stack/format"]
 
 [package.metadata.ci]
 contract-tests = ["compose_backend_fail", "compose_resource_contracts", "event_type_contracts", "prelude_contracts", "query_borrow_contracts", "ui_diagnostics_fail", "view_query_contracts"]
