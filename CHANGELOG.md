@@ -218,6 +218,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fit the Flux Run camera to the viewport, keep HUD labels legible, and align keyboard and touch steering with the screen.
+- Keep the Flux Run viewport fixed across title, play, pause and results.
 - Keep populated SpriteStack stages tied to the App that owns their member entities.
 - Release SpriteStack viewport frames when their stage registration retires. Stage members remain transferable by the game.
 - Clear retired live height fields from SpriteStack viewports while keeping the entity's visual binding available for a replacement field.

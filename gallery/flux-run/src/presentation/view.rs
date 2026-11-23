@@ -355,15 +355,15 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                     model.fit_camera(pixels);
                 }
             }
-            if ${ model.hud().session == Session::Running } {
-                Column (
-                    width: Dimension::percent(100),
-                    height: footer_height,
-                    shrink: 0.0,
-                    bg_color: PANEL,
-                    padding: Padding::all(pad),
-                    gap: gap
-                ) {
+            Column (
+                width: Dimension::percent(100),
+                height: footer_height,
+                shrink: 0.0,
+                bg_color: PANEL,
+                padding: Padding::all(pad),
+                gap: gap
+            ) {
+                if ${ model.hud().session == Session::Running } {
                     Row (height: status_height, gap: gap, align: AlignItems::Center) {
                         Text (
                             text: ${

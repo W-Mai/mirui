@@ -96,3 +96,38 @@ fn hud_draws_lettering_in_both_host_themes() {
         }
     }
 }
+
+#[test]
+fn session_panels_leave_the_viewport_and_zoom_in_place() {
+    for (width, height) in [(128, 128), (320, 300), (800, 600)] {
+        let mut app = App::headless(width, height);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        let model = install(&mut app, root, width == 128);
+        let mut initial = None;
+        for session in [
+            Session::Title,
+            Session::Running,
+            Session::Paused,
+            Session::Departed,
+            Session::Running,
+            Session::Results,
+            Session::Title,
+        ] {
+            model.update(|state| {
+                state.game.session = session;
+                state.refresh();
+            });
+            assert!(!app.tick());
+            let viewport = app.world.query::<mirui_sprite_stack::StackViewport>();
+            let (entity, viewport) = viewport.iter().next().unwrap();
+            let rect = app.world.get::<mirui::ui::ComputedRect>(entity).unwrap().0;
+            let view = (rect, viewport.camera);
+            assert_eq!(
+                view,
+                *initial.get_or_insert(view),
+                "{width}x{height}: {session:?}"
+            );
+        }
+    }
+}
