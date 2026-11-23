@@ -13,5 +13,9 @@ error[E0277]: the trait bound `String: From<Prop<_>>` is not satisfied
              From<Box<str>>
              From<Cow<'_, str>>
              From<char>
-   = note: required for `Prop<_>` to implement `Into<String>`
+note: required by a bound in `mirui::__macro_support::ForwardProp::__mirui_prepare_field`
+  --> $WORKSPACE/src/ui/construction.rs
+   |
+   |     pub fn __mirui_prepare_field<V: 'static, T: From<super::Prop<V>>, F: Fn() -> V + 'static>(
+   |                                                 ^^^^^^^^^^^^^^^^^^^^ required by this bound in `ForwardProp::__mirui_prepare_field`
    = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)
