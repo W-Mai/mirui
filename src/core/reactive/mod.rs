@@ -1171,14 +1171,17 @@ pub(crate) fn cleanup_effects_for(world: &World, entity: Entity) {
         let Ok(partition) = r.graph.owner_key(world.id()) else {
             return;
         };
-        for target in [Subscriber::Widget(entity), Subscriber::VisualWidget(entity)] {
-            if let Some(consumer) = r.graph.find_consumer(partition, target) {
-                r.graph
-                    .remove_consumer(consumer)
-                    .expect("Widget graph consumer missing during teardown");
-                if r.scope_graph_consumer == Some(consumer) {
-                    r.scope_graph_consumer = None;
-                }
+        for consumer in r
+            .graph
+            .find_widget_consumers(partition, entity)
+            .into_iter()
+            .flatten()
+        {
+            r.graph
+                .remove_consumer(consumer)
+                .expect("Widget graph consumer missing during teardown");
+            if r.scope_graph_consumer == Some(consumer) {
+                r.scope_graph_consumer = None;
             }
         }
     });

@@ -1118,6 +1118,41 @@ impl ReactiveGraph {
             })
     }
 
+    pub(super) fn find_widget_consumers(
+        &self,
+        partition: PartitionKey,
+        entity: crate::ecs::Entity,
+    ) -> [Option<ConsumerKey>; 2] {
+        let Some(graph) = self.partition(partition) else {
+            return [None; 2];
+        };
+        let mut widget = None;
+        let mut visual = None;
+        for (slot, node) in graph.consumers.iter().enumerate() {
+            if !node.live || !node.automatic {
+                continue;
+            }
+            let target = match node.target {
+                Subscriber::Widget(target) if target == entity && widget.is_none() => &mut widget,
+                Subscriber::VisualWidget(target) if target == entity && visual.is_none() => {
+                    &mut visual
+                }
+                _ => continue,
+            };
+            *target = Some(ConsumerKey {
+                partition,
+                slot: SlotId {
+                    slot: slot as u32,
+                    generation: node.generation,
+                },
+            });
+            if widget.is_some() && visual.is_some() {
+                break;
+            }
+        }
+        [widget, visual]
+    }
+
     pub fn find_consumer_matching(
         &self,
         partition: PartitionKey,
@@ -1411,6 +1446,37 @@ pub(super) mod tests {
             entity = world.spawn_empty();
         }
         entity
+    }
+
+    #[test]
+    fn retirement_resolves_only_automatic_consumers_for_the_exact_entity() {
+        let mut graph = ReactiveGraph::new();
+        graph.reserve(GraphCapacity::new(0, 0, 0, 4, 1)).unwrap();
+        let mut world = World::new();
+        let partition = graph.add_owner(world.id()).unwrap();
+        let retired = world.spawn_empty();
+        let older = graph
+            .register_consumer(partition, Subscriber::Widget(retired))
+            .unwrap();
+        world.despawn(retired);
+        let entity = world.spawn_empty();
+        graph
+            .register_explicit_consumer(partition, Subscriber::Widget(entity))
+            .unwrap();
+        let visual = graph
+            .register_consumer(partition, Subscriber::VisualWidget(entity))
+            .unwrap();
+        let widget = graph
+            .register_consumer(partition, Subscriber::Widget(entity))
+            .unwrap();
+        assert_eq!(
+            graph.find_widget_consumers(partition, entity),
+            [Some(widget), Some(visual)]
+        );
+        assert_eq!(
+            graph.find_widget_consumers(partition, retired),
+            [Some(older), None]
+        );
     }
 
     #[test]
