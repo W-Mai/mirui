@@ -1,7 +1,9 @@
 use crate::{
     app::FluxRun,
     gameplay::{Game, GuardPhase},
-    world::{BRIDGE_START, CELL_SIZE, CORES, District, EXIT, GRID, GUARDS, Location, add, scaled},
+    world::{
+        BRIDGE_START, CELL_SIZE, CORES, District, EXIT, GRID, GUARDS, Location, SPAWN, add, scaled,
+    },
 };
 use mirui::{core::model::ModelHandle, prelude::*};
 use mirui_sprite_stack::{
@@ -19,7 +21,9 @@ const CORE_START: usize = 1;
 const GUARD_START: usize = CORE_START + CORES;
 const LINK_START: usize = GUARD_START + GUARDS;
 const GATE_START: usize = LINK_START + 4;
-const ALERT_START: usize = GATE_START + 3;
+const EXIT_MARK: usize = GATE_START + 2;
+const ENTRANCE_MARK: usize = EXIT_MARK + 1;
+const ALERT_START: usize = ENTRANCE_MARK + 1;
 const LOCK: usize = ALERT_START + GUARDS;
 const FIELD: usize = LOCK + 1;
 const MARKS: usize = FIELD + 1;
@@ -139,7 +143,8 @@ impl Marks {
         } else {
             Tint::Dim
         };
-        marks[GATE_START + 2] = Some(exit);
+        marks[EXIT_MARK] = Some(exit);
+        marks[ENTRANCE_MARK] = Some(Mark::at(SPAWN));
         if game.harbor.lock_warning(game.result.ticks) || game.harbor.lock_closed(game.result.ticks)
         {
             let mut gate = Mark::at(Location::new(game.harbor.bridge, 40, true));
@@ -170,7 +175,8 @@ fn visual(slot: usize, mark: Mark, detail: usize, tone: SceneTone) -> StackVisua
         CORE_START..GUARD_START => &CORE,
         GUARD_START..LINK_START => &GUARD,
         LINK_START..GATE_START => &LINK,
-        GATE_START..ALERT_START | LOCK | FIELD => &GATE,
+        EXIT_MARK | ENTRANCE_MARK => &PORTAL,
+        GATE_START..EXIT_MARK | LOCK | FIELD => &GATE,
         _ => &MARK,
     };
     let colors = tone.palette();

@@ -31,6 +31,43 @@ fn generated_harbors_keep_a_connected_lower_bypass() {
 }
 
 #[test]
+fn pilot_crosses_the_open_gate_and_changes_harbor_behind_the_cover() {
+    let mut game = Game::new(1);
+    game.start();
+    game.ship.location = Location::new(58, 12, false);
+    game.ship.velocity[1] = Fixed::from_int(2);
+    game.elapsed_ms(STEP_MS, Controls::default());
+    assert_eq!(game.session, Session::Running);
+    assert_eq!(game.ship.location.point[1], Fixed::from_int(12));
+
+    game.result.collected = game.harbor.quota;
+    game.result.score = 500;
+    game.ship.velocity[1] = Fixed::from_int(2);
+    game.elapsed_ms(STEP_MS, Controls::default());
+    assert_eq!(game.session, Session::Departed);
+    assert_eq!(game.level, 1);
+    assert_eq!(game.passage_frame().unwrap().cover, 0);
+    let score = game.total;
+
+    for _ in 0..40 {
+        game.elapsed_ms(STEP_MS, Controls::default());
+        if game.level == 2 {
+            break;
+        }
+    }
+    assert_eq!(game.level, 2);
+    assert_eq!(game.passage_frame().unwrap().cover, 255);
+    assert!(game.ship.location.point[1] < SPAWN.point[1]);
+    for _ in 0..40 {
+        game.elapsed_ms(STEP_MS, Controls::default());
+    }
+    assert_eq!(game.session, Session::Running);
+    assert!(game.passage_frame().is_none());
+    assert_eq!(game.ship.location, SPAWN);
+    assert_eq!(game.total, score);
+}
+
+#[test]
 fn autoplay_advances_and_is_deterministic() {
     for seed in [7, 51, 942, 0x4652_554e, 22, 24, 30, 2_899] {
         let play = || {

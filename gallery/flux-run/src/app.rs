@@ -1,5 +1,5 @@
 use crate::{
-    gameplay::{Controls, Cue, Game, Mode, Session},
+    gameplay::{Controls, Cue, Game, Mode, PassageFrame, Session},
     presentation::{self, Marks, SceneTone, build},
     world::District,
 };
@@ -84,6 +84,8 @@ pub struct FluxRun {
     pub(crate) camera_scale: Fixed,
     #[observe]
     pub(crate) bridge_x: i32,
+    #[observe]
+    pub(crate) passage: Option<PassageFrame>,
     held: u8,
     touch: u8,
     suspended: bool,
@@ -108,6 +110,7 @@ impl FluxRun {
             hud: Hud::from_game(&game),
             camera_scale: Fixed::from_int(4),
             bridge_x: game.harbor.bridge,
+            passage: None,
             game,
             compact,
             tone,
@@ -120,6 +123,7 @@ impl FluxRun {
 
     fn refresh(&mut self) {
         self.bridge_x = self.game.harbor.bridge;
+        self.passage = self.game.passage_frame();
         self.marks = Marks::from_game(&self.game);
         self.hud = Hud::from_game(&self.game);
     }
@@ -192,12 +196,6 @@ impl FluxRun {
         self.refresh();
     }
 
-    pub(crate) fn next(&mut self) {
-        self.clear_controls();
-        self.game.next();
-        self.refresh();
-    }
-
     pub(crate) fn retry(&mut self) {
         self.clear_controls();
         self.game.restart();
@@ -256,9 +254,8 @@ impl FluxRun {
                         PhysicalKey::KeyT => self.set_autoplay(self.game.mode != Mode::Auto),
                         PhysicalKey::Enter => match self.game.session {
                             Session::Title | Session::Results => self.start(Mode::Manual),
-                            Session::Departed => self.next(),
                             Session::Paused => self.menu(),
-                            Session::Running => (),
+                            Session::Running | Session::Departed => (),
                         },
                         _ => self.menu(),
                     }

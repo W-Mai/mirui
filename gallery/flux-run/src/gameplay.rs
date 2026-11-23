@@ -2,7 +2,7 @@ use crate::world::{
     CORES, District, EXIT, GUARDS, Harbor, Location, SPAWN, add, direction, dot, length_squared,
     offset, scaled,
 };
-use mirui::types::Fixed;
+use mirui::{anim::Tween, types::Fixed};
 
 #[path = "gameplay/autopilot.rs"]
 mod autopilot;
@@ -14,6 +14,32 @@ const ROPE_LENGTH: Fixed = Fixed::from_int(6);
 const GATE_RADIUS: Fixed = Fixed::from_int(4);
 const IMPACT_RADIUS: Fixed = Fixed::from_int(3);
 const SAFE_RADIUS: Fixed = Fixed::from_int(8);
+const PASSAGE_DISTANCE: Fixed = Fixed::from_int(7);
+
+struct Passage {
+    from: Location,
+    distance: Fixed,
+    motion: Tween,
+    arriving: bool,
+}
+
+impl Passage {
+    fn new(from: Location, distance: Fixed, arriving: bool) -> Self {
+        Self {
+            from,
+            distance,
+            motion: Tween::ease_to(Fixed::ZERO, Fixed::ONE, if arriving { 570 } else { 430 }),
+            arriving,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) struct PassageFrame {
+    pub center: [Fixed; 2],
+    pub focus: Fixed,
+    pub cover: u8,
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Controls {
@@ -161,7 +187,7 @@ pub struct Game {
     magnet: bool,
     assisted: bool,
     elapsed: u16,
-    advance_delay: u16,
+    passage: Option<Passage>,
     pilot: Pilot,
 }
 
@@ -191,7 +217,7 @@ impl Game {
             magnet: false,
             assisted: false,
             elapsed: 0,
-            advance_delay: 0,
+            passage: None,
             pilot: Pilot::default(),
         }
     }
@@ -217,14 +243,26 @@ impl Game {
         self.cancel();
         self.pilot = Pilot::default();
         self.elapsed = 0;
+        self.passage = None;
         self.session = Session::Running;
     }
 
-    pub fn next(&mut self) {
-        if self.session == Session::Departed {
-            self.level = self.level.saturating_add(1);
-            self.restart();
-        }
+    pub(crate) fn passage_frame(&self) -> Option<PassageFrame> {
+        let passage = self.passage.as_ref()?;
+        let progress = passage.motion.value();
+        let focus = if passage.arriving {
+            Fixed::ONE - progress
+        } else {
+            progress
+        };
+        let cover = ((focus * 2 - Fixed::ONE).clamp(Fixed::ZERO, Fixed::ONE) * 255)
+            .round()
+            .to_int() as u8;
+        Some(PassageFrame {
+            center: self.ship.location.point,
+            focus,
+            cover,
+        })
     }
 
     pub fn finish(&mut self) {
@@ -232,6 +270,7 @@ impl Game {
             self.commit_score();
         }
         self.cancel();
+        self.passage = None;
         self.session = Session::Results;
     }
 
@@ -263,9 +302,11 @@ impl Game {
 
     pub fn elapsed_ms(&mut self, delta: u16, input: Controls) {
         self.cue = Cue::None;
-        if self.session != Session::Running
-            && (self.session != Session::Departed || self.mode != Mode::Auto)
-        {
+        if self.session == Session::Departed {
+            self.advance_passage(delta.min(100));
+            return;
+        }
+        if self.session != Session::Running {
             self.elapsed = 0;
             return;
         }
@@ -287,12 +328,6 @@ impl Game {
                         input
                     };
                     self.step(controls);
-                }
-                Session::Departed if self.mode == Mode::Auto => {
-                    self.advance_delay = self.advance_delay.saturating_sub(1);
-                    if self.advance_delay == 0 {
-                        self.next();
-                    }
                 }
                 _ => break,
             }
@@ -402,19 +437,53 @@ impl Game {
                 self.respawn = 42;
             }
         }
-        if self.life != 0 && self.ready() && self.ship.location.within(EXIT, GATE_RADIUS) {
-            self.depart();
+        if self.life != 0
+            && let Some(direction) = crossed_exit(previous, self.ship.location)
+        {
+            if self.ready() {
+                self.depart(direction);
+            } else {
+                self.ship.location.point[1] = previous.point[1];
+                self.ship.velocity[1] = Fixed::ZERO;
+            }
         }
     }
 
-    fn depart(&mut self) {
+    fn depart(&mut self, direction: Fixed) {
         let spare = 3000u32.saturating_sub(self.result.ticks) / 12;
         self.result.score = self.result.score.saturating_add(spare);
         self.commit_score();
         self.cancel();
-        self.advance_delay = 90;
+        self.heading = [Fixed::ZERO, direction];
+        self.passage = Some(Passage::new(
+            self.ship.location,
+            direction * PASSAGE_DISTANCE,
+            false,
+        ));
         self.session = Session::Departed;
         self.cue = Cue::Depart;
+    }
+
+    fn advance_passage(&mut self, delta: u16) {
+        let Some(mut passage) = self.passage.take() else {
+            return;
+        };
+        passage.motion.tick(delta);
+        self.ship.location.point[1] =
+            passage.from.point[1] + passage.distance * passage.motion.value();
+        if !passage.motion.is_finished() {
+            self.passage = Some(passage);
+        } else if passage.arriving {
+            self.session = Session::Running;
+        } else {
+            self.level = self.level.saturating_add(1);
+            self.restart();
+            let mut entrance = SPAWN;
+            entrance.point[1] -= PASSAGE_DISTANCE;
+            self.ship = Body::at(entrance);
+            self.session = Session::Departed;
+            self.passage = Some(Passage::new(entrance, PASSAGE_DISTANCE, true));
+        }
     }
 
     fn commit_score(&mut self) {
@@ -570,6 +639,24 @@ impl Game {
             guard.body.slide(&self.harbor, self.result.ticks);
         }
     }
+}
+
+fn crossed_exit(from: Location, to: Location) -> Option<Fixed> {
+    if from.upper || to.upper {
+        return None;
+    }
+    let exit_z = EXIT.point[1];
+    let from_side = from.point[1] < exit_z;
+    if from_side == (to.point[1] < exit_z) {
+        return None;
+    }
+    let forward = (exit_z - from.point[1]) / (to.point[1] - from.point[1]);
+    let x = from.point[0] + (to.point[0] - from.point[0]) * forward;
+    ((x - EXIT.point[0]).abs() <= GATE_RADIUS).then_some(if from_side {
+        Fixed::ONE
+    } else {
+        -Fixed::ONE
+    })
 }
 
 fn line_open(harbor: &Harbor, tick: u32, a: Location, b: Location) -> bool {

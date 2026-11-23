@@ -21,7 +21,6 @@ enum Action {
     TogglePilot,
     Retry,
     End,
-    Next,
     Title,
 }
 
@@ -38,7 +37,6 @@ impl Action {
             Self::Retry if compact => "NEW",
             Self::Retry => "RETRY",
             Self::End => "END",
-            Self::Next => "NEXT",
             Self::Title => "TITLE",
         }
     }
@@ -46,7 +44,7 @@ impl Action {
 
 #[mirui::compose]
 fn action(model: model!(FluxRun), input: Action, height: u16, compact: bool) -> Entity {
-    let primary = matches!(input, Action::Play | Action::Resume | Action::Next);
+    let primary = matches!(input, Action::Play | Action::Resume);
     ui! {
         Button (
             text: ${
@@ -76,7 +74,6 @@ fn action(model: model!(FluxRun), input: Action, height: u16, compact: bool) -> 
                 Action::TogglePilot => model.set_autoplay(model.hud().mode != Mode::Auto),
                 Action::Retry => model.retry(),
                 Action::End => model.finish(),
-                Action::Next => model.next(),
                 Action::Title => model.title(),
             }
         }
@@ -110,8 +107,8 @@ fn status(hud: Hud, compact: bool) -> &'static str {
         Session::Title if compact => "SALVAGE",
         Session::Title => "MAGNETIC SALVAGE",
         Session::Paused => "PAUSED",
-        Session::Departed if compact => "CLEARED",
-        Session::Departed => "HARBOR CLEARED",
+        Session::Departed if compact => "TRANSIT",
+        Session::Departed => "GATE TRANSIT",
         Session::Results if compact => "COMPLETE",
         Session::Results => "RUN COMPLETE",
         Session::Running if hud.life == 0 => "RESPAWN",
@@ -131,7 +128,7 @@ fn status(hud: Hud, compact: bool) -> &'static str {
 
 #[mirui::compose]
 pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
-    use Action::{Autopilot, End, Next, Pause, Play, Resume, Retry, Title, TogglePilot};
+    use Action::{Autopilot, End, Pause, Play, Resume, Retry, Title, TogglePilot};
     use Control::{Down, Left, Magnet, Right, Up};
     if !res!(optional MonoClock).with(|clock| clock.is_some()) {
         res!().insert(MonoClock::from_time_source());
@@ -223,14 +220,17 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
             StackViewport (
                 stage: model.stage(),
                 camera: ${
-                    if compact {
-                        camera
-                    } else {
-                        Camera {
-                            scale: model.camera_scale(),
-                            ..camera
-                        }
+                    let mut camera = camera;
+                    if !compact {
+                        camera.scale = model.camera_scale();
                     }
+                    if let Some(passage) = model.passage() {
+                        let follow = passage.focus * Fixed::from_ratio(3, 4);
+                        camera.center[0] += (passage.center[0] - camera.center[0]) * follow;
+                        camera.center[2] += (passage.center[1] - camera.center[2]) * follow;
+                        camera.scale = camera.scale * (Fixed::ONE + follow);
+                    }
+                    camera
                 },
                 resolution: resolution,
                 grow: if compact { 0.0 } else { 1.0 },
@@ -239,7 +239,18 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                 min_height: 0,
                 bg_color: Surface,
                 clip_children: true
-            ) on SizeChanged {
+            ) {
+                if ${ model.passage().is_some() } {
+                    View (
+                        position: Position::Absolute,
+                        left: 0,
+                        top: 0,
+                        width: Dimension::percent(100),
+                        height: Dimension::percent(100),
+                        bg_color: ${ model.tone().passage_cover(model.passage().map_or(0, |passage| passage.cover)) }
+                    )
+                }
+            } on SizeChanged {
                 if !compact {
                     let pixels = resolution
                         .fit([
@@ -301,9 +312,6 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                         action (model.clone(), TogglePilot, controls, compact)
                         action (model.clone(), Retry, controls, compact)
                         action (model.clone(), End, controls, compact)
-                    }
-                    if ${ model.hud().session == Session::Departed } {
-                        action (model.clone(), Next, controls, compact)
                     }
                     if ${ model.hud().session == Session::Results } {
                         action (model.clone(), Title, controls, compact)

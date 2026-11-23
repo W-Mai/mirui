@@ -27,6 +27,13 @@ impl SceneTone {
             Self::Night => &NIGHT,
         }
     }
+
+    pub(crate) fn passage_cover(self, alpha: u8) -> Color {
+        match self {
+            Self::Day => Color::rgba(241, 234, 219, alpha),
+            Self::Night => Color::rgba(27, 23, 22, alpha),
+        }
+    }
 }
 
 const fn rgba(color: Color) -> [u8; 4] {
@@ -186,12 +193,13 @@ macro_rules! sprite {
 
 macro_rules! prepare {
     ($slices:expr, $w:expr, $d:expr, $h:expr, $capacity:expr, $pivot:expr, $samples:literal) => {{
-        const HEIGHT: usize = $h * $samples;
-        const DATA: Cells<{ ($capacity) * $samples }, { HEIGHT + 1 }> = pack($slices, $samples);
+        const LAYER_COUNT: usize = $h * $samples;
+        const DATA: Cells<{ ($capacity) * $samples }, { LAYER_COUNT + 1 }> =
+            pack($slices, $samples);
         const LEVELS: [SparseLevel<'static>; 1] =
             [SparseLevel::new(1, &DATA.offsets, DATA.cells.split_at(DATA.used).0).unwrap()];
         PreparedSpriteStack::new(
-            [$w as u16, $d as u16, HEIGHT as u16],
+            [$w as u16, $d as u16, LAYER_COUNT as u16],
             $pivot,
             256 / $samples,
             &DAY.normal,
@@ -495,5 +503,55 @@ pub static BRIDGE: [PreparedSpriteStack<'static>; 2] = {
     [
         prepare!(SLICES, BRIDGE_W, BRIDGE_D, BRIDGE_H, CAPACITY, PIVOT, 1),
         prepare!(SLICES, BRIDGE_W, BRIDGE_D, BRIDGE_H, CAPACITY, PIVOT, 2),
+    ]
+};
+
+pub static PORTAL: [PreparedSpriteStack<'static>; 2] = {
+    const WIDTH: usize = 13;
+    const HEIGHT: usize = 11;
+    const DEPTH: usize = 6;
+    const SLICES: [[[u8; WIDTH]; DEPTH]; HEIGHT] = {
+        let mut slices = [[[b'.'; WIDTH]; DEPTH]; HEIGHT];
+        let mut y = 0;
+        while y < HEIGHT {
+            let mut z = 0;
+            while z < DEPTH {
+                let mut x = 0;
+                while x < WIDTH {
+                    let pillar = x < 2 || x >= WIDTH - 2;
+                    slices[y][z][x] = if y == 0 && z > 0 && z < DEPTH - 1 {
+                        if z == 2 { b'g' } else { b'd' }
+                    } else if pillar && y > 0 && y < HEIGHT - 1 {
+                        if x % (WIDTH - 1) == 0 {
+                            b's'
+                        } else if z == 2 {
+                            b'm'
+                        } else {
+                            b'd'
+                        }
+                    } else if y >= HEIGHT - 2 && z > 0 && z < DEPTH - 1 {
+                        if y == HEIGHT - 1 {
+                            b'l'
+                        } else if x % 3 == 0 {
+                            b'm'
+                        } else {
+                            b'g'
+                        }
+                    } else {
+                        b'.'
+                    };
+                    x += 1;
+                }
+                z += 1;
+            }
+            y += 1;
+        }
+        slices
+    };
+    const PIVOT: [i32; 3] = [WIDTH as i32 * 128, DEPTH as i32 * 128, 0];
+    const CAPACITY: usize = WIDTH * DEPTH * HEIGHT;
+    [
+        prepare!(SLICES, WIDTH, DEPTH, HEIGHT, CAPACITY, PIVOT, 1),
+        prepare!(SLICES, WIDTH, DEPTH, HEIGHT, CAPACITY, PIVOT, 2),
     ]
 };

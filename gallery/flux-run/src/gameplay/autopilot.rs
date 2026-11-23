@@ -72,7 +72,11 @@ impl Pilot {
             return Controls::default();
         }
         if game.ready() {
-            return self.steer(game, EXIT, false);
+            let near = ship.point[1] < EXIT.point[1];
+            let aligned = (ship.point[0] - EXIT.point[0]).abs() <= Fixed::from_int(3);
+            let mut goal = EXIT;
+            goal.point[1] += Fixed::from_int(if near == aligned { 6 } else { -6 });
+            return self.steer(game, goal, false);
         }
         if self.released != 0 {
             self.released -= 1;

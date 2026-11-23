@@ -1,6 +1,6 @@
 # Flux Run
 
-Pilot a magnetic salvage skiff through an endless series of two-level harbors. Hold the magnet to catch a core, steer around patrols, then release to send the core through a recovery gate. A thrown core can stun a guard at the cost of stability. Meet the quota and reach the exit to advance. A wreck breaks the combo and sends the skiff back to the safe dock with the recovered cores intact.
+Pilot a magnetic salvage skiff through an endless series of two-level harbors. Hold the magnet to catch a core, steer around patrols, then release to send the core through a recovery gate. A thrown core can stun a guard at the cost of stability. Meet the quota and steer through the exit arch to fly into the next harbor. A wreck breaks the combo and sends the skiff back to the safe dock with the recovered cores intact.
 
 ## Run
 
@@ -9,7 +9,7 @@ cargo run -p gallery --example flux_run_demo --features flux-run --release
 cargo run -p gallery --example flux_run_demo --features flux-run --release -- --compact --auto
 ```
 
-Use the arrow keys or WASD to steer relative to the screen, hold Space or J to attach the magnet, and release to throw. Enter starts or advances a run. Press P to pause or T to switch between manual and automatic play. Esc also pauses in the desktop example. The bottom bar provides touch controls. The title screen also starts either mode directly.
+Use the arrow keys or WASD to steer relative to the screen, hold Space or J to attach the magnet, and release to throw. Enter starts or resumes a run. Press P to pause or T to switch between manual and automatic play. Esc also pauses in the desktop example. The bottom bar provides touch controls. The title screen also starts either mode directly.
 
 ## Scene and game rules
 
