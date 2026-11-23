@@ -1,9 +1,7 @@
 use crate::{
     app::FluxRun,
     gameplay::{Game, GuardPhase},
-    world::{
-        BRIDGE_START, CELL_SIZE, CORES, District, EXIT, GRID, GUARDS, Location, SPAWN, add, scaled,
-    },
+    world::{BRIDGE_START, CELL_SIZE, CORES, District, GUARDS, Location, SPAWN, add, scaled},
 };
 use mirui::{core::model::ModelHandle, prelude::*};
 use mirui_sprite_stack::{
@@ -132,7 +130,7 @@ impl Marks {
         }
         marks[GATE_START] = Some(Mark::at(game.harbor.gate));
         marks[GATE_START + 1] = Some(Mark::at(game.harbor.high_gate()));
-        let mut exit = Mark::at(EXIT);
+        let mut exit = Mark::at(game.harbor.exit);
         exit.tint = if game.ready() {
             Tint::Normal
         } else {
@@ -232,11 +230,11 @@ pub(crate) fn mount(
     let stage = model.stage();
     let mut stage_commands = commands.stage(&stage);
     if !terrain_mounted {
-        let grid =
-            TerrainGrid::finite([GRID as u16; 2], Fixed::from_int(CELL_SIZE)).expect("harbor grid");
         let layout = model.read(|model| model.game.harbor.layout);
+        let side = layout.side() as u16;
+        let grid = TerrainGrid::finite([side; 2], Fixed::from_int(CELL_SIZE)).expect("harbor grid");
         let floor = HeightField::generate(grid, &tone.palette().terrain, |[x, z]| {
-            let rim = |coord| coord == 0 || coord == GRID as i32 - 1;
+            let rim = |coord| coord == 0 || coord == i32::from(side) - 1;
             if layout.blocked(x as usize, z as usize) {
                 TerrainCell {
                     level: if x % 2 == 0 { 4 } else { 5 },

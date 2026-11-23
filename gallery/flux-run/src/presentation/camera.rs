@@ -1,7 +1,10 @@
 use mirui::{anim::Tween, types::Fixed};
 use mirui_sprite_stack::Camera;
 
-use crate::{gameplay::PassageFrame, world::Location};
+use crate::{
+    gameplay::PassageFrame,
+    world::{INITIAL_EXTENT, Location},
+};
 
 #[derive(Clone, Copy)]
 enum Angle {
@@ -19,14 +22,17 @@ impl Angle {
         }
     }
 
-    fn frame(self, ship: Location) -> CameraFrame {
-        let center = [Fixed::from_int(36), Fixed::ONE, Fixed::from_int(36)];
+    fn frame(self, ship: Location, extent: i32) -> CameraFrame {
+        let middle = Fixed::from_int(extent / 2);
+        let center = [middle, Fixed::ONE, middle];
+        let fit = Fixed::from_ratio(INITIAL_EXTENT, extent);
         match self {
             Self::Harbor => CameraFrame {
                 center,
                 yaw: Fixed::from_int(45),
                 pitch: Fixed::from_int(41),
-                scale: Fixed::ONE,
+                scale: fit,
+                extent,
             },
             Self::Follow => CameraFrame {
                 center: [
@@ -37,12 +43,14 @@ impl Angle {
                 yaw: Fixed::from_int(-26),
                 pitch: Fixed::from_int(25),
                 scale: Fixed::from_ratio(3, 2),
+                extent,
             },
             Self::Survey => CameraFrame {
                 center,
                 yaw: Fixed::ZERO,
                 pitch: Fixed::from_int(90),
-                scale: Fixed::from_ratio(9, 10),
+                scale: fit * Fixed::from_ratio(9, 10),
+                extent,
             },
         }
     }
@@ -54,6 +62,7 @@ pub(crate) struct CameraFrame {
     pub(crate) yaw: Fixed,
     pub(crate) pitch: Fixed,
     scale: Fixed,
+    extent: i32,
 }
 
 impl CameraFrame {
@@ -64,6 +73,7 @@ impl CameraFrame {
             yaw: between(self.yaw, next.yaw),
             pitch: between(self.pitch, next.pitch),
             scale: between(self.scale, next.scale),
+            extent: next.extent,
         }
     }
 
@@ -78,11 +88,11 @@ impl CameraFrame {
             yaw: self.yaw,
             pitch: self.pitch,
             scale: base_scale * self.scale,
-            range: Fixed::from_int(80),
+            range: Fixed::from_int(self.extent * 10 / 9),
             focal_distance: if compact {
                 None
             } else {
-                Some(Fixed::from_int(230))
+                Some(Fixed::from_int(230 * self.extent / INITIAL_EXTENT))
             },
         };
         if let Some(passage) = passage {
@@ -102,16 +112,16 @@ pub(crate) struct CameraRig {
 }
 
 impl CameraRig {
-    pub(crate) fn new(ship: Location) -> Self {
+    pub(crate) fn new(ship: Location, extent: i32) -> Self {
         Self {
-            origin: Angle::Harbor.frame(ship),
+            origin: Angle::Harbor.frame(ship, extent),
             angle: Angle::Harbor,
             transition: Tween::ease_to(Fixed::ONE, Fixed::ONE, 0),
         }
     }
 
-    pub(crate) fn frame(&self, ship: Location) -> CameraFrame {
-        let target = self.angle.frame(ship);
+    pub(crate) fn frame(&self, ship: Location, extent: i32) -> CameraFrame {
+        let target = self.angle.frame(ship, extent);
         if self.transition.is_finished() {
             target
         } else {
@@ -119,8 +129,8 @@ impl CameraRig {
         }
     }
 
-    pub(crate) fn next(&mut self, ship: Location) {
-        self.origin = self.frame(ship);
+    pub(crate) fn next(&mut self, ship: Location, extent: i32) {
+        self.origin = self.frame(ship, extent);
         self.angle = self.angle.next();
         self.transition = Tween::ease_to(Fixed::ZERO, Fixed::ONE, 280);
     }

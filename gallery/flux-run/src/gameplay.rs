@@ -1,6 +1,6 @@
 use crate::world::{
-    CORES, District, EXIT, GUARDS, Harbor, Location, SPAWN, add, direction, dot, length_squared,
-    offset, scaled,
+    CORES, District, GUARDS, Harbor, Location, SPAWN, add, direction, dot, length_squared, offset,
+    scaled,
 };
 use mirui::{anim::Tween, types::Fixed};
 
@@ -438,7 +438,7 @@ impl Game {
             }
         }
         if self.life != 0
-            && let Some(direction) = crossed_exit(previous, self.ship.location)
+            && let Some(direction) = crossed_exit(self.harbor.exit, previous, self.ship.location)
         {
             if self.ready() {
                 self.depart(direction);
@@ -641,18 +641,18 @@ impl Game {
     }
 }
 
-fn crossed_exit(from: Location, to: Location) -> Option<Fixed> {
+fn crossed_exit(exit: Location, from: Location, to: Location) -> Option<Fixed> {
     if from.upper || to.upper {
         return None;
     }
-    let exit_z = EXIT.point[1];
+    let exit_z = exit.point[1];
     let from_side = from.point[1] < exit_z;
     if from_side == (to.point[1] < exit_z) {
         return None;
     }
     let forward = (exit_z - from.point[1]) / (to.point[1] - from.point[1]);
     let x = from.point[0] + (to.point[0] - from.point[0]) * forward;
-    ((x - EXIT.point[0]).abs() <= GATE_RADIUS).then_some(if from_side {
+    ((x - exit.point[0]).abs() <= GATE_RADIUS).then_some(if from_side {
         Fixed::ONE
     } else {
         -Fixed::ONE

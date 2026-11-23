@@ -8,6 +8,12 @@ fn generated_harbors_keep_a_connected_lower_bypass() {
         for level in 1..9 {
             let harbor = Harbor::generate(seed, level);
             assert_eq!(harbor, Harbor::generate(seed, level));
+            let extent = [72, 84, 96, 108][(level as usize - 1).min(3)];
+            assert_eq!(harbor.extent(), extent);
+            assert_eq!(harbor.exit.point[0], Fixed::from_int(extent - 14));
+            assert_eq!(harbor.gate.point[1], Fixed::from_int(extent - 10));
+            let boundary = harbor.advance(harbor.exit, [Fixed::MAX, Fixed::from_int(13)], 0);
+            assert_eq!(boundary.point[0], Fixed::from_int(extent - 5));
             different += usize::from(harbor.layout != first.layout);
             let launch = Location::new(harbor.bridge, 8, false);
             for destination in harbor
@@ -15,7 +21,7 @@ fn generated_harbors_keep_a_connected_lower_bypass() {
                 .iter()
                 .copied()
                 .filter(|core| !core.upper)
-                .chain([harbor.gate, EXIT, launch])
+                .chain([harbor.gate, harbor.exit, launch])
             {
                 assert!(
                     harbor

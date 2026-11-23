@@ -1,7 +1,5 @@
 use super::{Controls, Game, GuardPhase, line_open};
-use crate::world::{
-    BRIDGE_START, EXIT, Layout, Location, add, dot, length_squared, offset, scaled,
-};
+use crate::world::{BRIDGE_START, Location, add, dot, length_squared, offset, scaled};
 use mirui::types::Fixed;
 
 #[derive(Default)]
@@ -72,9 +70,10 @@ impl Pilot {
             return Controls::default();
         }
         if game.ready() {
-            let near = ship.point[1] < EXIT.point[1];
-            let aligned = (ship.point[0] - EXIT.point[0]).abs() <= Fixed::from_int(3);
-            let mut goal = EXIT;
+            let exit = game.harbor.exit;
+            let near = ship.point[1] < exit.point[1];
+            let aligned = (ship.point[0] - exit.point[0]).abs() <= Fixed::from_int(3);
+            let mut goal = exit;
             goal.point[1] += Fixed::from_int(if near == aligned { 6 } else { -6 });
             return self.steer(game, goal, false);
         }
@@ -139,7 +138,10 @@ impl Pilot {
         }
         let mut routing = false;
         if !ship.upper && !target.upper && !game.harbor.layout.direct(ship.point, target.point) {
-            let cells = [Layout::cell(ship.point), Layout::cell(target.point)];
+            let cells = [
+                game.harbor.layout.cell(ship.point),
+                game.harbor.layout.cell(target.point),
+            ];
             if self.route.as_ref().is_none_or(|route| route.cells != cells) {
                 self.route = game
                     .harbor
@@ -152,7 +154,7 @@ impl Pilot {
                 target.point = if game.harbor.layout.direct(ship.point, route.waypoint) {
                     route.waypoint
                 } else {
-                    Layout::center(cells[0])
+                    game.harbor.layout.center(cells[0])
                 };
             }
         }

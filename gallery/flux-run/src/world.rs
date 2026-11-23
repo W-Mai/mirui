@@ -2,13 +2,12 @@ use mirui::types::Fixed;
 
 pub const CORES: usize = 5;
 pub const GUARDS: usize = 3;
-pub(crate) const GRID: usize = 12;
+const INITIAL_SIDE: usize = 12;
+const MAX_SIDE: usize = 18;
+const MAX_CELLS: usize = MAX_SIDE * MAX_SIDE;
 pub(crate) const CELL_SIZE: i32 = 6;
-pub const EDGE: i32 = 72;
+pub(crate) const INITIAL_EXTENT: i32 = INITIAL_SIDE as i32 * CELL_SIZE;
 pub const SPAWN: Location = Location::new(13, 13, false);
-pub const WEST_GATE: Location = Location::new(13, 62, false);
-pub const EAST_GATE: Location = Location::new(59, 62, false);
-pub const EXIT: Location = Location::new(58, 13, false);
 pub(crate) const BRIDGE_START: i32 = 13;
 pub(crate) const BRIDGE_END: i32 = 64;
 
@@ -59,48 +58,65 @@ pub struct Harbor {
     pub guard_count: u8,
     pub phase: u16,
     pub gate: Location,
+    pub exit: Location,
     pub(crate) bridge: i32,
     pub(crate) layout: Layout,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct Layout([u16; GRID]);
+pub(crate) struct Layout {
+    side: u8,
+    rows: [u32; MAX_SIDE],
+}
 
 impl Layout {
-    fn generate(next: &mut impl FnMut() -> i32) -> Self {
-        let mut rows = [0; GRID];
+    fn generate(side: usize, next: &mut impl FnMut() -> i32) -> Self {
+        let mut rows = [0; MAX_SIDE];
         // Two open columns separate the warehouse bays even when both shift inward.
-        for (front, left) in [(4, 2), (4, 7), (8, 2), (8, 7)] {
+        for (front, left) in [(4, 2), (4, side - 5), (8, 2), (8, side - 5)] {
             let row = front + usize::from(next() & 1 != 0);
             let column = left + usize::from(next() & 1 != 0);
-            for rz in &mut rows[row..row + 2.min(GRID - 2 - row)] {
+            for rz in &mut rows[row..row + 2.min(side - 2 - row)] {
                 *rz |= 3 << column;
             }
         }
-        Self(rows)
+        Self {
+            side: side as u8,
+            rows,
+        }
+    }
+
+    pub(crate) fn side(&self) -> usize {
+        usize::from(self.side)
+    }
+
+    pub(crate) fn extent(&self) -> i32 {
+        i32::from(self.side) * CELL_SIZE
     }
 
     pub(crate) fn blocked(&self, x: usize, z: usize) -> bool {
-        self.0[z] & (1 << x) != 0
+        self.rows[z] & (1 << x) != 0
     }
 
-    pub(crate) fn cell([x, z]: [Fixed; 2]) -> [usize; 2] {
-        [x, z].map(|v| (v.to_int().div_euclid(CELL_SIZE)).clamp(0, GRID as i32 - 1) as usize)
+    pub(crate) fn cell(&self, [x, z]: [Fixed; 2]) -> [usize; 2] {
+        [x, z]
+            .map(|v| (v.to_int().div_euclid(CELL_SIZE)).clamp(0, i32::from(self.side) - 1) as usize)
     }
 
     fn open(&self, point: [Fixed; 2]) -> bool {
         let radius = Fixed::from_ratio(5, 4);
-        let [left, top] = Self::cell(point.map(|v| v - radius));
-        let [right, bottom] = Self::cell(point.map(|v| v + radius));
+        let [left, top] = self.cell(point.map(|v| v - radius));
+        let [right, bottom] = self.cell(point.map(|v| v + radius));
         (top..=bottom).all(|z| (left..=right).all(|x| !self.blocked(x, z)))
     }
 
     fn nearby_open(&self, location: Location) -> Location {
-        let [x, z] = Self::cell(location.point);
-        for radius in 0..GRID {
-            for row in z.saturating_sub(radius)..=(z + radius).min(GRID - 1) {
-                for column in x.saturating_sub(radius)..=(x + radius).min(GRID - 1) {
-                    let point = Self::center([column, row]);
+        let [x, z] = self.cell(location.point);
+        let side = self.side();
+        for radius in 0..side {
+            for row in z.saturating_sub(radius)..=(z + radius).min(side - 1) {
+                for column in x.saturating_sub(radius)..=(x + radius).min(side - 1) {
+                    let point = self.center([column, row]);
                     if self.open(point) {
                         return Location {
                             point,
@@ -113,10 +129,10 @@ impl Layout {
         SPAWN
     }
 
-    pub(crate) fn center([x, z]: [usize; 2]) -> [Fixed; 2] {
+    pub(crate) fn center(&self, [x, z]: [usize; 2]) -> [Fixed; 2] {
         [x, z].map(|v| {
             Fixed::from_int(v as i32 * CELL_SIZE + CELL_SIZE / 2)
-                .clamp(Fixed::from_int(5), Fixed::from_int(EDGE - 5))
+                .clamp(Fixed::from_int(5), Fixed::from_int(self.extent() - 5))
         })
     }
 
@@ -141,27 +157,28 @@ impl Layout {
     }
 
     pub(crate) fn way_to(&self, from: [Fixed; 2], to: [Fixed; 2]) -> Option<[Fixed; 2]> {
-        const UNSEEN: u8 = u8::MAX;
-        let idx = |[x, z]: [usize; 2]| x + z * GRID;
-        let pos = |i: usize| [i % GRID, i / GRID];
-        let start = idx(Self::cell(from));
-        let end = idx(Self::cell(to));
-        let mut first = [UNSEEN; GRID * GRID];
-        let mut queue = [0; GRID * GRID];
-        first[start] = start as u8;
-        queue[0] = start as u8;
+        const UNSEEN: u16 = u16::MAX;
+        let side = self.side();
+        let idx = |[x, z]: [usize; 2]| x + z * side;
+        let pos = |i: usize| [i % side, i / side];
+        let start = idx(self.cell(from));
+        let end = idx(self.cell(to));
+        let mut first = [UNSEEN; MAX_CELLS];
+        let mut queue = [0; MAX_CELLS];
+        first[start] = start as u16;
+        queue[0] = start as u16;
         let mut head = 0;
         let mut tail = 1;
         while head < tail {
             let current = usize::from(queue[head]);
             head += 1;
             if current == end {
-                return Some(Self::center(pos(usize::from(first[end]))));
+                return Some(self.center(pos(usize::from(first[end]))));
             }
             let [x, z] = pos(current);
             for [nx, nz] in [
-                [(x + 1).min(GRID - 1), z],
-                [x, (z + 1).min(GRID - 1)],
+                [(x + 1).min(side - 1), z],
+                [x, (z + 1).min(side - 1)],
                 [x.saturating_sub(1), z],
                 [x, z.saturating_sub(1)],
             ] {
@@ -170,11 +187,11 @@ impl Layout {
                     continue;
                 }
                 first[next] = if current == start {
-                    next as u8
+                    next as u16
                 } else {
                     first[current]
                 };
-                queue[tail] = next as u8;
+                queue[tail] = next as u16;
                 tail += 1;
             }
         }
@@ -195,16 +212,24 @@ impl Harbor {
             (random >> 16) as i32
         };
         let west = next() & 1 == 0;
-        let bridge = [24, 36, 48][next() as usize % 3];
-        let layout = Layout::generate(&mut next);
+        let growth = level.saturating_sub(1).min(3) as usize * 2;
+        let side = INITIAL_SIDE + growth;
+        let edge = side as i32 * CELL_SIZE;
+        let added = edge - INITIAL_EXTENT;
+        let bridge = edge / 2 + [-12, 0, 12][next() as usize % 3];
+        let layout = Layout::generate(side, &mut next);
         Self {
             district,
             cores: [
                 Location::new(8 + next() % 4, 24 + next() % 12, false),
-                Location::new(61 + next() % 5, 28 + next() % 10, false),
-                Location::new(32 + next() % 8, 43 + next() % 9, false),
+                Location::new(61 + added + next() % 5, 28 + next() % 10, false),
+                Location::new(
+                    edge / 2 - 4 + next() % 8,
+                    43 + added / 2 + next() % 9,
+                    false,
+                ),
                 Location::new(bridge - 2 + next() % 5, 33 + next() % 12, true),
-                Location::new(8 + next() % 4, 48 + next() % 10, false),
+                Location::new(8 + next() % 4, 48 + added + next() % 10, false),
             ]
             .map(|location| {
                 if location.upper {
@@ -234,10 +259,15 @@ impl Harbor {
                 3
             },
             phase: (next() % 240) as u16,
-            gate: if west { WEST_GATE } else { EAST_GATE },
+            gate: Location::new(if west { 13 } else { edge - 13 }, edge - 10, false),
+            exit: Location::new(edge - 14, 13, false),
             bridge,
             layout,
         }
+    }
+
+    pub(crate) fn extent(&self) -> i32 {
+        self.layout.extent()
     }
 
     pub(crate) fn high_gate(&self) -> Location {
@@ -271,7 +301,7 @@ impl Harbor {
 
     pub fn advance(&self, from: Location, desired: [Fixed; 2], tick: u32) -> Location {
         let [mut x, mut z] =
-            desired.map(|v| v.clamp(Fixed::from_int(5), Fixed::from_int(EDGE - 5)));
+            desired.map(|v| v.clamp(Fixed::from_int(5), Fixed::from_int(self.extent() - 5)));
         let left = Fixed::from_int(self.bridge - 7);
         let right = Fixed::from_int(self.bridge + 7);
         let south = Fixed::from_int(BRIDGE_START);

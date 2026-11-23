@@ -109,7 +109,7 @@ impl FluxRun {
 
     fn new(owner: Entity, compact: bool, tone: SceneTone) -> Self {
         let game = Game::new(0x4652_554e);
-        let camera = CameraRig::new(game.ship.location);
+        let camera = CameraRig::new(game.ship.location, game.harbor.extent());
         Self {
             stage: StackStage::bounded(presentation::STAGE_CAPACITY).into(),
             owner,
@@ -118,7 +118,7 @@ impl FluxRun {
             camera_scale: Fixed::from_int(4),
             bridge_x: game.harbor.bridge,
             passage: None,
-            camera_frame: camera.frame(game.ship.location),
+            camera_frame: camera.frame(game.ship.location, game.harbor.extent()),
             camera,
             game,
             compact,
@@ -133,7 +133,9 @@ impl FluxRun {
     fn refresh(&mut self) {
         self.bridge_x = self.game.harbor.bridge;
         self.passage = self.game.passage_frame();
-        self.camera_frame = self.camera.frame(self.game.ship.location);
+        self.camera_frame = self
+            .camera
+            .frame(self.game.ship.location, self.game.harbor.extent());
         self.marks = Marks::from_game(&self.game);
         self.hud = Hud::from_game(&self.game);
     }
@@ -148,7 +150,8 @@ impl FluxRun {
 #[mirui::model]
 impl FluxRun {
     pub(crate) fn cycle_camera(&mut self) {
-        self.camera.next(self.game.ship.location);
+        self.camera
+            .next(self.game.ship.location, self.game.harbor.extent());
     }
 
     pub(crate) fn set_tone(&mut self, tone: SceneTone) {
