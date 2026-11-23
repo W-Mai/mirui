@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Render Flux Run harbors with weathered paving, road markings, cargo stacks, roof vents and quay beacons in both themes.
 - Travel through the Flux Run exit gate to enter the next harbor with an animated camera move.
 - Select eight fixed compass views, a skiff follow camera or an overhead survey in Flux Run.
-- Connect distinct Flux Run quays with bridges in both directions and unlock the exit after recovering all five cores.
+- Expand Flux Run from a single quay to connected platforms as difficulty increases. Raised bridges span the channels, and the exit opens after all five cores are recovered.
 - Attach `FrameContent` to prepare procedural viewport layers from an observed Model. SpriteStack draws stage members with the prepared layers and depth effects.
 - Share runtime-generated sprite stack assets across viewports and bind sampled materials through `StackVisual::from_model`.
 - Render Pixel Flight and its minimap from a shared ECS stage. The stage owns aircraft and terrain membership, and the flight Model supplies camera and simulation state.

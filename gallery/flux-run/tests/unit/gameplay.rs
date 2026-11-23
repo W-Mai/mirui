@@ -1,29 +1,33 @@
 use super::*;
 
 #[test]
-fn islands_connect_by_bridges_and_leave_room_for_gates() {
+fn harbor_difficulty_adds_reachable_platforms_and_raised_crossings() {
+    let mut most_platforms = 0;
+    let mut directions = [false; 2];
     for seed in 0..64 {
-        for level in 1..9 {
+        for level in 1..=10 {
             let harbor = Harbor::generate(seed, level);
             assert_eq!(harbor, Harbor::generate(seed, level));
-            let extent = [72, 84, 96, 108][(level as usize - 1).min(3)];
-            assert_eq!(harbor.extent(), extent);
-            assert_eq!(
-                harbor.docks.iter().flatten().count(),
-                if level == 1 { 3 } else { 4 }
-            );
-
-            for axis in 0..2 {
+            let platforms = harbor.docks.iter().flatten().count();
+            let bridges = harbor.bridges.iter().flatten().count();
+            if level <= 2 {
+                assert_eq!(platforms, 1);
+                assert_eq!(bridges, 1);
+            } else {
+                assert!(platforms > 1 && platforms <= 1 + (level as usize - 1) / 2);
+                assert_eq!(bridges, platforms - 1);
+            }
+            most_platforms = most_platforms.max(platforms);
+            for dock in harbor.docks.into_iter().flatten() {
                 assert!(
-                    harbor
-                        .bridges
-                        .iter()
-                        .flatten()
-                        .any(|bridge| bridge.axis == axis)
+                    harbor.cores.iter().any(|core| {
+                        let cell = harbor.layout.cell(core.point);
+                        (0..2).all(|axis| (dock.min[axis]..dock.end[axis]).contains(&cell[axis]))
+                            && !harbor.layout.on_bridge(cell)
+                    }),
+                    "{seed} {level}: empty platform {dock:?}"
                 );
             }
-            let middle = Fixed::from_int(extent / 2);
-            assert!(!harbor.layout.direct([middle; 2], [middle; 2]));
             for destination in harbor
                 .cores
                 .into_iter()
@@ -34,31 +38,43 @@ fn islands_connect_by_bridges_and_leave_room_for_gates() {
                     harbor
                         .layout
                         .way_to(SPAWN.point, destination.point)
-                        .is_some()
+                        .is_some(),
+                    "{seed} {level}: {destination:?}"
                 );
                 assert!(harbor.layout.direct(destination.point, destination.point));
             }
             for bridge in harbor.bridges.into_iter().flatten() {
+                directions[bridge.axis] = true;
                 let footprint = bridge.footprint();
-                let mut start = bridge.center().point;
+                let center = bridge.center();
+                assert_eq!(
+                    harbor.height(center),
+                    Fixed::from_int(crate::world::BRIDGE_HEIGHT)
+                );
+                let mut start = center.point;
                 let mut end = start;
-                start[bridge.axis] =
-                    Fixed::from_int(bridge.start as i32 * crate::world::CELL_SIZE - 2);
-                end[bridge.axis] = Fixed::from_int(bridge.end as i32 * crate::world::CELL_SIZE + 2);
-                assert!(harbor.layout.direct(start, end));
-                // The exit/entry arch is thirteen pixels wide and six deep.
+                let step = crate::world::CELL_SIZE;
+                start[bridge.axis] = Fixed::from_int(bridge.start as i32 * step - 2);
+                end[bridge.axis] = Fixed::from_int(bridge.end as i32 * step + 2);
+                assert!(
+                    harbor.layout.direct(start, end),
+                    "{seed} {level}: {bridge:?}"
+                );
                 for gate in harbor.recovery_gates().chain([SPAWN, harbor.exit]) {
                     let [x, z] = gate.point.map(Fixed::to_int);
                     assert!(
-                        x + 7 <= footprint.min[0] as i32 * crate::world::CELL_SIZE
-                            || x - 7 >= footprint.end[0] as i32 * crate::world::CELL_SIZE
-                            || z + 3 <= footprint.min[1] as i32 * crate::world::CELL_SIZE
-                            || z - 3 >= footprint.end[1] as i32 * crate::world::CELL_SIZE
+                        x + 7 <= footprint.min[0] as i32 * step
+                            || x - 7 >= footprint.end[0] as i32 * step
+                            || z + 3 <= footprint.min[1] as i32 * step
+                            || z - 3 >= footprint.end[1] as i32 * step,
+                        "{seed} {level}: overlapping gate {gate:?}, {bridge:?}"
                     );
                 }
             }
         }
     }
+    assert_eq!(most_platforms, crate::world::MAX_DOCKS);
+    assert_eq!(directions, [true; 2]);
 }
 
 #[test]
@@ -107,7 +123,7 @@ fn pilot_crosses_the_open_gate_and_changes_harbor_behind_the_cover() {
 fn freight_gate_recovers_a_core_and_counts_it_once() {
     let mut game = Game::new(7);
     game.start();
-    game.level = 2;
+    game.level = 3;
     game.restart();
     let gate = game.harbor.cargo_gate.unwrap();
     let [x, z] = gate.point;

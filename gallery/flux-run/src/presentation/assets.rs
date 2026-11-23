@@ -469,53 +469,86 @@ sprite!(
     ]
 );
 
-const BRIDGE_W: usize = crate::world::CELL_SIZE as usize * 2;
+const BRIDGE_W: usize = crate::world::CELL_SIZE as usize * 3;
+const BRIDGE_H: usize = 17;
 
-const fn bridge_slices<const D: usize>() -> [[[u8; BRIDGE_W]; D]; 4] {
-    let mut slices = [[[b'.'; BRIDGE_W]; D]; 4];
-    let mut z = 0;
-    while z < D {
-        let end = z == 0 || z == D - 1;
+const fn bridge_slices<const DEPTH: usize>() -> [[[u8; BRIDGE_W]; DEPTH]; BRIDGE_H] {
+    let mut slices = [[[b'.'; BRIDGE_W]; DEPTH]; BRIDGE_H];
+    let mut distance = 0;
+    while distance < DEPTH {
+        let row = DEPTH - 1 - distance;
+        let end = DEPTH - 1 - distance;
+        let deck = if distance < end { distance } else { end }.saturating_sub(1);
+        let crest = crate::world::BRIDGE_HEIGHT as usize - 1;
+        let deck = if deck > crest { crest } else { deck };
         let mut x = 0;
         while x < BRIDGE_W {
             let edge = x == 0 || x == BRIDGE_W - 1;
-            slices[1][z][x] = if edge {
+            slices[deck][row][x] = if edge {
                 b'l'
-            } else if end {
-                if x % 4 < 2 { b'a' } else { b'd' }
-            } else if z % 6 < 2 && (x == BRIDGE_W / 2) {
-                b'i'
-            } else if z % 3 == 0 {
+            } else if distance == 8 || distance == DEPTH - 1 {
+                if x % 2 == 0 { b'a' } else { b'd' }
+            } else if distance % 9 < 3 && (x == 8 || x == 9) {
+                b'l'
+            } else if (x + 2 * (distance / 6)) % 13 == 0 {
                 b's'
             } else {
                 b'd'
             };
-            if edge {
-                slices[0][z][x] = b'd';
-                slices[2][z][x] = b's';
-                if z % 4 == 0 || end {
-                    slices[3][z][x] = b'l';
+            if edge && deck > 0 {
+                slices[deck - 1][row][x] = b's';
+                if distance % 5 == 0 {
+                    slices[deck + 1][row][x] = b'l';
+                }
+            }
+            // The gantry leaves room above the deck and outside the driving lane.
+            let gantry = DEPTH / 2 - 1;
+            if distance >= gantry && distance <= gantry + 2 {
+                if x < 2 || x >= BRIDGE_W - 2 {
+                    let mut y = 0;
+                    while y < BRIDGE_H - 1 {
+                        if y != deck {
+                            slices[y][row][x] = if edge { b's' } else { b'l' };
+                        }
+                        y += 1;
+                    }
+                }
+                slices[BRIDGE_H - 1][row][x] = if distance % 2 == 0 && x % 4 < 2 {
+                    b'a'
+                } else {
+                    b'l'
+                };
+                if (x == 7 || x == 8) && distance == gantry + 1 {
+                    slices[BRIDGE_H - 3][row][x] = b'o';
+                    slices[BRIDGE_H - 2][row][x] = b'd';
                 }
             }
             x += 1;
         }
-        z += 1;
+        distance += 1;
     }
     slices
 }
 
-sprite!(SHORT_BRIDGE, 12, 12, 4, bridge_slices());
-sprite!(LONG_BRIDGE, 12, 18, 4, bridge_slices());
+macro_rules! bridge {
+    ($depth:literal) => {{
+        const SLICES: [[[u8; BRIDGE_W]; $depth]; BRIDGE_H] = bridge_slices();
+        const PIVOT: [i32; 3] = [BRIDGE_W as i32 * 128, $depth * 128, 0];
+        const CAPACITY: usize = BRIDGE_W * $depth * 2;
+        [
+            prepare!(SLICES, BRIDGE_W, $depth, BRIDGE_H, CAPACITY, PIVOT, 1),
+            prepare!(SLICES, BRIDGE_W, $depth, BRIDGE_H, CAPACITY, PIVOT, 2),
+        ]
+    }};
+}
+
+static BRIDGES: [[PreparedSpriteStack<'static>; 2]; 3] = [bridge!(24), bridge!(30), bridge!(36)];
 
 pub(super) fn bridge_model(
     bridge: crate::world::Bridge,
     detail: usize,
 ) -> &'static PreparedSpriteStack<'static> {
-    if bridge.length() == 12 {
-        &SHORT_BRIDGE[detail]
-    } else {
-        &LONG_BRIDGE[detail]
-    }
+    &BRIDGES[bridge.length() / crate::world::CELL_SIZE as usize - 4][detail]
 }
 
 pub static PORTAL: [PreparedSpriteStack<'static>; 2] = {

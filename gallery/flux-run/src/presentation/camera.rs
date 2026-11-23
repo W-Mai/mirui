@@ -84,7 +84,11 @@ impl Viewpoint {
         };
         let (center, scale) = match self {
             Self::Follow => (
-                [ship.point[0], Fixed::from_int(2), ship.point[1]],
+                [
+                    ship.point[0],
+                    harbor.height(ship) + Fixed::from_int(2),
+                    ship.point[1],
+                ],
                 Fixed::from_ratio(3, 2),
             ),
             Self::Overhead => (center, fit * Fixed::from_ratio(9, 10)),

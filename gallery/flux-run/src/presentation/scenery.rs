@@ -4,7 +4,7 @@ use mirui_sprite_stack::{HeightField, Pose, StackVisual, TerrainCell, TerrainGri
 use super::assets::{BEACON, CARGO, Material, SceneTone, VENT, bridge_model};
 use crate::world::{CELL_SIZE, Dock, Harbor};
 
-pub(super) const MAX_PROPS: usize = 8;
+pub(super) const MAX_PROPS: usize = crate::world::MAX_DOCKS * 2;
 
 pub(super) fn water(harbor: &Harbor, tone: SceneTone) -> StackVisual {
     let grid = TerrainGrid::finite([1; 2], Fixed::from_int(harbor.extent())).expect("harbor grid");
@@ -29,7 +29,7 @@ fn quay(harbor: &Harbor, dock: Dock, freight: bool, detail: usize, tone: SceneTo
             dock.min[1] + z / subdivisions,
         ];
         let blocked = harbor.layout.blocked(col, row);
-        let material = if !harbor.layout.on_deck(col, row) {
+        let material = if !harbor.layout.on_land(col, row) {
             Material::Slip
         } else if blocked {
             if detail != 0 && x.is_multiple_of(subdivisions) {
@@ -80,6 +80,9 @@ pub(super) fn mount(
         // A roof fixture and a harbor light in the outer corner of each quay.
         let outer = |i| if dock.min[i] == 0 { 0 } else { dock.end[i] - 1 };
         let [x, z] = [outer(0), outer(1)];
+        if !harbor.layout.blocked(x, z) {
+            continue;
+        }
         let center = |cell| cell as i32 * CELL_SIZE + CELL_SIZE / 2;
         let asset = if variation(x, z, harbor.phase).is_multiple_of(2) {
             &VENT[detail]
@@ -108,7 +111,7 @@ pub(super) fn mount(
     }
     for bridge in harbor.bridges.into_iter().flatten() {
         let [x, z] = bridge.center().point;
-        let mut pose = Pose::at(x, -1, z);
+        let mut pose = Pose::at(x, 0, z);
         if bridge.axis == 0 {
             pose.yaw = Fixed::from_int(90);
         }

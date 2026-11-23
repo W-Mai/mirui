@@ -1,7 +1,9 @@
 use crate::{
     app::FluxRun,
     gameplay::{Game, GuardPhase},
-    world::{CORES, District, GUARDS, Location, MAX_BRIDGES, MAX_DOCKS, SPAWN, add, scaled},
+    world::{
+        CORES, District, GUARDS, Harbor, Location, MAX_BRIDGES, MAX_DOCKS, SPAWN, add, scaled,
+    },
 };
 use mirui::{core::model::ModelHandle, prelude::*};
 use mirui_sprite_stack::{Pose, StackStageCommands, StackVisual};
@@ -41,10 +43,10 @@ struct Mark {
 }
 
 impl Mark {
-    fn at(location: Location) -> Self {
+    fn at(harbor: &Harbor, location: Location) -> Self {
         let [x, z] = location.point;
         Self {
-            pose: Pose::at(x, 0, z),
+            pose: Pose::at(x, harbor.height(location), z),
             tint: Tint::Normal,
             flash: Fixed::ZERO,
         }
@@ -58,7 +60,7 @@ impl Marks {
     pub fn from_game(game: &Game) -> Self {
         let mut marks = [None; MARKS];
         let harbor = &game.harbor;
-        let mark_at = Mark::at;
+        let mark_at = |location| Mark::at(harbor, location);
         if game.respawn == 0 {
             let mut ship = mark_at(game.ship.location);
             ship.pose.yaw = heading(game.heading);
@@ -115,7 +117,9 @@ impl Marks {
                     scaled(core.point, amount),
                 );
                 let mut mark = mark_at(Location { point: p });
-                mark.pose.position[1] = Fixed::ONE;
+                mark.pose.position[1] = harbor.height(boat) * (Fixed::ONE - amount)
+                    + harbor.height(core) * amount
+                    + Fixed::ONE;
                 mark.flash = if (game.result.ticks / 3 + i as u32).is_multiple_of(4) {
                     Fixed::ONE
                 } else {
