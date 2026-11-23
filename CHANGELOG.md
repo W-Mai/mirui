@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add Flux Run, an endless SpriteStack salvage game with manual controls, automatic piloting and a Compact layout.
+- Generate Flux Run navigation lanes, warehouse obstacles and bridge positions from the harbor seed.
 - Attach `FrameContent` to prepare procedural viewport layers from an observed Model. SpriteStack draws stage members with the prepared layers and depth effects.
 - Share runtime-generated sprite stack assets across viewports and bind sampled materials through `StackVisual::from_model`.
 - Render Pixel Flight and its minimap from a shared ECS stage. The stage owns aircraft and terrain membership, and the flight Model supplies camera and simulation state.

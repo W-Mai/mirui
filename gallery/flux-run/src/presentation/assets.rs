@@ -437,11 +437,9 @@ const fn bridge_slices() -> [[[u8; BRIDGE_W]; BRIDGE_D]; BRIDGE_H] {
     let mut distance = 0;
     while distance < BRIDGE_D {
         let row = BRIDGE_D - 1 - distance;
-        let deck = if distance < 8 {
-            distance.saturating_sub(1)
-        } else {
-            7
-        };
+        let end = BRIDGE_D - 1 - distance;
+        let deck = if distance < end { distance } else { end }.saturating_sub(1);
+        let deck = if deck > 7 { 7 } else { deck };
         let mut x = 0;
         while x < BRIDGE_W {
             let edge = x == 0 || x == BRIDGE_W - 1;

@@ -1,6 +1,36 @@
 use super::*;
 
 #[test]
+fn generated_harbors_keep_a_connected_lower_bypass() {
+    let mut different = 0;
+    for seed in 0..64 {
+        let first = Harbor::generate(seed, 1);
+        for level in 1..9 {
+            let harbor = Harbor::generate(seed, level);
+            assert_eq!(harbor, Harbor::generate(seed, level));
+            different += usize::from(harbor.layout != first.layout);
+            let launch = Location::new(harbor.bridge, 8, false);
+            for destination in harbor
+                .cores
+                .iter()
+                .copied()
+                .filter(|core| !core.upper)
+                .chain([harbor.gate, EXIT, launch])
+            {
+                assert!(
+                    harbor
+                        .layout
+                        .way_to(SPAWN.point, destination.point)
+                        .is_some()
+                );
+                assert!(harbor.layout.direct(destination.point, destination.point));
+            }
+        }
+    }
+    assert!(different > 350);
+}
+
+#[test]
 fn autoplay_advances_and_is_deterministic() {
     for seed in [7, 51, 942, 0x4652_554e, 22, 24, 30, 2_899] {
         let play = || {
@@ -16,7 +46,7 @@ fn autoplay_advances_and_is_deterministic() {
                 }
             }
             panic!(
-                "autoplay stalled at {} with {} recovered, ship {:?}, tether {:?}, at {:?}",
+                "seed {seed}: autoplay stalled at {} with {} recovered, ship {:?}, tether {:?}, at {:?}",
                 game.level, game.result.collected, game.ship.location, game.tether, game.cores
             );
         };

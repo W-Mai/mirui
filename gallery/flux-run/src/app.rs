@@ -82,6 +82,8 @@ pub struct FluxRun {
     pub(crate) hud: Hud,
     #[observe]
     pub(crate) camera_scale: Fixed,
+    #[observe]
+    pub(crate) bridge_x: i32,
     held: u8,
     touch: u8,
     suspended: bool,
@@ -105,6 +107,7 @@ impl FluxRun {
             marks: Marks::from_game(&game),
             hud: Hud::from_game(&game),
             camera_scale: Fixed::from_int(4),
+            bridge_x: game.harbor.bridge,
             game,
             compact,
             tone,
@@ -116,6 +119,7 @@ impl FluxRun {
     }
 
     fn refresh(&mut self) {
+        self.bridge_x = self.game.harbor.bridge;
         self.marks = Marks::from_game(&self.game);
         self.hud = Hud::from_game(&self.game);
     }

@@ -1,6 +1,6 @@
 use crate::world::{
-    CORES, District, EXIT, GUARDS, HIGH_GATE, Harbor, Location, SPAWN, add, direction, dot,
-    length_squared, offset, scaled,
+    CORES, District, EXIT, GUARDS, Harbor, Location, SPAWN, add, direction, dot, length_squared,
+    offset, scaled,
 };
 use mirui::types::Fixed;
 
@@ -64,7 +64,7 @@ impl Body {
         }
     }
 
-    fn slide(&mut self, harbor: Harbor, tick: u32) -> Location {
+    fn slide(&mut self, harbor: &Harbor, tick: u32) -> Location {
         let previous = self.location;
         let desired = add(previous.point, self.velocity);
         self.location = harbor.advance(previous, desired, tick);
@@ -169,10 +169,10 @@ impl Game {
     pub fn new(seed: u32) -> Self {
         let harbor = Harbor::generate(seed, 1);
         Self {
-            harbor,
             ship: Body::at(SPAWN),
             cores: harbor.cores.map(Core::new),
             guards: harbor.guards.map(Guard::new),
+            harbor,
             level: 1,
             mode: Mode::Manual,
             session: Session::Title,
@@ -311,7 +311,12 @@ impl Game {
                         offset(position.point, self.ship.location.point),
                         self.heading,
                     ) >= Fixed::ZERO
-                    && line_open(self.harbor, self.result.ticks, self.ship.location, position)
+                    && line_open(
+                        &self.harbor,
+                        self.result.ticks,
+                        self.ship.location,
+                        position,
+                    )
             })
             .min_by_key(|(_, core)| {
                 length_squared(offset(core.body.location.point, self.ship.location.point))
@@ -370,7 +375,7 @@ impl Game {
             ),
             Fixed::from_ratio(13, 10),
         );
-        let previous = self.ship.slide(self.harbor, tick);
+        let previous = self.ship.slide(&self.harbor, tick);
         self.move_guards();
         self.move_cores();
         if self.invulnerable == 0
@@ -453,7 +458,7 @@ impl Game {
                     core.body.velocity = add(core.body.velocity, scaled(direction(rope), tension));
                 }
                 if length > TETHER_RANGE * 2
-                    || !line_open(self.harbor, self.result.ticks, at, self.ship.location)
+                    || !line_open(&self.harbor, self.result.ticks, at, self.ship.location)
                 {
                     self.tether = None;
                 }
@@ -464,10 +469,10 @@ impl Game {
                 );
             }
             core.body.velocity = limited(core.body.velocity, Fixed::from_int(2));
-            core.body.slide(self.harbor, self.result.ticks);
+            core.body.slide(&self.harbor, self.result.ticks);
             let current = core.body.location;
             let gate = if current.upper {
-                HIGH_GATE
+                self.harbor.high_gate()
             } else {
                 self.harbor.gate
             };
@@ -562,16 +567,20 @@ impl Game {
                     guard.phase = GuardPhase::Patrol;
                 }
             }
-            guard.body.slide(self.harbor, self.result.ticks);
+            guard.body.slide(&self.harbor, self.result.ticks);
         }
     }
 }
 
-fn line_open(harbor: Harbor, tick: u32, a: Location, b: Location) -> bool {
-    !(a.upper
-        && b.upper
-        && harbor.lock_closed(tick)
-        && (a.point[1] < Fixed::from_int(40)) != (b.point[1] < Fixed::from_int(40)))
+fn line_open(harbor: &Harbor, tick: u32, a: Location, b: Location) -> bool {
+    if a.upper || b.upper {
+        !(a.upper
+            && b.upper
+            && harbor.lock_closed(tick)
+            && (a.point[1] < Fixed::from_int(40)) != (b.point[1] < Fixed::from_int(40)))
+    } else {
+        harbor.layout.direct(a.point, b.point)
+    }
 }
 
 fn limited(value: [Fixed; 2], limit: Fixed) -> [Fixed; 2] {

@@ -1,7 +1,7 @@
 use crate::{
     app::FluxRun,
     gameplay::{Game, GuardPhase},
-    world::{CORES, District, EXIT, GUARDS, HIGH_GATE, Location, add, scaled},
+    world::{BRIDGE_START, CELL_SIZE, CORES, District, EXIT, GRID, GUARDS, Location, add, scaled},
 };
 use mirui::{core::model::ModelHandle, prelude::*};
 use mirui_sprite_stack::{
@@ -132,7 +132,7 @@ impl Marks {
             }
         }
         marks[GATE_START] = Some(Mark::at(game.harbor.gate));
-        marks[GATE_START + 1] = Some(Mark::at(HIGH_GATE));
+        marks[GATE_START + 1] = Some(Mark::at(game.harbor.high_gate()));
         let mut exit = Mark::at(EXIT);
         exit.tint = if game.ready() {
             Tint::Normal
@@ -142,7 +142,7 @@ impl Marks {
         marks[GATE_START + 2] = Some(exit);
         if game.harbor.lock_warning(game.result.ticks) || game.harbor.lock_closed(game.result.ticks)
         {
-            let mut gate = Mark::at(Location::new(36, 40, true));
+            let mut gate = Mark::at(Location::new(game.harbor.bridge, 40, true));
             gate.tint = Tint::Warn;
             marks[LOCK] = Some(gate);
         }
@@ -192,7 +192,7 @@ struct Member {
 }
 
 enum MemberVisual {
-    Ground(SceneTone),
+    Ground(SceneTone, u32),
     Bridge,
     Mark(usize),
 }
@@ -203,8 +203,14 @@ pub(crate) fn mount(
     members: query!(Entity, Member),
     commands: commands!(),
 ) {
-    let (owner, detail, tone) =
-        model.read(|model| (model.owner, usize::from(!model.compact), model.tone));
+    let (owner, detail, tone, level) = model.read(|model| {
+        (
+            model.owner,
+            usize::from(!model.compact),
+            model.tone,
+            model.game.level,
+        )
+    });
     let marks = model.marks();
     let mut mounted = [false; MARKS];
     let mut terrain_mounted = false;
@@ -215,7 +221,9 @@ pub(crate) fn mount(
         }
         match member.visual {
             MemberVisual::Mark(slot) if marks.0[slot].is_some() => mounted[slot] = true,
-            MemberVisual::Ground(current) if current == tone => terrain_mounted = true,
+            MemberVisual::Ground(current, previous) if current == tone && previous == level => {
+                terrain_mounted = true
+            }
             MemberVisual::Bridge => bridge_mounted = true,
             _ => commands.despawn(entity),
         }
@@ -223,21 +231,34 @@ pub(crate) fn mount(
     let stage = model.stage();
     let mut stage_commands = commands.stage(&stage);
     if !terrain_mounted {
-        let grid = TerrainGrid::finite([9, 9], Fixed::from_int(8)).expect("harbor grid");
+        let grid =
+            TerrainGrid::finite([GRID as u16; 2], Fixed::from_int(CELL_SIZE)).expect("harbor grid");
+        let layout = model.read(|model| model.game.harbor.layout);
         let floor = HeightField::generate(grid, &tone.palette().terrain, |[x, z]| {
-            let material = match (x, z) {
-                (0 | 8, 0 | 8) => 0,
-                (0 | 8, _) | (_, 0 | 8) => 1,
-                (1..=3, _) | (6..=7, _) => 3,
-                _ => 2,
-            };
-            TerrainCell { level: 0, material }
+            let rim = |coord| coord == 0 || coord == GRID as i32 - 1;
+            if layout.blocked(x as usize, z as usize) {
+                TerrainCell {
+                    level: if x % 2 == 0 { 4 } else { 5 },
+                    material: 1,
+                }
+            } else {
+                let material = if rim(x) && rim(z) {
+                    0
+                } else if rim(x) || rim(z) {
+                    1
+                } else if (x / 3 + z / 4) % 2 == 0 {
+                    3
+                } else {
+                    2
+                };
+                TerrainCell { level: 0, material }
+            }
         })
         .expect("harbor field");
         stage_commands.spawn(
             Member {
                 owner,
-                visual: MemberVisual::Ground(tone),
+                visual: MemberVisual::Ground(tone, level),
             },
             StackVisual::new(floor),
         );
@@ -250,7 +271,7 @@ pub(crate) fn mount(
             },
             StackVisual::from_model(model, move |handle| {
                 StackVisual::new(&BRIDGE[detail])
-                    .at(Pose::at(36, 0, 13))
+                    .at(Pose::at(handle.bridge_x(), 0, BRIDGE_START))
                     .with_palette(&handle.tone().palette().normal)
             }),
         );
