@@ -113,7 +113,7 @@ impl Pilot {
             // Preserve the facing used to choose the visible target.
             self.following = Some(candidate);
             control = Controls {
-                axis: [0; 2],
+                axis: [Fixed::ZERO; 2],
                 magnet: true,
             };
         } else if ship.within(target, Fixed::from_int(3))
@@ -188,14 +188,14 @@ impl Pilot {
     }
 }
 
-fn axis_for(toward: [Fixed; 2], dead_zone: Fixed) -> [i8; 2] {
+fn axis_for(toward: [Fixed; 2], dead_zone: Fixed) -> [Fixed; 2] {
     toward.map(|v| {
         if v > dead_zone {
-            1
+            Fixed::ONE
         } else if v < -dead_zone {
-            -1
+            -Fixed::ONE
         } else {
-            0
+            Fixed::ZERO
         }
     })
 }

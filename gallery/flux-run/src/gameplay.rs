@@ -43,7 +43,7 @@ pub(crate) struct PassageFrame {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Controls {
-    pub axis: [i8; 2],
+    pub axis: [Fixed; 2],
     pub magnet: bool,
 }
 
@@ -379,7 +379,7 @@ impl Game {
         self.invulnerable = self.invulnerable.saturating_sub(1);
         let axis = controls
             .axis
-            .map(|v| Fixed::from_int(i32::from(v.clamp(-1, 1))));
+            .map(|v| v.clamp(Fixed::from_int(-2), Fixed::from_int(2)));
         if axis != [Fixed::ZERO; 2] {
             self.heading = direction(axis);
         }

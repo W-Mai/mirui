@@ -1,6 +1,9 @@
 use crate::{
     gameplay::{Controls, Cue, Game, Mode, PassageFrame, Session},
-    presentation::{self, Marks, SceneTone, build},
+    presentation::{
+        self, Marks, SceneTone, build,
+        camera::{CameraFrame, CameraRig, steer_on_screen},
+    },
     world::District,
 };
 use mirui::{
@@ -86,6 +89,9 @@ pub struct FluxRun {
     pub(crate) bridge_x: i32,
     #[observe]
     pub(crate) passage: Option<PassageFrame>,
+    #[observe]
+    pub(crate) camera_frame: CameraFrame,
+    camera: CameraRig,
     held: u8,
     touch: u8,
     suspended: bool,
@@ -103,6 +109,7 @@ impl FluxRun {
 
     fn new(owner: Entity, compact: bool, tone: SceneTone) -> Self {
         let game = Game::new(0x4652_554e);
+        let camera = CameraRig::new(game.ship.location);
         Self {
             stage: StackStage::bounded(presentation::STAGE_CAPACITY).into(),
             owner,
@@ -111,6 +118,8 @@ impl FluxRun {
             camera_scale: Fixed::from_int(4),
             bridge_x: game.harbor.bridge,
             passage: None,
+            camera_frame: camera.frame(game.ship.location),
+            camera,
             game,
             compact,
             tone,
@@ -124,6 +133,7 @@ impl FluxRun {
     fn refresh(&mut self) {
         self.bridge_x = self.game.harbor.bridge;
         self.passage = self.game.passage_frame();
+        self.camera_frame = self.camera.frame(self.game.ship.location);
         self.marks = Marks::from_game(&self.game);
         self.hud = Hud::from_game(&self.game);
     }
@@ -137,6 +147,10 @@ impl FluxRun {
 
 #[mirui::model]
 impl FluxRun {
+    pub(crate) fn cycle_camera(&mut self) {
+        self.camera.next(self.game.ship.location);
+    }
+
     pub(crate) fn set_tone(&mut self, tone: SceneTone) {
         self.tone = tone;
     }
@@ -180,13 +194,15 @@ impl FluxRun {
         self.game.elapsed_ms(
             delta,
             Controls {
-                axis: presentation::steer_on_screen(
+                axis: steer_on_screen(
                     pressed(Control::Right) - pressed(Control::Left),
                     pressed(Control::Up) - pressed(Control::Down),
+                    self.camera_frame.yaw,
                 ),
                 magnet: pressed(Control::Magnet) != 0,
             },
         );
+        self.camera.tick(delta.min(100));
         self.refresh();
     }
 
@@ -248,10 +264,15 @@ impl FluxRun {
             PhysicalKey::ArrowDown | PhysicalKey::KeyS => Control::Down,
             PhysicalKey::ArrowLeft | PhysicalKey::KeyA => Control::Left,
             PhysicalKey::Space | PhysicalKey::KeyJ => Control::Magnet,
-            PhysicalKey::Escape | PhysicalKey::KeyP | PhysicalKey::KeyT | PhysicalKey::Enter => {
+            PhysicalKey::Escape
+            | PhysicalKey::KeyP
+            | PhysicalKey::KeyT
+            | PhysicalKey::KeyV
+            | PhysicalKey::Enter => {
                 if pressed && !repeat {
                     match key {
                         PhysicalKey::KeyT => self.set_autoplay(self.game.mode != Mode::Auto),
+                        PhysicalKey::KeyV => self.cycle_camera(),
                         PhysicalKey::Enter => match self.game.session {
                             Session::Title | Session::Results => self.start(Mode::Manual),
                             Session::Paused => self.menu(),

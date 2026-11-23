@@ -134,3 +134,38 @@ fn session_panels_leave_the_viewport_and_zoom_in_place() {
         }
     }
 }
+
+#[test]
+fn camera_changes_retarget_smoothly_and_keep_up_in_screen_space() {
+    let mut app = App::headless(320, 300);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let model = setup_app(&mut app, root);
+    model.update(|state| {
+        state.start(Mode::Manual);
+        let initial = state.camera_frame.yaw;
+        state.on_key(PhysicalKey::KeyV, true, false);
+        state.advance(80);
+        assert!(state.camera_frame.yaw < initial);
+        for _ in 0..3 {
+            state.advance(100);
+        }
+        assert_eq!(state.camera_frame.pitch, Fixed::from_int(25));
+        state.button(Control::Up, true);
+        state.advance(crate::gameplay::STEP_MS);
+        assert!(state.game.ship.velocity[0] < Fixed::ZERO);
+        assert!(state.game.ship.velocity[1] > Fixed::ZERO);
+        state.retry();
+        state.cycle_camera();
+        state.advance(100);
+        assert!(state.camera_frame.pitch > Fixed::from_int(25));
+        for _ in 0..3 {
+            state.advance(100);
+        }
+        assert_eq!(state.camera_frame.pitch, Fixed::from_int(90));
+        state.button(Control::Up, true);
+        state.advance(crate::gameplay::STEP_MS);
+        assert_eq!(state.game.ship.velocity[0], Fixed::ZERO);
+        assert!(state.game.ship.velocity[1] > Fixed::ZERO);
+    });
+}

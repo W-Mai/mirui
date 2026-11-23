@@ -1,4 +1,3 @@
-use super::CAMERA_YAW;
 use crate::{
     app::{Control, FluxRun, Hud},
     gameplay::{Mode, Session},
@@ -10,13 +9,14 @@ use mirui::{
     ui::theme::ColorToken::{OnSurface, Surface, SurfaceVariant},
     ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign, TextOverflow},
 };
-use mirui_sprite_stack::{Camera, Resolution, StackViewport};
+use mirui_sprite_stack::{Resolution, StackViewport};
 
 #[derive(Clone, Copy)]
 enum Action {
     Play,
     Autopilot,
     Pause,
+    Camera,
     Resume,
     TogglePilot,
     Retry,
@@ -30,6 +30,8 @@ impl Action {
             Self::Play => "PLAY",
             Self::Autopilot => "AUTO",
             Self::Pause => "II",
+            Self::Camera if compact => "V",
+            Self::Camera => "VIEW",
             Self::Resume => "GO",
             Self::TogglePilot if mode == Mode::Manual => "AUTO",
             Self::TogglePilot if compact => "HAND",
@@ -71,6 +73,7 @@ fn action(model: model!(FluxRun), input: Action, height: u16, compact: bool) -> 
                 Action::Play => model.start(Mode::Manual),
                 Action::Autopilot => model.start(Mode::Auto),
                 Action::Pause | Action::Resume => model.menu(),
+                Action::Camera => model.cycle_camera(),
                 Action::TogglePilot => model.set_autoplay(model.hud().mode != Mode::Auto),
                 Action::Retry => model.retry(),
                 Action::End => model.finish(),
@@ -128,31 +131,11 @@ fn status(hud: Hud, compact: bool) -> &'static str {
 
 #[mirui::compose]
 pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
-    use Action::{Autopilot, End, Pause, Play, Resume, Retry, Title, TogglePilot};
+    use Action::{Autopilot, Camera, End, Pause, Play, Resume, Retry, Title, TogglePilot};
     use Control::{Down, Left, Magnet, Right, Up};
     if !res!(optional MonoClock).with(|clock| clock.is_some()) {
         res!().insert(MonoClock::from_time_source());
     }
-    let camera = Camera {
-        center: [
-            Fixed::from_int(36),
-            Fixed::from_int(if compact { 3 } else { 1 }),
-            Fixed::from_int(36),
-        ],
-        yaw: CAMERA_YAW,
-        pitch: Fixed::from_int(if compact { 48 } else { 41 }),
-        scale: if compact {
-            Fixed::from_ratio(3, 4)
-        } else {
-            Fixed::from_int(4)
-        },
-        range: Fixed::from_int(80),
-        focal_distance: if compact {
-            None
-        } else {
-            Some(Fixed::from_int(230))
-        },
-    };
     let resolution = if compact {
         Resolution::Native
     } else {
@@ -187,7 +170,7 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                 height: header,
                 shrink: 0.0,
                 padding: Padding::all(pad),
-                gap: gap,
+                gap: if compact { 1 } else { gap },
                 bg_color: SurfaceVariant,
                 align: AlignItems::Center
             ) {
@@ -211,7 +194,10 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                     text_color: OnSurface,
                     paragraph: label.clone()
                 )
-                View (width: if compact { 26 } else { 48 }, height: controls, shrink: 0.0) {
+                View (width: if compact { 18 } else { 80 }, height: controls, shrink: 0.0) {
+                    action (model.clone(), Camera, controls, compact)
+                }
+                View (width: if compact { 20 } else { 48 }, height: controls, shrink: 0.0) {
                     if ${ model.hud().session == Session::Running } {
                         action (model.clone(), Pause, controls, compact)
                     }
@@ -220,17 +206,8 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
             StackViewport (
                 stage: model.stage(),
                 camera: ${
-                    let mut camera = camera;
-                    if !compact {
-                        camera.scale = model.camera_scale();
-                    }
-                    if let Some(passage) = model.passage() {
-                        let follow = passage.focus * Fixed::from_ratio(3, 4);
-                        camera.center[0] += (passage.center[0] - camera.center[0]) * follow;
-                        camera.center[2] += (passage.center[1] - camera.center[2]) * follow;
-                        camera.scale = camera.scale * (Fixed::ONE + follow);
-                    }
-                    camera
+                    let scale = if compact { Fixed::from_ratio(3, 4) } else { model.camera_scale() };
+                    model.camera_frame().camera(scale, compact, model.passage())
                 },
                 resolution: resolution,
                 grow: if compact { 0.0 } else { 1.0 },

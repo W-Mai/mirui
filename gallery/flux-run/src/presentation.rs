@@ -11,6 +11,7 @@ use mirui_sprite_stack::{
 };
 
 mod assets;
+pub(crate) mod camera;
 pub(crate) mod sound;
 mod view;
 pub(crate) use assets::SceneTone;
@@ -28,12 +29,6 @@ const LOCK: usize = ALERT_START + GUARDS;
 const FIELD: usize = LOCK + 1;
 const MARKS: usize = FIELD + 1;
 pub(crate) const STAGE_CAPACITY: usize = MARKS + 2;
-pub(crate) const CAMERA_YAW: Fixed = Fixed::from_int(45);
-
-pub(crate) fn steer_on_screen(right: i8, up: i8) -> [i8; 2] {
-    // The inverse of the viewport's 45-degree yaw, omitting the common scale.
-    [right + up, up - right]
-}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Tint {
