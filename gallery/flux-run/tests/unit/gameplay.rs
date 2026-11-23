@@ -16,12 +16,23 @@ fn generated_harbors_keep_a_connected_lower_bypass() {
             assert_eq!(boundary.point[0], Fixed::from_int(extent - 5));
             different += usize::from(harbor.layout != first.layout);
             let launch = Location::new(harbor.bridge, 8, false);
+            assert_eq!(harbor.cargo_gate.is_some(), level > 1);
+            if let (Some(other), Some(start)) = (harbor.cargo_gate, harbor.layout.freight_row()) {
+                let cargo = harbor.cores[2];
+                assert!(harbor.layout.cell(cargo.point)[1] >= start);
+                assert!((0..harbor.layout.side()).any(|x| harbor.layout.blocked(x, start)));
+                for gate in [harbor.gate, other] {
+                    assert!(harbor.layout.way_to(cargo.point, gate.point).is_some());
+                }
+                assert_eq!(harbor.nearest_gate(other), other);
+            }
             for destination in harbor
                 .cores
                 .iter()
                 .copied()
                 .filter(|core| !core.upper)
                 .chain([harbor.gate, harbor.exit, launch])
+                .chain(harbor.cargo_gate)
             {
                 assert!(
                     harbor
@@ -71,6 +82,28 @@ fn pilot_crosses_the_open_gate_and_changes_harbor_behind_the_cover() {
     assert!(game.passage_frame().is_none());
     assert_eq!(game.ship.location, SPAWN);
     assert_eq!(game.total, score);
+}
+
+#[test]
+fn freight_gate_recovers_a_core_and_counts_it_once() {
+    let mut game = Game::new(7);
+    game.start();
+    game.level = 2;
+    game.restart();
+    let gate = game.harbor.cargo_gate.unwrap();
+    let [x, z] = gate.point;
+    game.cores[0].body = Body {
+        location: Location {
+            point: [x, z - Fixed::from_int(5)],
+            upper: false,
+        },
+        velocity: [Fixed::ZERO, Fixed::from_int(2)],
+    };
+    game.elapsed_ms(STEP_MS, Controls::default());
+    assert!(game.cores[0].collected);
+    assert_eq!(game.result.collected, 1);
+    game.elapsed_ms(STEP_MS, Controls::default());
+    assert_eq!(game.result.collected, 1);
 }
 
 #[test]

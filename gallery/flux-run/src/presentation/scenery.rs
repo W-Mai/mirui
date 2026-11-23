@@ -4,7 +4,7 @@ use mirui_sprite_stack::{HeightField, Pose, StackVisual, TerrainCell, TerrainGri
 use super::assets::{BEACON, CARGO, GRATE, Material, SceneTone, VENT};
 use crate::world::{BRIDGE_END, BRIDGE_START, CELL_SIZE, Harbor, Layout};
 
-pub(super) const MAX_PROPS: usize = 14;
+pub(super) const MAX_PROPS: usize = 16;
 
 pub(super) fn floor(harbor: &Harbor, detail: usize, tone: SceneTone) -> HeightField {
     let layout = &harbor.layout;
@@ -46,6 +46,12 @@ pub(super) fn floor(harbor: &Harbor, detail: usize, tone: SceneTone) -> HeightFi
                 || (BRIDGE_END - 4..=BRIDGE_END + 3).contains(&(z as i32 * cell)))
         {
             Material::Paint
+        } else if layout.freight_row().is_some_and(|start| row >= start) {
+            if detail != 0 && z % (subdivisions * 2) == 0 && x % 4 < 2 {
+                Material::Paint
+            } else {
+                Material::Freight
+            }
         } else if col == 2 || col == layout.side() - 3 || row == 3 {
             if detail != 0 && x % subdivisions == 0 && z % 4 < 2 {
                 Material::Paint

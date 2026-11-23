@@ -95,6 +95,7 @@ pub(super) enum Material {
     Roof,
     RoofEdge,
     RoofPanel,
+    Freight,
 }
 
 static DAY: ScenePalette = palette(
@@ -124,6 +125,7 @@ static DAY: ScenePalette = palette(
         Color::rgb(153, 132, 114), // Roof
         Color::rgb(122, 104, 92),  // Roof edging
         Color::rgb(186, 155, 133), // Roof panel
+        Color::rgb(179, 187, 161), // Freight apron
     ],
 );
 
@@ -154,6 +156,7 @@ static NIGHT: ScenePalette = palette(
         Color::rgb(105, 74, 62),
         Color::rgb(79, 56, 50),
         Color::rgb(136, 98, 81),
+        Color::rgb(80, 103, 84),
     ],
 );
 

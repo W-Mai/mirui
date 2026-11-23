@@ -540,12 +540,13 @@ impl Game {
             core.body.velocity = limited(core.body.velocity, Fixed::from_int(2));
             core.body.slide(&self.harbor, self.result.ticks);
             let current = core.body.location;
-            let gate = if current.upper {
-                self.harbor.high_gate()
-            } else {
-                self.harbor.gate
-            };
-            if swept(at, current, gate, GATE_RADIUS) {
+            let recovered = self
+                .harbor
+                .recovery_gates(current.upper)
+                .into_iter()
+                .flatten()
+                .any(|gate| swept(at, current, gate, GATE_RADIUS));
+            if recovered {
                 core.collected = true;
                 if self.tether == Some(slot) {
                     self.tether = None;

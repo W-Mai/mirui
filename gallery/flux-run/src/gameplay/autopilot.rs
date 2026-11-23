@@ -8,8 +8,14 @@ pub(super) struct Pilot {
     released: u16,
     retry_at: u32,
     route: Option<Route>,
-    towing: Option<(usize, u32)>,
+    towing: Option<Tow>,
     avoid: Option<(usize, u32)>,
+}
+
+struct Tow {
+    slot: usize,
+    started: u32,
+    gate: Location,
 }
 
 struct Route {
@@ -25,23 +31,31 @@ impl Pilot {
         let ship = game.ship.location;
         let tick = game.result.ticks;
         if let Some(slot) = game.tether {
-            if self.towing.is_none_or(|(old, _)| old != slot) {
-                self.towing = Some((slot, tick));
-            }
-            if let Some((_, started)) = self.towing
-                && tick.saturating_sub(started) >= 420
-            {
+            let core = game.cores[slot].body;
+            let tow = if let Some(tow) = self.towing.as_ref().filter(|tow| tow.slot == slot) {
+                tow
+            } else {
+                self.towing.insert(Tow {
+                    slot,
+                    started: tick,
+                    gate: game.harbor.nearest_gate(core.location),
+                })
+            };
+            if tick.saturating_sub(tow.started) >= 420 {
                 self.avoid = Some((slot, tick.saturating_add(540)));
                 self.towing = None;
                 self.following = None;
                 self.released = 40;
                 return Controls::default();
             }
-            let core = game.cores[slot].body;
-            let gate = if core.location.upper {
-                game.harbor.high_gate()
+            let gate = if core.location.upper != tow.gate.upper {
+                let gate = game.harbor.nearest_gate(core.location);
+                if let Some(tow) = self.towing.as_mut() {
+                    tow.gate = gate;
+                }
+                gate
             } else {
-                game.harbor.gate
+                tow.gate
             };
             let to_gate = offset(gate.point, core.location.point);
             let speed = length_squared(core.velocity);
@@ -81,16 +95,24 @@ impl Pilot {
             self.released -= 1;
             return Controls::default();
         }
+        if let Some(slot) = self.following
+            && tick >= self.retry_at
+            && game.cores[slot].active()
+        {
+            self.avoid = Some((slot, tick.saturating_add(360)));
+        }
         let avoid = self.avoid;
         let available = |slot| avoid.is_none_or(|(avoid, until)| avoid != slot || tick >= until);
-        if self.following.is_none_or(|slot| !game.cores[slot].active()) || tick >= self.retry_at {
-            let previous = self.following;
+        if self
+            .following
+            .is_none_or(|slot| !game.cores[slot].active() || !available(slot))
+        {
             self.following = game
                 .cores
                 .iter()
                 .enumerate()
                 .filter(|(slot, item)| item.active() && available(*slot))
-                .min_by_key(|(slot, item)| {
+                .min_by_key(|(_, item)| {
                     let distance = length_squared(offset(item.body.location.point, ship.point));
                     distance
                         + Fixed::from_int(if item.body.location.upper == ship.upper {
@@ -98,7 +120,6 @@ impl Pilot {
                         } else {
                             2600
                         })
-                        + Fixed::from_int(if Some(*slot) == previous { 500 } else { 0 })
                 })
                 .map(|(slot, _)| slot);
             self.retry_at = tick.saturating_add(330);

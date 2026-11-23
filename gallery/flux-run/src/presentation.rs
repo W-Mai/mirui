@@ -19,7 +19,7 @@ const CORE_START: usize = 1;
 const GUARD_START: usize = CORE_START + CORES;
 const LINK_START: usize = GUARD_START + GUARDS;
 const GATE_START: usize = LINK_START + 4;
-const EXIT_MARK: usize = GATE_START + 2;
+const EXIT_MARK: usize = GATE_START + 3;
 const ENTRANCE_MARK: usize = EXIT_MARK + 1;
 const ALERT_START: usize = ENTRANCE_MARK + 1;
 const LOCK: usize = ALERT_START + GUARDS;
@@ -129,6 +129,7 @@ impl Marks {
         }
         marks[GATE_START] = Some(Mark::at(game.harbor.gate));
         marks[GATE_START + 1] = Some(Mark::at(game.harbor.high_gate()));
+        marks[GATE_START + 2] = game.harbor.cargo_gate.map(Mark::at);
         let mut exit = Mark::at(game.harbor.exit);
         exit.tint = if game.ready() {
             Tint::Normal

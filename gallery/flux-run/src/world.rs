@@ -58,6 +58,7 @@ pub struct Harbor {
     pub guard_count: u8,
     pub phase: u16,
     pub gate: Location,
+    pub(crate) cargo_gate: Option<Location>,
     pub exit: Location,
     pub(crate) bridge: i32,
     pub(crate) layout: Layout,
@@ -70,7 +71,7 @@ pub(crate) struct Layout {
 }
 
 impl Layout {
-    fn generate(side: usize, next: &mut impl FnMut() -> i32) -> Self {
+    fn generate(side: usize, west: bool, next: &mut impl FnMut() -> i32) -> Self {
         let mut rows = [0; MAX_SIDE];
         // Two open columns separate the warehouse bays even when both shift inward.
         for (front, left) in [(4, 2), (4, side - 5), (8, 2), (8, side - 5)] {
@@ -80,10 +81,32 @@ impl Layout {
                 *rz |= 3 << column;
             }
         }
+        if let Some(start) = Self::freight_start(side) {
+            // Freight sheds leave a central alley and wider routes around both quays.
+            // The larger docks have sheds on both sides of the alley.
+            let west_shed = 4;
+            let east_shed = side - 6;
+            let sheds = if side >= INITIAL_SIDE + 4 {
+                (3 << west_shed) | (3 << east_shed)
+            } else {
+                3 << if west { west_shed } else { east_shed }
+            };
+            for row in &mut rows[start..start + 2] {
+                *row |= sheds;
+            }
+        }
         Self {
             side: side as u8,
             rows,
         }
+    }
+
+    fn freight_start(side: usize) -> Option<usize> {
+        (side > INITIAL_SIDE).then_some(side - 4)
+    }
+
+    pub(crate) fn freight_row(&self) -> Option<usize> {
+        Self::freight_start(self.side())
     }
 
     pub(crate) fn side(&self) -> usize {
@@ -217,17 +240,18 @@ impl Harbor {
         let edge = side as i32 * CELL_SIZE;
         let added = edge - INITIAL_EXTENT;
         let bridge = edge / 2 + [-12, 0, 12][next() as usize % 3];
-        let layout = Layout::generate(side, &mut next);
+        let layout = Layout::generate(side, west, &mut next);
+        let west_core = Location::new(8 + next() % 4, 24 + next() % 12, false);
+        let east_core = Location::new(61 + added + next() % 5, 28 + next() % 10, false);
+        let cross_bay = 32 + added / 2 + next() % 8;
+        let inland = 43 + next() % 9;
+        let cargo = Location::new(cross_bay, if added == 0 { inland } else { edge - 9 }, false);
         Self {
             district,
             cores: [
-                Location::new(8 + next() % 4, 24 + next() % 12, false),
-                Location::new(61 + added + next() % 5, 28 + next() % 10, false),
-                Location::new(
-                    edge / 2 - 4 + next() % 8,
-                    43 + added / 2 + next() % 9,
-                    false,
-                ),
+                west_core,
+                east_core,
+                cargo,
                 Location::new(bridge - 2 + next() % 5, 33 + next() % 12, true),
                 Location::new(8 + next() % 4, 48 + added + next() % 10, false),
             ]
@@ -260,6 +284,8 @@ impl Harbor {
             },
             phase: (next() % 240) as u16,
             gate: Location::new(if west { 13 } else { edge - 13 }, edge - 10, false),
+            cargo_gate: (added != 0)
+                .then(|| Location::new(if west { edge - 13 } else { 13 }, edge - 10, false)),
             exit: Location::new(edge - 14, 13, false),
             bridge,
             layout,
@@ -272,6 +298,24 @@ impl Harbor {
 
     pub(crate) fn high_gate(&self) -> Location {
         Location::new(self.bridge, 54, true)
+    }
+
+    pub(crate) fn recovery_gates(&self, upper: bool) -> [Option<Location>; 2] {
+        if upper {
+            [Some(self.high_gate()), None]
+        } else {
+            [Some(self.gate), self.cargo_gate]
+        }
+    }
+
+    pub(crate) fn nearest_gate(&self, cargo: Location) -> Location {
+        if cargo.upper {
+            return self.high_gate();
+        }
+        let distance = |gate: Location| length_squared(offset(cargo.point, gate.point));
+        self.cargo_gate
+            .filter(|&gate| distance(gate) < distance(self.gate))
+            .unwrap_or(self.gate)
     }
 
     pub fn lock_closed(&self, tick: u32) -> bool {
