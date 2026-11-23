@@ -9,7 +9,7 @@ cargo run -p gallery --example flux_run_demo --features flux-run --release
 cargo run -p gallery --example flux_run_demo --features flux-run --release -- --compact --auto
 ```
 
-Use the arrow keys or WASD to steer relative to the screen, hold Space or J to attach the magnet, and release to throw. Enter starts or resumes a run. Press P to pause or T to switch between manual and automatic play. Press V or use View to cycle the harbor overview, skiff follow and overhead survey. Esc also pauses in the desktop example. The bottom bar provides touch controls. The title screen also starts either mode directly.
+Use the arrow keys or WASD to steer relative to the screen, hold Space or J to attach the magnet, and release to throw. Enter starts or resumes a run. Press P to pause or T to switch between manual and automatic play. Open View to choose eight compass directions, Top or Follow. On Compact, tap V to cycle through all ten views. The number keys select the corresponding compass direction in a keypad grid, with 5 for Top and 0 for Follow. The V key cycles overview, follow and overhead. Esc also pauses in the desktop example. The bottom bar provides touch controls. The title screen also starts either mode directly.
 
 ## Scene and game rules
 

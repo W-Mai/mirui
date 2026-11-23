@@ -2,7 +2,7 @@ use crate::{
     gameplay::{Controls, Cue, Game, Mode, PassageFrame, Session},
     presentation::{
         self, Marks, SceneTone, build,
-        camera::{CameraFrame, CameraRig, steer_on_screen},
+        camera::{CameraFrame, CameraRig, Viewpoint, steer_on_screen},
     },
     world::District,
 };
@@ -91,6 +91,8 @@ pub struct FluxRun {
     pub(crate) passage: Option<PassageFrame>,
     #[observe]
     pub(crate) camera_frame: CameraFrame,
+    #[observe]
+    pub(crate) camera_menu: bool,
     camera: CameraRig,
     held: u8,
     touch: u8,
@@ -119,6 +121,7 @@ impl FluxRun {
             bridge_x: game.harbor.bridge,
             passage: None,
             camera_frame: camera.frame(game.ship.location, game.harbor.extent()),
+            camera_menu: false,
             camera,
             game,
             compact,
@@ -149,9 +152,35 @@ impl FluxRun {
 
 #[mirui::model]
 impl FluxRun {
+    #[observe]
+    pub(crate) fn viewpoint(&self) -> Viewpoint {
+        self.camera.viewpoint()
+    }
+
+    pub(crate) fn toggle_camera_menu(&mut self) {
+        if self.passage.is_none() {
+            self.camera_menu = !self.camera_menu;
+        }
+    }
+
+    pub(crate) fn select_camera(&mut self, viewpoint: Viewpoint) {
+        if self.passage.is_some() {
+            return;
+        }
+        self.camera.select(
+            viewpoint,
+            self.game.ship.location,
+            self.game.harbor.extent(),
+        );
+        self.camera_menu = false;
+    }
+
+    pub(crate) fn cycle_compact_camera(&mut self) {
+        self.select_camera(self.viewpoint().next_compact());
+    }
+
     pub(crate) fn cycle_camera(&mut self) {
-        self.camera
-            .next(self.game.ship.location, self.game.harbor.extent());
+        self.select_camera(self.viewpoint().next());
     }
 
     pub(crate) fn set_tone(&mut self, tone: SceneTone) {
@@ -206,6 +235,9 @@ impl FluxRun {
             },
         );
         self.camera.tick(delta.min(100));
+        if self.game.session == Session::Departed {
+            self.camera_menu = false;
+        }
         self.refresh();
     }
 
@@ -261,6 +293,25 @@ impl FluxRun {
 
 impl FluxRun {
     fn on_key(&mut self, key: PhysicalKey, pressed: bool, repeat: bool) -> bool {
+        let viewpoint = match key {
+            PhysicalKey::Digit7 | PhysicalKey::Numpad7 => Some(Viewpoint::Northwest),
+            PhysicalKey::Digit8 | PhysicalKey::Numpad8 => Some(Viewpoint::North),
+            PhysicalKey::Digit9 | PhysicalKey::Numpad9 => Some(Viewpoint::Northeast),
+            PhysicalKey::Digit4 | PhysicalKey::Numpad4 => Some(Viewpoint::West),
+            PhysicalKey::Digit5 | PhysicalKey::Numpad5 => Some(Viewpoint::Overhead),
+            PhysicalKey::Digit6 | PhysicalKey::Numpad6 => Some(Viewpoint::East),
+            PhysicalKey::Digit1 | PhysicalKey::Numpad1 => Some(Viewpoint::Southwest),
+            PhysicalKey::Digit2 | PhysicalKey::Numpad2 => Some(Viewpoint::South),
+            PhysicalKey::Digit3 | PhysicalKey::Numpad3 => Some(Viewpoint::Southeast),
+            PhysicalKey::Digit0 | PhysicalKey::Numpad0 => Some(Viewpoint::Follow),
+            _ => None,
+        };
+        if let Some(viewpoint) = viewpoint {
+            if pressed && !repeat {
+                self.select_camera(viewpoint);
+            }
+            return true;
+        }
         let control = match key {
             PhysicalKey::ArrowUp | PhysicalKey::KeyW => Control::Up,
             PhysicalKey::ArrowRight | PhysicalKey::KeyD => Control::Right,
@@ -281,6 +332,7 @@ impl FluxRun {
                             Session::Paused => self.menu(),
                             Session::Running | Session::Departed => (),
                         },
+                        PhysicalKey::Escape if self.camera_menu => self.toggle_camera_menu(),
                         _ => self.menu(),
                     }
                 }

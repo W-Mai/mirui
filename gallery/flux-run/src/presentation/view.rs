@@ -1,3 +1,4 @@
+use super::camera::Viewpoint;
 use crate::{
     app::{Control, FluxRun, Hud},
     gameplay::{Mode, Session},
@@ -73,11 +74,77 @@ fn action(model: model!(FluxRun), input: Action, height: u16, compact: bool) -> 
                 Action::Play => model.start(Mode::Manual),
                 Action::Autopilot => model.start(Mode::Auto),
                 Action::Pause | Action::Resume => model.menu(),
-                Action::Camera => model.cycle_camera(),
+                Action::Camera if compact => model.cycle_compact_camera(),
+                Action::Camera => model.toggle_camera_menu(),
                 Action::TogglePilot => model.set_autoplay(model.hud().mode != Mode::Auto),
                 Action::Retry => model.retry(),
                 Action::End => model.finish(),
                 Action::Title => model.title(),
+            }
+        }
+    }
+}
+
+#[mirui::compose]
+fn camera_option(model: model!(FluxRun), viewpoint: Viewpoint, height: u16) -> Entity {
+    ui! {
+        Button (
+            text: viewpoint.label(),
+            grow: 1.0,
+            min_width: 0,
+            height: height,
+            size: ButtonSize::Custom,
+            font_size: 12,
+            padding: Padding::all(0),
+            border_radius: 4,
+            normal_color: ${ if model.viewpoint() == viewpoint { OnSurface } else { Surface } },
+            text_color: ${ if model.viewpoint() == viewpoint { Surface } else { OnSurface } },
+            pressed_color: OnSurface,
+            pressed_text_color: Surface
+        ) on Tap { model.select_camera(viewpoint); }
+    }
+}
+
+#[mirui::compose]
+fn camera_row(model: model!(FluxRun), row: [Viewpoint; 3], height: u16) -> Entity {
+    ui! {
+        Row (height: height, gap: 4) {
+            camera_option (model.clone(), row[0], height)
+            camera_option (model.clone(), row[1], height)
+            camera_option (model.clone(), row[2], height)
+        }
+    }
+}
+
+#[mirui::compose]
+fn camera_panel(model: model!(FluxRun)) -> Entity {
+    let height = 26;
+    let [north, middle, south] = Viewpoint::COMPASS;
+    let follow = Viewpoint::Follow;
+    ui! {
+        Row (
+            position: Position::Absolute,
+            top: 0,
+            left: 0,
+            width: Dimension::percent(100),
+            height: 148,
+            justify: JustifyContent::FlexEnd,
+            padding: Padding::all(10)
+        ) {
+            Column (
+                width: 166,
+                height: 128,
+                padding: Padding::all(6),
+                gap: 4,
+                bg_color: SurfaceVariant,
+                border_radius: 8
+            ) {
+                camera_row (model.clone(), north, height)
+                camera_row (model.clone(), middle, height)
+                camera_row (model.clone(), south, height)
+                Row (height: height) {
+                    camera_option (model.clone(), follow, height)
+                }
             }
         }
     }
@@ -217,6 +284,11 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                 bg_color: Surface,
                 clip_children: true
             ) {
+                if !compact {
+                    if ${ model.camera_menu() } {
+                        camera_panel (model.clone())
+                    }
+                }
                 if ${ model.passage().is_some() } {
                     View (
                         position: Position::Absolute,

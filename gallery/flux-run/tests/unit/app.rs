@@ -167,5 +167,26 @@ fn camera_changes_retarget_smoothly_and_keep_up_in_screen_space() {
         state.advance(crate::gameplay::STEP_MS);
         assert_eq!(state.game.ship.velocity[0], Fixed::ZERO);
         assert!(state.game.ship.velocity[1] > Fixed::ZERO);
+
+        // Retargeting across south takes the 90-degree path across the seam.
+        state.on_key(PhysicalKey::Digit1, true, false);
+        for _ in 0..3 {
+            state.advance(100);
+        }
+        assert_eq!(state.camera_frame.yaw, Fixed::from_int(-135));
+        state.on_key(PhysicalKey::Digit3, true, false);
+        state.advance(100);
+        assert!(state.camera_frame.yaw < Fixed::from_int(-135));
+        let facing = Fixed::sin_deg(state.camera_frame.yaw);
+        state.on_key(PhysicalKey::Digit6, true, false);
+        state.advance(0);
+        assert!(
+            (Fixed::sin_deg(state.camera_frame.yaw) - facing).abs() <= Fixed::from_ratio(1, 128)
+        );
+        for _ in 0..3 {
+            state.advance(100);
+        }
+        assert_eq!(state.camera_frame.yaw, Fixed::from_int(90));
+        assert_eq!(state.viewpoint(), Viewpoint::East);
     });
 }
