@@ -54,9 +54,10 @@ struct PendingEffect {
 }
 
 impl PendingEffect {
-    fn enqueue(queue: &mut VecDeque<Self>, id: EffectId) {
-        if !queue.iter().any(|entry| entry.id == id) {
+    fn enqueue(queue: &mut VecDeque<Self>, id: EffectId, effect: &EffectInner) {
+        if !effect.queued.get() {
             queue.push_back(Self { id, order: 0 });
+            effect.queued.set(true);
         }
     }
 }
@@ -519,7 +520,11 @@ impl Drop for PaintRequestScope {
 }
 
 fn enqueue_effect(id: EffectId) {
-    with_reactive(|r| PendingEffect::enqueue(&mut r.dirty_effects, id));
+    with_reactive(|r| {
+        if let Some(effect) = r.effects.get(&id) {
+            PendingEffect::enqueue(&mut r.dirty_effects, id, &effect.borrow());
+        }
+    });
 }
 
 // Effects created outside a World may bind to one model owner on their first
@@ -597,7 +602,9 @@ fn publish_graph_source(source: SourceKey) {
         {
             match target {
                 Subscriber::Effect(effect) => {
-                    PendingEffect::enqueue(&mut r.dirty_effects, effect);
+                    if let Some(inner) = r.effects.get(&effect) {
+                        PendingEffect::enqueue(&mut r.dirty_effects, effect, &inner.borrow());
+                    }
                 }
                 Subscriber::Widget(entity) => {
                     let owner = match consumer.partition {
@@ -1019,6 +1026,7 @@ pub fn flush_signal_dirty(world: &mut World) {
                         r.dirty_effects.push_back(entry);
                         return None;
                     }
+                    effect.queued.set(false);
                     Some((id, effect.owner_entity, effect.role))
                 });
                 if let Some((effect, owner, role)) = effect {
@@ -1724,6 +1732,8 @@ struct EffectInner {
     graph_consumer: ConsumerKey,
     model_consumer: Option<ConsumerKey>,
     role: BindingRole,
+    // Tracks the full EffectId's membership in dirty_effects, including foreign entries.
+    queued: Cell<bool>,
 }
 
 /// Execution responsibility assigned by framework-generated bindings.
@@ -1752,7 +1762,9 @@ fn unregister_effect(id: EffectId) {
                 let _ = r.graph.remove_consumer(consumer);
             }
             let _ = r.graph.remove_consumer(effect.graph_consumer);
-            r.dirty_effects.retain(|queued| queued.id != id);
+            if effect.queued.get() {
+                r.dirty_effects.retain(|queued| queued.id != id);
+            }
             r.effect_slots.release(id.0);
         }
         removed
@@ -1842,6 +1854,7 @@ impl Effect {
                 graph_consumer,
                 model_consumer: None,
                 role,
+                queued: Cell::new(false),
             }));
             r.effects.insert(id, inner);
             if let Some(world) = owner_world {
@@ -2855,8 +2868,17 @@ mod tests {
 
     fn drain_effects() {
         loop {
-            let batch: Vec<EffectId> =
-                with_reactive(|r| r.dirty_effects.drain(..).map(|entry| entry.id).collect());
+            let batch: Vec<EffectId> = with_reactive(|r| {
+                r.dirty_effects
+                    .drain(..)
+                    .map(|entry| {
+                        if let Some(effect) = r.effects.get(&entry.id) {
+                            effect.borrow().queued.set(false);
+                        }
+                        entry.id
+                    })
+                    .collect()
+            });
             if batch.is_empty() {
                 break;
             }

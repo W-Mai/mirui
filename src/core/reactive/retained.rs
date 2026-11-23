@@ -87,8 +87,11 @@ fn wake_matching(world: &World, root: Entity, accepts: impl Fn(BindingRole) -> b
                     previous = Some(entity);
                     included = contains(entity);
                 }
-                if included && accepts(runtime.effects[&id].borrow().role) {
-                    PendingEffect::enqueue(&mut runtime.dirty_effects, id);
+                if included {
+                    let effect = runtime.effects[&id].borrow();
+                    if accepts(effect.role) {
+                        PendingEffect::enqueue(&mut runtime.dirty_effects, id, &effect);
+                    }
                 }
             }
             if runtime.dirty_effects.len() - queued > 1 {
@@ -104,7 +107,7 @@ fn wake_matching(world: &World, root: Entity, accepts: impl Fn(BindingRole) -> b
                 && accepts(effect.role)
                 && effect.owner_entity.is_some_and(&contains)
             {
-                PendingEffect::enqueue(&mut runtime.dirty_effects, id);
+                PendingEffect::enqueue(&mut runtime.dirty_effects, id, &effect);
             }
         }
     });

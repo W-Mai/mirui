@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enqueue reactive graph notifications in one subscriber pass using reserved consumer capacity.
 - Compute each pending Effect's ordering key once per batch sort.
 - Read attachment lifetimes only for matching View registration slots.
+- Deduplicate pending Effects through the live Effect record.
 
 ### Fixed
 

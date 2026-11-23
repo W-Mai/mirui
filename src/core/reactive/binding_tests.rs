@@ -177,3 +177,57 @@ fn sorting_pending_effects_keeps_new_work_outside_the_current_batch() {
         );
     });
 }
+
+#[test]
+fn pending_membership_survives_foreign_rotation_and_reused_effect_slots() {
+    let mut first = World::new();
+    let mut second = World::new();
+    let target = second.spawn_empty();
+    let source = Signal::new(0u32);
+    let effect = with_world_scope(&mut second, || {
+        let source = source.clone();
+        Effect::spawn(
+            move || {
+                source.get();
+            },
+            Some(target),
+            BindingRole::Display,
+        )
+    });
+    let retired = effect.id;
+    source.set(1);
+    flush_signal_dirty(&mut first);
+    source.set(2);
+    with_reactive(|r| assert!(r.dirty_effects.iter().map(|entry| entry.id).eq([retired])));
+    drop(effect);
+
+    let calls = Rc::new(Cell::new(0));
+    let replacement = with_world_scope(&mut second, || {
+        let source = source.clone();
+        let calls = calls.clone();
+        Effect::spawn(
+            move || {
+                source.get();
+                calls.set(calls.get() + 1);
+            },
+            Some(target),
+            BindingRole::Display,
+        )
+    });
+    assert_eq!(retired.0.slot, replacement.id.0.slot);
+    assert_ne!(retired.0.generation, replacement.id.0.generation);
+    enqueue_effect(retired);
+    source.set(3);
+    with_reactive(|r| {
+        assert!(
+            r.dirty_effects
+                .iter()
+                .map(|entry| entry.id)
+                .eq([replacement.id])
+        )
+    });
+    flush_signal_dirty(&mut second);
+    source.set(4);
+    flush_signal_dirty(&mut second);
+    assert_eq!(calls.get(), 3);
+}
