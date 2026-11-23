@@ -3585,6 +3585,49 @@ mod tests {
     }
 
     #[test]
+    fn subtree_wake_appends_only_matching_effects_in_registry_order() {
+        reset();
+        let mut world = World::new();
+        let mut other = World::new();
+        let root = world.spawn_empty();
+        let child = world.spawn_empty();
+        let outside = world.spawn_empty();
+        world.insert(child, crate::ui::Parent(root));
+        let (child_display, outside_display, root_display, ordinary) =
+            with_world_scope(&mut world, || {
+                (
+                    Effect::spawn(|| {}, Some(child), BindingRole::Display),
+                    Effect::spawn(|| {}, Some(outside), BindingRole::Display),
+                    Effect::spawn(|| {}, Some(root), BindingRole::Display),
+                    Effect::spawn(|| {}, Some(root), BindingRole::Ordinary),
+                )
+            });
+        let foreign_root = other.spawn_empty();
+        assert_eq!(foreign_root, root);
+        let _foreign = with_world_scope(&mut other, || {
+            Effect::spawn(|| {}, Some(foreign_root), BindingRole::Display)
+        });
+        enqueue_effect(outside_display.id);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                retained::wake_display(&world, root);
+                retained::wake_display(&world, root);
+                retained::wake(&world, root);
+            }),
+            0
+        );
+        with_reactive(|runtime| {
+            let expected = [
+                outside_display.id,
+                child_display.id,
+                root_display.id,
+                ordinary.id,
+            ];
+            assert!(runtime.dirty_effects.iter().copied().eq(expected));
+        });
+    }
+
+    #[test]
     fn computed_derives_and_recomputes() {
         reset();
         let n = Signal::new(2i32);

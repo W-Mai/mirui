@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Reuse the Effect ownership index to share ancestry checks when revealing retained UI.
+
 ### Fixed
 
 - Flux Run autoplay approaches ramp-side cores through a route wide enough for towing.

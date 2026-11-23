@@ -76,14 +76,35 @@ pub(crate) fn wake_display(world: &World, root: Entity) {
 }
 
 fn wake_matching(world: &World, root: Entity, accepts: impl Fn(BindingRole) -> bool) {
+    let contains = crate::ui::branch::subtree_membership(world, root);
     with_reactive(|runtime| {
+        if let Some(effects) = runtime.effect_index.entity_effects(world.id()) {
+            let queued = runtime.dirty_effects.len();
+            let mut previous = None;
+            let mut included = false;
+            for (entity, id) in effects {
+                if previous != Some(entity) {
+                    previous = Some(entity);
+                    included = contains(entity);
+                }
+                if included
+                    && accepts(runtime.effects[&id].borrow().role)
+                    && !runtime.dirty_effects.contains(&id)
+                {
+                    runtime.dirty_effects.push_back(id);
+                }
+            }
+            if runtime.dirty_effects.len() - queued > 1 {
+                // Wake order follows the registry even when entity IDs differ.
+                runtime.dirty_effects.make_contiguous()[queued..].sort_unstable();
+            }
+            return;
+        }
         for (&id, effect) in &runtime.effects {
             let effect = effect.borrow();
             if effect.owner_world == Some(world.id())
                 && accepts(effect.role)
-                && effect
-                    .owner_entity
-                    .is_some_and(|entity| crate::ui::branch::is_in_subtree(world, root, entity))
+                && effect.owner_entity.is_some_and(&contains)
                 && !runtime.dirty_effects.contains(&id)
             {
                 runtime.dirty_effects.push_back(id);

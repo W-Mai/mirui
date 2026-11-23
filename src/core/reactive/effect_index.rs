@@ -123,6 +123,39 @@ impl EffectIndex {
             .copied()
     }
 
+    pub fn entity_effects(
+        &self,
+        world: WorldId,
+    ) -> Option<impl Iterator<Item = (Entity, EffectId)> + '_> {
+        let world = world.diagnostic_id();
+        if self.worlds.get(&world).is_some_and(|owner| owner.releasing) {
+            return None;
+        }
+        let first = (
+            world,
+            0,
+            0,
+            EffectId(SlotId {
+                slot: 0,
+                generation: 0,
+            }),
+        );
+        let last = (
+            world,
+            u32::MAX,
+            u32::MAX,
+            EffectId(SlotId {
+                slot: u32::MAX,
+                generation: u32::MAX,
+            }),
+        );
+        Some(
+            self.entities
+                .range(first..=last)
+                .map(|&(_, id, generation, effect)| (Entity { id, generation }, effect)),
+        )
+    }
+
     pub fn first_entity(
         &self,
         world: WorldId,
