@@ -34,7 +34,6 @@ pub(super) enum CapacityKind {
     Owners,
     Sources,
     Consumers,
-    Pending,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -548,46 +547,8 @@ impl BitGraph {
         Ok(())
     }
 
-    fn check_publish(
-        &self,
-        source: SlotId,
-        partition: PartitionKey,
-        kind: PendingKind,
-    ) -> Result<(), GraphError> {
-        if !self.source_is_live(source) {
-            return Err(GraphError::StaleSource);
-        }
-        let mut needed = 0usize;
-        for (word, bits) in self.row(source.slot as usize).iter().copied().enumerate() {
-            let mut bits = bits;
-            while bits != 0 {
-                let slot = word * 64 + bits.trailing_zeros() as usize;
-                if self
-                    .consumers
-                    .get(slot)
-                    .is_some_and(|node| node.live && !node.pending && kind.matches(node.target))
-                {
-                    needed += 1;
-                }
-                bits &= bits - 1;
-            }
-        }
-        if self
-            .pending
-            .len()
-            .checked_add(needed)
-            .is_none_or(|count| count > self.consumer_limit)
-        {
-            return Err(GraphError::Full {
-                partition,
-                kind: CapacityKind::Pending,
-                limit: self.consumer_limit,
-            });
-        }
-        Ok(())
-    }
-
-    // check_publish has already verified capacity. This method does not call user code.
+    // The queue reserves one entry per admitted consumer. Each live consumer
+    // can be pending only once, and removal unlinks its entry before reuse.
     fn publish_checked(&mut self, source: SlotId, kind: PendingKind) {
         for word in 0..self.words_per_row {
             let mut bits = self.rows[source.slot as usize * self.words_per_row + word];
@@ -599,6 +560,8 @@ impl BitGraph {
                     && kind.matches(node.target)
                 {
                     node.pending = true;
+                    debug_assert!(self.pending.len() < self.consumer_limit);
+                    debug_assert!(self.pending.len() < self.pending.capacity());
                     self.pending.push_back(SlotId {
                         slot: slot as u32,
                         generation: node.generation,
@@ -1251,15 +1214,18 @@ impl ReactiveGraph {
     fn publish_kind(&mut self, source: SourceKey, kind: PendingKind) -> Result<(), GraphError> {
         match source.partition {
             PartitionKey::Shared => {
-                self.shared
-                    .check_publish(source.slot, PartitionKey::Shared, kind)?;
+                if !self.shared.source_is_live(source.slot) {
+                    return Err(GraphError::StaleSource);
+                }
                 for owner in &self.owners {
                     let proxy = owner
                         .shared_sources
                         .get(source.slot.slot as usize)
                         .and_then(|id| *id)
                         .ok_or(GraphError::StaleSource)?;
-                    owner.graph.check_publish(proxy, owner.key, kind)?;
+                    if !owner.graph.source_is_live(proxy) {
+                        return Err(GraphError::StaleSource);
+                    }
                 }
                 self.shared.publish_checked(source.slot, kind);
                 for owner in &mut self.owners {
@@ -1273,7 +1239,9 @@ impl ReactiveGraph {
                 let owner = self
                     .owner_by_key_mut(source.partition)
                     .ok_or(GraphError::StaleSource)?;
-                owner.graph.check_publish(source.slot, owner.key, kind)?;
+                if !owner.graph.source_is_live(source.slot) {
+                    return Err(GraphError::StaleSource);
+                }
                 owner.graph.publish_checked(source.slot, kind);
                 Ok(())
             }
@@ -1443,6 +1411,53 @@ pub(super) mod tests {
             entity = world.spawn_empty();
         }
         entity
+    }
+
+    #[test]
+    fn overlapping_publications_fit_a_full_pending_queue_after_slot_reuse() {
+        let mut graph = ReactiveGraph::new();
+        graph.reserve(GraphCapacity::new(2, 2, 0, 0, 0)).unwrap();
+        let first = graph.register_shared_source().unwrap();
+        let second = graph.register_shared_source().unwrap();
+        let target = Subscriber::Effect(super::super::EffectId(SlotId {
+            slot: 0,
+            generation: 1,
+        }));
+        let a = graph
+            .register_consumer(PartitionKey::Shared, target)
+            .unwrap();
+        let b = graph
+            .register_consumer(PartitionKey::Shared, target)
+            .unwrap();
+        graph.subscribe(first, a).unwrap();
+        graph.subscribe(second, a).unwrap();
+        graph.subscribe(second, b).unwrap();
+        assert_eq!(
+            tracked_allocations(|| {
+                graph.publish(first).unwrap();
+                graph.publish(second).unwrap();
+                assert_eq!(graph.shared.pending.len(), 2);
+                graph.remove_consumer(a).unwrap();
+                let replacement = graph
+                    .register_consumer(PartitionKey::Shared, target)
+                    .unwrap();
+                assert_eq!(replacement.slot.slot, a.slot.slot);
+                assert_ne!(replacement, a);
+                graph.subscribe(first, replacement).unwrap();
+                graph.publish(first).unwrap();
+                graph.publish(second).unwrap();
+                assert_eq!(
+                    graph.take_pending(PartitionKey::Shared).unwrap(),
+                    Some((b, target))
+                );
+                assert_eq!(
+                    graph.take_pending(PartitionKey::Shared).unwrap(),
+                    Some((replacement, target))
+                );
+                assert_eq!(graph.take_pending(PartitionKey::Shared).unwrap(), None);
+            }),
+            0
+        );
     }
 
     #[test]
