@@ -1,6 +1,7 @@
 use super::composition::build_widgets;
 use super::render::field_view;
 use super::state::Swarm;
+#[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 
@@ -10,6 +11,19 @@ fn step(swarm: model!(Swarm)) {
     swarm.tick();
 }
 
+/// Install the particle field using the application's clock.
+pub fn install<B, F>(app: &mut App<B, F>, parent: Entity)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    app.with_widget(field_view());
+    let swarm = app.add_model(Swarm::default()).finish();
+    app.add_timer(step::timer(swarm.clone()));
+    app.compose(parent, build_widgets(swarm));
+}
+
+#[cfg(feature = "std")]
 pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
@@ -17,8 +31,5 @@ where
 {
     crate::gallery::showcase_theme::install_sample(app);
     app.add_plugin(StdInstantClockPlugin);
-    app.with_widget(field_view());
-    let swarm = app.add_model(Swarm::default()).finish();
-    app.add_timer(step::timer(swarm.clone()));
-    app.compose(parent, build_widgets(swarm));
+    install(app, parent);
 }

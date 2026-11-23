@@ -2,7 +2,6 @@ extern crate alloc;
 
 mod composition;
 mod render;
-#[cfg(feature = "std")]
 mod runtime;
 mod state;
 
@@ -11,6 +10,7 @@ mod tests;
 
 pub use composition::build_widgets;
 pub use render::field_view;
+pub use runtime::install;
 #[cfg(feature = "std")]
 pub use runtime::setup_app;
 pub use state::Swarm;
