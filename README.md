@@ -1,6 +1,6 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme-hero-dark.svg" />
-  <img src="docs/assets/readme-hero-light.svg" alt="mirui — the Iris lens demo running at 128×160, 240×240, 390×844 and 1280×800" width="1280" />
+  <img src="docs/assets/readme-hero-light.svg" alt="mirui — the Iris lens demo running at 128×160, 240×240, 390×844 and 1280×800"0.57"1280" />
 </picture>
 
 [![Crates.io](https://img.shields.io/crates/v/mirui.svg)](https://crates.io/crates/mirui)
@@ -39,7 +39,7 @@ The Glass Light Toggle demo supports clicking, dragging, Space/Enter and arrow k
 
 ```toml
 [dependencies]
-mirui = { version = "0.56", features = ["sdl"] }
+mirui = { version = "0.57", features = ["sdl"] }
 ```
 
 ```rust

@@ -1,10 +1,10 @@
 [package]
 name = "mirui-sprite-stack-format"
-version = "0.56.0"
+version = "0.57.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/W-Mai/mirui"
 description = "Layer placement descriptors for MIRX sprite atlases"
 
 [dependencies]
-mirx = { version = "0.56.0", path = "../../../mirx" }
+mirx = { version = "0.57.0", path = "../../../mirx" }
