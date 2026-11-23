@@ -898,6 +898,9 @@ fn effect_tree_revision(world: &World) -> (u64, u64) {
 }
 
 fn order_effects(world: &World, remaining: usize) {
+    if remaining < 2 {
+        return;
+    }
     let retained = world.component_count(core::any::TypeId::of::<retained::RetainedEffects>()) > 0;
     if !retained
         && world.component_count(core::any::TypeId::of::<
@@ -908,6 +911,7 @@ fn order_effects(world: &World, remaining: usize) {
     }
     #[cfg(feature = "perf")]
     crate::trace_span!("reactive.order");
+    let ancestry_depth = retained::ancestry_depth(world);
     with_reactive(|runtime| {
         let count = remaining.min(runtime.dirty_effects.len());
         for (index, id) in runtime.dirty_effects.iter().take(count).enumerate() {
@@ -919,9 +923,7 @@ fn order_effects(world: &World, remaining: usize) {
                 } else if effect.role == BindingRole::Ordinary && !retained {
                     index
                 } else {
-                    effect
-                        .owner_entity
-                        .map_or(0, |entity| retained::depth(world, entity))
+                    effect.owner_entity.map_or(0, &ancestry_depth)
                 };
             }
         }
@@ -1000,29 +1002,19 @@ pub fn flush_signal_dirty(world: &mut World) {
                 }
                 let effect = with_reactive(|r| {
                     let id = r.dirty_effects.pop_front()?;
-                    match r.effects.get(&id).map(|effect| effect.borrow().owner_world) {
-                        Some(Some(owner)) if owner != world_id => {
-                            r.dirty_effects.push_back(id);
-                            None
-                        }
-                        Some(_) => Some(id),
-                        None => None,
+                    let effect = r.effects.get(&id)?.borrow();
+                    if effect.owner_world.is_some_and(|owner| owner != world_id) {
+                        r.dirty_effects.push_back(id);
+                        return None;
                     }
+                    Some((id, effect.owner_entity, effect.role))
                 });
-                if let Some(effect) = effect {
-                    let binding = with_reactive(|r| {
-                        r.effects.get(&effect).map(|effect| {
-                            let effect = effect.borrow();
-                            (effect.owner_entity, effect.role)
-                        })
-                    });
-                    if binding.is_some_and(|(owner, role)| {
-                        owner.is_some_and(|entity| {
-                            !world.is_alive(entity)
-                                || !retained::enabled(world, entity)
-                                || (role == BindingRole::Display
-                                    && !retained::display_enabled(world, entity))
-                        })
+                if let Some((effect, owner, role)) = effect {
+                    if owner.is_some_and(|entity| {
+                        !world.is_alive(entity)
+                            || !retained::enabled(world, entity)
+                            || (role == BindingRole::Display
+                                && !retained::display_enabled(world, entity))
                     }) {
                         continue;
                     }

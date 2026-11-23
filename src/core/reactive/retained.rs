@@ -167,15 +167,18 @@ fn enabled_at(world: &World, mut entity: Entity, issued: u64) -> bool {
     false
 }
 
-pub(super) fn depth(world: &World, mut entity: Entity) -> usize {
+pub(super) fn ancestry_depth(world: &World) -> impl Fn(Entity) -> usize + '_ {
     let parents = world.storage::<crate::ui::Parent>();
-    for depth in 0..=world.live_entity_count() {
-        let Some(parent) = parents.and_then(|parents| parents.get(entity)) else {
-            return depth;
-        };
-        entity = parent.0;
+    let limit = world.live_entity_count();
+    move |mut entity| {
+        for depth in 0..=limit {
+            let Some(parent) = parents.and_then(|parents| parents.get(entity)) else {
+                return depth;
+            };
+            entity = parent.0;
+        }
+        usize::MAX
     }
-    usize::MAX
 }
 
 #[cfg(test)]
