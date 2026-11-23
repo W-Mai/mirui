@@ -393,22 +393,13 @@ impl Harbor {
         let exit = Location::new(edge - 13, 13);
         let cargo_gate = (count > 1).then_some(Location::new(edge - 13, edge - 13));
         let mut cores = [SPAWN; CORES];
-        let bridge_core = count < CORES;
-        if bridge_core {
-            cores[CORES - 1] = bridges
-                .into_iter()
-                .flatten()
-                .next()
-                .expect("raised crossing")
-                .center();
-        }
-        for slot in 0..CORES - usize::from(bridge_core) {
+        for slot in 0..CORES {
             let dock = docks[slot % count].unwrap();
             cores[slot] = find_berth(&layout, dock, next(), |point| {
                 [SPAWN, gate, exit]
                     .into_iter()
                     .chain(cargo_gate)
-                    .chain(cores)
+                    .chain(cores[..slot].iter().copied())
                     .all(|other| !point.within(other, Fixed::from_int(8)))
             });
         }
@@ -529,8 +520,7 @@ fn find_berth(
             return at;
         }
     }
-    // Gates and ramps reserve a margin. The larger open perimeter also
-    // accommodates temporary traffic when all interior berths are occupied.
+    // Include shoreline berths if the interior is reserved for ramps and gates.
     for z in dock.min[1]..dock.end[1] {
         for x in dock.min[0]..dock.end[0] {
             let cell = [x, z];
@@ -542,7 +532,7 @@ fn find_berth(
             }
         }
     }
-    dock.center()
+    unreachable!("generated dock has no room for its reserved berths")
 }
 
 pub fn offset(a: [Fixed; 2], b: [Fixed; 2]) -> [Fixed; 2] {

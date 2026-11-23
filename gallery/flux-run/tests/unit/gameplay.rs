@@ -28,6 +28,12 @@ fn harbor_difficulty_adds_reachable_platforms_and_raised_crossings() {
                     "{seed} {level}: empty platform {dock:?}"
                 );
             }
+            for core in harbor.cores {
+                let [x, z] = harbor.layout.cell(core.point);
+                assert!(harbor.layout.on_land(x, z), "{seed} {level}: {core:?}");
+                assert!(!harbor.layout.on_bridge([x, z]), "{seed} {level}: {core:?}");
+                assert_eq!(harbor.height(core), Fixed::ZERO);
+            }
             for destination in harbor
                 .cores
                 .into_iter()
