@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add Flux Run, an endless SpriteStack salvage game with manual controls, automatic piloting and a Compact layout.
+- Add Flux Run, an endless SpriteStack salvage game with manual controls, automatic piloting and a full-screen Compact autoplay mode.
 - Generate Flux Run navigation lanes, warehouse obstacles and bridge positions from the harbor seed, with a larger playable area in each of the first four harbors.
 - Recover cargo from the expanded Flux Run freight yards through either shore gate.
 - Render Flux Run harbors with weathered paving, road markings, cargo stacks, roof vents and quay beacons in both themes.

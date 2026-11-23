@@ -190,6 +190,11 @@ impl CameraRig {
         }
     }
 
+    pub(crate) fn snap(&mut self, viewpoint: Viewpoint) {
+        self.viewpoint = viewpoint;
+        self.transition = Tween::ease_to(Fixed::ONE, Fixed::ONE, 0);
+    }
+
     pub(crate) fn select(&mut self, viewpoint: Viewpoint, ship: Location, extent: i32) {
         if self.viewpoint == viewpoint {
             return;

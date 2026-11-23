@@ -76,7 +76,7 @@ fn action(model: model!(FluxRun), input: Action, height: u16, compact: bool) -> 
                 Action::Pause | Action::Resume => model.menu(),
                 Action::Camera if compact => model.cycle_compact_camera(),
                 Action::Camera => model.toggle_camera_menu(),
-                Action::TogglePilot => model.set_autoplay(model.hud().mode != Mode::Auto),
+                Action::TogglePilot => model.set_pilot(model.hud().mode != Mode::Auto),
                 Action::Retry => model.retry(),
                 Action::End => model.finish(),
                 Action::Title => model.title(),
@@ -212,6 +212,11 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
             scale: NonZeroU16::MIN,
         }
     };
+    let exhibition_resolution = Resolution::Integer {
+        limit: [NonZeroU16::new(64).unwrap(); 2],
+        minimum: [1, 1],
+        scale: NonZeroU16::new(2).unwrap(),
+    };
     let font = if compact { 8 } else { 16 };
     let controls = if compact { 20 } else { 38 };
     let header = if compact { 24 } else { 60 };
@@ -232,54 +237,76 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
             min_height: 0,
             align: AlignItems::Center
         ) {
-            Row (
-                width: Dimension::percent(100),
-                height: header,
-                shrink: 0.0,
-                padding: Padding::all(pad),
-                gap: if compact { 1 } else { gap },
-                bg_color: SurfaceVariant,
-                align: AlignItems::Center
-            ) {
-                Text (
-                    text: if compact { "FLUX" } else { "FLUX RUN" },
-                    font_size: font,
-                    height: status_height,
-                    min_width: 0,
-                    grow: 1.0,
-                    text_color: OnSurface,
-                    paragraph: label.clone()
-                )
-                Text (
-                    text: ${
-                        let hud = model.hud();
-                        format!("{:02} {}/{}", hud.level, hud.cores, hud.quota)
-                    },
-                    font_size: font,
-                    height: status_height,
+            if ${ !model.exhibition() } {
+                Row (
+                    width: Dimension::percent(100),
+                    height: header,
                     shrink: 0.0,
-                    text_color: OnSurface,
-                    paragraph: label.clone()
-                )
-                View (width: if compact { 18 } else { 80 }, height: controls, shrink: 0.0) {
-                    action (model.clone(), Camera, controls, compact)
-                }
-                View (width: if compact { 20 } else { 48 }, height: controls, shrink: 0.0) {
-                    if ${ model.hud().session == Session::Running } {
-                        action (model.clone(), Pause, controls, compact)
+                    padding: Padding::all(pad),
+                    gap: if compact { 1 } else { gap },
+                    bg_color: SurfaceVariant,
+                    align: AlignItems::Center
+                ) {
+                    Text (
+                        text: if compact { "FLUX" } else { "FLUX RUN" },
+                        font_size: font,
+                        height: status_height,
+                        min_width: 0,
+                        grow: 1.0,
+                        text_color: OnSurface,
+                        paragraph: label.clone()
+                    )
+                    Text (
+                        text: ${
+                            let hud = model.hud();
+                            format!("{:02} {}/{}", hud.level, hud.cores, hud.quota)
+                        },
+                        font_size: font,
+                        height: status_height,
+                        shrink: 0.0,
+                        text_color: OnSurface,
+                        paragraph: label.clone()
+                    )
+                    View (width: if compact { 18 } else { 80 }, height: controls, shrink: 0.0) {
+                        action (model.clone(), Camera, controls, compact)
+                    }
+                    View (width: if compact { 20 } else { 48 }, height: controls, shrink: 0.0) {
+                        if ${ model.hud().session == Session::Running } {
+                            action (model.clone(), Pause, controls, compact)
+                        }
                     }
                 }
             }
             StackViewport (
                 stage: model.stage(),
                 camera: ${
-                    let scale = if compact { Fixed::from_ratio(3, 4) } else { model.camera_scale() };
+                    let scale = if model.exhibition() {
+                        Fixed::from_ratio(3, 5)
+                    } else if compact {
+                        Fixed::from_ratio(3, 4)
+                    } else {
+                        model.camera_scale()
+                    };
                     model.camera_frame().camera(scale, compact, model.passage())
                 },
-                resolution: resolution,
+                resolution: ${ if model.exhibition() { exhibition_resolution } else { resolution } },
                 grow: if compact { 0.0 } else { 1.0 },
-                width: if compact { Dimension::px(88) } else { Dimension::percent(100) },
-                height: if compact { Dimension::px(64) } else { Dimension::Auto },
+                width: ${
+                    if compact && !model.exhibition() {
+                        Dimension::px(88)
+                    } else {
+                        Dimension::percent(100)
+                    }
+                },
+                height: ${
+                    if model.exhibition() {
+                        Dimension::percent(100)
+                    } else if compact {
+                        Dimension::px(64)
+                    } else {
+                        Dimension::Auto
+                    }
+                },
                 min_height: 0,
                 bg_color: Surface,
                 clip_children: true
@@ -288,6 +315,26 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                     if ${ model.camera_menu() } {
                         camera_panel (model.clone())
                     }
+                }
+                if ${ model.exhibition() } {
+                    Text (
+                        position: Position::Absolute,
+                        left: 4,
+                        top: 4,
+                        width: 42,
+                        height: 12,
+                        font_size: 8,
+                        padding: Padding::all(1),
+                        text_color: OnSurface,
+                        bg_color: Surface,
+                        text: ${
+                            {
+                                let hud = model.hud();
+                                format!("{:02} {}/{}", hud.level, hud.cores, hud.quota)
+                            }
+                        },
+                        paragraph: ParagraphStyle::label()
+                    )
                 }
                 if ${ model.passage().is_some() } {
                     View (
@@ -310,78 +357,80 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                     model.fit_camera(pixels);
                 }
             }
-            Column (
-                width: Dimension::percent(100),
-                height: footer,
-                shrink: 0.0,
-                bg_color: Surface,
-                padding: Padding::all(pad),
-                gap: gap
-            ) {
-                Row (height: status_height, gap: gap, align: AlignItems::Center) {
-                    Text (
-                        text: ${ status(model.hud(), compact) },
-                        font_size: font,
-                        height: status_height,
-                        text_color: OnSurface,
-                        min_width: 0,
-                        grow: 1.0,
-                        paragraph: label.clone()
-                    )
-                    Text (
-                        text: ${
-                            let hud = model.hud();
-                            match hud.session {
-                                Session::Running => format!("{} HP", hud.life),
-                                Session::Departed | Session::Results if compact => format!("{} PTS", hud.score),
-                                Session::Departed | Session::Results => format!("{} REV", hud.revivals),
-                                _ => alloc::string::String::new(),
-                            }
-                        },
-                        font_size: font,
-                        height: status_height,
-                        text_color: OnSurface,
-                        paragraph: label.clone()
-                    )
-                }
-                Row (height: controls, gap: gap) {
-                    if ${ model.hud().session == Session::Title } {
-                        action (model.clone(), Play, controls, compact)
-                        action (model.clone(), Autopilot, controls, compact)
+            if ${ !model.exhibition() } {
+                Column (
+                    width: Dimension::percent(100),
+                    height: footer,
+                    shrink: 0.0,
+                    bg_color: Surface,
+                    padding: Padding::all(pad),
+                    gap: gap
+                ) {
+                    Row (height: status_height, gap: gap, align: AlignItems::Center) {
+                        Text (
+                            text: ${ status(model.hud(), compact) },
+                            font_size: font,
+                            height: status_height,
+                            text_color: OnSurface,
+                            min_width: 0,
+                            grow: 1.0,
+                            paragraph: label.clone()
+                        )
+                        Text (
+                            text: ${
+                                let hud = model.hud();
+                                match hud.session {
+                                    Session::Running => format!("{} HP", hud.life),
+                                    Session::Departed | Session::Results if compact => format!("{} PTS", hud.score),
+                                    Session::Departed | Session::Results => format!("{} REV", hud.revivals),
+                                    _ => alloc::string::String::new(),
+                                }
+                            },
+                            font_size: font,
+                            height: status_height,
+                            text_color: OnSurface,
+                            paragraph: label.clone()
+                        )
                     }
-                    if ${ model.hud().session == Session::Running } {
-                        control (model.clone(), Left, "<", controls)
-                        control (model.clone(), Up, "^", controls)
-                        control (model.clone(), Down, "v", controls)
-                        control (model.clone(), Right, ">", controls)
-                        control (model.clone(), Magnet, "MAG", controls)
+                    Row (height: controls, gap: gap) {
+                        if ${ model.hud().session == Session::Title } {
+                            action (model.clone(), Play, controls, compact)
+                            action (model.clone(), Autopilot, controls, compact)
+                        }
+                        if ${ model.hud().session == Session::Running } {
+                            control (model.clone(), Left, "<", controls)
+                            control (model.clone(), Up, "^", controls)
+                            control (model.clone(), Down, "v", controls)
+                            control (model.clone(), Right, ">", controls)
+                            control (model.clone(), Magnet, "MAG", controls)
+                        }
+                        if ${ model.hud().session == Session::Paused } {
+                            action (model.clone(), Resume, controls, compact)
+                            action (model.clone(), TogglePilot, controls, compact)
+                            action (model.clone(), Retry, controls, compact)
+                            action (model.clone(), End, controls, compact)
+                        }
+                        if ${ model.hud().session == Session::Results } {
+                            action (model.clone(), Title, controls, compact)
+                        }
                     }
-                    if ${ model.hud().session == Session::Paused } {
-                        action (model.clone(), Resume, controls, compact)
-                        action (model.clone(), TogglePilot, controls, compact)
-                        action (model.clone(), Retry, controls, compact)
-                        action (model.clone(), End, controls, compact)
+                    if !compact {
+                        Text (
+                            text: ${
+                                let hud = model.hud();
+                                if hud.session == Session::Title {
+                                    alloc::string::String::from("HOLD SPACE TO TOW. RELEASE TO THROW.")
+                                } else {
+                                    format!("{:06} PTS / {} S / BEST {:06}", hud.score, hud.seconds, hud.best)
+                                }
+                            },
+                            width: Dimension::percent(100),
+                            height: 16,
+                            text_color: OnSurface,
+                            font_size: 12,
+                            paragraph: label
+                        )
                     }
-                    if ${ model.hud().session == Session::Results } {
-                        action (model.clone(), Title, controls, compact)
-                    }
-                }
-                if !compact {
-                    Text (
-                        text: ${
-                            let hud = model.hud();
-                            if hud.session == Session::Title {
-                                alloc::string::String::from("HOLD SPACE TO TOW. RELEASE TO THROW.")
-                            } else {
-                                format!("{:06} PTS / {} S / BEST {:06}", hud.score, hud.seconds, hud.best)
-                            }
-                        },
-                        width: Dimension::percent(100),
-                        height: 16,
-                        text_color: OnSurface,
-                        font_size: 12,
-                        paragraph: label
-                    )
                 }
             }
         }

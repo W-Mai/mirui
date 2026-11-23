@@ -93,6 +93,9 @@ pub struct FluxRun {
     pub(crate) camera_frame: CameraFrame,
     #[observe]
     pub(crate) camera_menu: bool,
+    #[observe]
+    pub(crate) exhibition: bool,
+    exhibition_ms: u16,
     camera: CameraRig,
     held: u8,
     touch: u8,
@@ -122,6 +125,8 @@ impl FluxRun {
             passage: None,
             camera_frame: camera.frame(game.ship.location, game.harbor.extent()),
             camera_menu: false,
+            exhibition: false,
+            exhibition_ms: 0,
             camera,
             game,
             compact,
@@ -199,6 +204,19 @@ impl FluxRun {
     }
 
     pub fn set_autoplay(&mut self, enabled: bool) {
+        let exhibition = self.compact && enabled;
+        if self.exhibition != exhibition {
+            self.exhibition = exhibition;
+            self.exhibition_ms = 0;
+            if exhibition {
+                self.camera_menu = false;
+                self.camera.snap(Viewpoint::Follow);
+            }
+        }
+        self.set_pilot(enabled);
+    }
+
+    pub(crate) fn set_pilot(&mut self, enabled: bool) {
         if enabled && self.game.session == Session::Title {
             self.start(Mode::Auto);
         } else {
@@ -235,6 +253,13 @@ impl FluxRun {
             },
         );
         self.camera.tick(delta.min(100));
+        if self.exhibition && self.game.session == Session::Running {
+            self.exhibition_ms += delta.min(100);
+            if self.exhibition_ms >= 8_000 {
+                self.exhibition_ms -= 8_000;
+                self.cycle_compact_camera();
+            }
+        }
         if self.game.session == Session::Departed {
             self.camera_menu = false;
         }
@@ -293,6 +318,9 @@ impl FluxRun {
 
 impl FluxRun {
     fn on_key(&mut self, key: PhysicalKey, pressed: bool, repeat: bool) -> bool {
+        if self.exhibition {
+            return false;
+        }
         let viewpoint = match key {
             PhysicalKey::Digit7 | PhysicalKey::Numpad7 => Some(Viewpoint::Northwest),
             PhysicalKey::Digit8 | PhysicalKey::Numpad8 => Some(Viewpoint::North),
@@ -325,7 +353,7 @@ impl FluxRun {
             | PhysicalKey::Enter => {
                 if pressed && !repeat {
                     match key {
-                        PhysicalKey::KeyT => self.set_autoplay(self.game.mode != Mode::Auto),
+                        PhysicalKey::KeyT => self.set_pilot(self.game.mode != Mode::Auto),
                         PhysicalKey::KeyV => self.cycle_camera(),
                         PhysicalKey::Enter => match self.game.session {
                             Session::Title | Session::Results => self.start(Mode::Manual),

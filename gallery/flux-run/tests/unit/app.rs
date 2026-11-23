@@ -39,6 +39,37 @@ fn headless_game_uses_the_same_scene_for_title_play_and_restart() {
 }
 
 #[test]
+fn compact_autoplay_fills_the_display_and_rotates_the_camera() {
+    use mirui_sprite_stack::StackViewport;
+
+    let mut app = App::headless(128, 128);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let model = setup_compact_app(&mut app, root);
+    model.set_autoplay(true);
+    assert!(model.exhibition());
+    assert_eq!(model.viewpoint(), Viewpoint::Follow);
+    assert!(!app.tick());
+    let viewports = app.world.query::<StackViewport>();
+    let (entity, viewport) = viewports.iter().next().unwrap();
+    let area = app.world.get::<mirui::ui::ComputedRect>(entity).unwrap().0;
+    assert_eq!(area, Rect::new(0, 0, 128, 128));
+    assert_eq!(viewport.resolution.fit([128; 2]).pixels(), [64; 2]);
+    model.update(|state| {
+        state.exhibition_ms = 7_950;
+        state.advance(20);
+        assert_eq!(state.viewpoint(), Viewpoint::Follow);
+        state.advance(40);
+        assert_eq!(state.viewpoint(), Viewpoint::Overhead);
+    });
+    model.set_autoplay(false);
+    assert!(!model.exhibition());
+    assert!(!app.tick());
+    let area = app.world.get::<mirui::ui::ComputedRect>(entity).unwrap().0;
+    assert_eq!([area.w.to_int(), area.h.to_int()], [88, 64]);
+}
+
+#[test]
 fn keyboard_and_touch_steer_relative_to_the_viewport() {
     for (key, touch, expected) in [
         (PhysicalKey::ArrowUp, Control::Up, [1, 1]),
