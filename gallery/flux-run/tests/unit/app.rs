@@ -79,19 +79,22 @@ fn hud_draws_lettering_in_both_host_themes() {
             app.set_theme(theme).unwrap();
             assert!(!app.tick());
             if width == 320 {
-                assert!(model.camera_scale() < Fixed::ONE);
+                assert!(model.camera_scale() < Fixed::from_int(2));
             }
             let snapshot = app.snapshot().unwrap().unwrap();
             let pixels = snapshot.read_pixels().unwrap();
-            let bright = |x, y| {
-                let pixel = pixels.get_pixel(x, y);
-                pixel.g > 180 && pixel.b > 160
-            };
+            let ink = app.theme().resolve(ColorToken::OnSurface);
+            let lettering = |x, y| pixels.get_pixel(x, y) == ink;
             let (header, footer) = if width == 128 { (24, 40) } else { (60, 116) };
             let (width, height) = (i32::from(width), i32::from(height));
-            assert!((0..header).any(|y| (0..width / 2).any(|x| bright(x, y))));
+            assert!((0..header).any(|y| (0..width / 2).any(|x| lettering(x, y))));
             assert!(
-                (height - footer..height).any(|y| (width * 4 / 5..width).any(|x| bright(x, y)))
+                (height - footer..height).any(|y| (width * 4 / 5..width).any(|x| lettering(x, y)))
+            );
+            let ground = model.tone().palette().terrain[3];
+            assert!(
+                (header..height - footer)
+                    .any(|y| (0..width).any(|x| pixels.get_pixel(x, y) == ground))
             );
         }
     }

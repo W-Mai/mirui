@@ -1,6 +1,6 @@
 use crate::{
     gameplay::{Controls, Cue, Game, Mode, Session},
-    presentation::{self, Marks, build},
+    presentation::{self, Marks, SceneTone, build},
     world::District,
 };
 use mirui::{
@@ -73,6 +73,9 @@ pub struct FluxRun {
     pub(crate) stage: model!(owned StackStage),
     pub(crate) owner: Entity,
     pub(crate) game: Game,
+    pub(crate) compact: bool,
+    #[observe]
+    pub(crate) tone: SceneTone,
     #[observe]
     pub(crate) marks: Marks,
     #[observe]
@@ -94,15 +97,17 @@ impl FluxRun {
         self.game.result.collected
     }
 
-    fn new(owner: Entity) -> Self {
+    fn new(owner: Entity, compact: bool, tone: SceneTone) -> Self {
         let game = Game::new(0x4652_554e);
         Self {
             stage: StackStage::bounded(presentation::STAGE_CAPACITY).into(),
             owner,
             marks: Marks::from_game(&game),
             hud: Hud::from_game(&game),
-            camera_scale: Fixed::from_int(2),
+            camera_scale: Fixed::from_int(4),
             game,
+            compact,
+            tone,
             held: 0,
             touch: 0,
             suspended: false,
@@ -124,15 +129,19 @@ impl FluxRun {
 
 #[mirui::model]
 impl FluxRun {
+    pub(crate) fn set_tone(&mut self, tone: SceneTone) {
+        self.tone = tone;
+    }
+
     pub(crate) fn fit_camera(&mut self, size: [u16; 2]) {
         let [width, height] = size;
         // The diagonal harbor and its perspective margin fit inside this footprint.
-        self.camera_scale = Fixed::from_ratio(i32::from(width.saturating_sub(8).max(1)), 126)
+        self.camera_scale = Fixed::from_ratio(i32::from(width.saturating_sub(32).max(1)), 114)
             .min(Fixed::from_ratio(
-                i32::from(height.saturating_sub(8).max(1)),
-                110,
+                i32::from(height.saturating_sub(32).max(1)),
+                91,
             ))
-            .min(Fixed::from_int(2));
+            .min(Fixed::from_int(6));
     }
 
     pub fn set_autoplay(&mut self, enabled: bool) {
@@ -294,8 +303,13 @@ fn visibility(event: event!(HostVisibilityChanged), model: model!(FluxRun)) {
 fn simulate(
     model: model!(FluxRun),
     delta: res!(DeltaTimeMs),
+    theme: res!(Theme),
     audio: res!(optional mirui::audio::AudioHandle),
 ) {
+    let tone = SceneTone::from_theme(&theme);
+    if tone != model.tone() {
+        model.set_tone(tone);
+    }
     model.advance(delta.0);
     let cue = model.read(|state| state.game.cue);
     if let Some(audio) = audio.as_deref()
@@ -326,7 +340,8 @@ fn install<B: Surface, F: RendererFactory<B>>(
     root: Entity,
     compact: bool,
 ) -> FluxRunHandle {
-    let model = app.add_model(FluxRun::new(root)).finish();
+    let tone = SceneTone::from_theme(app.theme());
+    let model = app.add_model(FluxRun::new(root, compact, tone)).finish();
     app.add_plugin(SpriteStackPlugin);
     app.add_system(simulate::system(model.clone()));
     app.add_system(presentation::mount::system(model.clone()));

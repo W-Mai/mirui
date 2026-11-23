@@ -11,6 +11,7 @@ use mirui_sprite_stack::{
 mod assets;
 pub(crate) mod sound;
 mod view;
+pub(crate) use assets::SceneTone;
 use assets::*;
 pub(crate) use view::build;
 
@@ -160,10 +161,10 @@ impl Marks {
 }
 
 fn heading([x, z]: [Fixed; 2]) -> Fixed {
-    -Fixed::atan2(x, z) * Fixed::from_ratio(57296, 1000)
+    Fixed::atan2(x, z) * Fixed::from_ratio(57296, 1000)
 }
 
-fn visual(slot: usize, mark: Mark) -> StackVisual {
+fn visual(slot: usize, mark: Mark, detail: usize, tone: SceneTone) -> StackVisual {
     let asset = match slot {
         0 => &SHIP,
         CORE_START..GUARD_START => &CORE,
@@ -172,12 +173,13 @@ fn visual(slot: usize, mark: Mark) -> StackVisual {
         GATE_START..ALERT_START | LOCK | FIELD => &GATE,
         _ => &MARK,
     };
+    let colors = tone.palette();
     let palette = match mark.tint {
-        Tint::Normal => &ART,
-        Tint::Warn => &WARNING,
-        Tint::Dim => &LOCKED,
+        Tint::Normal => &colors.normal,
+        Tint::Warn => &colors.warning,
+        Tint::Dim => &colors.locked,
     };
-    StackVisual::new(asset)
+    StackVisual::new(&asset[detail])
         .at(mark.pose)
         .with_palette(palette)
         .with_flash(mark.flash)
@@ -186,7 +188,13 @@ fn visual(slot: usize, mark: Mark) -> StackVisual {
 #[mirui::component]
 struct Member {
     owner: Entity,
-    slot: Option<usize>,
+    visual: MemberVisual,
+}
+
+enum MemberVisual {
+    Ground(SceneTone),
+    Bridge,
+    Mark(usize),
 }
 
 #[mirui::system(order = Animation)]
@@ -195,44 +203,56 @@ pub(crate) fn mount(
     members: query!(Entity, Member),
     commands: commands!(),
 ) {
-    let owner = model.read(|model| model.owner);
+    let (owner, detail, tone) =
+        model.read(|model| (model.owner, usize::from(!model.compact), model.tone));
     let marks = model.marks();
     let mut mounted = [false; MARKS];
     let mut terrain_mounted = false;
+    let mut bridge_mounted = false;
     for (entity, member) in members {
         if member.owner != owner {
             continue;
         }
-        if let Some(slot) = member.slot {
-            if marks.0[slot].is_some() {
-                mounted[slot] = true;
-            } else {
-                commands.despawn(entity);
-            }
-        } else {
-            terrain_mounted = true;
+        match member.visual {
+            MemberVisual::Mark(slot) if marks.0[slot].is_some() => mounted[slot] = true,
+            MemberVisual::Ground(current) if current == tone => terrain_mounted = true,
+            MemberVisual::Bridge => bridge_mounted = true,
+            _ => commands.despawn(entity),
         }
     }
     let stage = model.stage();
     let mut stage_commands = commands.stage(&stage);
     if !terrain_mounted {
         let grid = TerrainGrid::finite([9, 9], Fixed::from_int(8)).expect("harbor grid");
-        let floor = HeightField::generate(grid, &[WATER, FOAM, PANEL, STEEL], |[x, z]| {
-            let edge = x == 0 || x == 8 || z == 0 || z == 8;
-            TerrainCell {
-                level: 0,
-                material: if edge {
-                    if (x + z) % 3 == 0 { 1 } else { 0 }
-                } else {
-                    2 + ((x + z) % 2) as u8
-                },
-            }
+        let floor = HeightField::generate(grid, &tone.palette().terrain, |[x, z]| {
+            let material = match (x, z) {
+                (0 | 8, 0 | 8) => 0,
+                (0 | 8, _) | (_, 0 | 8) => 1,
+                (1..=3, _) | (6..=7, _) => 3,
+                _ => 2,
+            };
+            TerrainCell { level: 0, material }
         })
         .expect("harbor field");
-        stage_commands.spawn(Member { owner, slot: None }, StackVisual::new(floor));
         stage_commands.spawn(
-            Member { owner, slot: None },
-            StackVisual::new(&BRIDGE).at(Pose::at(36, 0, 17)),
+            Member {
+                owner,
+                visual: MemberVisual::Ground(tone),
+            },
+            StackVisual::new(floor),
+        );
+    }
+    if !bridge_mounted {
+        stage_commands.spawn(
+            Member {
+                owner,
+                visual: MemberVisual::Bridge,
+            },
+            StackVisual::from_model(model, move |handle| {
+                StackVisual::new(&BRIDGE[detail])
+                    .at(Pose::at(36, 0, 13))
+                    .with_palette(&handle.tone().palette().normal)
+            }),
         );
     }
     for (slot, (mark, mounted)) in marks.0.into_iter().zip(mounted).enumerate() {
@@ -240,10 +260,15 @@ pub(crate) fn mount(
             stage_commands.spawn(
                 Member {
                     owner,
-                    slot: Some(slot),
+                    visual: MemberVisual::Mark(slot),
                 },
                 StackVisual::from_model(model, move |handle| {
-                    visual(slot, handle.marks().0[slot].unwrap_or(mark))
+                    visual(
+                        slot,
+                        handle.marks().0[slot].unwrap_or(mark),
+                        detail,
+                        handle.tone(),
+                    )
                 }),
             );
         }
