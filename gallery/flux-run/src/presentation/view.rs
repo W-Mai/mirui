@@ -2,6 +2,7 @@ use super::camera::Viewpoint;
 use crate::{
     app::{Control, FluxRun, Hud},
     gameplay::{Mode, Session},
+    world::CORES,
 };
 use alloc::format;
 use core::num::NonZeroU16;
@@ -183,14 +184,11 @@ fn status(hud: Hud, compact: bool) -> &'static str {
         Session::Results => "RUN COMPLETE",
         Session::Running if hud.life == 0 => "RESPAWN",
         Session::Running if hud.ready => "EXIT OPEN",
-        Session::Running if hud.bridge_pending && hud.cores >= hud.quota => "BRIDGE CORE",
         Session::Running if hud.mode == Mode::Auto => "AUTO PILOT",
         Session::Running if hud.tether && compact => "THROW",
         Session::Running if hud.tether => "RELEASE TO THROW",
         Session::Running if hud.target && compact => "IN REACH",
         Session::Running if hud.target => "CORE IN REACH",
-        Session::Running if hud.bridge_pending && compact => "1 BRIDGE CORE",
-        Session::Running if hud.bridge_pending => "RECOVER 1 CORE ON A BRIDGE",
         Session::Running if compact => hud
             .name
             .split_once(' ')
@@ -262,7 +260,7 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                     Text (
                         text: ${
                             let hud = model.hud();
-                            format!("{:02} {}/{}", hud.level, hud.cores, hud.quota)
+                            format!("{:02} {}/{}", hud.level, hud.cores, CORES)
                         },
                         font_size: font,
                         height: status_height,
@@ -333,7 +331,7 @@ pub(crate) fn build(model: model!(FluxRun), compact: bool) -> Entity {
                         text: ${
                             {
                                 let hud = model.hud();
-                                format!("{:02} {}/{}", hud.level, hud.cores, hud.quota)
+                                format!("{:02} {}/{}", hud.level, hud.cores, CORES)
                             }
                         },
                         paragraph: ParagraphStyle::label()

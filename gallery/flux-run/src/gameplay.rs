@@ -1,6 +1,6 @@
 use crate::world::{
-    CORES, District, GUARDS, Harbor, LOCK_POSITION, Location, SPAWN, add, direction, dot,
-    length_squared, offset, scaled,
+    CORES, District, GUARDS, Harbor, Location, SPAWN, add, direction, dot, length_squared, offset,
+    scaled,
 };
 use mirui::{anim::Tween, types::Fixed};
 
@@ -90,10 +90,10 @@ impl Body {
         }
     }
 
-    fn slide(&mut self, harbor: &Harbor, tick: u32) -> Location {
+    fn slide(&mut self, harbor: &Harbor) -> Location {
         let previous = self.location;
         let desired = add(previous.point, self.velocity);
-        self.location = harbor.advance(previous, desired, tick);
+        self.location = harbor.advance(previous, desired);
         for (actual, (desired, velocity)) in self
             .location
             .point
@@ -159,7 +159,6 @@ impl Guard {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ResultLine {
     pub collected: u8,
-    pub bridge_recovered: bool,
     pub score: u32,
     pub revivals: u32,
     pub ticks: u32,
@@ -347,12 +346,10 @@ impl Game {
                         offset(position.point, self.ship.location.point),
                         self.heading,
                     ) >= Fixed::ZERO
-                    && line_open(
-                        &self.harbor,
-                        self.result.ticks,
-                        self.ship.location,
-                        position,
-                    )
+                    && self
+                        .harbor
+                        .layout
+                        .rope_clear(self.ship.location.point, position.point)
             })
             .min_by_key(|(_, core)| {
                 length_squared(offset(core.body.location.point, self.ship.location.point))
@@ -361,16 +358,11 @@ impl Game {
     }
 
     pub fn ready(&self) -> bool {
-        self.result.collected >= self.harbor.quota && !self.bridge_pending()
-    }
-
-    pub(crate) fn bridge_pending(&self) -> bool {
-        self.level > 1 && !self.result.bridge_recovered
+        self.result.collected == CORES as u8
     }
 
     fn step(&mut self, controls: Controls) {
         self.result.ticks = self.result.ticks.saturating_add(1);
-        let tick = self.result.ticks;
         if self.respawn != 0 {
             self.respawn -= 1;
             if self.respawn == 0 {
@@ -415,7 +407,7 @@ impl Game {
             ),
             Fixed::from_ratio(13, 10),
         );
-        let previous = self.ship.slide(&self.harbor, tick);
+        let previous = self.ship.slide(&self.harbor);
         self.move_guards();
         self.move_cores();
         if self.invulnerable == 0
@@ -532,7 +524,10 @@ impl Game {
                     core.body.velocity = add(core.body.velocity, scaled(direction(rope), tension));
                 }
                 if length > TETHER_RANGE * 2
-                    || !line_open(&self.harbor, self.result.ticks, at, self.ship.location)
+                    || !self
+                        .harbor
+                        .layout
+                        .rope_clear(at.point, self.ship.location.point)
                 {
                     self.tether = None;
                 }
@@ -543,21 +538,12 @@ impl Game {
                 );
             }
             core.body.velocity = limited(core.body.velocity, Fixed::from_int(2));
-            core.body.slide(&self.harbor, self.result.ticks);
+            core.body.slide(&self.harbor);
             let current = core.body.location;
-            if self.level > 1 && at.upper && !current.upper && self.harbor.cores[slot].upper {
-                // Deck cargo returns to its berth if it falls past a ramp.
-                core.replenish = 60;
-                if self.tether == Some(slot) {
-                    self.tether = None;
-                }
-                continue;
-            }
             let recovered = self
                 .harbor
-                .recovery_gates(current.upper)
-                .into_iter()
-                .flatten()
+                .recovery_gates()
+                .filter(|&gate| self.harbor.recovery_open(gate, self.result.ticks))
                 .any(|gate| swept(at, current, gate, GATE_RADIUS));
             if recovered {
                 core.collected = true;
@@ -565,7 +551,6 @@ impl Game {
                     self.tether = None;
                 }
                 self.result.collected += 1;
-                self.result.bridge_recovered |= current.upper;
                 self.combo = self.combo.saturating_add(1);
                 self.result.score = self.result.score.saturating_add(
                     70 + u32::from(core.stability) * 10 + u32::from(self.combo) * 12,
@@ -625,8 +610,7 @@ impl Game {
                 _ => {
                     let ship = self.ship.location;
                     let to_ship = offset(ship.point, at.point);
-                    if ship.upper == at.upper
-                        && length_squared(to_ship) < Fixed::from_int(325)
+                    if length_squared(to_ship) < Fixed::from_int(325)
                         && !ship.within(SPAWN, SAFE_RADIUS)
                         && self
                             .result
@@ -641,9 +625,7 @@ impl Game {
                     }
                     let mut home = self.harbor.guards[slot];
                     let phase = (self.result.ticks / 120 + slot as u32) % 2;
-                    if !home.upper {
-                        home.point[1] += Fixed::from_int(if phase == 0 { 6 } else { -6 });
-                    }
+                    home.point[1] += Fixed::from_int(if phase == 0 { 4 } else { -4 });
                     guard.body.velocity = scaled(
                         direction(offset(home.point, at.point)),
                         Fixed::from_ratio(28, 100),
@@ -651,15 +633,12 @@ impl Game {
                     guard.phase = GuardPhase::Patrol;
                 }
             }
-            guard.body.slide(&self.harbor, self.result.ticks);
+            guard.body.slide(&self.harbor);
         }
     }
 }
 
 fn crossed_exit(exit: Location, from: Location, to: Location) -> Option<Fixed> {
-    if from.upper || to.upper {
-        return None;
-    }
     let exit_z = exit.point[1];
     let from_side = from.point[1] < exit_z;
     if from_side == (to.point[1] < exit_z) {
@@ -674,21 +653,6 @@ fn crossed_exit(exit: Location, from: Location, to: Location) -> Option<Fixed> {
     })
 }
 
-fn line_open(harbor: &Harbor, tick: u32, a: Location, b: Location) -> bool {
-    match (a.upper, b.upper) {
-        (false, false) => harbor.layout.direct(a.point, b.point),
-        (true, true) => {
-            let bridge = harbor.bridge_at(a.point[0]);
-            let lock = Fixed::from_int(LOCK_POSITION);
-            bridge == harbor.bridge_at(b.point[0])
-                && !(bridge == harbor.bridge
-                    && harbor.lock_closed(tick)
-                    && (a.point[1] < lock) != (b.point[1] < lock))
-        }
-        _ => true,
-    }
-}
-
 fn limited(value: [Fixed; 2], limit: Fixed) -> [Fixed; 2] {
     if length_squared(value) <= limit * limit {
         value
@@ -698,12 +662,6 @@ fn limited(value: [Fixed; 2], limit: Fixed) -> [Fixed; 2] {
 }
 
 fn swept(from: Location, to: Location, target: Location, radius: Fixed) -> bool {
-    if to.upper != target.upper {
-        return false;
-    }
-    if from.upper != to.upper {
-        return to.within(target, radius);
-    }
     let delta = offset(to.point, from.point);
     let length = length_squared(delta);
     let scale = if length.is_zero() {

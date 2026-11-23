@@ -1,145 +1,122 @@
 use mirui::types::Fixed;
 use mirui_sprite_stack::{HeightField, Pose, StackVisual, TerrainCell, TerrainGrid};
 
-use super::assets::{BEACON, CARGO, GRATE, Material, SceneTone, VENT};
-use crate::world::{BRIDGE_START, CELL_SIZE, Harbor, Layout};
+use super::assets::{BEACON, CARGO, Material, SceneTone, VENT, bridge_model};
+use crate::world::{CELL_SIZE, Dock, Harbor};
 
-pub(super) const MAX_PROPS: usize = 16;
+pub(super) const MAX_PROPS: usize = 8;
 
-pub(super) fn floor(harbor: &Harbor, detail: usize, tone: SceneTone) -> HeightField {
-    let layout = &harbor.layout;
+pub(super) fn water(harbor: &Harbor, tone: SceneTone) -> StackVisual {
+    let grid = TerrainGrid::finite([1; 2], Fixed::from_int(harbor.extent())).expect("harbor grid");
+    let field = HeightField::generate(grid, tone.palette().terrain, |_| TerrainCell {
+        level: 0,
+        material: Material::Water as u8,
+    })
+    .expect("water surface");
+    StackVisual::new(field).at(Pose::at(0, -3, 0))
+}
+
+fn quay(harbor: &Harbor, dock: Dock, freight: bool, detail: usize, tone: SceneTone) -> StackVisual {
     let subdivisions = if detail == 0 { 1 } else { 2 };
-    let side = layout.side() * subdivisions;
+    let [width, depth] = core::array::from_fn(|i| (dock.end[i] - dock.min[i]) * subdivisions);
     let cell = CELL_SIZE / subdivisions as i32;
-    let grid = TerrainGrid::finite([side as u16; 2], Fixed::from_int(cell)).expect("harbor grid");
-
-    HeightField::generate(grid, tone.palette().terrain, |[x, z]| {
+    let grid = TerrainGrid::finite([width as u16, depth as u16], Fixed::from_int(cell))
+        .expect("quay grid");
+    let field = HeightField::generate(grid, tone.palette().terrain, |[x, z]| {
         let [x, z] = [x as usize, z as usize];
-        let [col, row] = [x / subdivisions, z / subdivisions];
-        let elevation = roof(layout, col, row);
-        let grain = variation(x, z, harbor.phase);
-        let last = side - 1;
-        let ramp = || {
-            harbor.bridges().into_iter().flatten().any(|bridge| {
-                bridge.x / CELL_SIZE == col as i32
-                    && [BRIDGE_START, bridge.end]
-                        .into_iter()
-                        .any(|end| (z as i32 * cell - end).abs() <= 4)
-            })
-        };
-        let material = if elevation > 0 {
-            if detail == 0 {
-                Material::Roof
-            } else if x % subdivisions == 0 {
+        let [col, row] = [
+            dock.min[0] + x / subdivisions,
+            dock.min[1] + z / subdivisions,
+        ];
+        let blocked = harbor.layout.blocked(col, row);
+        let material = if !harbor.layout.on_deck(col, row) {
+            Material::Slip
+        } else if blocked {
+            if detail != 0 && x.is_multiple_of(subdivisions) {
                 Material::RoofEdge
-            } else if (z / subdivisions).is_multiple_of(2) {
-                Material::RoofPanel
             } else {
                 Material::Roof
             }
-        } else if x == 0 || x == last {
-            if z == 0 || z == last {
-                Material::Curb
-            } else {
-                Material::Water
-            }
-        } else if z == 0 || z == last || x == 1 || x == last - 1 {
+        } else if x == 0 || z == 0 || x + 1 == width || z + 1 == depth {
             Material::Curb
-        } else if detail != 0 && z.is_multiple_of(2) && ramp() {
-            Material::Paint
-        } else if layout.freight_row().is_some_and(|start| row >= start) {
-            if detail != 0 && z % (subdivisions * 2) == 0 && x % 4 < 2 {
+        } else if freight {
+            if detail != 0 && z % 4 == 1 && x % 4 < 2 {
                 Material::Paint
             } else {
                 Material::Freight
             }
-        } else if col == 2 || col == layout.side() - 3 || row == 3 {
-            if detail != 0 && x % subdivisions == 0 && z % 4 < 2 {
-                Material::Paint
-            } else {
-                Material::Road
-            }
         } else if detail != 0 && (x.is_multiple_of(6) || (z + 3 * (x / 6 % 2)).is_multiple_of(8)) {
             Material::Joint
         } else {
-            match grain % 9 {
+            match variation(col, row, harbor.phase) % 9 {
                 0 | 1 => Material::Patina,
                 2 => Material::Aggregate,
                 _ => Material::Concrete,
             }
         };
         TerrainCell {
-            level: elevation,
+            level: if blocked { 4 } else { 0 },
             material: material as u8,
         }
     })
-    .expect("harbor field")
+    .expect("quay surface");
+    StackVisual::new(field).at(Pose::at(
+        dock.min[0] as i32 * CELL_SIZE,
+        0,
+        dock.min[1] as i32 * CELL_SIZE,
+    ))
 }
 
-pub(super) fn props(
+pub(super) fn mount(
     harbor: &Harbor,
     detail: usize,
     tone: SceneTone,
     mut place: impl FnMut(StackVisual),
 ) {
-    let layout = &harbor.layout;
-    let extent = layout.extent();
-    let side = layout.side();
     let palette = &tone.palette().normal;
-    let mut at = |asset, x, y, z| {
+    for (slot, dock) in harbor.docks.into_iter().enumerate() {
+        let Some(dock) = dock else { continue };
+        place(quay(harbor, dock, slot >= 2, detail, tone));
+        // A roof fixture and a harbor light in the outer corner of each quay.
+        let outer = |i| if dock.min[i] == 0 { 0 } else { dock.end[i] - 1 };
+        let [x, z] = [outer(0), outer(1)];
+        let center = |cell| cell as i32 * CELL_SIZE + CELL_SIZE / 2;
+        let asset = if variation(x, z, harbor.phase).is_multiple_of(2) {
+            &VENT[detail]
+        } else {
+            &CARGO[detail]
+        };
         place(
             StackVisual::new(asset)
-                .at(Pose::at(x, y, z))
+                .at(Pose::at(center(x), 4, center(z)))
                 .with_palette(palette),
         );
-    };
-
-    for z in 1..side - 1 {
-        for x in 1..side - 1 {
-            let height = roof(layout, x, z);
-            if height == 0 || layout.blocked(x - 1, z) || layout.blocked(x, z - 1) {
-                continue;
-            }
-            let center = |cell| cell as i32 * CELL_SIZE + CELL_SIZE / 2;
-            let [world_x, world_z] = [center(x), center(z)];
-            if harbor.bridges().into_iter().flatten().any(|bridge| {
-                (BRIDGE_START..=bridge.end).contains(&world_z) && (world_x - bridge.x).abs() <= 10
-            }) {
-                continue;
-            }
-            // Place machinery within the solid roof footprint.
-            let asset = if detail == 0 || variation(x, z, harbor.phase).is_multiple_of(2) {
-                &VENT[detail]
-            } else {
-                &CARGO[detail]
+        if detail != 0 {
+            let outer = |i| {
+                if dock.min[i] == 0 {
+                    1
+                } else {
+                    dock.end[i] as i32 * CELL_SIZE - 1
+                }
             };
-            at(asset, world_x, i32::from(height), world_z);
+            place(
+                StackVisual::new(&BEACON[detail])
+                    .at(Pose::at(outer(0), 0, outer(1)))
+                    .with_palette(palette),
+            );
         }
     }
-
-    // Quay fixtures occupy the two-unit rim beyond the ship's legal travel bounds.
-    for (x, z) in [(2, 15), (extent - 2, extent - 15)] {
-        at(&BEACON[detail], x, 0, z);
-    }
-    if detail != 0 {
-        let offset = i32::from(harbor.phase % 3) * 2;
-        for z in [extent / 3, 2 * extent / 3] {
-            at(&CARGO[detail], 2, 0, z + offset);
-            at(&BEACON[detail], extent - 2, 0, z + offset);
+    for bridge in harbor.bridges.into_iter().flatten() {
+        let [x, z] = bridge.center().point;
+        let mut pose = Pose::at(x, -1, z);
+        if bridge.axis == 0 {
+            pose.yaw = Fixed::from_int(90);
         }
-        // Flush grates sit below the skiff and mark the loading lanes.
-        for z in [20, extent - 19] {
-            at(&GRATE[detail], extent / 2, 0, z);
-            at(&GRATE[detail], extent / 2 + 8, 0, z);
-        }
-    }
-}
-
-fn roof(layout: &Layout, x: usize, z: usize) -> u8 {
-    if layout.blocked(x, z) {
-        if x.is_multiple_of(2) { 4 } else { 5 }
-    } else {
-        0
+        place(
+            StackVisual::new(bridge_model(bridge, detail))
+                .at(pose)
+                .with_palette(palette),
+        );
     }
 }
 

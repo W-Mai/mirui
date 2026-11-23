@@ -94,8 +94,8 @@ pub(super) enum Material {
     Paint,
     Roof,
     RoofEdge,
-    RoofPanel,
     Freight,
+    Slip,
 }
 
 static DAY: ScenePalette = palette(
@@ -114,7 +114,7 @@ static DAY: ScenePalette = palette(
         rgba(Color::rgb(74, 101, 97)),
     ],
     &[
-        Color::rgb(103, 145, 129), // Water
+        Color::rgb(72, 135, 128),  // Water
         Color::rgb(160, 151, 134), // Curb
         Color::rgb(149, 145, 132), // Asphalt
         Color::rgb(224, 210, 185), // Concrete
@@ -124,8 +124,8 @@ static DAY: ScenePalette = palette(
         Color::rgb(251, 235, 203), // Safety paint
         Color::rgb(153, 132, 114), // Roof
         Color::rgb(122, 104, 92),  // Roof edging
-        Color::rgb(186, 155, 133), // Roof panel
         Color::rgb(179, 187, 161), // Freight apron
+        Color::rgba(0, 0, 0, 0),   // Recessed slip
     ],
 );
 
@@ -145,7 +145,7 @@ static NIGHT: ScenePalette = palette(
         rgba(Color::rgb(153, 192, 170)),
     ],
     &[
-        Color::rgb(35, 62, 55),
+        Color::rgb(31, 68, 67),
         Color::rgb(126, 109, 89),
         Color::rgb(75, 78, 70),
         Color::rgb(113, 101, 83),
@@ -155,8 +155,8 @@ static NIGHT: ScenePalette = palette(
         Color::rgb(181, 158, 128),
         Color::rgb(105, 74, 62),
         Color::rgb(79, 56, 50),
-        Color::rgb(136, 98, 81),
         Color::rgb(80, 103, 84),
+        Color::rgba(0, 0, 0, 0),
     ],
 );
 
@@ -469,85 +469,53 @@ sprite!(
     ]
 );
 
-const BRIDGE_W: usize = 18;
-const BRIDGE_H: usize = 17;
+const BRIDGE_W: usize = crate::world::CELL_SIZE as usize * 2;
 
-const fn bridge_slices<const DEPTH: usize>() -> [[[u8; BRIDGE_W]; DEPTH]; BRIDGE_H] {
-    let mut slices = [[[b'.'; BRIDGE_W]; DEPTH]; BRIDGE_H];
-    let mut distance = 0;
-    while distance < DEPTH {
-        let row = DEPTH - 1 - distance;
-        let end = DEPTH - 1 - distance;
-        let deck = if distance < end { distance } else { end }.saturating_sub(1);
-        let deck = if deck > 7 { 7 } else { deck };
+const fn bridge_slices<const D: usize>() -> [[[u8; BRIDGE_W]; D]; 4] {
+    let mut slices = [[[b'.'; BRIDGE_W]; D]; 4];
+    let mut z = 0;
+    while z < D {
+        let end = z == 0 || z == D - 1;
         let mut x = 0;
         while x < BRIDGE_W {
             let edge = x == 0 || x == BRIDGE_W - 1;
-            slices[deck][row][x] = if edge {
+            slices[1][z][x] = if edge {
                 b'l'
-            } else if distance == 8 || distance == DEPTH - 1 {
-                if x % 2 == 0 { b'a' } else { b'd' }
-            } else if distance % 9 < 3 && (x == 8 || x == 9) {
-                b'l'
-            } else if (x + 2 * (distance / 6)) % 13 == 0 {
+            } else if end {
+                if x % 4 < 2 { b'a' } else { b'd' }
+            } else if z % 6 < 2 && (x == BRIDGE_W / 2) {
+                b'i'
+            } else if z % 3 == 0 {
                 b's'
             } else {
                 b'd'
             };
-            if edge && deck > 0 {
-                slices[deck - 1][row][x] = b's';
-                if distance % 5 == 0 {
-                    slices[deck + 1][row][x] = b'l';
-                }
-            }
-            // The two crane portals clear the skiff and stand outside the driving lane.
-            if distance >= 17 && end >= 9 && (distance - 17) % 20 < 3 {
-                if x < 2 || x >= BRIDGE_W - 2 {
-                    let mut y = 0;
-                    while y < BRIDGE_H - 1 {
-                        if y != deck {
-                            slices[y][row][x] = if edge { b's' } else { b'l' };
-                        }
-                        y += 1;
-                    }
-                }
-                slices[BRIDGE_H - 1][row][x] = if distance % 2 == 0 && x % 4 < 2 {
-                    b'a'
-                } else {
-                    b'l'
-                };
-                if (x == 7 || x == 8) && (distance - 17) % 20 == 1 {
-                    slices[BRIDGE_H - 3][row][x] = b'o';
-                    slices[BRIDGE_H - 2][row][x] = b'd';
+            if edge {
+                slices[0][z][x] = b'd';
+                slices[2][z][x] = b's';
+                if z % 4 == 0 || end {
+                    slices[3][z][x] = b'l';
                 }
             }
             x += 1;
         }
-        distance += 1;
+        z += 1;
     }
     slices
 }
 
-macro_rules! bridge {
-    ($depth:literal) => {{
-        const SLICES: [[[u8; BRIDGE_W]; $depth]; BRIDGE_H] = bridge_slices();
-        const PIVOT: [i32; 3] = [BRIDGE_W as i32 * 128, ($depth - 1) * 256, 0];
-        const CAPACITY: usize = BRIDGE_W * $depth * 2;
-        [
-            prepare!(SLICES, BRIDGE_W, $depth, BRIDGE_H, CAPACITY, PIVOT, 1),
-            prepare!(SLICES, BRIDGE_W, $depth, BRIDGE_H, CAPACITY, PIVOT, 2),
-        ]
-    }};
-}
-
-static BRIDGES: [[PreparedSpriteStack<'static>; 2]; 4] =
-    [bridge!(52), bridge!(64), bridge!(76), bridge!(88)];
+sprite!(SHORT_BRIDGE, 12, 12, 4, bridge_slices());
+sprite!(LONG_BRIDGE, 12, 18, 4, bridge_slices());
 
 pub(super) fn bridge_model(
     bridge: crate::world::Bridge,
     detail: usize,
 ) -> &'static PreparedSpriteStack<'static> {
-    &BRIDGES[(bridge.length() - 52) / 12][detail]
+    if bridge.length() == 12 {
+        &SHORT_BRIDGE[detail]
+    } else {
+        &LONG_BRIDGE[detail]
+    }
 }
 
 pub static PORTAL: [PreparedSpriteStack<'static>; 2] = {
@@ -651,5 +619,3 @@ sprite!(
         [*b"...", *b".i.", *b"..."],
     ]
 );
-
-sprite!(GRATE, 6, 3, 1, [[*b"ssssss", *b"dsdsds", *b"ssssss"]]);

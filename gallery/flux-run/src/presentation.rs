@@ -1,9 +1,7 @@
 use crate::{
     app::FluxRun,
     gameplay::{Game, GuardPhase},
-    world::{
-        BRIDGE_START, CORES, District, GUARDS, Harbor, LOCK_POSITION, Location, SPAWN, add, scaled,
-    },
+    world::{CORES, District, GUARDS, Location, MAX_BRIDGES, MAX_DOCKS, SPAWN, add, scaled},
 };
 use mirui::{core::model::ModelHandle, prelude::*};
 use mirui_sprite_stack::{Pose, StackStageCommands, StackVisual};
@@ -21,14 +19,12 @@ const CORE_START: usize = 1;
 const GUARD_START: usize = CORE_START + CORES;
 const LINK_START: usize = GUARD_START + GUARDS;
 const GATE_START: usize = LINK_START + 4;
-const UPPER_GATE_START: usize = GATE_START + 2;
-const EXIT_MARK: usize = UPPER_GATE_START + 2;
+const EXIT_MARK: usize = GATE_START + 2;
 const ENTRANCE_MARK: usize = EXIT_MARK + 1;
 const ALERT_START: usize = ENTRANCE_MARK + 1;
-const LOCK: usize = ALERT_START + GUARDS;
-const FIELD: usize = LOCK + 1;
+const FIELD: usize = ALERT_START + GUARDS;
 const MARKS: usize = FIELD + 1;
-pub(crate) const STAGE_CAPACITY: usize = MARKS + 3 + scenery::MAX_PROPS;
+pub(crate) const STAGE_CAPACITY: usize = MARKS + 1 + MAX_DOCKS + MAX_BRIDGES + scenery::MAX_PROPS;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Tint {
@@ -45,10 +41,10 @@ struct Mark {
 }
 
 impl Mark {
-    fn at(harbor: &Harbor, location: Location) -> Self {
+    fn at(location: Location) -> Self {
         let [x, z] = location.point;
         Self {
-            pose: Pose::at(x, harbor.height(location), z),
+            pose: Pose::at(x, 0, z),
             tint: Tint::Normal,
             flash: Fixed::ZERO,
         }
@@ -62,7 +58,7 @@ impl Marks {
     pub fn from_game(game: &Game) -> Self {
         let mut marks = [None; MARKS];
         let harbor = &game.harbor;
-        let mark_at = |location| Mark::at(harbor, location);
+        let mark_at = Mark::at;
         if game.respawn == 0 {
             let mut ship = mark_at(game.ship.location);
             ship.pose.yaw = heading(game.heading);
@@ -118,13 +114,8 @@ impl Marks {
                     scaled(boat.point, Fixed::ONE - amount),
                     scaled(core.point, amount),
                 );
-                let mut mark = mark_at(Location {
-                    point: p,
-                    upper: boat.upper,
-                });
-                mark.pose.position[1] = harbor.height(boat) * (Fixed::ONE - amount)
-                    + harbor.height(core) * amount
-                    + Fixed::ONE;
+                let mut mark = mark_at(Location { point: p });
+                mark.pose.position[1] = Fixed::ONE;
                 mark.flash = if (game.result.ticks / 3 + i as u32).is_multiple_of(4) {
                     Fixed::ONE
                 } else {
@@ -133,11 +124,12 @@ impl Marks {
                 marks[LINK_START + i] = Some(mark);
             }
         }
-        marks[GATE_START] = Some(mark_at(harbor.gate));
-        marks[GATE_START + 1] = harbor.cargo_gate.map(mark_at);
-        for (index, gate) in harbor.recovery_gates(true).into_iter().enumerate() {
-            marks[UPPER_GATE_START + index] = gate.map(mark_at);
+        let mut receiver = mark_at(harbor.gate);
+        if !harbor.recovery_open(harbor.gate, game.result.ticks) {
+            receiver.tint = Tint::Warn;
         }
+        marks[GATE_START] = Some(receiver);
+        marks[GATE_START + 1] = harbor.cargo_gate.map(mark_at);
         let mut exit = mark_at(game.harbor.exit);
         exit.tint = if game.ready() {
             Tint::Normal
@@ -146,14 +138,8 @@ impl Marks {
         };
         marks[EXIT_MARK] = Some(exit);
         marks[ENTRANCE_MARK] = Some(mark_at(SPAWN));
-        if game.harbor.lock_warning(game.result.ticks) || game.harbor.lock_closed(game.result.ticks)
-        {
-            let mut gate = mark_at(Location::new(harbor.bridge.x, LOCK_POSITION, true));
-            gate.tint = Tint::Warn;
-            marks[LOCK] = Some(gate);
-        }
         if game.harbor.district == District::Storm {
-            let at = Location::new(38, 43, false);
+            let at = harbor.field();
             let mut mark = mark_at(at);
             mark.tint = if game.harbor.magnetic_field(at, game.result.ticks) == [Fixed::ZERO; 2] {
                 Tint::Dim
@@ -177,7 +163,7 @@ fn visual(slot: usize, mark: Mark, detail: usize, tone: SceneTone) -> StackVisua
         GUARD_START..LINK_START => &GUARD,
         LINK_START..GATE_START => &LINK,
         EXIT_MARK | ENTRANCE_MARK => &PORTAL,
-        GATE_START..EXIT_MARK | LOCK | FIELD => &GATE,
+        GATE_START..EXIT_MARK | FIELD => &GATE,
         _ => &MARK,
     };
     let colors = tone.palette();
@@ -244,20 +230,9 @@ pub(crate) fn mount(
                     owner,
                     visual: MemberVisual::Ground(tone, level),
                 },
-                StackVisual::new(scenery::floor(harbor, detail, tone)),
+                scenery::water(harbor, tone),
             );
-            for bridge in harbor.bridges().into_iter().flatten() {
-                stage_commands.spawn(
-                    Member {
-                        owner,
-                        visual: MemberVisual::Prop(tone, level),
-                    },
-                    StackVisual::new(bridge_model(bridge, detail))
-                        .at(Pose::at(bridge.x, 0, BRIDGE_START))
-                        .with_palette(&tone.palette().normal),
-                );
-            }
-            scenery::props(harbor, detail, tone, |visual| {
+            scenery::mount(harbor, detail, tone, |visual| {
                 stage_commands.spawn(
                     Member {
                         owner,

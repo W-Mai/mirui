@@ -1,48 +1,34 @@
 use super::*;
 
 #[test]
-fn generated_harbors_keep_a_connected_lower_bypass() {
-    let mut different = 0;
+fn islands_connect_by_bridges_and_leave_room_for_gates() {
     for seed in 0..64 {
-        let first = Harbor::generate(seed, 1);
         for level in 1..9 {
             let harbor = Harbor::generate(seed, level);
             assert_eq!(harbor, Harbor::generate(seed, level));
             let extent = [72, 84, 96, 108][(level as usize - 1).min(3)];
             assert_eq!(harbor.extent(), extent);
-            assert_eq!(harbor.exit.point[0], Fixed::from_int(extent - 14));
-            assert_eq!(harbor.gate.point[1], Fixed::from_int(extent - 10));
-            let boundary = harbor.advance(harbor.exit, [Fixed::MAX, Fixed::from_int(13)], 0);
-            assert_eq!(boundary.point[0], Fixed::from_int(extent - 5));
-            different += usize::from(harbor.layout != first.layout);
-            assert_eq!(harbor.bridge.length() as i32, extent - 20);
             assert_eq!(
-                harbor.bridges().iter().flatten().count(),
-                if level >= 3 { 2 } else { 1 }
+                harbor.docks.iter().flatten().count(),
+                if level == 1 { 3 } else { 4 }
             );
-            for bridge in harbor.bridges().into_iter().flatten() {
-                for ramp in [bridge.ramp(true), bridge.ramp(false)] {
-                    assert!(harbor.layout.way_to(SPAWN.point, ramp.point).is_some());
-                    assert!(harbor.layout.direct(ramp.point, ramp.point));
-                }
+
+            for axis in 0..2 {
+                assert!(
+                    harbor
+                        .bridges
+                        .iter()
+                        .flatten()
+                        .any(|bridge| bridge.axis == axis)
+                );
             }
-            assert_eq!(harbor.cargo_gate.is_some(), level > 1);
-            if let (Some(other), Some(start)) = (harbor.cargo_gate, harbor.layout.freight_row()) {
-                let cargo = harbor.cores[2];
-                assert!(harbor.layout.cell(cargo.point)[1] >= start);
-                assert!((0..harbor.layout.side()).any(|x| harbor.layout.blocked(x, start)));
-                for gate in [harbor.gate, other] {
-                    assert!(harbor.layout.way_to(cargo.point, gate.point).is_some());
-                }
-                assert_eq!(harbor.nearest_gate(other), other);
-            }
+            let middle = Fixed::from_int(extent / 2);
+            assert!(!harbor.layout.direct([middle; 2], [middle; 2]));
             for destination in harbor
                 .cores
-                .iter()
-                .copied()
-                .filter(|core| !core.upper)
-                .chain([harbor.gate, harbor.exit])
-                .chain(harbor.cargo_gate)
+                .into_iter()
+                .chain(harbor.recovery_gates())
+                .chain([harbor.exit])
             {
                 assert!(
                     harbor
@@ -52,22 +38,45 @@ fn generated_harbors_keep_a_connected_lower_bypass() {
                 );
                 assert!(harbor.layout.direct(destination.point, destination.point));
             }
+            for bridge in harbor.bridges.into_iter().flatten() {
+                let footprint = bridge.footprint();
+                let mut start = bridge.center().point;
+                let mut end = start;
+                start[bridge.axis] =
+                    Fixed::from_int(bridge.start as i32 * crate::world::CELL_SIZE - 2);
+                end[bridge.axis] = Fixed::from_int(bridge.end as i32 * crate::world::CELL_SIZE + 2);
+                assert!(harbor.layout.direct(start, end));
+                // The exit/entry arch is thirteen pixels wide and six deep.
+                for gate in harbor.recovery_gates().chain([SPAWN, harbor.exit]) {
+                    let [x, z] = gate.point.map(Fixed::to_int);
+                    assert!(
+                        x + 7 <= footprint.min[0] as i32 * crate::world::CELL_SIZE
+                            || x - 7 >= footprint.end[0] as i32 * crate::world::CELL_SIZE
+                            || z + 3 <= footprint.min[1] as i32 * crate::world::CELL_SIZE
+                            || z - 3 >= footprint.end[1] as i32 * crate::world::CELL_SIZE
+                    );
+                }
+            }
         }
     }
-    assert!(different > 350);
 }
 
 #[test]
 fn pilot_crosses_the_open_gate_and_changes_harbor_behind_the_cover() {
     let mut game = Game::new(1);
     game.start();
-    game.ship.location = Location::new(58, 12, false);
+    game.ship.location = Location {
+        point: [
+            game.harbor.exit.point[0],
+            game.harbor.exit.point[1] - Fixed::ONE,
+        ],
+    };
     game.ship.velocity[1] = Fixed::from_int(2);
     game.elapsed_ms(STEP_MS, Controls::default());
     assert_eq!(game.session, Session::Running);
     assert_eq!(game.ship.location.point[1], Fixed::from_int(12));
 
-    game.result.collected = game.harbor.quota;
+    game.result.collected = CORES as u8;
     game.result.score = 500;
     game.ship.velocity[1] = Fixed::from_int(2);
     game.elapsed_ms(STEP_MS, Controls::default());
@@ -105,7 +114,6 @@ fn freight_gate_recovers_a_core_and_counts_it_once() {
     game.cores[0].body = Body {
         location: Location {
             point: [x, z - Fixed::from_int(5)],
-            upper: false,
         },
         velocity: [Fixed::ZERO, Fixed::from_int(2)],
     };
@@ -117,12 +125,13 @@ fn freight_gate_recovers_a_core_and_counts_it_once() {
 }
 
 #[test]
-fn cargo_quota_requires_a_bridge_recovery_after_the_outer_harbor() {
+fn the_exit_stays_locked_until_the_last_core_is_recovered() {
     let mut game = Game::new(51);
     game.start();
-    game.level = 3;
-    game.restart();
-    game.result.collected = game.harbor.quota;
+    for core in game.cores.iter_mut().take(CORES - 1) {
+        core.collected = true;
+    }
+    game.result.collected = CORES as u8 - 1;
     assert!(!game.ready());
     let mut ship = game.harbor.exit;
     ship.point[1] -= Fixed::ONE;
@@ -132,15 +141,10 @@ fn cargo_quota_requires_a_bridge_recovery_after_the_outer_harbor() {
     assert_eq!(game.session, Session::Running);
     assert_eq!(game.ship.location, ship);
 
-    let [_, Some(second)] = game.harbor.bridges() else {
-        panic!("expanded harbor needs a second bridge");
-    };
-    let gate = second.gate();
-    game.cores[1].body.location = gate;
-    game.cores[1].body.velocity = [Fixed::ZERO; 2];
+    game.cores[CORES - 1].body = Body::at(game.harbor.gate);
     game.elapsed_ms(STEP_MS, Controls::default());
-    assert!(game.result.bridge_recovered);
     assert!(game.ready());
+    assert!(game.cores.iter().all(|core| core.collected));
     game.ship.velocity[1] = Fixed::from_int(2);
     game.elapsed_ms(STEP_MS, Controls::default());
     assert_eq!(game.session, Session::Departed);
@@ -171,6 +175,23 @@ fn autoplay_advances_and_is_deterministic() {
 }
 
 #[test]
+fn autoplay_tows_the_last_core_past_a_bridge_corner() {
+    let mut game = Game::new(0x4652_554e);
+    game.set_mode(Mode::Auto);
+    game.start();
+    for _ in 0..1_200 {
+        game.elapsed_ms(48, Controls::default());
+        if game.level == 3 {
+            return;
+        }
+    }
+    panic!(
+        "stuck in harbor {} after recovering {} cores",
+        game.level, game.result.collected
+    );
+}
+
+#[test]
 fn revival_preserves_progress_and_resupplies_lost_core() {
     let mut game = Game::new(7);
     game.start();
@@ -193,20 +214,12 @@ fn revival_preserves_progress_and_resupplies_lost_core() {
 }
 
 #[test]
-fn different_decks_cannot_collide_or_collect() {
-    let lower = Location::new(36, 54, false);
-    let upper = Location::new(36, 54, true);
-    assert!(!swept(lower, lower, upper, IMPACT_RADIUS));
-    assert!(swept(upper, upper, upper, IMPACT_RADIUS));
-}
-
-#[test]
 fn an_armed_core_can_stun_a_guard_and_lose_stability() {
     let mut game = Game::new(1);
     game.start();
-    game.guards[0] = Guard::new(Location::new(23, 20, false));
+    game.guards[0] = Guard::new(Location::new(23, 20));
     game.cores[0].body = Body {
-        location: Location::new(19, 20, false),
+        location: Location::new(19, 20),
         velocity: [Fixed::from_int(2), Fixed::ZERO],
     };
     game.tether = Some(0);
