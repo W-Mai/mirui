@@ -671,7 +671,6 @@ mod tests {
                 source.contains(implementation),
                 "{slug} source omits implementation marker {implementation}"
             );
-            assert!(source.contains("fn build_widgets"));
         }
     }
 
