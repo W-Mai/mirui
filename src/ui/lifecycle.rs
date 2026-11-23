@@ -94,7 +94,7 @@ impl InputAttach {
             .map_or(Some(0), |kind| world.component_generation(entity, kind))
     }
 
-    fn retire_replaced(&self, world: &mut World, entity: Entity) {
+    fn retire_replaced(&self, world: &mut World, entity: Entity) -> bool {
         let removed = {
             let mut instances = self.instances.values.borrow_mut();
             instances
@@ -115,7 +115,9 @@ impl InputAttach {
             && let Some(retire) = self.retire
         {
             retire(world, removed);
+            return true;
         }
+        false
     }
 
     fn begin(&self, entity: Entity, generation: u64) -> bool {
@@ -170,11 +172,13 @@ fn input_attach_plan(world: &World) -> Option<alloc::rc::Rc<alloc::vec::Vec<Inpu
         .input_attach_plan()
 }
 
-fn prepare_plan(world: &mut World, plan: &[InputAttach]) {
-    if plan
-        .last()
+fn plan_is_ready(plan: &[InputAttach]) -> bool {
+    plan.last()
         .is_none_or(|hook| hook.instances.tracking_ready.get())
-    {
+}
+
+fn prepare_plan(world: &mut World, plan: &[InputAttach]) {
+    if plan_is_ready(plan) {
         return;
     }
     for hook in plan {
@@ -191,13 +195,15 @@ fn prepare_plan(world: &mut World, plan: &[InputAttach]) {
     }
 }
 
-fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttach]) {
+fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttach]) -> bool {
     prepare_plan(world, plan);
     let mut remaining = 1024_usize;
+    let mut completed = true;
     loop {
         let mut progress = false;
+        let mut ran_retire = false;
         for hook in plan {
-            hook.retire_replaced(world, entity);
+            ran_retire |= hook.retire_replaced(world, entity);
             let Some(generation) = hook.generation(world, entity) else {
                 continue;
             };
@@ -206,7 +212,7 @@ fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttac
             }
             if remaining == 0 {
                 crate::warn!("View initialization stopped after repeated component replacement");
-                return;
+                return false;
             }
             remaining -= 1;
             progress = true;
@@ -228,9 +234,11 @@ fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttac
                 }
                 hook.finish(entity, generation, ready);
             }
+            completed &= ready;
         }
         if !progress {
-            return;
+            // A retire callback can change a component whose hook was already visited.
+            return completed && !ran_retire;
         }
     }
 }
@@ -245,8 +253,12 @@ pub(crate) fn attach_handlers_for(world: &mut World, entity: Entity) {
     if !world.has::<AttachTarget>(entity) {
         world.insert(entity, AttachTarget);
     }
-    if let Some(plan) = input_attach_plan(world) {
-        apply_input_attach_plan(world, entity, &plan);
+    if let Some(plan) = input_attach_plan(world)
+        && apply_input_attach_plan(world, entity, &plan)
+        && world.is_alive(entity)
+        && input_attach_plan(world).is_some_and(|current| Rc::ptr_eq(&plan, &current))
+    {
+        world.acknowledge_attachment_change(entity);
     }
 }
 
@@ -266,9 +278,13 @@ pub(crate) fn prepare(world: &mut World) {
             #[cfg(feature = "perf")]
             crate::trace_span!("lifecycle.attachments");
             for _ in 0..pending {
-                let Some(entity) = world.next_attachment_change() else {
+                let Some((entity, settled)) = world.next_attachment_change() else {
                     break;
                 };
+                if settled && input_attach_plan(world).is_none_or(|current| plan_is_ready(&current))
+                {
+                    continue;
+                }
                 if world.has::<AttachTarget>(entity) {
                     attach_handlers_for(world, entity);
                 } else if let Some(plan) = input_attach_plan(world) {

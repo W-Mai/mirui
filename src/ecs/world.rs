@@ -570,7 +570,13 @@ impl World {
         self.component_lifetimes.as_ref()?.generation(entity, kind)
     }
 
-    pub(crate) fn next_attachment_change(&mut self) -> Option<Entity> {
+    pub(crate) fn acknowledge_attachment_change(&mut self, entity: Entity) {
+        if let Some(lifetimes) = self.component_lifetimes.as_mut() {
+            lifetimes.acknowledge(entity);
+        }
+    }
+
+    pub(crate) fn next_attachment_change(&mut self) -> Option<(Entity, bool)> {
         self.component_lifetimes.as_mut()?.next_pending()
     }
 

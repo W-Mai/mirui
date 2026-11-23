@@ -296,6 +296,49 @@ fn pending_attachment_refreshes_the_registry_before_reconciliation() {
 }
 
 #[test]
+fn acknowledged_attachment_checks_a_view_registered_earlier_in_the_batch() {
+    fn attach(scope: &mut crate::ui::UiScope<'_>) {
+        let node = scope.parent();
+        let world = scope.world_mut();
+        if world.get::<Source>(node).unwrap().0 == 2 {
+            world
+                .resource_mut::<ViewRegistry>()
+                .unwrap()
+                .insert(capability_view());
+        } else {
+            world.insert(node, Capability);
+        }
+    }
+    fn reconcile(world: &mut World, node: Entity) -> bool {
+        if world.has::<Capability>(node) {
+            assert_eq!(world.resource::<Trace>().unwrap().capabilities, 1);
+        }
+        false
+    }
+    let mut world = World::new();
+    let mut registry = ViewRegistry::default();
+    registry.insert(
+        View::systems_only("register", &[])
+            .with_filter::<Source>()
+            .with_attach(attach)
+            .with_reconcile(reconcile),
+    );
+    world.insert_resource(registry);
+    world.insert_resource(Trace::default());
+
+    let trigger = world.spawn_empty();
+    attach_handlers_for(&mut world, trigger);
+    world.insert(trigger, Source(2));
+    let settled = world.spawn(Source(1));
+    attach_handlers_for(&mut world, settled);
+    assert_eq!(world.pending_attachment_changes(), 2);
+    assert_eq!(world.resource::<Trace>().unwrap().capabilities, 0);
+    prepare(&mut world);
+    assert_eq!(world.resource::<Trace>().unwrap().capabilities, 1);
+    assert_eq!(world.pending_attachment_changes(), 0);
+}
+
+#[test]
 fn incomplete_nodes_wait_for_the_construction_boundary() {
     let mut world = world(true);
     let first = world.spawn(Source(1));

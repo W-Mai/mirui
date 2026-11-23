@@ -17,11 +17,16 @@ impl Instance {
     }
 }
 
+struct PendingAttachment {
+    entity: Entity,
+    settled: bool,
+}
+
 #[derive(Default)]
 pub(super) struct ComponentLifetimes {
     kinds: Vec<TypeId>,
     instances: Vec<Instance>,
-    pending: VecDeque<Entity>,
+    pending: VecDeque<PendingAttachment>,
     next: u64,
 }
 
@@ -57,8 +62,29 @@ impl ComponentLifetimes {
     }
 
     pub(super) fn enqueue(&mut self, entity: Entity) {
-        if !self.pending.contains(&entity) {
-            self.pending.push_back(entity);
+        if let Some(change) = self
+            .pending
+            .iter_mut()
+            .rev()
+            .find(|change| change.entity == entity)
+        {
+            change.settled = false;
+        } else {
+            self.pending.push_back(PendingAttachment {
+                entity,
+                settled: false,
+            });
+        }
+    }
+
+    pub(super) fn acknowledge(&mut self, entity: Entity) {
+        if let Some(change) = self
+            .pending
+            .iter_mut()
+            .rev()
+            .find(|change| change.entity == entity)
+        {
+            change.settled = true;
         }
     }
 
@@ -85,8 +111,9 @@ impl ComponentLifetimes {
             .binary_search_by_key(&(entity.id, entity.generation, kind), Instance::key)
     }
 
-    pub(super) fn next_pending(&mut self) -> Option<Entity> {
-        self.pending.pop_front()
+    pub(super) fn next_pending(&mut self) -> Option<(Entity, bool)> {
+        let change = self.pending.pop_front()?;
+        Some((change.entity, change.settled))
     }
 
     pub(super) fn pending_len(&self) -> usize {
@@ -97,6 +124,33 @@ impl ComponentLifetimes {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn acknowledgement_preserves_queue_order_and_full_entity_identity() {
+        let mut lifetimes = ComponentLifetimes::default();
+        let first = Entity {
+            id: 0,
+            generation: 0,
+        };
+        let old = Entity {
+            id: 1,
+            generation: 0,
+        };
+        let replacement = Entity {
+            id: 1,
+            generation: 1,
+        };
+        for entity in [first, old, replacement] {
+            lifetimes.enqueue(entity);
+            lifetimes.acknowledge(entity);
+        }
+        lifetimes.enqueue(first);
+        lifetimes.despawn(old);
+        assert_eq!(lifetimes.next_pending(), Some((first, false)));
+        assert_eq!(lifetimes.next_pending(), Some((old, false)));
+        assert_eq!(lifetimes.next_pending(), Some((replacement, true)));
+        assert_eq!(lifetimes.next_pending(), None);
+    }
 
     #[test]
     fn ordered_lifetimes_preserve_identity_through_replacement_and_retirement() {

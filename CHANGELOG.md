@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Read attachment lifetimes only for matching View registration slots.
 - Deduplicate pending Effects through the live Effect record.
 - Find automatic widget consumers in one graph pass during subtree retirement.
+- Skip queued View attachment checks already completed during widget construction.
 
 ### Fixed
 
