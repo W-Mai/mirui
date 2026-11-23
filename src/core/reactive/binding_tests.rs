@@ -143,3 +143,37 @@ fn foreign_worlds_and_ordinary_queue_order_remain_independent() {
     flush_signal_dirty(&mut first);
     assert_eq!(&*log.borrow(), &[2, 1]);
 }
+
+#[test]
+fn sorting_pending_effects_keeps_new_work_outside_the_current_batch() {
+    let mut world = World::new();
+    let root = world.spawn_empty();
+    let child = world.spawn_empty();
+    world.insert(child, Parent(root));
+    let gate = retained::RetainedEffects::new(&mut world, |_, _| true);
+    world.insert(root, gate);
+    let (child_effect, root_effect, next_batch) = with_world_scope(&mut world, || {
+        (
+            Effect::spawn(|| {}, Some(child), BindingRole::Display),
+            Effect::spawn(|| {}, Some(root), BindingRole::Display),
+            Effect::spawn(|| {}, Some(root), BindingRole::Ordinary),
+        )
+    });
+    for id in [child_effect.id, root_effect.id, next_batch.id] {
+        enqueue_effect(id);
+    }
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| order_effects(&world, 2)),
+        0
+    );
+    with_reactive(|runtime| {
+        let expected = [root_effect.id, child_effect.id, next_batch.id];
+        assert!(
+            runtime
+                .dirty_effects
+                .iter()
+                .map(|entry| entry.id)
+                .eq(expected)
+        );
+    });
+}

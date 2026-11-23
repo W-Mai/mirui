@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reuse the Effect ownership index to share ancestry checks when revealing retained UI.
 - Reuse Parent storage during Effect ordering and resolve each dequeued Effect's ownership and role together.
 - Enqueue reactive graph notifications in one subscriber pass using reserved consumer capacity.
+- Compute each pending Effect's ordering key once per batch sort.
 
 ### Fixed
 

@@ -87,16 +87,14 @@ fn wake_matching(world: &World, root: Entity, accepts: impl Fn(BindingRole) -> b
                     previous = Some(entity);
                     included = contains(entity);
                 }
-                if included
-                    && accepts(runtime.effects[&id].borrow().role)
-                    && !runtime.dirty_effects.contains(&id)
-                {
-                    runtime.dirty_effects.push_back(id);
+                if included && accepts(runtime.effects[&id].borrow().role) {
+                    PendingEffect::enqueue(&mut runtime.dirty_effects, id);
                 }
             }
             if runtime.dirty_effects.len() - queued > 1 {
                 // Wake order follows the registry even when entity IDs differ.
-                runtime.dirty_effects.make_contiguous()[queued..].sort_unstable();
+                runtime.dirty_effects.make_contiguous()[queued..]
+                    .sort_unstable_by_key(|entry| entry.id);
             }
             return;
         }
@@ -105,9 +103,8 @@ fn wake_matching(world: &World, root: Entity, accepts: impl Fn(BindingRole) -> b
             if effect.owner_world == Some(world.id())
                 && accepts(effect.role)
                 && effect.owner_entity.is_some_and(&contains)
-                && !runtime.dirty_effects.contains(&id)
             {
-                runtime.dirty_effects.push_back(id);
+                PendingEffect::enqueue(&mut runtime.dirty_effects, id);
             }
         }
     });

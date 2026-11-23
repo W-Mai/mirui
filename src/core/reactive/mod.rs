@@ -48,6 +48,19 @@ impl OwnedSubscriber {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct EffectId(SlotId);
 
+struct PendingEffect {
+    id: EffectId,
+    order: u64,
+}
+
+impl PendingEffect {
+    fn enqueue(queue: &mut VecDeque<Self>, id: EffectId) {
+        if !queue.iter().any(|entry| entry.id == id) {
+            queue.push_back(Self { id, order: 0 });
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct ComputedId(SlotId);
 
@@ -106,7 +119,7 @@ struct Reactive {
     dirty_visual_widgets: VecDeque<VisualInvalidation>,
     next_paint_scope: u64,
     model_visual_subscriptions: usize,
-    dirty_effects: VecDeque<EffectId>,
+    dirty_effects: VecDeque<PendingEffect>,
     effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
     unbound_effects: usize,
     effect_index: EffectIndex,
@@ -506,11 +519,7 @@ impl Drop for PaintRequestScope {
 }
 
 fn enqueue_effect(id: EffectId) {
-    with_reactive(|r| {
-        if !r.dirty_effects.contains(&id) {
-            r.dirty_effects.push_back(id);
-        }
-    });
+    with_reactive(|r| PendingEffect::enqueue(&mut r.dirty_effects, id));
 }
 
 // Effects created outside a World may bind to one model owner on their first
@@ -588,9 +597,7 @@ fn publish_graph_source(source: SourceKey) {
         {
             match target {
                 Subscriber::Effect(effect) => {
-                    if !r.dirty_effects.contains(&effect) {
-                        r.dirty_effects.push_back(effect);
-                    }
+                    PendingEffect::enqueue(&mut r.dirty_effects, effect);
                 }
                 Subscriber::Widget(entity) => {
                     let owner = match consumer.partition {
@@ -912,35 +919,39 @@ fn order_effects(world: &World, remaining: usize) {
     #[cfg(feature = "perf")]
     crate::trace_span!("reactive.order");
     let ancestry_depth = retained::ancestry_depth(world);
+    let world_id = world.id();
     with_reactive(|runtime| {
         let count = remaining.min(runtime.dirty_effects.len());
-        for (index, id) in runtime.dirty_effects.iter().take(count).enumerate() {
-            if let Some(effect) = runtime.effects.get(id) {
-                let mut effect = effect.borrow_mut();
-                // Never resolve a foreign entity against this World's parent chain.
-                effect.depth = if effect.owner_world.is_some_and(|owner| owner != world.id()) {
-                    usize::MAX
-                } else if effect.role == BindingRole::Ordinary && !retained {
-                    index
-                } else {
-                    effect.owner_entity.map_or(0, &ancestry_depth)
-                };
-            }
-        }
-        let effects = &runtime.effects;
-        runtime.dirty_effects.make_contiguous()[..count].sort_unstable_by_key(|id| {
-            effects.get(id).map(|effect| {
+        for (index, entry) in runtime.dirty_effects.iter_mut().take(count).enumerate() {
+            entry.order = runtime.effects.get(&entry.id).map_or(0, |effect| {
                 let effect = effect.borrow();
-                let lane = if effect.owner_world.is_some_and(|owner| owner != world.id()) {
-                    2
-                } else if effect.role == BindingRole::Ordinary {
-                    0
+                let foreign = effect.owner_world.is_some_and(|owner| owner != world_id);
+                let ordinary = effect.role == BindingRole::Ordinary;
+                let (lane, depth) = if foreign {
+                    // Entity identities only resolve within their own World.
+                    (3, 0)
+                } else if ordinary && !retained {
+                    (1, index)
                 } else {
-                    1
+                    (
+                        if ordinary { 1 } else { 2 },
+                        effect.owner_entity.map_or(0, &ancestry_depth),
+                    )
                 };
-                (lane, effect.depth, effect.role, *id)
-            })
-        });
+                // The 32-bit identity space bounds both depth and the queue ordinal.
+                // Keep the cycle sentinel above every finite depth on all targets.
+                let depth = if depth == usize::MAX {
+                    1u64 << 32
+                } else {
+                    depth as u64
+                };
+                // Zero sorts missing effects first. Each live lane has 33 depth
+                // bits and two role bits; the full ID breaks remaining ties.
+                (lane << 35) | (depth << 2) | u64::from(effect.role as u8)
+            });
+        }
+        runtime.dirty_effects.make_contiguous()[..count]
+            .sort_unstable_by_key(|entry| (entry.order, entry.id));
     });
 }
 
@@ -1001,10 +1012,11 @@ pub fn flush_signal_dirty(world: &mut World) {
                     tree_revision = revision;
                 }
                 let effect = with_reactive(|r| {
-                    let id = r.dirty_effects.pop_front()?;
+                    let entry = r.dirty_effects.pop_front()?;
+                    let id = entry.id;
                     let effect = r.effects.get(&id)?.borrow();
                     if effect.owner_world.is_some_and(|owner| owner != world_id) {
-                        r.dirty_effects.push_back(id);
+                        r.dirty_effects.push_back(entry);
                         return None;
                     }
                     Some((id, effect.owner_entity, effect.role))
@@ -1712,7 +1724,6 @@ struct EffectInner {
     graph_consumer: ConsumerKey,
     model_consumer: Option<ConsumerKey>,
     role: BindingRole,
-    depth: usize,
 }
 
 /// Execution responsibility assigned by framework-generated bindings.
@@ -1741,7 +1752,7 @@ fn unregister_effect(id: EffectId) {
                 let _ = r.graph.remove_consumer(consumer);
             }
             let _ = r.graph.remove_consumer(effect.graph_consumer);
-            r.dirty_effects.retain(|queued| *queued != id);
+            r.dirty_effects.retain(|queued| queued.id != id);
             r.effect_slots.release(id.0);
         }
         removed
@@ -1831,7 +1842,6 @@ impl Effect {
                 graph_consumer,
                 model_consumer: None,
                 role,
-                depth: 0,
             }));
             r.effects.insert(id, inner);
             if let Some(world) = owner_world {
@@ -2845,7 +2855,8 @@ mod tests {
 
     fn drain_effects() {
         loop {
-            let batch: Vec<EffectId> = with_reactive(|r| r.dirty_effects.drain(..).collect());
+            let batch: Vec<EffectId> =
+                with_reactive(|r| r.dirty_effects.drain(..).map(|entry| entry.id).collect());
             if batch.is_empty() {
                 break;
             }
@@ -3615,7 +3626,13 @@ mod tests {
                 root_display.id,
                 ordinary.id,
             ];
-            assert!(runtime.dirty_effects.iter().copied().eq(expected));
+            assert!(
+                runtime
+                    .dirty_effects
+                    .iter()
+                    .map(|entry| entry.id)
+                    .eq(expected)
+            );
         });
     }
 
@@ -3727,7 +3744,10 @@ mod tests {
             1,
             "notification must not evaluate user code"
         );
-        assert!(with_reactive(|r| r.dirty_effects.contains(&effect.id)));
+        assert!(with_reactive(|r| r
+            .dirty_effects
+            .iter()
+            .any(|entry| entry.id == effect.id)));
         flush_signal_dirty(&mut world);
         assert_eq!(evaluations.get(), 2);
     }
