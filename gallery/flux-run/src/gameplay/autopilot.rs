@@ -115,7 +115,14 @@ impl Pilot {
         };
         let target = game.cores[slot].body.location;
         let mut control = self.steer(game, target, false);
-        if let Some(candidate) = game.target().filter(|&candidate| available(candidate)) {
+        if let Some(candidate) = game.target().filter(|&candidate| {
+            // A clear rope can graze a ramp corner that the core cannot slide through.
+            available(candidate)
+                && game
+                    .harbor
+                    .layout
+                    .direct(ship.point, game.cores[candidate].body.location.point)
+        }) {
             // Preserve the facing used to choose the visible target.
             self.following = Some(candidate);
             control = Controls {

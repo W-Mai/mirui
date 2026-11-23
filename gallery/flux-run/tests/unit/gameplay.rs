@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn autoplay_recovers_a_core_pushed_against_a_ramp_corner() {
+    let mut game = Game::new(0x4652_554e);
+    game.set_mode(Mode::Auto);
+    game.start();
+    game.level = 3;
+    game.restart();
+    for _ in 0..1_200 {
+        game.elapsed_ms(STEP_MS, Controls::default());
+        if game.level == 4 {
+            return;
+        }
+    }
+    panic!("recovered only {} of {CORES} cores", game.result.collected);
+}
+
+#[test]
 fn harbor_difficulty_adds_reachable_platforms_and_raised_crossings() {
     let mut most_platforms = 0;
     let mut directions = [false; 2];
