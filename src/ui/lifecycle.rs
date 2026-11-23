@@ -95,17 +95,19 @@ impl InputAttach {
     }
 
     fn retire_replaced(&self, world: &mut World, entity: Entity) {
-        let generation = self.generation(world, entity);
-        let live_slot = world.is_alive(entity);
         let removed = {
             let mut instances = self.instances.values.borrow_mut();
             instances
                 .iter()
                 .position(|instance| {
-                    (instance.entity == entity && Some(instance.generation) != generation)
-                        || (live_slot
-                            && instance.entity.id == entity.id
-                            && instance.entity != entity)
+                    if instance.entity.id != entity.id {
+                        return false;
+                    }
+                    if instance.entity == entity {
+                        Some(instance.generation) != self.generation(world, entity)
+                    } else {
+                        world.is_alive(entity)
+                    }
                 })
                 .map(|index| instances.swap_remove(index).entity)
         };
