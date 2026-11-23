@@ -1,8 +1,8 @@
-#![cfg(feature = "gallery")]
+#![cfg(any(feature = "snapshot", feature = "web-canvas"))]
 
-extern crate alloc;
+use std::collections::BTreeSet;
 
-use alloc::collections::BTreeSet;
+use gallery::{DEMOS, setup_demo};
 use mirui::app::App;
 use mirui::core::reactive::Signal;
 use mirui::surface::FramebufferAccess;
@@ -50,8 +50,7 @@ macro_rules! render_demo {
         let height = $height;
         let mut app = App::headless(width, height);
         app.with_default_widgets().with_default_systems();
-        let root = app.spawn_root().id();
-        mirui::gallery::demos::$module::setup_app(&mut app, root);
+        let root = setup_demo(stringify!($module), &mut app).expect("registered demo");
         app.set_root(root);
         app.set_theme($theme).unwrap();
         app.systems.run_all(&mut app.world).unwrap();
@@ -101,67 +100,6 @@ fn assert_theme_pair(
         light.hash, dark.hash,
         "{module} produced identical light and dark frames at {width}x{height}",
     );
-}
-
-fn registered_modules() -> BTreeSet<&'static str> {
-    let source = include_str!("../gallery/src/lib.rs");
-    let body = source
-        .split_once("register_demos! {")
-        .expect("Gallery demo registry")
-        .1;
-    let bytes = body.as_bytes();
-    let mut modules = BTreeSet::new();
-    let mut tuple_depth = 0_usize;
-    let mut field = 0_usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut index = 0_usize;
-
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        match byte {
-            b'"' => in_string = true,
-            b'(' => {
-                if tuple_depth == 0 {
-                    field = 0;
-                }
-                tuple_depth += 1;
-            }
-            b')' => tuple_depth = tuple_depth.saturating_sub(1),
-            b',' if tuple_depth == 1 => field += 1,
-            b'}' if tuple_depth == 0 => break,
-            byte if tuple_depth == 1
-                && field == 3
-                && (byte.is_ascii_alphabetic() || byte == b'_') =>
-            {
-                let start = index;
-                index += 1;
-                while index < bytes.len()
-                    && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
-                {
-                    index += 1;
-                }
-                modules.insert(&body[start..index]);
-                continue;
-            }
-            _ => {}
-        }
-        index += 1;
-    }
-
-    modules
 }
 
 #[test]
@@ -229,8 +167,7 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
                 for theme in [Theme::light(), Theme::dark()] {
                     let mut app = App::headless(width, height);
                     app.with_default_widgets().with_default_systems();
-                    let root = app.spawn_root().id();
-                    mirui::gallery::demos::$module::setup_app(&mut app, root);
+                    let root = setup_demo(stringify!($module), &mut app).expect("registered demo");
                     app.set_root(root);
                     app.set_theme(theme).unwrap();
                     app.systems.run_all(&mut app.world).unwrap();
@@ -267,6 +204,10 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     fixed_palette!(nearby, [(360, 480), (640, 480)]);
     responsive!(chord_prompter, [(320, 240), (480, 320), (1024, 640)]);
     responsive!(glass_light_toggle);
+    responsive!(flux_run, [(320, 320), (800, 600), (1024, 640)]);
+    compact!(flux_run_compact);
+    fixed_palette!(pixel_flight, [(320, 320), (800, 600), (1024, 640)]);
+    fixed_palette!(pixel_flight_compact, [(128, 128)]);
     compact!(kinetic_console);
     fixed_palette!(signal_scope);
     fixed_palette!(marble_play);
@@ -334,5 +275,5 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     compact!(widgets_compact);
     responsive!(builder_form);
 
-    assert_eq!(covered, registered_modules());
+    assert_eq!(covered, DEMOS.iter().map(|demo| demo.slug).collect());
 }
