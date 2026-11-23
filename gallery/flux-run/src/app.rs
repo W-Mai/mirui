@@ -34,6 +34,8 @@ pub(crate) struct Hud {
     pub name: &'static str,
     pub cores: u8,
     pub quota: u8,
+    pub ready: bool,
+    pub bridge_pending: bool,
     pub life: u8,
     pub seconds: u32,
     pub revivals: u32,
@@ -56,6 +58,8 @@ impl Hud {
             },
             cores: game.result.collected,
             quota: game.harbor.quota,
+            ready: game.ready(),
+            bridge_pending: game.bridge_pending(),
             life: game.life,
             seconds: game.result.ticks / 63,
             revivals: game.result.revivals,
@@ -86,8 +90,6 @@ pub struct FluxRun {
     #[observe]
     pub(crate) camera_scale: Fixed,
     #[observe]
-    pub(crate) bridge_x: i32,
-    #[observe]
     pub(crate) passage: Option<PassageFrame>,
     #[observe]
     pub(crate) camera_frame: CameraFrame,
@@ -114,16 +116,15 @@ impl FluxRun {
 
     fn new(owner: Entity, compact: bool, tone: SceneTone) -> Self {
         let game = Game::new(0x4652_554e);
-        let camera = CameraRig::new(game.ship.location, game.harbor.extent());
+        let camera = CameraRig::new(game.ship.location, &game.harbor);
         Self {
             stage: StackStage::bounded(presentation::STAGE_CAPACITY).into(),
             owner,
             marks: Marks::from_game(&game),
             hud: Hud::from_game(&game),
             camera_scale: Fixed::from_int(4),
-            bridge_x: game.harbor.bridge,
             passage: None,
-            camera_frame: camera.frame(game.ship.location, game.harbor.extent()),
+            camera_frame: camera.frame(game.ship.location, &game.harbor),
             camera_menu: false,
             exhibition: false,
             exhibition_ms: 0,
@@ -139,11 +140,10 @@ impl FluxRun {
     }
 
     fn refresh(&mut self) {
-        self.bridge_x = self.game.harbor.bridge;
         self.passage = self.game.passage_frame();
         self.camera_frame = self
             .camera
-            .frame(self.game.ship.location, self.game.harbor.extent());
+            .frame(self.game.ship.location, &self.game.harbor);
         self.marks = Marks::from_game(&self.game);
         self.hud = Hud::from_game(&self.game);
     }
@@ -172,11 +172,8 @@ impl FluxRun {
         if self.passage.is_some() {
             return;
         }
-        self.camera.select(
-            viewpoint,
-            self.game.ship.location,
-            self.game.harbor.extent(),
-        );
+        self.camera
+            .select(viewpoint, self.game.ship.location, &self.game.harbor);
         self.camera_menu = false;
     }
 

@@ -9,7 +9,43 @@ pub(crate) const CELL_SIZE: i32 = 6;
 pub(crate) const INITIAL_EXTENT: i32 = INITIAL_SIDE as i32 * CELL_SIZE;
 pub const SPAWN: Location = Location::new(13, 13, false);
 pub(crate) const BRIDGE_START: i32 = 13;
-pub(crate) const BRIDGE_END: i32 = 64;
+const INITIAL_BRIDGE_END: i32 = 64;
+pub(crate) const LOCK_POSITION: i32 = 40;
+const RAMP_ENTRY: Fixed = Fixed::from_int(3);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Bridge {
+    pub x: i32,
+    pub end: i32,
+}
+
+impl Bridge {
+    pub fn length(self) -> usize {
+        (self.end - BRIDGE_START + 1) as usize
+    }
+
+    fn height(self, z: Fixed) -> Fixed {
+        (z - Fixed::from_int(BRIDGE_START))
+            .min(Fixed::from_int(self.end) - z)
+            .clamp(Fixed::ZERO, Fixed::from_int(8))
+    }
+
+    pub fn gate(self) -> Location {
+        Location::new(self.x, self.end - 10, true)
+    }
+
+    pub fn ramp(self, front: bool) -> Location {
+        Location::new(
+            self.x,
+            if front {
+                BRIDGE_START - 5
+            } else {
+                self.end + 3
+            },
+            false,
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Location {
@@ -22,17 +58,6 @@ impl Location {
         Self {
             point: [Fixed::from_int(x), Fixed::from_int(z)],
             upper,
-        }
-    }
-
-    pub fn height(self) -> Fixed {
-        let z = self.point[1];
-        if self.upper {
-            (z - Fixed::from_int(BRIDGE_START))
-                .min(Fixed::from_int(BRIDGE_END) - z)
-                .clamp(Fixed::ZERO, Fixed::from_int(8))
-        } else {
-            Fixed::ZERO
         }
     }
 
@@ -60,7 +85,8 @@ pub struct Harbor {
     pub gate: Location,
     pub(crate) cargo_gate: Option<Location>,
     pub exit: Location,
-    pub(crate) bridge: i32,
+    pub(crate) bridge: Bridge,
+    secondary_bridge: Option<Bridge>,
     pub(crate) layout: Layout,
 }
 
@@ -98,6 +124,15 @@ impl Layout {
         Self {
             side: side as u8,
             rows,
+        }
+    }
+
+    fn clear_ramp(&mut self, bridge: Bridge) {
+        let x = bridge.x as usize / CELL_SIZE as usize;
+        let z = bridge.end as usize / CELL_SIZE as usize;
+        let last = (z + 1).min(self.side() - 1);
+        for row in &mut self.rows[z.saturating_sub(1)..=last] {
+            *row &= !(7 << (x - 1));
         }
     }
 
@@ -239,8 +274,19 @@ impl Harbor {
         let side = INITIAL_SIDE + growth;
         let edge = side as i32 * CELL_SIZE;
         let added = edge - INITIAL_EXTENT;
-        let bridge = edge / 2 + [-12, 0, 12][next() as usize % 3];
-        let layout = Layout::generate(side, west, &mut next);
+        let bridge = Bridge {
+            x: edge / 2 + [-12, 0, 12][next() as usize % 3],
+            end: INITIAL_BRIDGE_END + added,
+        };
+        let secondary_bridge = (level >= 3).then_some(Bridge {
+            x: if bridge.x <= edge / 2 { edge - 18 } else { 18 },
+            end: bridge.end - 12,
+        });
+        let mut layout = Layout::generate(side, west, &mut next);
+        layout.clear_ramp(bridge);
+        if let Some(second) = secondary_bridge {
+            layout.clear_ramp(second);
+        }
         let west_core = Location::new(8 + next() % 4, 24 + next() % 12, false);
         let east_core = Location::new(61 + added + next() % 5, 28 + next() % 10, false);
         let cross_bay = 32 + added / 2 + next() % 8;
@@ -250,9 +296,15 @@ impl Harbor {
             district,
             cores: [
                 west_core,
-                east_core,
+                secondary_bridge.map_or(east_core, |second| {
+                    Location::new(second.x, second.end - 22, true)
+                }),
                 cargo,
-                Location::new(bridge - 2 + next() % 5, 33 + next() % 12, true),
+                Location::new(
+                    bridge.x - 2 + next() % 5,
+                    bridge.end - 31 + next() % 12,
+                    true,
+                ),
                 Location::new(8 + next() % 4, 48 + added + next() % 10, false),
             ]
             .map(|location| {
@@ -265,7 +317,7 @@ impl Harbor {
             guards: [
                 Location::new(60, 34 + next() % 6, false),
                 Location::new(24, 35 + next() % 5, false),
-                Location::new(bridge, 54, true),
+                bridge.gate(),
             ]
             .map(|location| {
                 if location.upper {
@@ -288,6 +340,7 @@ impl Harbor {
                 .then(|| Location::new(if west { edge - 13 } else { 13 }, edge - 10, false)),
             exit: Location::new(edge - 14, 13, false),
             bridge,
+            secondary_bridge,
             layout,
         }
     }
@@ -296,13 +349,29 @@ impl Harbor {
         self.layout.extent()
     }
 
-    pub(crate) fn high_gate(&self) -> Location {
-        Location::new(self.bridge, 54, true)
+    pub(crate) fn bridges(&self) -> [Option<Bridge>; 2] {
+        [Some(self.bridge), self.secondary_bridge]
+    }
+
+    pub(crate) fn bridge_at(&self, x: Fixed) -> Bridge {
+        self.secondary_bridge
+            .filter(|second| {
+                (x - Fixed::from_int(second.x)).abs() < (x - Fixed::from_int(self.bridge.x)).abs()
+            })
+            .unwrap_or(self.bridge)
+    }
+
+    pub(crate) fn height(&self, location: Location) -> Fixed {
+        if location.upper {
+            self.bridge_at(location.point[0]).height(location.point[1])
+        } else {
+            Fixed::ZERO
+        }
     }
 
     pub(crate) fn recovery_gates(&self, upper: bool) -> [Option<Location>; 2] {
         if upper {
-            [Some(self.high_gate()), None]
+            self.bridges().map(|bridge| bridge.map(Bridge::gate))
         } else {
             [Some(self.gate), self.cargo_gate]
         }
@@ -310,7 +379,7 @@ impl Harbor {
 
     pub(crate) fn nearest_gate(&self, cargo: Location) -> Location {
         if cargo.upper {
-            return self.high_gate();
+            return self.bridge_at(cargo.point[0]).gate();
         }
         let distance = |gate: Location| length_squared(offset(cargo.point, gate.point));
         self.cargo_gate
@@ -346,17 +415,15 @@ impl Harbor {
     pub fn advance(&self, from: Location, desired: [Fixed; 2], tick: u32) -> Location {
         let [mut x, mut z] =
             desired.map(|v| v.clamp(Fixed::from_int(5), Fixed::from_int(self.extent() - 5)));
-        let left = Fixed::from_int(self.bridge - 7);
-        let right = Fixed::from_int(self.bridge + 7);
         let south = Fixed::from_int(BRIDGE_START);
-        let north = Fixed::from_int(BRIDGE_END);
         let mut upper = from.upper;
         if from.upper {
-            x = x.clamp(left, right);
-            if z < south || z > north {
+            let bridge = self.bridge_at(from.point[0]);
+            x = x.clamp(Fixed::from_int(bridge.x - 7), Fixed::from_int(bridge.x + 7));
+            if z < south || z > Fixed::from_int(bridge.end) {
                 upper = false;
-            } else if self.lock_closed(tick) {
-                let lock = Fixed::from_int(40);
+            } else if bridge == self.bridge && self.lock_closed(tick) {
+                let lock = Fixed::from_int(LOCK_POSITION);
                 if (from.point[1] < lock) != (z < lock) {
                     z = from.point[1];
                 }
@@ -368,9 +435,11 @@ impl Harbor {
             if !self.layout.open([x, z]) {
                 z = from.point[1];
             }
+            let bridge = self.bridge_at(x);
+            let north = Fixed::from_int(bridge.end);
             let crossed_end =
                 (from.point[1] < south && z >= south) || (from.point[1] > north && z <= north);
-            upper = crossed_end && (x - Fixed::from_int(self.bridge)).abs() <= Fixed::from_int(3);
+            upper = crossed_end && (x - Fixed::from_int(bridge.x)).abs() <= RAMP_ENTRY;
         }
         Location {
             point: [x, z],

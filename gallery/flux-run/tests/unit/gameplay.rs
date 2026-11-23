@@ -15,7 +15,17 @@ fn generated_harbors_keep_a_connected_lower_bypass() {
             let boundary = harbor.advance(harbor.exit, [Fixed::MAX, Fixed::from_int(13)], 0);
             assert_eq!(boundary.point[0], Fixed::from_int(extent - 5));
             different += usize::from(harbor.layout != first.layout);
-            let launch = Location::new(harbor.bridge, 8, false);
+            assert_eq!(harbor.bridge.length() as i32, extent - 20);
+            assert_eq!(
+                harbor.bridges().iter().flatten().count(),
+                if level >= 3 { 2 } else { 1 }
+            );
+            for bridge in harbor.bridges().into_iter().flatten() {
+                for ramp in [bridge.ramp(true), bridge.ramp(false)] {
+                    assert!(harbor.layout.way_to(SPAWN.point, ramp.point).is_some());
+                    assert!(harbor.layout.direct(ramp.point, ramp.point));
+                }
+            }
             assert_eq!(harbor.cargo_gate.is_some(), level > 1);
             if let (Some(other), Some(start)) = (harbor.cargo_gate, harbor.layout.freight_row()) {
                 let cargo = harbor.cores[2];
@@ -31,7 +41,7 @@ fn generated_harbors_keep_a_connected_lower_bypass() {
                 .iter()
                 .copied()
                 .filter(|core| !core.upper)
-                .chain([harbor.gate, harbor.exit, launch])
+                .chain([harbor.gate, harbor.exit])
                 .chain(harbor.cargo_gate)
             {
                 assert!(
@@ -104,6 +114,36 @@ fn freight_gate_recovers_a_core_and_counts_it_once() {
     assert_eq!(game.result.collected, 1);
     game.elapsed_ms(STEP_MS, Controls::default());
     assert_eq!(game.result.collected, 1);
+}
+
+#[test]
+fn cargo_quota_requires_a_bridge_recovery_after_the_outer_harbor() {
+    let mut game = Game::new(51);
+    game.start();
+    game.level = 3;
+    game.restart();
+    game.result.collected = game.harbor.quota;
+    assert!(!game.ready());
+    let mut ship = game.harbor.exit;
+    ship.point[1] -= Fixed::ONE;
+    game.ship.location = ship;
+    game.ship.velocity[1] = Fixed::from_int(2);
+    game.elapsed_ms(STEP_MS, Controls::default());
+    assert_eq!(game.session, Session::Running);
+    assert_eq!(game.ship.location, ship);
+
+    let [_, Some(second)] = game.harbor.bridges() else {
+        panic!("expanded harbor needs a second bridge");
+    };
+    let gate = second.gate();
+    game.cores[1].body.location = gate;
+    game.cores[1].body.velocity = [Fixed::ZERO; 2];
+    game.elapsed_ms(STEP_MS, Controls::default());
+    assert!(game.result.bridge_recovered);
+    assert!(game.ready());
+    game.ship.velocity[1] = Fixed::from_int(2);
+    game.elapsed_ms(STEP_MS, Controls::default());
+    assert_eq!(game.session, Session::Departed);
 }
 
 #[test]

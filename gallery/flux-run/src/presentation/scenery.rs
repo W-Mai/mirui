@@ -2,7 +2,7 @@ use mirui::types::Fixed;
 use mirui_sprite_stack::{HeightField, Pose, StackVisual, TerrainCell, TerrainGrid};
 
 use super::assets::{BEACON, CARGO, GRATE, Material, SceneTone, VENT};
-use crate::world::{BRIDGE_END, BRIDGE_START, CELL_SIZE, Harbor, Layout};
+use crate::world::{BRIDGE_START, CELL_SIZE, Harbor, Layout};
 
 pub(super) const MAX_PROPS: usize = 16;
 
@@ -19,8 +19,14 @@ pub(super) fn floor(harbor: &Harbor, detail: usize, tone: SceneTone) -> HeightFi
         let elevation = roof(layout, col, row);
         let grain = variation(x, z, harbor.phase);
         let last = side - 1;
-        let ramp =
-            col as i32 * CELL_SIZE <= harbor.bridge && (col as i32 + 1) * CELL_SIZE > harbor.bridge;
+        let ramp = || {
+            harbor.bridges().into_iter().flatten().any(|bridge| {
+                bridge.x / CELL_SIZE == col as i32
+                    && [BRIDGE_START, bridge.end]
+                        .into_iter()
+                        .any(|end| (z as i32 * cell - end).abs() <= 4)
+            })
+        };
         let material = if elevation > 0 {
             if detail == 0 {
                 Material::Roof
@@ -39,12 +45,7 @@ pub(super) fn floor(harbor: &Harbor, detail: usize, tone: SceneTone) -> HeightFi
             }
         } else if z == 0 || z == last || x == 1 || x == last - 1 {
             Material::Curb
-        } else if detail != 0
-            && ramp
-            && z.is_multiple_of(2)
-            && ((BRIDGE_START - 4..=BRIDGE_START + 3).contains(&(z as i32 * cell))
-                || (BRIDGE_END - 4..=BRIDGE_END + 3).contains(&(z as i32 * cell)))
-        {
+        } else if detail != 0 && z.is_multiple_of(2) && ramp() {
             Material::Paint
         } else if layout.freight_row().is_some_and(|start| row >= start) {
             if detail != 0 && z % (subdivisions * 2) == 0 && x % 4 < 2 {
@@ -101,9 +102,9 @@ pub(super) fn props(
             }
             let center = |cell| cell as i32 * CELL_SIZE + CELL_SIZE / 2;
             let [world_x, world_z] = [center(x), center(z)];
-            if (BRIDGE_START..=BRIDGE_END).contains(&world_z)
-                && (world_x - harbor.bridge).abs() <= 10
-            {
+            if harbor.bridges().into_iter().flatten().any(|bridge| {
+                (BRIDGE_START..=bridge.end).contains(&world_z) && (world_x - bridge.x).abs() <= 10
+            }) {
                 continue;
             }
             // Place machinery within the solid roof footprint.

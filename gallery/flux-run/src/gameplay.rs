@@ -1,6 +1,6 @@
 use crate::world::{
-    CORES, District, GUARDS, Harbor, Location, SPAWN, add, direction, dot, length_squared, offset,
-    scaled,
+    CORES, District, GUARDS, Harbor, LOCK_POSITION, Location, SPAWN, add, direction, dot,
+    length_squared, offset, scaled,
 };
 use mirui::{anim::Tween, types::Fixed};
 
@@ -159,6 +159,7 @@ impl Guard {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ResultLine {
     pub collected: u8,
+    pub bridge_recovered: bool,
     pub score: u32,
     pub revivals: u32,
     pub ticks: u32,
@@ -360,7 +361,11 @@ impl Game {
     }
 
     pub fn ready(&self) -> bool {
-        self.result.collected >= self.harbor.quota
+        self.result.collected >= self.harbor.quota && !self.bridge_pending()
+    }
+
+    pub(crate) fn bridge_pending(&self) -> bool {
+        self.level > 1 && !self.result.bridge_recovered
     }
 
     fn step(&mut self, controls: Controls) {
@@ -540,6 +545,14 @@ impl Game {
             core.body.velocity = limited(core.body.velocity, Fixed::from_int(2));
             core.body.slide(&self.harbor, self.result.ticks);
             let current = core.body.location;
+            if self.level > 1 && at.upper && !current.upper && self.harbor.cores[slot].upper {
+                // Deck cargo returns to its berth if it falls past a ramp.
+                core.replenish = 60;
+                if self.tether == Some(slot) {
+                    self.tether = None;
+                }
+                continue;
+            }
             let recovered = self
                 .harbor
                 .recovery_gates(current.upper)
@@ -552,6 +565,7 @@ impl Game {
                     self.tether = None;
                 }
                 self.result.collected += 1;
+                self.result.bridge_recovered |= current.upper;
                 self.combo = self.combo.saturating_add(1);
                 self.result.score = self.result.score.saturating_add(
                     70 + u32::from(core.stability) * 10 + u32::from(self.combo) * 12,
@@ -661,13 +675,17 @@ fn crossed_exit(exit: Location, from: Location, to: Location) -> Option<Fixed> {
 }
 
 fn line_open(harbor: &Harbor, tick: u32, a: Location, b: Location) -> bool {
-    if a.upper || b.upper {
-        !(a.upper
-            && b.upper
-            && harbor.lock_closed(tick)
-            && (a.point[1] < Fixed::from_int(40)) != (b.point[1] < Fixed::from_int(40)))
-    } else {
-        harbor.layout.direct(a.point, b.point)
+    match (a.upper, b.upper) {
+        (false, false) => harbor.layout.direct(a.point, b.point),
+        (true, true) => {
+            let bridge = harbor.bridge_at(a.point[0]);
+            let lock = Fixed::from_int(LOCK_POSITION);
+            bridge == harbor.bridge_at(b.point[0])
+                && !(bridge == harbor.bridge
+                    && harbor.lock_closed(tick)
+                    && (a.point[1] < lock) != (b.point[1] < lock))
+        }
+        _ => true,
     }
 }
 

@@ -3,7 +3,7 @@ use mirui_sprite_stack::Camera;
 
 use crate::{
     gameplay::PassageFrame,
-    world::{INITIAL_EXTENT, Location},
+    world::{Harbor, INITIAL_EXTENT, Location},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,7 +65,8 @@ impl Viewpoint {
         }
     }
 
-    fn frame(self, ship: Location, extent: i32) -> CameraFrame {
+    fn frame(self, ship: Location, harbor: &Harbor) -> CameraFrame {
+        let extent = harbor.extent();
         let middle = Fixed::from_int(extent / 2);
         let center = [middle, Fixed::ONE, middle];
         let fit = Fixed::from_ratio(INITIAL_EXTENT, extent);
@@ -85,7 +86,7 @@ impl Viewpoint {
             Self::Follow => (
                 [
                     ship.point[0],
-                    ship.height() + Fixed::from_int(2),
+                    harbor.height(ship) + Fixed::from_int(2),
                     ship.point[1],
                 ],
                 Fixed::from_ratio(3, 2),
@@ -169,9 +170,9 @@ pub(crate) struct CameraRig {
 }
 
 impl CameraRig {
-    pub(crate) fn new(ship: Location, extent: i32) -> Self {
+    pub(crate) fn new(ship: Location, harbor: &Harbor) -> Self {
         Self {
-            origin: Viewpoint::Northeast.frame(ship, extent),
+            origin: Viewpoint::Northeast.frame(ship, harbor),
             viewpoint: Viewpoint::Northeast,
             transition: Tween::ease_to(Fixed::ONE, Fixed::ONE, 0),
         }
@@ -181,8 +182,8 @@ impl CameraRig {
         self.viewpoint
     }
 
-    pub(crate) fn frame(&self, ship: Location, extent: i32) -> CameraFrame {
-        let target = self.viewpoint.frame(ship, extent);
+    pub(crate) fn frame(&self, ship: Location, harbor: &Harbor) -> CameraFrame {
+        let target = self.viewpoint.frame(ship, harbor);
         if self.transition.is_finished() {
             target
         } else {
@@ -195,11 +196,11 @@ impl CameraRig {
         self.transition = Tween::ease_to(Fixed::ONE, Fixed::ONE, 0);
     }
 
-    pub(crate) fn select(&mut self, viewpoint: Viewpoint, ship: Location, extent: i32) {
+    pub(crate) fn select(&mut self, viewpoint: Viewpoint, ship: Location, harbor: &Harbor) {
         if self.viewpoint == viewpoint {
             return;
         }
-        self.origin = self.frame(ship, extent);
+        self.origin = self.frame(ship, harbor);
         let half = Fixed::from_int(180);
         let full = Fixed::from_int(360);
         if self.origin.yaw > half {

@@ -103,15 +103,22 @@ impl Pilot {
         }
         let avoid = self.avoid;
         let available = |slot| avoid.is_none_or(|(avoid, until)| avoid != slot || tick >= until);
+        let want_bridge =
+            game.bridge_pending()
+                && game.cores.iter().enumerate().any(|(slot, core)| {
+                    available(slot) && core.active() && core.body.location.upper
+                });
+        let eligible =
+            |slot: usize| available(slot) && (!want_bridge || game.cores[slot].body.location.upper);
         if self
             .following
-            .is_none_or(|slot| !game.cores[slot].active() || !available(slot))
+            .is_none_or(|slot| !game.cores[slot].active() || !eligible(slot))
         {
             self.following = game
                 .cores
                 .iter()
                 .enumerate()
-                .filter(|(slot, item)| item.active() && available(*slot))
+                .filter(|(slot, item)| item.active() && eligible(*slot))
                 .min_by_key(|(_, item)| {
                     let distance = length_squared(offset(item.body.location.point, ship.point));
                     distance
@@ -129,7 +136,7 @@ impl Pilot {
         };
         let target = game.cores[slot].body.location;
         let mut control = self.steer(game, target, false);
-        if let Some(candidate) = game.target().filter(|&candidate| available(candidate)) {
+        if let Some(candidate) = game.target().filter(|&candidate| eligible(candidate)) {
             // Preserve the facing used to choose the visible target.
             self.following = Some(candidate);
             control = Controls {
@@ -145,16 +152,29 @@ impl Pilot {
     }
     fn steer(&mut self, game: &Game, mut target: Location, magnet: bool) -> Controls {
         let ship = game.ship.location;
-        if ship.upper != target.upper {
-            let bridge = game.harbor.bridge;
-            let ramp = Fixed::from_int(BRIDGE_START);
-            target = if !ship.upper
-                && ship.point[1] < ramp
-                && (ship.point[0] - Fixed::from_int(bridge)).abs() <= Fixed::from_int(3)
-            {
-                Location::new(bridge, 24, true)
+        let ship_bridge = game.harbor.bridge_at(ship.point[0]);
+        let target_bridge = game.harbor.bridge_at(target.point[0]);
+        if ship.upper && (!target.upper || ship_bridge != target_bridge) {
+            let front = target.point[1] < Fixed::from_int((BRIDGE_START + ship_bridge.end) / 2);
+            target = ship_bridge.ramp(front);
+        } else if !ship.upper && target.upper {
+            let front = ship.point[1] < Fixed::from_int((BRIDGE_START + target_bridge.end) / 2);
+            let entry = target_bridge.ramp(front);
+            let end = if front {
+                BRIDGE_START
             } else {
-                Location::new(bridge, 8, false)
+                target_bridge.end
+            };
+            let aligned = (ship.point[0] - entry.point[0]).abs() <= Fixed::from_int(3);
+            let outside = if front {
+                ship.point[1] < Fixed::from_int(end)
+            } else {
+                ship.point[1] > Fixed::from_int(end)
+            };
+            target = if outside && aligned {
+                Location::new(target_bridge.x, end + if front { 10 } else { -10 }, true)
+            } else {
+                entry
             };
         }
         let mut routing = false;

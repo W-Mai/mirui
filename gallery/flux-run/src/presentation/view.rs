@@ -182,12 +182,15 @@ fn status(hud: Hud, compact: bool) -> &'static str {
         Session::Results if compact => "COMPLETE",
         Session::Results => "RUN COMPLETE",
         Session::Running if hud.life == 0 => "RESPAWN",
+        Session::Running if hud.ready => "EXIT OPEN",
+        Session::Running if hud.bridge_pending && hud.cores >= hud.quota => "BRIDGE CORE",
         Session::Running if hud.mode == Mode::Auto => "AUTO PILOT",
-        Session::Running if hud.cores >= hud.quota => "EXIT OPEN",
         Session::Running if hud.tether && compact => "THROW",
         Session::Running if hud.tether => "RELEASE TO THROW",
         Session::Running if hud.target && compact => "IN REACH",
         Session::Running if hud.target => "CORE IN REACH",
+        Session::Running if hud.bridge_pending && compact => "1 BRIDGE CORE",
+        Session::Running if hud.bridge_pending => "RECOVER 1 CORE ON A BRIDGE",
         Session::Running if compact => hud
             .name
             .split_once(' ')
