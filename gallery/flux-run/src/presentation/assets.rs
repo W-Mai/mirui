@@ -62,23 +62,39 @@ pub(crate) struct ScenePalette {
     pub(crate) normal: [[u8; 4]; 12],
     pub(crate) warning: [[u8; 4]; 12],
     pub(crate) locked: [[u8; 4]; 12],
-    pub(crate) terrain: [Color; 4],
+    pub(crate) terrain: &'static [Color],
 }
 
-const fn palette(normal: [[u8; 4]; 12], terrain: [Color; 4]) -> ScenePalette {
+const fn palette(normal: [[u8; 4]; 12], terrain: &'static [Color]) -> ScenePalette {
     let mut warning = normal;
     warning[swatch(b'g')] = normal[swatch(b'c')];
     warning[swatch(b'm')] = normal[swatch(b'r')];
     let mut locked = normal;
-    locked[swatch(b'g')] = rgba(terrain[1]);
-    locked[swatch(b'm')] = rgba(terrain[2]);
-    locked[swatch(b'i')] = rgba(terrain[3]);
+    locked[swatch(b'g')] = rgba(terrain[Material::Curb as usize]);
+    locked[swatch(b'm')] = rgba(terrain[Material::Road as usize]);
+    locked[swatch(b'i')] = rgba(terrain[Material::Concrete as usize]);
     ScenePalette {
         normal,
         warning,
         locked,
         terrain,
     }
+}
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub(super) enum Material {
+    Water,
+    Curb,
+    Road,
+    Concrete,
+    Patina,
+    Aggregate,
+    Joint,
+    Paint,
+    Roof,
+    RoofEdge,
+    RoofPanel,
 }
 
 static DAY: ScenePalette = palette(
@@ -96,11 +112,18 @@ static DAY: ScenePalette = palette(
         rgba(Color::rgb(253, 153, 107)),
         rgba(Color::rgb(74, 101, 97)),
     ],
-    [
-        Color::rgb(196, 211, 196),
-        Color::rgb(160, 151, 134),
-        Color::rgb(206, 190, 164),
-        Color::rgb(224, 210, 185),
+    &[
+        Color::rgb(103, 145, 129), // Water
+        Color::rgb(160, 151, 134), // Curb
+        Color::rgb(149, 145, 132), // Asphalt
+        Color::rgb(224, 210, 185), // Concrete
+        Color::rgb(210, 195, 172), // Patina
+        Color::rgb(231, 217, 194), // Aggregate
+        Color::rgb(192, 177, 155), // Expansion joint
+        Color::rgb(251, 235, 203), // Safety paint
+        Color::rgb(153, 132, 114), // Roof
+        Color::rgb(122, 104, 92),  // Roof edging
+        Color::rgb(186, 155, 133), // Roof panel
     ],
 );
 
@@ -119,11 +142,18 @@ static NIGHT: ScenePalette = palette(
         rgba(Color::rgb(255, 176, 134)),
         rgba(Color::rgb(153, 192, 170)),
     ],
-    [
-        Color::rgb(43, 65, 55),
-        Color::rgb(77, 69, 60),
-        Color::rgb(96, 85, 71),
+    &[
+        Color::rgb(35, 62, 55),
+        Color::rgb(126, 109, 89),
+        Color::rgb(75, 78, 70),
         Color::rgb(113, 101, 83),
+        Color::rgb(101, 90, 76),
+        Color::rgb(122, 110, 91),
+        Color::rgb(88, 77, 65),
+        Color::rgb(181, 158, 128),
+        Color::rgb(105, 74, 62),
+        Color::rgb(79, 56, 50),
+        Color::rgb(136, 98, 81),
     ],
 );
 
@@ -555,3 +585,57 @@ pub static PORTAL: [PreparedSpriteStack<'static>; 2] = {
         prepare!(SLICES, WIDTH, DEPTH, HEIGHT, CAPACITY, PIVOT, 2),
     ]
 };
+
+// Painted containers with dark skid feet, pale twist locks and corrugated sides.
+sprite!(
+    CARGO,
+    5,
+    6,
+    4,
+    [
+        [
+            *b"d...d", *b".....", *b".....", *b".....", *b".....", *b"d...d"
+        ],
+        [
+            *b"ccccc", *b"coooc", *b"coooc", *b"coooc", *b"coooc", *b"ccccc"
+        ],
+        [
+            *b"lcocl", *b"hoooa", *b"coooc", *b"hoooa", *b"coooc", *b"lcocl"
+        ],
+        [
+            *b"lcccl", *b"hoooh", *b"coooc", *b"hoooh", *b"coooc", *b"lcccl"
+        ],
+    ]
+);
+
+// Roof plant with paired vents and an exposed air intake.
+sprite!(
+    VENT,
+    5,
+    5,
+    3,
+    [
+        [*b"ddddd", *b"dsssd", *b"dsssd", *b"dsssd", *b"ddddd"],
+        [*b".....", *b".lgl.", *b".sgs.", *b".lgl.", *b"....."],
+        [*b".....", *b".lgl.", *b".ldl.", *b".lgl.", *b"....."],
+    ]
+);
+
+// A quay beacon on a square cast base. The pale cap stays legible in either theme.
+sprite!(
+    BEACON,
+    3,
+    3,
+    7,
+    [
+        [*b"ddd", *b"dsd", *b"ddd"],
+        [*b"...", *b".s.", *b"..."],
+        [*b"...", *b".s.", *b"..."],
+        [*b"...", *b".l.", *b"..."],
+        [*b".l.", *b"lsl", *b".l."],
+        [*b".a.", *b"aia", *b".a."],
+        [*b"...", *b".i.", *b"..."],
+    ]
+);
+
+sprite!(GRATE, 6, 3, 1, [[*b"ssssss", *b"dsdsds", *b"ssssss"]]);

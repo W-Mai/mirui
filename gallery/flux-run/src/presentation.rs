@@ -1,15 +1,14 @@
 use crate::{
     app::FluxRun,
     gameplay::{Game, GuardPhase},
-    world::{BRIDGE_START, CELL_SIZE, CORES, District, GUARDS, Location, SPAWN, add, scaled},
+    world::{BRIDGE_START, CORES, District, GUARDS, Location, SPAWN, add, scaled},
 };
 use mirui::{core::model::ModelHandle, prelude::*};
-use mirui_sprite_stack::{
-    HeightField, Pose, StackStageCommands, StackVisual, TerrainCell, TerrainGrid,
-};
+use mirui_sprite_stack::{Pose, StackStageCommands, StackVisual};
 
 mod assets;
 pub(crate) mod camera;
+mod scenery;
 pub(crate) mod sound;
 mod view;
 pub(crate) use assets::SceneTone;
@@ -26,7 +25,7 @@ const ALERT_START: usize = ENTRANCE_MARK + 1;
 const LOCK: usize = ALERT_START + GUARDS;
 const FIELD: usize = LOCK + 1;
 const MARKS: usize = FIELD + 1;
-pub(crate) const STAGE_CAPACITY: usize = MARKS + 2;
+pub(crate) const STAGE_CAPACITY: usize = MARKS + 2 + scenery::MAX_PROPS;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Tint {
@@ -192,6 +191,7 @@ struct Member {
 
 enum MemberVisual {
     Ground(SceneTone, u32),
+    Prop(SceneTone, u32),
     Bridge,
     Mark(usize),
 }
@@ -223,6 +223,7 @@ pub(crate) fn mount(
             MemberVisual::Ground(current, previous) if current == tone && previous == level => {
                 terrain_mounted = true
             }
+            MemberVisual::Prop(current, previous) if current == tone && previous == level => (),
             MemberVisual::Bridge => bridge_mounted = true,
             _ => commands.despawn(entity),
         }
@@ -230,37 +231,25 @@ pub(crate) fn mount(
     let stage = model.stage();
     let mut stage_commands = commands.stage(&stage);
     if !terrain_mounted {
-        let layout = model.read(|model| model.game.harbor.layout);
-        let side = layout.side() as u16;
-        let grid = TerrainGrid::finite([side; 2], Fixed::from_int(CELL_SIZE)).expect("harbor grid");
-        let floor = HeightField::generate(grid, &tone.palette().terrain, |[x, z]| {
-            let rim = |coord| coord == 0 || coord == i32::from(side) - 1;
-            if layout.blocked(x as usize, z as usize) {
-                TerrainCell {
-                    level: if x % 2 == 0 { 4 } else { 5 },
-                    material: 1,
-                }
-            } else {
-                let material = if rim(x) && rim(z) {
-                    0
-                } else if rim(x) || rim(z) {
-                    1
-                } else if (x / 3 + z / 4) % 2 == 0 {
-                    3
-                } else {
-                    2
-                };
-                TerrainCell { level: 0, material }
-            }
-        })
-        .expect("harbor field");
-        stage_commands.spawn(
-            Member {
-                owner,
-                visual: MemberVisual::Ground(tone, level),
-            },
-            StackVisual::new(floor),
-        );
+        model.read(|model| {
+            let harbor = &model.game.harbor;
+            stage_commands.spawn(
+                Member {
+                    owner,
+                    visual: MemberVisual::Ground(tone, level),
+                },
+                StackVisual::new(scenery::floor(harbor, detail, tone)),
+            );
+            scenery::props(harbor, detail, tone, |visual| {
+                stage_commands.spawn(
+                    Member {
+                        owner,
+                        visual: MemberVisual::Prop(tone, level),
+                    },
+                    visual,
+                );
+            });
+        });
     }
     if !bridge_mounted {
         stage_commands.spawn(
