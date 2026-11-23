@@ -114,7 +114,7 @@ static DAY: ScenePalette = palette(
         rgba(Color::rgb(74, 101, 97)),
     ],
     &[
-        Color::rgb(72, 135, 128),  // Water
+        Color::rgb(128, 128, 128), // Water
         Color::rgb(160, 151, 134), // Curb
         Color::rgb(149, 145, 132), // Asphalt
         Color::rgb(224, 210, 185), // Concrete
@@ -145,7 +145,7 @@ static NIGHT: ScenePalette = palette(
         rgba(Color::rgb(153, 192, 170)),
     ],
     &[
-        Color::rgb(31, 68, 67),
+        Color::rgb(48, 48, 48),
         Color::rgb(126, 109, 89),
         Color::rgb(75, 78, 70),
         Color::rgb(113, 101, 83),

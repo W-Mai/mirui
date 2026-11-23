@@ -224,6 +224,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Spawn Flux Run cores on flat ground away from bridge ramps.
+- Use neutral gray for the Flux Run basin in both themes.
 - Fit the Flux Run camera to the viewport, keep HUD labels legible, and align keyboard and touch steering with the screen.
 - Keep the Flux Run viewport fixed across title, play, pause and results.
 - Render the Flux Run harbor and skiff with layered materials and a sharper desktop viewport.
