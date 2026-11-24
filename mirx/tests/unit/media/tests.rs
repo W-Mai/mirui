@@ -1,0 +1,942 @@
+use alloc::vec;
+use alloc::vec::Vec;
+
+use super::*;
+use crate::wire::{write_u16_le, write_u32_le};
+
+fn scan_metadata(bytes: &[u8], window: usize) -> Result<(), MediaPayloadError> {
+    let layout = MediaLayout::parse(&bytes[..bytes.len().min(8)], bytes.len())?;
+    let mut scan = layout.metadata();
+    while let Some(range) = scan.read_range() {
+        let end = range.end.min(range.start + window);
+        scan.accept(&bytes[range.start..end])?;
+    }
+    scan.finish()
+}
+
+fn scan_whole_data(bytes: &[u8], window: usize) -> Result<(), MediaPayloadError> {
+    let layout = MediaLayout::parse(&bytes[..bytes.len().min(8)], bytes.len())?;
+    let mut scan = layout.whole_data().unwrap();
+    while let Some(range) = scan.read_range() {
+        let end = range.end.min(range.start + window);
+        scan.accept(&bytes[range.start..end])?;
+    }
+    scan.finish()
+}
+
+#[test]
+fn whole_data_windows_match_slice_checksums_without_covering_padding() {
+    let bytes = payload(
+        &[
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 80,
+                bytes: &[1; 4],
+            },
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 84,
+                bytes: &[],
+            },
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 84,
+                bytes: &[2; 4],
+            },
+            TestSection {
+                kind: MediaSectionKind::SURFACE.raw(),
+                flags: 1,
+                offset: 92,
+                bytes: &[3; 8],
+            },
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 104,
+                bytes: &[4; 4],
+            },
+        ],
+        0,
+    );
+    for source in [&bytes, &payload(&[], 0)] {
+        let media = MediaPayload::open(source).unwrap();
+        for window in [1, 2, 3, 7, 12, 31, source.len()] {
+            let layout = MediaLayout::parse(&source[..8], source.len()).unwrap();
+            assert!(layout.whole_data().unwrap().finish().is_err());
+            let mut scan = layout.whole_data().unwrap();
+            let mut reads = vec![0; source.len()];
+            while let Some(range) = scan.read_range() {
+                assert_eq!(scan.accept(&[]), Err(MediaPayloadError::InvalidDataRange));
+                assert_eq!(scan.read_range(), Some(range.clone()));
+                let end = range.end.min(range.start + window);
+                for count in &mut reads[range.start..end] {
+                    *count += 1;
+                }
+                scan.accept(&source[range.start..end]).unwrap();
+            }
+            assert_eq!(scan.accept(&[0]), Err(MediaPayloadError::InvalidDataRange));
+            scan.finish().unwrap();
+            for (index, count) in reads.into_iter().enumerate() {
+                let covered = layout.directory_range().contains(&index)
+                    || layout.checksum_trailer().unwrap().contains(&index)
+                    || media
+                        .sections_of_kind(MediaSectionKind::DATA)
+                        .any(|section| {
+                            let start = section.descriptor().offset() as usize;
+                            (start..start + section.bytes().len()).contains(&index)
+                        });
+                assert_eq!(count, usize::from(covered));
+            }
+        }
+        // DATA checks remain independent of the metadata CRC.
+        for offset in 8..source.len() {
+            for value in [0, 1, 0x7f, 0xff] {
+                let mut changed = source.clone();
+                changed[offset] = value;
+                assert_eq!(
+                    scan_whole_data(&changed, 3),
+                    MediaPayload::parse(&changed).and_then(MediaPayload::validate_data),
+                    "changed byte {offset} to {value}"
+                );
+            }
+        }
+    }
+    let indexed = indexed_image();
+    assert!(
+        MediaLayout::parse(&indexed[..8], indexed.len())
+            .unwrap()
+            .whole_data()
+            .is_none()
+    );
+}
+
+#[test]
+fn whole_data_window_retries_preserve_partial_records_and_crc() {
+    let bytes = payload(
+        &[TestSection {
+            kind: MediaSectionKind::DATA.raw(),
+            flags: 1,
+            offset: 24,
+            bytes: &[0x51; 257],
+        }],
+        0,
+    );
+    let layout = MediaLayout::parse(&bytes[..8], bytes.len()).unwrap();
+    let mut scan = layout.whole_data().unwrap();
+    scan.accept(&bytes[8..11]).unwrap();
+    assert_eq!(scan.read_range(), Some(11..20));
+    assert_eq!(
+        scan.accept(&bytes[11..21]),
+        Err(MediaPayloadError::InvalidDataRange)
+    );
+    let mut invalid = bytes[11..20].to_vec();
+    invalid[1..5].copy_from_slice(&0u32.to_le_bytes());
+    assert!(scan.accept(&invalid).is_err());
+    assert_eq!(scan.read_range(), Some(11..20));
+    scan.accept(&bytes[11..20]).unwrap();
+    scan.accept(&bytes[24..280]).unwrap();
+    assert_eq!(scan.read_range(), Some(280..281));
+    assert_eq!(
+        scan.accept(&[0; 2]),
+        Err(MediaPayloadError::InvalidDataRange)
+    );
+    while let Some(range) = scan.read_range() {
+        scan.accept(&bytes[range.start..range.start + 1]).unwrap();
+    }
+    scan.finish().unwrap();
+}
+
+fn scan_integrity(
+    bytes: &[u8],
+    window: usize,
+) -> Result<Option<MediaSectionDescriptor>, MediaPayloadError> {
+    let layout = MediaLayout::parse(&bytes[..bytes.len().min(8)], bytes.len())?;
+    let mut scan = layout.integrity()?;
+    while let Some(range) = scan.read_range() {
+        let end = range.end.min(range.start + window);
+        let before = scan;
+        if let Err(error) = scan.accept(&bytes[range.start..end]) {
+            assert_eq!(scan, before);
+            return Err(error);
+        }
+    }
+    scan.finish()
+}
+
+fn split_indexed_data() -> Vec<u8> {
+    let mut bytes = vec![0; 120];
+    bytes[0] = MEDIA_VERSION;
+    bytes[1] = MediaFlags::INDEXED_INTEGRITY.bits();
+    write_u16_le(&mut bytes, 2, 5);
+    for (index, (kind, offset, size)) in [
+        (MediaSectionKind::DATA, 68, 4),
+        (MediaSectionKind::INTEGRITY, 72, 36),
+        (MediaSectionKind::DATA, 108, 0),
+        (MediaSectionKind::SURFACE, 108, 8),
+        (MediaSectionKind::DATA, 116, 4),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let record = 8 + index * 12;
+        write_u16_le(&mut bytes, record, kind.raw());
+        write_u16_le(&mut bytes, record + 2, 1);
+        write_u32_le(&mut bytes, record + 4, offset);
+        write_u32_le(&mut bytes, record + 8, size);
+    }
+    let partitions = [68..70, 70..72, 116..120].map(|range| IntegrityRange::new(range, 0).unwrap());
+    IntegrityTable::encode_into(&partitions, &mut bytes[72..108]).unwrap();
+    refresh_checksums(&mut bytes);
+    bytes
+}
+
+#[test]
+fn integrity_coverage_windows_match_slice_acceptance_without_reading_data() {
+    let empty = payload(&[], 0);
+    for bytes in [indexed_image(), split_indexed_data(), empty] {
+        let media = MediaPayload::open(&bytes).unwrap();
+        let expected = media
+            .section(MediaSectionKind::INTEGRITY)
+            .map(|section| section.descriptor());
+        for window in [1, 2, 3, 7, 12, 23] {
+            assert_eq!(scan_integrity(&bytes, window), Ok(expected));
+        }
+        let mut scan = MediaLayout::parse(&bytes[..8], bytes.len())
+            .unwrap()
+            .integrity()
+            .unwrap();
+        while let Some(range) = scan.read_range() {
+            for data in media.sections_of_kind(MediaSectionKind::DATA) {
+                let start = data.descriptor().offset() as usize;
+                let end = start + data.bytes().len();
+                assert!(range.start >= end || range.end <= start);
+            }
+            let before = scan;
+            assert_eq!(scan.accept(&[]), Err(MediaPayloadError::InvalidDataRange));
+            assert_eq!(scan, before);
+            assert!(scan.finish().is_err());
+            scan.accept(&bytes[range]).unwrap();
+        }
+        assert_eq!(scan.finish(), Ok(expected));
+        for offset in 0..bytes.len() {
+            for value in [0, 1, 0x7f, 0xff] {
+                let mut changed = bytes.clone();
+                changed[offset] = value;
+                assert_eq!(
+                    scan_integrity(&changed, 3).is_ok(),
+                    MediaPayload::parse(&changed).is_ok(),
+                    "byte {offset} = {value}"
+                );
+            }
+        }
+        for end in 0..bytes.len() {
+            assert_eq!(
+                scan_integrity(&bytes[..end], 5).is_ok(),
+                MediaPayload::parse(&bytes[..end]).is_ok()
+            );
+        }
+    }
+}
+
+#[test]
+fn metadata_windows_keep_checksum_coverage_and_ignore_data_bodies() {
+    let bytes = payload(
+        &[
+            TestSection {
+                kind: MediaSectionKind::SURFACE.raw(),
+                flags: 1,
+                offset: 80,
+                bytes: &[1; 8],
+            },
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 96,
+                bytes: &[2; 4],
+            },
+            TestSection {
+                kind: 0x8000,
+                flags: 0,
+                offset: 108,
+                bytes: &[3; 4],
+            },
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 120,
+                bytes: &[4; 4],
+            },
+        ],
+        0,
+    );
+    for source in [&bytes, &indexed_image(), &payload(&[], 0)] {
+        let media = MediaPayload::open(source).unwrap();
+        for window in [1, 2, 3, 7, 12, 31, source.len()] {
+            let layout = MediaLayout::parse(&source[..8], source.len()).unwrap();
+            let mut scan = layout.metadata();
+            assert!(scan.finish().is_err());
+            scan = layout.metadata();
+            while let Some(range) = scan.read_range() {
+                let end = range.end.min(range.start + window);
+                for data in media.sections_of_kind(MediaSectionKind::DATA) {
+                    let start = data.descriptor().offset() as usize;
+                    let data_end = start + data.bytes().len();
+                    assert!(range.start >= data_end || end <= start);
+                }
+                scan.accept(&source[range.start..end]).unwrap();
+            }
+            assert_eq!(scan.accept(&[]), Err(MediaPayloadError::InvalidDataRange));
+            scan.finish().unwrap();
+        }
+        for offset in 0..source.len() {
+            let mut changed = source.clone();
+            changed[offset] ^= 1;
+            let is_data = media
+                .sections_of_kind(MediaSectionKind::DATA)
+                .any(|section| {
+                    let start = section.descriptor().offset() as usize;
+                    (start..start + section.bytes().len()).contains(&offset)
+                });
+            assert_eq!(
+                scan_metadata(&changed, 3).is_ok(),
+                is_data,
+                "changed byte {offset}"
+            );
+        }
+    }
+}
+
+#[test]
+fn metadata_window_errors_preserve_partial_record_position() {
+    let bytes = indexed_image();
+    let layout = MediaLayout::parse(&bytes[..8], bytes.len()).unwrap();
+    let mut scan = layout.metadata();
+    scan.accept(&bytes[8..11]).unwrap();
+    assert_eq!(scan.read_range(), Some(11..20));
+    assert_eq!(scan.accept(&[]), Err(MediaPayloadError::InvalidDataRange));
+    assert_eq!(
+        scan.accept(&bytes[11..21]),
+        Err(MediaPayloadError::InvalidDataRange)
+    );
+    assert_eq!(scan.read_range(), Some(11..20));
+    scan.accept(&bytes[11..20]).unwrap();
+    assert_eq!(scan.read_range(), Some(20..32));
+    let mut invalid = [0; 12];
+    invalid.copy_from_slice(&bytes[20..32]);
+    invalid[4..8].copy_from_slice(&0u32.to_le_bytes());
+    assert!(scan.accept(&invalid).is_err());
+    assert_eq!(scan.read_range(), Some(20..32));
+    while let Some(range) = scan.read_range() {
+        scan.accept(&bytes[range]).unwrap();
+    }
+    scan.finish().unwrap();
+}
+
+#[test]
+fn section_windows_reject_ranges_atomically_with_the_slice_parser() {
+    let base = payload(
+        &[
+            TestSection {
+                kind: MediaSectionKind::SURFACE.raw(),
+                flags: 1,
+                offset: 40,
+                bytes: &[0; 8],
+            },
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 52,
+                bytes: &[7; 4],
+            },
+        ],
+        0,
+    );
+    for offset in [0, 31, 32, 39, 40, 47, 48, 52, 56, 57, u32::MAX] {
+        for size in [0, 1, 4, u32::MAX] {
+            let mut bytes = base.clone();
+            write_u32_le(&mut bytes, 24, offset);
+            write_u32_le(&mut bytes, 28, size);
+            let layout = MediaLayout::parse(&bytes[..8], bytes.len()).unwrap();
+            let mut scan = layout.sections();
+            scan.accept(&bytes[8..20]).unwrap().unwrap();
+            let before = scan;
+            let result = scan.accept(&bytes[20..32]);
+            assert_eq!(
+                result.as_ref().err(),
+                MediaPayload::parse(&bytes).as_ref().err()
+            );
+            if result.is_err() {
+                assert_eq!(scan, before);
+                scan.accept(&base[20..32]).unwrap().unwrap();
+            }
+            assert_eq!(scan.record_range(), None);
+            assert_eq!(scan.accept(&[]), Ok(None));
+        }
+    }
+    let layout = MediaLayout::parse(&base[..8], base.len()).unwrap();
+    let mut scan = layout.sections();
+    for length in 0..12 {
+        let before = scan;
+        assert_eq!(
+            scan.accept(&base[8..8 + length]),
+            Err(MediaPayloadError::Truncated {
+                needed: 20,
+                available: 8 + length
+            })
+        );
+        assert_eq!(scan, before);
+    }
+    assert_eq!(layout.directory_range(), 8..32);
+    assert_eq!(layout.checksum_trailer(), Some(base.len() - 4..base.len()));
+    let indexed = indexed_image();
+    assert_eq!(
+        MediaLayout::parse(&indexed[..8], indexed.len())
+            .unwrap()
+            .checksum_trailer(),
+        None
+    );
+}
+
+#[test]
+fn direct_ordinals_and_skips_read_only_the_selected_descriptor() {
+    let count = usize::from(u16::MAX);
+    let start = (MEDIA_HEADER_LEN + MEDIA_SECTION_LEN * count) as u32;
+    let sections: Vec<_> = (0..count)
+        .map(|i| TestSection {
+            kind: 0x8000 + (i % 32) as u16,
+            flags: 0,
+            offset: start,
+            bytes: &[],
+        })
+        .collect();
+    let bytes = payload(&sections, 0);
+    let media = MediaPayload::open(&bytes).unwrap();
+    for index in [0, 31, 1000, count - 1] {
+        let section = media.get(index).unwrap();
+        assert_eq!(usize::from(section.index()), index);
+        assert_eq!(
+            section.descriptor().kind().raw(),
+            0x8000 + (index % 32) as u16
+        );
+    }
+    assert_eq!(media.get(count), None);
+    assert_eq!(media.get(usize::MAX), None);
+    let mut iter = media.sections();
+    assert_eq!(iter.nth(62_000).unwrap().index(), 62_000);
+    assert_eq!(iter.reads, 1);
+    assert_eq!(iter.nth_back(1000).unwrap().index(), 64_534);
+    assert_eq!(iter.reads, 2);
+    assert_eq!(iter.next().unwrap().index(), 62_001);
+    assert_eq!(iter.next_back().unwrap().index(), 64_533);
+    assert_eq!(iter.reads, 4);
+    assert_eq!(iter.size_hint(), (2531, Some(2531)));
+    assert_eq!(iter.nth(usize::MAX), None);
+    assert_eq!(iter.reads, 4);
+    assert_eq!(iter.next_back(), None);
+    assert_eq!(iter.count(), 0);
+    assert_eq!(media.sections().last().unwrap().index(), u16::MAX - 1);
+    assert_eq!(media.sections().count(), count);
+    let mut reversed = media.sections();
+    assert_eq!(reversed.nth_back(usize::MAX), None);
+    assert_eq!(reversed.reads, 0);
+    assert_eq!(reversed.len(), 0);
+}
+
+#[test]
+fn directory_ordinals_do_not_mean_kind_occurrences_or_data_verification() {
+    let sections = [
+        TestSection {
+            kind: MediaSectionKind::DATA.raw(),
+            flags: 1,
+            offset: 44,
+            bytes: &[1],
+        },
+        TestSection {
+            kind: MediaSectionKind::SURFACE.raw(),
+            flags: 1,
+            offset: 45,
+            bytes: &[2],
+        },
+        TestSection {
+            kind: MediaSectionKind::DATA.raw(),
+            flags: 1,
+            offset: 46,
+            bytes: &[3],
+        },
+    ];
+    let mut bytes = payload(&sections, 0);
+    bytes[46] ^= 1;
+    let media = MediaPayload::open(&bytes).unwrap();
+    assert_eq!(
+        media.get(1).unwrap().descriptor().kind(),
+        MediaSectionKind::SURFACE
+    );
+    assert_eq!(media.get(2).unwrap().bytes().as_ptr(), bytes[46..].as_ptr());
+    assert_eq!(media.section(MediaSectionKind::DATA).unwrap().index(), 0);
+    assert_eq!(
+        media
+            .sections_of_kind(MediaSectionKind::DATA)
+            .nth(1)
+            .unwrap()
+            .index(),
+        2
+    );
+    assert!(media.validate_data().is_err());
+    let empty = payload(&[], 0);
+    let media = MediaPayload::open(&empty).unwrap();
+    assert_eq!(media.get(0), None);
+    assert_eq!(media.sections().next_back(), None);
+    assert_eq!(media.sections().last(), None);
+}
+
+fn indexed_image() -> Vec<u8> {
+    use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
+    let mut bytes = vec![0; 108];
+    bytes[0] = MEDIA_VERSION;
+    bytes[1] = MediaFlags::INDEXED_INTEGRITY.bits();
+    write_u16_le(&mut bytes, 2, 3);
+    for (index, (kind, offset, size)) in [
+        (MediaSectionKind::SURFACE, 44, 32),
+        (MediaSectionKind::INTEGRITY, 76, 24),
+        (MediaSectionKind::DATA, 100, 8),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let entry = 8 + index * 12;
+        write_u16_le(&mut bytes, entry, kind.raw());
+        write_u16_le(&mut bytes, entry + 2, 1);
+        write_u32_le(&mut bytes, entry + 4, offset);
+        write_u32_le(&mut bytes, entry + 8, size);
+    }
+    bytes[44..76].copy_from_slice(
+        &SurfaceDescriptor::new(4, 2, SampleLayout::A8, ColorDescription::NONE)
+            .unwrap()
+            .encode_record(),
+    );
+    bytes[100..].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+    let ranges = [
+        IntegrityRange::new(100..104, crate::crc32(&bytes[100..104])).unwrap(),
+        IntegrityRange::new(104..108, crate::crc32(&bytes[104..108])).unwrap(),
+    ];
+    IntegrityTable::encode_into(&ranges, &mut bytes[76..100]).unwrap();
+    let mut metadata = Crc32::new();
+    metadata.update(&bytes[..4]);
+    metadata.update(&bytes[8..100]);
+    write_u32_le(&mut bytes, 4, metadata.finish());
+    bytes
+}
+
+#[test]
+fn indexed_integrity_checks_only_intersecting_ranges_and_reports_cost() {
+    let mut bytes = indexed_image();
+    let media = MediaPayload::open(&bytes).unwrap();
+    assert_eq!(media.integrity().unwrap().len(), 2);
+    assert_eq!(media.validate_data_range(100..101), Ok(4));
+    assert_eq!(media.validate_data_range(103..105), Ok(8));
+    assert_eq!(media.validate_data_range(108..108), Ok(0));
+    assert_eq!(
+        media.validate_data_range(99..101),
+        Err(MediaPayloadError::InvalidDataRange)
+    );
+    media.validate_data().unwrap();
+    let image = crate::image::RawImageView::open(&bytes).unwrap();
+    assert_eq!(image.plane(0).unwrap().bytes(), &[1, 2, 3, 4, 5, 6, 7, 8]);
+    assert!(image.packed().is_some());
+    bytes[105] ^= 1;
+    let media = MediaPayload::open(&bytes).unwrap();
+    assert_eq!(media.validate_data_range(100..101), Ok(4));
+    assert!(matches!(
+        media.validate_data_range(103..105),
+        Err(MediaPayloadError::RangeCrcMismatch { offset: 104, .. })
+    ));
+    assert!(media.validate_data().is_err());
+    assert!(crate::image::RawImageView::open(&bytes).is_err());
+}
+
+#[test]
+fn indexed_integrity_cannot_leave_gaps_cross_data_or_duplicate_coverage() {
+    for (field, value) in [(76, 99), (76, 101), (80, 3), (80, 5), (88, 103), (92, 5)] {
+        let mut bytes = indexed_image();
+        write_u32_le(&mut bytes, field, value);
+        assert!(
+            matches!(
+                MediaPayload::open(&bytes),
+                Err(MediaPayloadError::Integrity(_))
+            ),
+            "field {field}, value {value}"
+        );
+    }
+    let mut checksum = indexed_image();
+    checksum[84] ^= 1;
+    assert!(matches!(
+        MediaPayload::open(&checksum),
+        Err(MediaPayloadError::MetadataCrcMismatch { .. })
+    ));
+
+    let mut missing = indexed_image();
+    write_u16_le(&mut missing, 20, 0x8000);
+    assert_eq!(
+        MediaPayload::open(&missing),
+        Err(MediaPayloadError::MissingIntegrityTable)
+    );
+    let mut optional = indexed_image();
+    write_u16_le(&mut optional, 22, 0);
+    assert_eq!(
+        MediaPayload::open(&optional),
+        Err(MediaPayloadError::IntegrityTableMustBeRequired)
+    );
+    let mut duplicated = indexed_image();
+    write_u16_le(&mut duplicated, 8, MediaSectionKind::INTEGRITY.raw());
+    assert_eq!(
+        MediaPayload::open(&duplicated),
+        Err(MediaPayloadError::DuplicateIntegrityTable)
+    );
+    let mut unflagged = indexed_image();
+    unflagged[1] = 0;
+    unflagged.extend_from_slice(&[0; 4]);
+    assert_eq!(
+        MediaPayload::open(&unflagged),
+        Err(MediaPayloadError::UnexpectedIntegrityTable)
+    );
+}
+
+#[test]
+fn whole_data_integrity_reports_the_full_cost_of_a_partial_request() {
+    let bytes = payload(
+        &[
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 40,
+                bytes: &[1; 8],
+            },
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 52,
+                bytes: &[2; 4],
+            },
+        ],
+        0,
+    );
+    let media = MediaPayload::open(&bytes).unwrap();
+    assert_eq!(media.integrity(), None);
+    assert_eq!(media.validate_data_range(41..42), Ok(12));
+    assert_eq!(
+        media.validate_data_range(48..52),
+        Err(MediaPayloadError::InvalidDataRange)
+    );
+}
+
+#[test]
+fn indexed_raw_images_survive_document_placement_and_lossless_demotion() {
+    let bytes = indexed_image();
+    let mut document = crate::Document::new();
+    let id = document
+        .push_raw(crate::document::RawChunkInput::new(
+            crate::ChunkType::IMAGE,
+            bytes.as_slice(),
+        ))
+        .unwrap();
+    document.set_primary(id).unwrap();
+    let encoded = document
+        .encode(&crate::document::EncodeOptions::new())
+        .unwrap();
+    let reader = crate::Reader::open(&encoded).unwrap();
+    let chunk = reader.chunks().next().unwrap();
+    assert_eq!(chunk.payload(), bytes);
+    let image =
+        crate::image::RawImageView::open_at(chunk.payload(), chunk.payload_offset()).unwrap();
+    assert_eq!(image.plane(0).unwrap().bytes(), &[1, 2, 3, 4, 5, 6, 7, 8]);
+    assert!(document.demote_to_flat().unwrap());
+    assert_eq!(
+        document.flat_image().unwrap().main(),
+        &[1, 2, 3, 4, 5, 6, 7, 8]
+    );
+}
+
+#[derive(Clone, Copy)]
+struct TestSection<'a> {
+    kind: u16,
+    flags: u16,
+    offset: u32,
+    bytes: &'a [u8],
+}
+
+fn payload(sections: &[TestSection<'_>], flags: u8) -> Vec<u8> {
+    let directory_end = MEDIA_HEADER_LEN + sections.len() * MEDIA_SECTION_LEN;
+    let body_end = sections.iter().fold(directory_end, |end, section| {
+        end.max(section.offset as usize + section.bytes.len())
+    });
+    let payload_len = body_end + MEDIA_CRC_LEN;
+    let mut out = vec![0; payload_len];
+    out[0] = MEDIA_VERSION;
+    out[1] = flags;
+    write_u16_le(&mut out, 2, sections.len() as u16);
+
+    for (index, section) in sections.iter().enumerate() {
+        let entry = MEDIA_HEADER_LEN + index * MEDIA_SECTION_LEN;
+        write_u16_le(&mut out, entry, section.kind);
+        write_u16_le(&mut out, entry + 2, section.flags);
+        write_u32_le(&mut out, entry + 4, section.offset);
+        write_u32_le(&mut out, entry + 8, section.bytes.len() as u32);
+        let start = section.offset as usize;
+        out[start..start + section.bytes.len()].copy_from_slice(section.bytes);
+    }
+    refresh_checksums(&mut out);
+    out
+}
+
+fn reseal(bytes: &mut [u8]) {
+    // Malformed directory tests fail structurally before CRC validation.
+    if MediaPayload::parse(bytes).is_ok() {
+        refresh_checksums(bytes);
+    }
+}
+
+#[test]
+fn section_directory_contains_only_identity_flags_and_range() {
+    // Independent wire bytes keep reader/writer agreement from masking
+    // accidental additions to the directory schema.
+    let entry = [0x05, 0x00, 0x01, 0x80, 0x78, 0x56, 0x34, 0x12, 3, 0, 0, 0];
+    assert_eq!(MEDIA_SECTION_LEN, entry.len());
+    let descriptor = MediaSectionDescriptor::read(&entry).unwrap();
+    assert_eq!(descriptor.kind(), MediaSectionKind::DATA);
+    assert_eq!(descriptor.flags().bits(), 0x8001);
+    assert_eq!(descriptor.offset(), 0x1234_5678);
+    assert_eq!(descriptor.size(), 3);
+    for end in 0..entry.len() {
+        assert!(MediaSectionDescriptor::read(&entry[..end]).is_none());
+    }
+}
+
+#[test]
+fn section_ids_retain_unknown_values() {
+    assert_eq!(MediaSectionKind::new(0), None);
+    assert_eq!(
+        MediaSectionKind::new(0x8001).map(|kind| kind.raw()),
+        Some(0x8001)
+    );
+}
+
+#[test]
+fn opens_and_borrows_ordered_sections_without_allocation() {
+    let sections = [
+        TestSection {
+            kind: MediaSectionKind::SURFACE.raw(),
+            flags: MediaSectionFlags::REQUIRED.bits(),
+            offset: 80,
+            bytes: &[1, 2, 3, 4],
+        },
+        TestSection {
+            kind: MediaSectionKind::DATA.raw(),
+            flags: 0xa500,
+            offset: 96,
+            bytes: &[5, 6, 7],
+        },
+    ];
+    let bytes = payload(&sections, 0xa4);
+    let media = MediaPayload::open(&bytes).unwrap();
+    let header = media.header();
+    assert_eq!(header.flags().bits(), 0xa4);
+    assert_eq!(header.section_count(), 2);
+
+    let mut iter = media.sections();
+    assert_eq!(iter.len(), 2);
+    let surface = iter.next().unwrap();
+    assert_eq!(surface.index(), 0);
+    assert_eq!(surface.descriptor().kind(), MediaSectionKind::SURFACE);
+    assert!(surface.descriptor().flags().is_required());
+    assert_eq!(surface.bytes(), &[1, 2, 3, 4]);
+    assert_eq!(surface.bytes().as_ptr(), bytes[80..].as_ptr());
+
+    let data = iter.next_back().unwrap();
+    assert_eq!(data.index(), 1);
+    assert_eq!(data.descriptor().flags().bits(), 0xa500);
+    assert_eq!(data.descriptor().size(), 3);
+    assert_eq!(data.bytes(), &[5, 6, 7]);
+    assert!(iter.next().is_none());
+    assert!(iter.next_back().is_none());
+}
+
+#[test]
+fn file_and_runtime_alignment_are_independent_checks() {
+    let sections = [TestSection {
+        kind: MediaSectionKind::DATA.raw(),
+        flags: MediaSectionFlags::REQUIRED.bits(),
+        offset: 64,
+        bytes: &[1, 2, 3, 4],
+    }];
+    let bytes = payload(&sections, 0);
+    let media = MediaPayload::open(&bytes).unwrap();
+    assert_eq!(
+        media.validate_file_alignment(4, crate::ByteAlignment::new(64).unwrap()),
+        Err(MediaPayloadError::DataOffsetUnaligned {
+            index: 0,
+            absolute_offset: 68,
+            alignment: crate::ByteAlignment::new(64).unwrap(),
+        })
+    );
+
+    let data = media.section(MediaSectionKind::DATA).unwrap();
+    assert_eq!(
+        media.data_addresses_are_aligned(crate::ByteAlignment::new(64).unwrap()),
+        data.address_is_aligned(crate::ByteAlignment::new(64).unwrap())
+    );
+    assert!(crate::ByteAlignment::new(0).is_err());
+    assert!(crate::ByteAlignment::new(3).is_err());
+}
+
+#[test]
+fn metadata_and_data_have_disjoint_integrity_coverage() {
+    let sections = [
+        TestSection {
+            kind: MediaSectionKind::SURFACE.raw(),
+            flags: 1,
+            offset: 80,
+            bytes: &[1; 4],
+        },
+        TestSection {
+            kind: MediaSectionKind::DATA.raw(),
+            flags: 1,
+            offset: 96,
+            bytes: &[2; 4],
+        },
+        TestSection {
+            kind: 0x8000,
+            flags: 0,
+            offset: 108,
+            bytes: &[3; 4],
+        },
+        TestSection {
+            kind: MediaSectionKind::DATA.raw(),
+            flags: 1,
+            offset: 120,
+            bytes: &[4; 4],
+        },
+    ];
+    let base = payload(&sections, 0);
+    MediaPayload::open(&base).unwrap().validate_data().unwrap();
+    for offset in 0..base.len() {
+        let mut changed = base.clone();
+        changed[offset] ^= 1;
+        let metadata = MediaPayload::open(&changed);
+        if (96..100).contains(&offset) || (120..124).contains(&offset) {
+            assert!(metadata.is_ok(), "DATA byte {offset}");
+            assert!(matches!(
+                metadata.unwrap().validate_data(),
+                Err(MediaPayloadError::DataCrcMismatch { .. })
+            ));
+        } else {
+            assert!(metadata.is_err(), "metadata or padding byte {offset}");
+        }
+    }
+}
+
+#[test]
+fn header_has_only_identity_count_and_metadata_checksum() {
+    let bytes = payload(&[], 0);
+    assert_eq!(bytes.len(), 12);
+    assert_eq!(&bytes[..4], &[1, 0, 0, 0]);
+    assert_eq!(&bytes[8..], &[0; 4]); // CRC32 of no DATA.
+    let media = MediaPayload::open(&bytes).unwrap();
+    assert_eq!(media.header().metadata_crc32(), media.metadata_crc());
+    media.validate_data().unwrap();
+}
+
+#[test]
+fn rejects_invalid_section_ranges_and_order() {
+    let valid = [
+        TestSection {
+            kind: MediaSectionKind::SURFACE.raw(),
+            flags: 0,
+            offset: 80,
+            bytes: &[0; 8],
+        },
+        TestSection {
+            kind: MediaSectionKind::DATA.raw(),
+            flags: 0,
+            offset: 96,
+            bytes: &[0; 4],
+        },
+    ];
+    let base = payload(&valid, 0);
+
+    let mut zero_kind = base.clone();
+    write_u16_le(&mut zero_kind, MEDIA_HEADER_LEN, 0);
+    reseal(&mut zero_kind);
+    assert_eq!(
+        MediaPayload::open(&zero_kind),
+        Err(MediaPayloadError::InvalidSectionKind { index: 0 })
+    );
+
+    let mut before = base.clone();
+    write_u32_le(&mut before, MEDIA_HEADER_LEN + 4, 31);
+    reseal(&mut before);
+    assert_eq!(
+        MediaPayload::open(&before),
+        Err(MediaPayloadError::SectionBeforeBodies {
+            index: 0,
+            offset: 31,
+            minimum: 32,
+        })
+    );
+
+    let mut overlap = base.clone();
+    write_u32_le(&mut overlap, MEDIA_HEADER_LEN + MEDIA_SECTION_LEN + 4, 84);
+    reseal(&mut overlap);
+    assert_eq!(
+        MediaPayload::open(&overlap),
+        Err(MediaPayloadError::SectionsOverlap {
+            previous: 0,
+            next: 1,
+        })
+    );
+
+    let mut reversed = base.clone();
+    write_u32_le(&mut reversed, MEDIA_HEADER_LEN + MEDIA_SECTION_LEN + 4, 72);
+    reseal(&mut reversed);
+    assert_eq!(
+        MediaPayload::open(&reversed),
+        Err(MediaPayloadError::SectionsOutOfOrder {
+            previous: 0,
+            next: 1,
+        })
+    );
+
+    let mut outside = base.clone();
+    write_u32_le(&mut outside, MEDIA_HEADER_LEN + MEDIA_SECTION_LEN + 8, 64);
+    reseal(&mut outside);
+    assert_eq!(
+        MediaPayload::open(&outside),
+        Err(MediaPayloadError::SectionOutOfBounds {
+            index: 1,
+            offset: 96,
+            size: 64,
+        })
+    );
+}
+
+#[test]
+fn unknown_version_is_rejected_before_header_length() {
+    assert_eq!(
+        MediaPayload::open(&[2]),
+        Err(MediaPayloadError::UnsupportedVersion(2))
+    );
+}
+
+#[test]
+fn every_header_prefix_truncation_is_reported() {
+    let bytes = payload(&[], 0);
+    for available in 0..MEDIA_HEADER_LEN + MEDIA_CRC_LEN {
+        assert!(matches!(
+            MediaPayload::open(&bytes[..available]),
+            Err(MediaPayloadError::Truncated { .. })
+                | Err(MediaPayloadError::UnsupportedVersion(_))
+        ));
+    }
+}
