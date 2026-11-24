@@ -1,5 +1,6 @@
 use super::binding::create_row;
 use super::state::{ACCENT, FormProgress, FormSlider};
+use crate::gallery::sample_style::primary_action;
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::OffscreenRender;
@@ -172,10 +173,10 @@ pub fn build_widgets() {
                         Image (width: 28, height: 28, src: "thumbs_up")
                         Button (
                             "Apply",
-                            style: FORM_BUTTON,
-                            normal_color: ColorToken::Primary,
-                            pressed_color: ColorToken::Secondary,
-                            text_color: ColorToken::OnPrimary
+                            style: primary_action(),
+                            grow: 1.0,
+                            height: 40,
+                            border_radius: 20
                         )
                         Button (
                             "Reset",

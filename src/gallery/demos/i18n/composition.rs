@@ -1,9 +1,10 @@
 use super::catalog::{TOKEN_CJK, TRANSLATIONS, register_font};
 use crate::core::i18n::{I18n, Locale};
+use crate::gallery::sample_style::{centered_label, centered_sample, primary_action};
 use crate::prelude::*;
 use crate::render::font::FontManager;
 use crate::t;
-use crate::ui::widgets::{Button, ParagraphStyle, Text};
+use crate::ui::widgets::{Button, Text};
 
 #[compose]
 pub fn build_widgets() {
@@ -15,51 +16,41 @@ pub fn build_widgets() {
     //~focus-start
     ui! {
         Column (
-            grow: 1.0,
-            padding: Padding::all(20),
-            justify: JustifyContent::Center,
-            align: AlignItems::Center,
+            style: centered_sample(),
             row_gap: 8,
             bg_color: ColorToken::Surface
         ) {
             Text (
                 t!("welcome"),
-                width: Dimension::percent(100),
+                style: centered_label(),
                 max_width: 300,
                 height: 48,
                 font: TOKEN_CJK,
                 font_size: 26,
-                text_color: ColorToken::OnSurface,
-                paragraph: ParagraphStyle::label()
+                text_color: ColorToken::OnSurface
             )
             Text (
                 t!("greeting"),
-                width: Dimension::percent(100),
+                style: centered_label(),
                 max_width: 300,
                 height: 30,
                 font: TOKEN_CJK,
                 font_size: 16,
-                text_color: ColorToken::OnSurfaceVariant,
-                paragraph: ParagraphStyle::label()
+                text_color: ColorToken::OnSurfaceVariant
             )
             Text (
                 t!("goodbye"),
-                width: Dimension::percent(100),
+                style: centered_label(),
                 max_width: 300,
                 height: 30,
                 font: TOKEN_CJK,
                 font_size: 16,
-                text_color: ColorToken::OnSurfaceVariant,
-                paragraph: ParagraphStyle::label()
+                text_color: ColorToken::OnSurfaceVariant
             )
             Button (
-                height: 44,
+                style: primary_action(),
                 width: Dimension::percent(100),
                 max_width: 240,
-                normal_color: ColorToken::Primary,
-                pressed_color: ColorToken::Secondary,
-                text_color: ColorToken::OnPrimary,
-                border_radius: 22,
                 font: TOKEN_CJK,
                 font_size: 16
             ) [

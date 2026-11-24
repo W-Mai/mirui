@@ -1,7 +1,8 @@
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
+use crate::gallery::sample_style::{centered_label, centered_sample};
 use crate::prelude::*;
-use crate::ui::widgets::{ParagraphStyle, Slider, Text};
+use crate::ui::widgets::{Slider, Text};
 
 #[derive(Clone, Copy, Default)]
 struct Stats {
@@ -27,20 +28,15 @@ pub fn build_widgets() {
     );
 
     //~focus-start
-    let label = style!(
-        width: Dimension::percent(100), max_width: 480, paragraph: ParagraphStyle::label()
-    );
     ui! {
         Column (
-            grow: 1.0,
-            align: AlignItems::Center,
-            justify: JustifyContent::Center,
-            padding: Padding::all(20),
+            style: centered_sample(),
             row_gap: 8
         ) {
             Text (
                 "Value",
-                style: label.clone(),
+                style: centered_label(),
+                max_width: 480,
                 height: 16,
                 font_size: 12,
                 text_color: ColorToken::OnSurfaceVariant
@@ -48,7 +44,8 @@ pub fn build_widgets() {
             Text (
                 text: ${ format_args!("{}", s_value_text.get().last_value) },
                 capacity: 11,
-                style: label.clone(),
+                style: centered_label(),
+                max_width: 480,
                 height: 70,
                 font_size: 56,
                 text_color: ColorToken::OnSurface
@@ -88,7 +85,8 @@ pub fn build_widgets() {
                 },
                 capacity: " changes ·  drag edges".len() + 20,
                 id: "stats_label",
-                style: label,
+                style: centered_label(),
+                max_width: 480,
                 height: 24,
                 font_size: 12,
                 text_color: ColorToken::OnSurfaceVariant

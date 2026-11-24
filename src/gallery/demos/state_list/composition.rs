@@ -1,9 +1,10 @@
 use super::state::{PALETTE, ROW_H};
+use crate::gallery::sample_style::{
+    centered_label, centered_sample, primary_action, secondary_action, stepper_track,
+};
 use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::prelude::*;
-use crate::ui::widgets::{Button, ParagraphStyle, Text};
-
-const STEP: StylePreset = style!(grow: 1.0, height: 40, border_radius: 20);
+use crate::ui::widgets::{Button, Text};
 
 #[compose]
 pub fn build_widgets() {
@@ -18,38 +19,25 @@ pub fn build_widgets() {
     //~focus-start
     ui! {
         Column (
-            grow: 1.0,
-            align: AlignItems::Center,
-            justify: JustifyContent::Center,
-            padding: Padding::all(20),
+            style: centered_sample(),
             row_gap: 10
         ) {
             Text (
                 text: ${ format_args!("{} fruits", label.with(| f | f.len())) },
                 capacity: usize::MAX.ilog10() as usize + 1 + " fruits".len(),
-                width: Dimension::percent(100),
+                style: centered_label(),
                 max_width: 260,
                 height: 36,
                 font_size: 18,
-                text_color: ColorToken::OnSurface,
-                paragraph: ParagraphStyle::label()
+                text_color: ColorToken::OnSurface
             )
-            Row (
-                width: Dimension::percent(100),
-                max_width: 188,
-                height: 48,
-                padding: Padding::all(4),
-                column_gap: 4,
-                bg_color: ColorToken::SurfaceVariant,
-                border_radius: 24,
-                font_size: 26
-            ) {
+            Row (style: stepper_track(), max_width: 188, height: 48, border_radius: 24) {
                 Button (
                     "-",
-                    style: STEP,
-                    text_color: ColorToken::OnSurface,
-                    normal_color: ColorToken::Outline,
-                    pressed_color: ColorToken::SurfaceVariant
+                    style: secondary_action(),
+                    grow: 1.0,
+                    height: 40,
+                    border_radius: 20
                 ) on Tap {
                     dec.update(|f| {
                         f.pop();
@@ -57,10 +45,10 @@ pub fn build_widgets() {
                 }
                 Button (
                     "+",
-                    style: STEP,
-                    text_color: ColorToken::OnPrimary,
-                    normal_color: ColorToken::Primary,
-                    pressed_color: ColorToken::Secondary
+                    style: primary_action(),
+                    grow: 1.0,
+                    height: 40,
+                    border_radius: 20
                 ) on Tap {
                     inc.update(|f| {
                         let next = PALETTE[f.len() % PALETTE.len()].clone();

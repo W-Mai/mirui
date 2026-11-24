@@ -1,8 +1,9 @@
 extern crate alloc;
 
 use crate::core::reactive::{Signal, effect_with_widget};
+use crate::gallery::sample_style::{centered_label, centered_sample, primary_action};
 use crate::prelude::*;
-use crate::ui::widgets::{Button, ParagraphStyle, Text};
+use crate::ui::widgets::{Button, Text};
 
 #[compose]
 pub fn build_widgets() {
@@ -10,20 +11,15 @@ pub fn build_widgets() {
     let changes = Signal::new(0i32);
     let (bump, vlabel, clabel) = (value.clone(), value.clone(), changes.clone());
 
-    let label_style = style!(
-        width: Dimension::percent(100), max_width: 260, paragraph: ParagraphStyle::label()
-    );
     //~focus-start
     let panel = ui! {
         Column (
-            grow: 1.0,
-            align: AlignItems::Center,
-            justify: JustifyContent::Center,
-            padding: Padding::all(20),
+            style: centered_sample(),
             row_gap: 10
         ) {
             Text (
-                style: label_style.clone(),
+                style: centered_label(),
+                max_width: 260,
                 text: ${ format_args!("Value  {}", vlabel.get()) },
                 capacity: "Value  ".len() + 11,
                 height: 52,
@@ -31,7 +27,8 @@ pub fn build_widgets() {
                 text_color: ColorToken::OnSurface
             )
             Text (
-                style: label_style,
+                style: centered_label(),
+                max_width: 260,
                 text: ${ format_args!("effect observed {} updates", clabel.get()) },
                 capacity: "effect observed  updates".len() + 11,
                 height: 30,
@@ -39,14 +36,10 @@ pub fn build_widgets() {
             )
             Button (
                 "Bump value",
+                style: primary_action(),
                 font_size: 16,
                 width: Dimension::percent(100),
-                max_width: 180,
-                height: 44,
-                border_radius: 22,
-                normal_color: ColorToken::Primary,
-                pressed_color: ColorToken::Secondary,
-                text_color: ColorToken::OnPrimary
+                max_width: 180
             ) on Tap { bump.update(|v| *v += 1); }
         }
     };

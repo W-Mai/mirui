@@ -1,8 +1,9 @@
 extern crate alloc;
 
 use crate::core::reactive::{Computed, Signal};
+use crate::gallery::sample_style::{centered_label, centered_sample, primary_action};
 use crate::prelude::*;
-use crate::ui::widgets::{Button, ParagraphStyle, Text};
+use crate::ui::widgets::{Button, Text};
 
 #[compose]
 pub fn build_widgets() {
@@ -19,32 +20,24 @@ pub fn build_widgets() {
     //~focus-start
     ui! {
         Column (
-            grow: 1.0,
-            align: AlignItems::Center,
-            justify: JustifyContent::Center,
-            padding: Padding::all(20),
+            style: centered_sample(),
             row_gap: 14
         ) {
             Text (
                 text: ${ format_args!("n × n = {}", label.get()) },
                 capacity: "n × n = ".len() + 11,
-                width: Dimension::percent(100),
+                style: centered_label(),
                 max_width: 260,
                 height: 58,
                 font_size: 28,
-                text_color: ColorToken::OnSurface,
-                paragraph: ParagraphStyle::label()
+                text_color: ColorToken::OnSurface
             )
             Button (
                 "Increment n",
+                style: primary_action(),
                 font_size: 16,
                 width: Dimension::percent(100),
-                max_width: 180,
-                height: 44,
-                border_radius: 22,
-                normal_color: ColorToken::Primary,
-                pressed_color: ColorToken::Secondary,
-                text_color: ColorToken::OnPrimary
+                max_width: 180
             ) on Tap { inc.update(|v| *v += 1); }
         }
     };

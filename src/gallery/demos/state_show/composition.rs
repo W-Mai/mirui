@@ -1,12 +1,9 @@
+use crate::gallery::sample_style::{primary_action, secondary_action};
 use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ProgressBar, Text};
 
 const TILE: StylePreset = style!(grow: 1.0, height: 60, border_radius: 18);
-
-fn action() -> StylePreset {
-    style!(font_size: 15, width: Dimension::percent(100), max_width: 220, height: 42, border_radius: 21)
-}
 
 fn message() -> StylePreset {
     style!(font_size: 17, width: Dimension::percent(100), max_width: 260, height: 58, border_radius: 18)
@@ -36,10 +33,12 @@ pub fn build_widgets() {
         ] {
             Button (
                 "Toggle branch",
-                style: action(),
-                normal_color: ColorToken::Primary,
-                pressed_color: ColorToken::Secondary,
-                text_color: ColorToken::OnPrimary
+                style: primary_action(),
+                width: Dimension::percent(100),
+                max_width: 220,
+                height: 42,
+                border_radius: 21,
+                font_size: 15
             ) on Tap { toggle.update(|v| *v = !*v); }
             if $cond {
                 View (
@@ -60,10 +59,12 @@ pub fn build_widgets() {
             }
             Button (
                 "Cycle keyed layout",
-                style: action(),
-                normal_color: ColorToken::Outline,
-                pressed_color: ColorToken::SurfaceVariant,
-                text_color: ColorToken::OnSurface
+                style: secondary_action(),
+                width: Dimension::percent(100),
+                max_width: 220,
+                height: 42,
+                border_radius: 21,
+                font_size: 15
             ) on Tap { cycle.update(|m| *m = (*m + 1) % 3); }
             match $sel {
                 0 => {

@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use crate::gallery::sample_style::{centered_sample, primary_action};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, Text};
 
@@ -42,22 +43,17 @@ pub fn build_widgets() {
     //~focus-start
     ui! {
         Column (
-            grow: 1.0,
-            align: AlignItems::Center,
-            justify: JustifyContent::Center,
-            padding: Padding::all(20),
+            style: centered_sample(),
             row_gap: 12
         ) {
             Button (
                 "Rotate keyed rows",
+                style: primary_action(),
                 font_size: 15,
-                text_color: ColorToken::OnPrimary,
                 width: Dimension::percent(100),
                 max_width: 260,
                 height: 42,
-                border_radius: 21,
-                normal_color: ColorToken::Primary,
-                pressed_color: ColorToken::Secondary
+                border_radius: 21
             ) on Tap { rotate.update(|cards| cards.rotate_left(1)); }
             Column (
                 id: "state_keyed_list",

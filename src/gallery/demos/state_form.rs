@@ -1,6 +1,7 @@
 extern crate alloc;
 
 use crate::core::reactive::{Computed, Signal};
+use crate::gallery::sample_style::{centered_sample, primary_action};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, Checkbox, Placeholder, Text, TextEditing, TextInput};
 
@@ -28,10 +29,7 @@ pub fn build_widgets() {
     //~focus-start
     ui! {
         Column (
-            grow: 1.0,
-            align: AlignItems::Center,
-            justify: JustifyContent::Center,
-            padding: Padding::all(20),
+            style: centered_sample(),
             row_gap: 12
         ) {
             Text (
@@ -76,10 +74,10 @@ pub fn build_widgets() {
                 Button (
                     "Ready to submit",
                     id: "state_form_submit_ready",
-                    style: submit_style(),
-                    normal_color: ColorToken::Primary,
-                    pressed_color: ColorToken::Secondary,
-                    text_color: ColorToken::OnPrimary
+                    style: primary_action(),
+                    width: Dimension::percent(100),
+                    max_width: 280,
+                    font_size: 16
                 )
             } else {
                 Button (
