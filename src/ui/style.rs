@@ -18,6 +18,12 @@ mod binding;
 pub(crate) use binding::StyleBinding;
 pub use binding::{StyleDefaults, prepare_style_binding};
 
+mod classes;
+pub(crate) use classes::{ClassBinding, StaticClasses, reconcile_classes, replace_classes};
+pub use classes::{
+    ClassList, ClassRule, StyleSheet, StyleSheetPlugin, install_classes, prepare_class_binding,
+};
+
 macro_rules! declare_styles {
     (
         common { $( $key:ident: $ty:ty => $($target:ident).+ [$change:expr],)* }
@@ -74,6 +80,12 @@ macro_rules! declare_styles {
                 0 $(| if self.$key.is_some() { StyleField::$key.bit() } else { 0 })+
             }
 
+            fn fill_from(&mut self, rule: &Self, explicit: u64) {
+                $(if self.$key.is_none() && explicit & StyleField::$key.bit() == 0 {
+                    self.$key.clone_from(&rule.$key);
+                })+
+            }
+
             fn restore(&mut self, fields: u64, defaults: Style) {
                 $(if fields & StyleField::$key.bit() != 0 {
                     self.$key = Some(defaults.$($target).+);
@@ -108,6 +120,10 @@ macro_rules! declare_styles {
 
             fn declared(&self) -> u64 {
                 0 $(| if self.$button.is_some() { StyleField::$button.bit() } else { 0 })*
+            }
+
+            fn fill_from(&mut self, rule: &Self) {
+                $(if self.$button.is_none() { self.$button = rule.$button; })*
             }
 
             fn update(mut self, world: &mut World, entity: Entity, explicit: u64, previous: u64) -> u64 {
@@ -238,6 +254,7 @@ pub trait StyleInput<W> {
         0
     }
     fn apply_style(self, style: &mut Style, explicit: u64) -> u64;
+    fn declared(&self) -> u64;
     fn fields(self) -> StyleFields;
     fn update_widget(
         &mut self,
@@ -258,6 +275,10 @@ impl<W> StyleInput<W> for StylePreset {
     fn fields(self) -> StyleFields {
         self.common
     }
+
+    fn declared(&self) -> u64 {
+        self.common.declared()
+    }
 }
 
 impl<W> StyleInput<W> for Style {
@@ -274,6 +295,10 @@ impl<W> StyleInput<W> for Style {
 
     fn fields(self) -> StyleFields {
         StyleFields::from_style(self)
+    }
+
+    fn declared(&self) -> u64 {
+        StyleField::COMMON
     }
 }
 
@@ -298,6 +323,14 @@ impl StyleInput<Text> for StylePreset<Text> {
         self.common
     }
 
+    fn declared(&self) -> u64 {
+        self.common.declared()
+            | self
+                .specific
+                .as_ref()
+                .map_or(0, |_| StyleField::paragraph.bit())
+    }
+
     fn update_widget(
         &mut self,
         world: &mut World,
@@ -305,23 +338,7 @@ impl StyleInput<Text> for StylePreset<Text> {
         explicit: u64,
         previous: u64,
     ) -> u64 {
-        let bit = StyleField::paragraph.bit();
-        if explicit & bit != 0 {
-            return 0;
-        }
-        let value = self.specific.take();
-        let declared = if value.is_some() { bit } else { 0 };
-        let value = value.or_else(|| (previous & bit != 0).then(ParagraphStyle::default));
-        if let Some(value) = value
-            && world
-                .get::<Text>(entity)
-                .is_some_and(|text| text.paragraph() != &value)
-        {
-            crate::ui::property::apply_to_world::<crate::ui::property::prop::Paragraph>(
-                world, entity, value,
-            );
-        }
-        declared
+        update_paragraph(self.specific.take(), world, entity, explicit, previous)
     }
 }
 
@@ -342,6 +359,10 @@ impl StyleInput<Button> for StylePreset<Button> {
         self.common
     }
 
+    fn declared(&self) -> u64 {
+        self.common.declared() | self.specific.declared()
+    }
+
     fn update_widget(
         &mut self,
         world: &mut World,
@@ -353,6 +374,39 @@ impl StyleInput<Button> for StylePreset<Button> {
     }
 }
 
+fn update_paragraph(
+    value: Option<ParagraphStyle>,
+    world: &mut World,
+    entity: Entity,
+    explicit: u64,
+    previous: u64,
+) -> u64 {
+    let bit = StyleField::paragraph.bit();
+    if explicit & bit != 0 {
+        return 0;
+    }
+    let declared = value.as_ref().map_or(0, |_| bit);
+    let value = value.or_else(|| {
+        (previous & bit != 0).then(|| {
+            if world.has::<Button>(entity) {
+                ParagraphStyle::label()
+            } else {
+                ParagraphStyle::default()
+            }
+        })
+    });
+    if let Some(value) = value
+        && world
+            .get::<Text>(entity)
+            .is_some_and(|text| text.paragraph() != &value)
+    {
+        crate::ui::property::apply_to_world::<crate::ui::property::prop::Paragraph>(
+            world, entity, value,
+        );
+    }
+    declared
+}
+
 #[doc(hidden)]
 pub fn apply_preset<W: 'static, S: StyleInput<W>>(
     world: &mut World,
@@ -360,13 +414,17 @@ pub fn apply_preset<W: 'static, S: StyleInput<W>>(
     mut preset: S,
     explicit: u64,
 ) -> u64 {
+    let mut authored = explicit;
+    if S::COMPLETE {
+        authored |= StyleField::COMMON;
+    }
     if S::HAS_WIDGET_FIELDS
         && let Some(widget) = world.get_mut::<W>(entity)
     {
-        preset.apply_widget(widget, explicit);
+        authored |= preset.apply_widget(widget, explicit);
     }
     let Some(style) = world.get_mut::<Style>(entity) else {
-        return explicit;
+        return authored;
     };
-    explicit | preset.apply_style(style, explicit)
+    authored | preset.apply_style(style, explicit)
 }

@@ -16,6 +16,7 @@ See [Persistence](persistence.md) for storage and automatic-save configuration.
 2. [Choosing state and rendering roles](#choosing-state-and-rendering-roles)
 3. [Primitives](#primitives)
 4. [Reusable styles](#reusable-styles)
+   - [Stylesheet classes](#stylesheet-classes)
 5. [Reactive attributes](#reactive-attributes)
 6. [Layout-responsive attributes](#layout-responsive-attributes)
 7. [Reactive control flow](#reactive-control-flow)
@@ -776,6 +777,38 @@ ui! {
     }
 };
 ```
+
+### Stylesheet classes
+
+Register shared class rules when installing `StyleSheetPlugin`. A widget can declare one class, an ordered list, or a reactive expression that selects classes. The last class setting a field wins. The widget's own preset and direct fields have higher priority.
+
+```rust,ignore
+app.add_plugin(
+    StyleSheetPlugin::new()
+        .class("step", style!(grow: 1.0, height: 44, border_radius: 22))
+        .class("step.selected", style!(normal_color: ColorToken::Primary)),
+);
+
+#[compose]
+fn step(selected: Signal<bool>) {
+    ui! {
+        Button (class: ${("step", selected.get().then_some("step.selected"))}, text: "+")
+    };
+}
+```
+
+Use `.bind_class(name, getter)` on the plugin or a `StyleSheet` to calculate a shared rule from reactive state. Each rule runs its getter once per update regardless of how many widgets use it. Read or edit the stylesheet through `res!` in a composition, event, or system. `set` replaces the full rule and `remove` withdraws its fields. Widgets keep their class names when a definition is added or removed.
+
+```rust,ignore
+#[compose]
+fn register_compact_steps() {
+    res!(mut StyleSheet).with(|mut styles| {
+        styles.set("step", style!(grow: 1.0, height: 36, border_radius: 18));
+    });
+}
+```
+
+Button and Text builders accept `.class(names)` and `.bind_class(getter)`. Pass an empty `ClassList` to start with no classes, then replace the list using `commands.set::<prop::Class>(entity, names.into())`. A compose input can forward a list as `names: prop!(ClassList)`.
 
 ## Reactive attributes
 

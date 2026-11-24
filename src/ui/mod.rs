@@ -61,7 +61,12 @@ pub use property::WidgetMut;
 pub(crate) use retirement::despawn_subtree;
 pub use scope::UiScope;
 pub use state::{InteractionState, UserState};
-pub use style::{FontSize, StylePreset, Typography};
+pub use style::{ClassList, FontSize, StylePreset, StyleSheet, StyleSheetPlugin, Typography};
+
+pub(crate) fn flush_bindings(world: &mut crate::ecs::World) {
+    crate::core::reactive::flush_signal_dirty(world);
+    style::reconcile_classes(world);
+}
 pub use theme::{ColorToken, Theme, ThemeCatalog, ThemeError, ThemeSource, ThemedColor};
 pub use view::{View, ViewInvalidation, ViewRegistry};
 pub use visibility::{Hidden, HitTarget, IgnoreHitTest, InteractionFeedback};

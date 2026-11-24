@@ -3478,7 +3478,7 @@ fn reconcile_layout_snapshot(
             }
             return Ok(snapshot);
         }
-        crate::core::reactive::flush_signal_dirty(world);
+        super::flush_bindings(world);
     }
     Ok(None)
 }
@@ -3589,7 +3589,7 @@ pub(crate) fn prepare_input_geometry(
     let (width, height) = viewport.logical_size();
     let (_, visual_changed) = hit_test::geometry_changes(world);
     if visual_changed && super::widgets::lazy_list::reconcile(world) {
-        crate::core::reactive::flush_signal_dirty(world);
+        super::flush_bindings(world);
         super::view::ViewRegistry::invalidate_queries(world);
     }
     let (layout_changed, visual_changed) = hit_test::geometry_changes(world);

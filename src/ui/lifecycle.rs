@@ -265,7 +265,7 @@ pub(crate) fn attach_handlers_for(world: &mut World, entity: Entity) {
 #[cfg_attr(feature = "perf", crate::trace_fn("lifecycle.prepare"))]
 pub(crate) fn prepare(world: &mut World) {
     for _ in 0..1024 {
-        crate::core::reactive::flush_signal_dirty(world);
+        super::flush_bindings(world);
         let plan = input_attach_plan(world);
         if let Some(plan) = &plan {
             prepare_plan(world, plan);

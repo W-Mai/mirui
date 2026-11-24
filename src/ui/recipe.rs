@@ -34,6 +34,7 @@ impl<T: Component> WidgetRecipe for T {
 #[doc(hidden)]
 pub trait PropertyBindings {
     const HAS_DYNAMIC_STYLE: bool = false;
+    const HAS_CLASSES: bool = false;
 
     fn install(self, world: &mut World, entity: Entity);
 
@@ -103,6 +104,7 @@ macro_rules! recipe_tuple {
 
         impl<$($item: PropertyBindings),+> PropertyBindings for ($($item,)+) {
             const HAS_DYNAMIC_STYLE: bool = false $(|| $item::HAS_DYNAMIC_STYLE)+;
+            const HAS_CLASSES: bool = false $(|| $item::HAS_CLASSES)+;
 
             fn install(self, world: &mut World, entity: Entity) {
                 #[allow(non_snake_case)]
@@ -183,3 +185,33 @@ macro_rules! widget_builder_bindings {
 }
 
 pub(crate) use widget_builder_bindings;
+
+macro_rules! widget_builder_classes {
+    ($builder:ident, $($field:ident),+) => {
+        impl<P, B, S, C> $builder<P, B, S, C> {
+            /// Set the widget's ordered stylesheet class names.
+            pub fn class(
+                self,
+                names: impl Into<$crate::ui::ClassList>,
+            ) -> $builder<P, B, S, impl $crate::__macro_support::PropertyBindings> {
+                $builder {
+                    classes: $crate::ui::style::StaticClasses::new(names),
+                    $($field: self.$field,)+
+                }
+            }
+
+            /// Bind the class list to reactive values.
+            pub fn bind_class<L: Into<$crate::ui::ClassList>>(
+                self,
+                read: impl Fn() -> L + 'static,
+            ) -> $builder<P, B, S, impl $crate::__macro_support::PropertyBindings> {
+                $builder {
+                    classes: $crate::ui::style::ClassBinding::new(read),
+                    $($field: self.$field,)+
+                }
+            }
+        }
+    };
+}
+
+pub(crate) use widget_builder_classes;

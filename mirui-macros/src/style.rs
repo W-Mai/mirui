@@ -43,6 +43,7 @@ enum Change {
 
 pub(crate) struct Field {
     pub(crate) key: &'static str,
+    alias: Option<&'static str>,
     pub(crate) target: Target,
     ty: &'static str,
     convert: Convert,
@@ -51,10 +52,11 @@ pub(crate) struct Field {
 }
 
 macro_rules! define_fields {
-    ($( $target:ident $key:ident: $ty:ty => $convert:ident, $binding:expr $(, $change:ident)? );+ $(;)?) => {
+    ($( $target:ident $key:ident $(($alias:literal))?: $ty:ty => $convert:ident, $binding:expr $(, $change:ident)? );+ $(;)?) => {
         const FIELDS: &[Field] = &[
             $(Field {
                 key: stringify!($key),
+                alias: define_fields!(@alias $($alias)?),
                 target: Target::$target,
                 ty: stringify!($ty),
                 convert: Convert::$convert,
@@ -67,6 +69,8 @@ macro_rules! define_fields {
     (@change Layout) => { Change::Layout };
     (@change Text) => { Change::Layout };
     (@change $target:ident) => { Change::Visual };
+    (@alias $alias:literal) => { Some($alias) };
+    (@alias) => { None };
 }
 
 use Binding::{Both, None as Static, Reactive, Responsive};
@@ -77,7 +81,7 @@ define_fields! {
     Common border_width: Fixed => Fixed, Reactive("BorderWidth");
     Common border_radius: Fixed => Fixed, Static, Layout;
     Common text_color: Option<ThemedColor> => OptionalColor, Both("TextColor"), TextColor;
-    Common font_stack: Option<FontStack> => FontStack, Static, FontStack;
+    Common font_stack("font"): Option<FontStack> => FontStack, Static, FontStack;
     Common font_size: FontSize => FontSize, Both("FontSize"), FontSize;
     Common clip_children: bool => Plain, Static, Layout;
     Layout direction: FlexDirection => Plain, Both("Direction");
@@ -85,8 +89,8 @@ define_fields! {
     Layout justify: JustifyContent => Plain, Static;
     Layout align: AlignItems => Plain, Static;
     Layout padding: Padding => Plain, Responsive("Padding");
-    Layout row_gap: Dimension => Dimension, Responsive("RowGap");
-    Layout column_gap: Dimension => Dimension, Responsive("ColumnGap");
+    Layout row_gap("gap"): Dimension => Dimension, Responsive("RowGap");
+    Layout column_gap("gap"): Dimension => Dimension, Responsive("ColumnGap");
     Layout width: Dimension => Dimension, Both("Width");
     Layout min_width: Dimension => Dimension, Responsive("MinWidth");
     Layout max_width: Dimension => Dimension, Responsive("MaxWidth");
@@ -98,19 +102,23 @@ define_fields! {
     Layout position: Position => Plain, Static;
     Layout left: Dimension => Dimension, Both("Left");
     Layout top: Dimension => Dimension, Both("Top");
-    Text paragraph: ParagraphStyle => Plain, Both("Paragraph");
+    Text paragraph("line_height"): ParagraphStyle => Plain, Both("Paragraph");
     Button normal_color: ThemedColor => Color, Both("ButtonNormalColor");
     Button pressed_color: ThemedColor => Color, Static;
     Button pressed_text_color: Option<ThemedColor> => OptionalColor, Static;
 }
 
 pub(crate) fn fields(name: &str) -> impl Iterator<Item = &'static Field> + '_ {
-    FIELDS.iter().filter(move |field| match name {
-        "font" => field.key == "font_stack",
-        "gap" => matches!(field.key, "row_gap" | "column_gap"),
-        "line_height" => field.key == "paragraph",
-        _ => field.key == name,
-    })
+    FIELDS
+        .iter()
+        .filter(move |field| field.key == name || field.alias == Some(name))
+}
+
+pub(crate) fn common_names() -> impl Iterator<Item = &'static str> {
+    FIELDS
+        .iter()
+        .filter(|field| matches!(field.target, Target::Common | Target::Layout))
+        .flat_map(|field| core::iter::once(field.key).chain(field.alias))
 }
 
 pub(crate) fn property(widget: &str, name: &str, responsive: bool) -> Option<&'static str> {

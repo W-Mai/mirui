@@ -1126,7 +1126,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.flush_event_notifications();
         self.prepare_dirty_storage();
         ViewRegistry::reconcile_observations(&mut self.world);
-        crate::core::reactive::flush_signal_dirty(&mut self.world);
+        crate::ui::flush_bindings(&mut self.world);
         if let Some(wake) = self
             .world
             .resource::<alloc::rc::Rc<crate::core::reactive::PaintWake>>()

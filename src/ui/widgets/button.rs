@@ -124,23 +124,25 @@ impl Button {
             layout_fields: 0,
             explicit: 0,
             style_binding: (),
+            classes: (),
             properties: (),
             bindings: (),
         }
     }
 }
 
-pub struct ButtonBuilder<P = (), B = (), S = ()> {
+pub struct ButtonBuilder<P = (), B = (), S = (), C = ()> {
     button: Button,
     style: Option<crate::ui::Style>,
     layout_fields: u64,
     explicit: u64,
     style_binding: S,
+    classes: C,
     properties: P,
     bindings: B,
 }
 
-impl<P, B, R> ButtonBuilder<P, B, R> {
+impl<P, B, R, C> ButtonBuilder<P, B, R, C> {
     pub fn style<S: StyleInput<Button>>(mut self, mut style: S) -> Self {
         if S::COMPLETE {
             self.layout_fields = 0;
@@ -157,13 +159,14 @@ impl<P, B, R> ButtonBuilder<P, B, R> {
     pub fn bind_style<S: StyleInput<Button>>(
         self,
         read: impl Fn() -> S + 'static,
-    ) -> ButtonBuilder<P, B, impl crate::__macro_support::PropertyBindings> {
+    ) -> ButtonBuilder<P, B, impl crate::__macro_support::PropertyBindings, C> {
         ButtonBuilder {
             style_binding: crate::ui::style::StyleBinding::<Button, _>::new(read),
             button: self.button,
             style: self.style,
             layout_fields: self.layout_fields,
             explicit: self.explicit,
+            classes: self.classes,
             properties: self.properties,
             bindings: self.bindings,
         }
@@ -203,34 +206,51 @@ impl<P, B, R> ButtonBuilder<P, B, R> {
 crate::ui::recipe::widget_builder_bindings!(
     ButtonBuilder,
     Button,
-    [S],
+    [S, C],
     button,
     style,
     layout_fields,
     explicit,
-    style_binding
+    style_binding,
+    classes
+);
+
+crate::ui::recipe::widget_builder_classes!(
+    ButtonBuilder,
+    button,
+    style,
+    layout_fields,
+    explicit,
+    style_binding,
+    properties,
+    bindings
 );
 
 impl<
     P: crate::__macro_support::PropertyBindings,
     B: crate::__macro_support::EntityEventBindings,
     S: crate::__macro_support::PropertyBindings,
-> crate::ui::recipe::WidgetRecipe for ButtonBuilder<P, B, S>
+    C: crate::__macro_support::PropertyBindings,
+> crate::ui::recipe::WidgetRecipe for ButtonBuilder<P, B, S, C>
 {
-    type Properties = (S, P);
+    type Properties = (C, S, P);
     type Events = B;
 
-    fn insert(mut self, world: &mut World, entity: Entity) -> ((S, P), B) {
+    fn insert(mut self, world: &mut World, entity: Entity) -> ((C, S, P), B) {
         world.insert(entity, self.button);
         if let Some(style) = self.style {
             world.insert(entity, style);
         }
         mark_button_layout(world, entity, self.layout_fields);
-        if S::HAS_DYNAMIC_STYLE {
-            self.style_binding
-                .set_explicit_style(self.explicit | self.properties.style_fields());
+        if S::HAS_DYNAMIC_STYLE || C::HAS_CLASSES {
+            let fields = self.explicit | self.properties.style_fields();
+            self.style_binding.set_explicit_style(fields);
+            self.classes.set_explicit_style(fields);
         }
-        ((self.style_binding, self.properties), self.bindings)
+        (
+            (self.classes, self.style_binding, self.properties),
+            self.bindings,
+        )
     }
 }
 

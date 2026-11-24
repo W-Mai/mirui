@@ -186,6 +186,19 @@ pub mod prop {
     /// Assigns an existing scroll offset without changing layout or clamping elastic positions.
     pub struct ScrollOffset;
     pub struct FontSize;
+    /// Replace the ordered names on a widget with a declared class list.
+    pub struct Class;
+
+    impl Property for Class {
+        type Value = crate::ui::ClassList;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            crate::ui::style::replace_classes(world, entity, value);
+            // Reconciliation publishes the actual layout and paint changes.
+            PropertyChange::Unchanged
+        }
+    }
+
     pub struct Paragraph;
     pub struct Direction;
     pub struct Width;

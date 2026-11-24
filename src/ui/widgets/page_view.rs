@@ -191,7 +191,7 @@ fn reconcile<R: Clone + PartialEq + 'static>(world: &mut World, entity: Entity) 
     } else {
         None
     };
-    crate::core::reactive::flush_signal_dirty(world);
+    crate::ui::flush_bindings(world);
     if !world
         .get::<PageState<R>>(entity)
         .is_some_and(|state| state.attempted.matches(world, entity))

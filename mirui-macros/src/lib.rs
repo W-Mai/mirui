@@ -122,40 +122,6 @@ use xrune::ds_node::{DsTree, DsTreeRef};
 use xrune::ds_rune::DsRune;
 use xrune::ds_rune::decipher::decipher;
 
-const LAYOUT_ATTRS: &[&str] = &[
-    "width",
-    "min_width",
-    "max_width",
-    "height",
-    "min_height",
-    "max_height",
-    "grow",
-    "shrink",
-    "direction",
-    "wrap",
-    "justify",
-    "align",
-    "padding",
-    "gap",
-    "row_gap",
-    "column_gap",
-    "position",
-    "left",
-    "top",
-];
-
-const STYLE_ATTRS: &[&str] = &[
-    "bg_color",
-    "text_color",
-    "border_color",
-    "border_radius",
-    "border_width",
-    "clip_children",
-    "font",
-    "font_stack",
-    "font_size",
-];
-
 const RESERVED_LAYOUT_NAMES: &[&str] = &["View", "Row", "Column", "Scroll"];
 
 fn primary_attr_for(widget_name: &str) -> Option<&'static str> {
@@ -382,7 +348,7 @@ struct LayoutBind {
     value: crate::layout_reactive::LayoutValue,
 }
 
-struct PresetAttr {
+struct StyleAttr {
     value: syn::Expr,
     reactive: bool,
     static_input: Option<syn::Ident>,
@@ -394,7 +360,8 @@ struct WidgetCmd {
     var: syn::Ident,
     attrs: Vec<proc_macro2::TokenStream>,
     layout_fields: Vec<proc_macro2::TokenStream>,
-    preset: Option<PresetAttr>,
+    preset: Option<StyleAttr>,
+    classes: Option<StyleAttr>,
     style_fields: std::collections::BTreeSet<&'static str>,
     errors: Vec<proc_macro2::TokenStream>,
     enchants: Vec<proc_macro2::TokenStream>,
@@ -416,7 +383,8 @@ struct WidgetCmd {
 struct ParsedAttrs {
     builder_calls: Vec<proc_macro2::TokenStream>,
     layout_fields: Vec<proc_macro2::TokenStream>,
-    preset: Option<PresetAttr>,
+    preset: Option<StyleAttr>,
+    classes: Option<StyleAttr>,
     style_fields: std::collections::BTreeSet<&'static str>,
     errors: Vec<proc_macro2::TokenStream>,
     component_inserts: Vec<proc_macro2::TokenStream>,
@@ -502,6 +470,7 @@ impl MiruiRune {
         let mut builder_calls = Vec::new();
         let mut layout_fields = Vec::new();
         let mut preset = None;
+        let mut classes = None;
         let mut style_fields = std::collections::BTreeSet::new();
         let mut errors = Vec::new();
         let mut component_inserts = Vec::new();
@@ -588,15 +557,20 @@ impl MiruiRune {
                 .map(|n| n.span())
                 .unwrap_or_else(|| syn::spanned::Spanned::span(&attr.value));
 
-            if name == "style" {
-                let next = PresetAttr {
+            if matches!(name.as_str(), "style" | "class") {
+                let target = if name == "style" {
+                    &mut preset
+                } else {
+                    &mut classes
+                };
+                let next = StyleAttr {
                     value: value.clone(),
                     reactive: attr.reactive,
                     static_input: compose_input::direct_prop(&attr.value, &self.props).cloned(),
                 };
-                if preset.replace(next).is_some() {
+                if target.replace(next).is_some() {
                     errors.push(
-                        syn::Error::new(attr_span, "duplicate `style` attribute")
+                        syn::Error::new(attr_span, format!("duplicate `{name}` attribute"))
                             .to_compile_error(),
                     );
                 }
@@ -844,11 +818,8 @@ impl MiruiRune {
                     }
                     WidgetKind::Layout | WidgetKind::IllegalLowercase => {
                         let mut msg = format!("unknown widget attribute `{unknown}`");
-                        let candidates = LAYOUT_ATTRS
-                            .iter()
-                            .copied()
-                            .chain(STYLE_ATTRS.iter().copied())
-                            .chain(["text", "image", "id"].iter().copied());
+                        let candidates =
+                            style::common_names().chain(["text", "image", "id", "style", "class"]);
                         if let Some(hint) = crate::diag::closest(unknown, candidates, 2) {
                             msg.push_str(&format!(". did you mean `{hint}`?"));
                         }
@@ -884,6 +855,7 @@ impl MiruiRune {
             builder_calls,
             layout_fields,
             preset,
+            classes,
             style_fields,
             errors,
             component_inserts,
@@ -1169,10 +1141,14 @@ impl MiruiRune {
         });
 
         if cmd.name == "Scroll" {
+            if !cmd.style_fields.contains("clip_children") {
+                tokens.extend(quote! {
+                    if let Some(__style) = (#world).get_mut::<mirui::ui::Style>(#var) {
+                        __style.clip_children = true;
+                    }
+                });
+            }
             tokens.extend(quote! {
-                if let Some(__style) = (#world).get_mut::<mirui::ui::Style>(#var) {
-                    __style.clip_children = true;
-                }
                 (#world).insert(#var, mirui::input::event::scroll::ScrollOffset::default());
                 (#world).insert(
                     #var,
@@ -1339,18 +1315,57 @@ impl MiruiRune {
         } else {
             explicit.clone()
         };
-        if cmd.name == "Button" {
-            let fields = syn::Ident::new(
-                "__mirui_button_style_fields",
-                proc_macro2::Span::mixed_site(),
-            );
+        let fields = syn::Ident::new(
+            "__mirui_authored_style_fields",
+            proc_macro2::Span::mixed_site(),
+        );
+        if cmd.name == "Button" || cmd.classes.is_some() {
             tokens.extend(quote! {
                 let #fields = #applied;
-                ::mirui::ui::style::mark_button_layout(#world, #var, #fields);
             });
         } else if static_preset.is_some() {
             tokens.extend(quote! { #applied; });
         }
+        if cmd.name == "Button" {
+            tokens.extend(quote! {
+                ::mirui::ui::style::mark_button_layout(#world, #var, #fields);
+            });
+        }
+
+        let column = matches!(cmd.name.to_string().as_str(), "Column" | "Scroll");
+        let direction = if column { quote!(Column) } else { quote!(Row) };
+        let clips = cmd.name == "Scroll";
+        let defaults = quote! {
+            ::mirui::ui::style::StyleDefaults {
+                direction: ::mirui::ui::layout::FlexDirection::#direction,
+                clip_children: #clips,
+            }
+        };
+        let class_installation = cmd.classes.as_ref().map(|classes| {
+            if !classes.reactive {
+                let names = &classes.value;
+                return quote! {
+                    ::mirui::ui::style::install_classes(#world, #var, #names, #fields, #defaults);
+                };
+            }
+            let run = syn::Ident::new("__mirui_class_binding", proc_macro2::Span::mixed_site());
+            let once = syn::Ident::new("__mirui_class_once", proc_macro2::Span::mixed_site());
+            let static_input = classes
+                .static_input
+                .as_ref()
+                .map_or_else(|| quote!(false), |prop| quote!(#prop.__mirui_is_static()));
+            let read = reactive_read(&classes.value);
+            tokens.extend(quote! {
+                let #once = #static_input;
+                let #run = ::mirui::ui::style::prepare_class_binding(#var, move || #read);
+            });
+            quote! {
+                ::mirui::ui::style::install_classes(
+                    #world, #var, ::mirui::ui::ClassList::default(), #fields, #defaults,
+                );
+                #run(#world, #once);
+            }
+        });
 
         let preset_binding = cmd
             .preset
@@ -1365,17 +1380,10 @@ impl MiruiRune {
                     .as_ref()
                     .map_or_else(|| quote!(false), |prop| quote!(#prop.__mirui_is_static()));
                 let read = reactive_read(&preset.value);
-                let column = matches!(cmd.name.to_string().as_str(), "Column" | "Scroll");
-                let direction = if column { quote!(Column) } else { quote!(Row) };
-                let clips = cmd.name == "Scroll";
                 tokens.extend(quote! {
                     let #once = #static_input;
                     let #name = ::mirui::ui::style::prepare_style_binding::<#widget, _>(
-                        #var, #explicit, ::mirui::ui::style::StyleDefaults {
-                            direction: ::mirui::ui::layout::FlexDirection::#direction,
-                            clip_children: #clips,
-                        },
-                        move || #read,
+                        #var, #explicit, #defaults, move || #read,
                     );
                 });
                 (name, once)
@@ -1462,6 +1470,7 @@ impl MiruiRune {
             let __widget_parent = #parent_var;
             ::mirui::__macro_support::finish_widget_static(#world, __widget_parent, #var);
         });
+        tokens.extend(class_installation);
         if let Some((name, once)) = preset_binding {
             tokens.extend(quote! { #name(#world, #once); });
         }
@@ -2435,6 +2444,7 @@ impl DsRune for MiruiRune {
             attrs: parsed.builder_calls,
             layout_fields: parsed.layout_fields,
             preset: parsed.preset,
+            classes: parsed.classes,
             style_fields: parsed.style_fields,
             errors: parsed.errors,
             enchants: enchant_tokens,
@@ -3321,6 +3331,7 @@ impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
                     || segment.ident == "effect_with_role"
                     || segment.ident == "prepare_widget_effect"
                     || segment.ident == "prepare_style_binding"
+                    || segment.ident == "prepare_class_binding"
             })
         {
             return;

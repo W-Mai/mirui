@@ -464,6 +464,7 @@ impl Text {
             path: None,
             explicit,
             style_binding: (),
+            classes: (),
             properties: (),
             bindings: (),
         }
@@ -658,17 +659,18 @@ impl From<Localized> for Text {
     }
 }
 
-pub struct TextBuilder<P = (), B = (), S = ()> {
+pub struct TextBuilder<P = (), B = (), S = (), C = ()> {
     text: Text,
     style: Option<crate::ui::Style>,
     path: Option<crate::text::TextPath>,
     explicit: u64,
     style_binding: S,
+    classes: C,
     properties: P,
     bindings: B,
 }
 
-impl<P, B, R> TextBuilder<P, B, R> {
+impl<P, B, R, C> TextBuilder<P, B, R, C> {
     pub fn style<S: crate::ui::style::StyleInput<Text>>(mut self, mut style: S) -> Self {
         if S::COMPLETE {
             self.explicit |= crate::ui::style::StyleField::COMMON;
@@ -682,13 +684,14 @@ impl<P, B, R> TextBuilder<P, B, R> {
     pub fn bind_style<S: crate::ui::style::StyleInput<Text>>(
         self,
         read: impl Fn() -> S + 'static,
-    ) -> TextBuilder<P, B, impl crate::__macro_support::PropertyBindings> {
+    ) -> TextBuilder<P, B, impl crate::__macro_support::PropertyBindings, C> {
         TextBuilder {
             style_binding: crate::ui::style::StyleBinding::<Text, _>::new(read),
             text: self.text,
             style: self.style,
             path: self.path,
             explicit: self.explicit,
+            classes: self.classes,
             properties: self.properties,
             bindings: self.bindings,
         }
@@ -727,24 +730,37 @@ impl<P, B, R> TextBuilder<P, B, R> {
 crate::ui::recipe::widget_builder_bindings!(
     TextBuilder,
     Text,
-    [S],
+    [S, C],
     text,
     style,
     path,
     explicit,
-    style_binding
+    style_binding,
+    classes
+);
+
+crate::ui::recipe::widget_builder_classes!(
+    TextBuilder,
+    text,
+    style,
+    path,
+    explicit,
+    style_binding,
+    properties,
+    bindings
 );
 
 impl<
     P: crate::__macro_support::PropertyBindings,
     B: crate::__macro_support::EntityEventBindings,
     S: crate::__macro_support::PropertyBindings,
-> crate::ui::recipe::WidgetRecipe for TextBuilder<P, B, S>
+    C: crate::__macro_support::PropertyBindings,
+> crate::ui::recipe::WidgetRecipe for TextBuilder<P, B, S, C>
 {
-    type Properties = (S, P);
+    type Properties = (C, S, P);
     type Events = B;
 
-    fn insert(mut self, world: &mut World, entity: Entity) -> ((S, P), B) {
+    fn insert(mut self, world: &mut World, entity: Entity) -> ((C, S, P), B) {
         world.insert(entity, self.text);
         if let Some(style) = self.style {
             world.insert(entity, style);
@@ -752,11 +768,15 @@ impl<
         if let Some(path) = self.path {
             world.insert(entity, path);
         }
-        if S::HAS_DYNAMIC_STYLE {
-            self.style_binding
-                .set_explicit_style(self.explicit | self.properties.style_fields());
+        if S::HAS_DYNAMIC_STYLE || C::HAS_CLASSES {
+            let fields = self.explicit | self.properties.style_fields();
+            self.style_binding.set_explicit_style(fields);
+            self.classes.set_explicit_style(fields);
         }
-        ((self.style_binding, self.properties), self.bindings)
+        (
+            (self.classes, self.style_binding, self.properties),
+            self.bindings,
+        )
     }
 }
 

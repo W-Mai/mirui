@@ -57,13 +57,15 @@ pub fn prepare_style_binding<W: 'static, S: StyleInput<W>>(
         let style = read();
         crate::core::reactive::with_world(|world| {
             if world.is_alive(entity) && world.has::<crate::ui::Widget>(entity) {
-                applied.set(reconcile_style::<W, S>(
+                let (previous, explicit) = super::classes::release_inline_fields::<W, _>(
                     world,
                     entity,
-                    style,
+                    &style,
                     explicit,
-                    defaults,
                     applied.get(),
+                );
+                applied.set(reconcile_style::<W, S>(
+                    world, entity, style, explicit, defaults, previous,
                 ));
             }
         });
@@ -77,7 +79,7 @@ pub fn prepare_style_binding<W: 'static, S: StyleInput<W>>(
     }
 }
 
-fn reconcile_style<W: 'static, S: StyleInput<W>>(
+pub(super) fn reconcile_style<W: 'static, S: StyleInput<W>>(
     world: &mut World,
     entity: Entity,
     mut style: S,

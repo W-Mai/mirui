@@ -278,7 +278,7 @@ fn reconcile<R: Clone + 'static>(world: &mut World, entity: Entity) -> bool {
                 crate::warn!("NavigationStack could not construct its destination");
                 return true;
             };
-            crate::core::reactive::flush_signal_dirty(world);
+            crate::ui::flush_bindings(world);
             if !current::<R>(world, entity, revision) {
                 mount::discard(world, entity, page);
                 return true;

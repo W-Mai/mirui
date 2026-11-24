@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Declare reusable widget styles with `style!` and apply them through `ui!` or the Button and Text builders.
 - Inherit font stacks, font sizes, and text colours through UI parents for layout and painting.
 - Bind reusable styles to reactive values and restore defaults for fields withdrawn by a binding.
+- Register stylesheet classes at startup or runtime and select them with static or reactive class lists.
 
 ### Performance
 
