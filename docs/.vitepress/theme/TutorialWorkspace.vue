@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
 import { useData, withBase } from 'vitepress';
 import { loadTutorial } from './tutorial-runtime';
+import { mountPreviewFrame } from '../../examples/first-app/preview-frame.js';
 
 const props = defineProps({ chapter: { type: Number, required: true }, file: { type: String, required: true } });
 const { lang, isDark } = useData();
@@ -10,6 +11,10 @@ const modes = [['code', 'Code', '代码'], ['split', 'Split', '分栏'], ['previ
 const mode = ref('split');
 const group = useId();
 const canvas = ref();
+const panes = ref();
+const split = ref(50);
+let pointer;
+let detachFrame;
 const status = ref('loading');
 let tutorial;
 let generation = 0;
@@ -43,6 +48,29 @@ function resume() {
   if (frame === undefined) draw();
 }
 
+function moveDivider(event) {
+  if (pointer !== event.pointerId) return;
+  const rect = panes.value.getBoundingClientRect();
+  setSplit(100 * (event.clientX - rect.left) / rect.width);
+}
+
+function setSplit(percent) {
+  split.value = Math.max(30, Math.min(70, Math.round(percent)));
+}
+
+function grabDivider(event) {
+  if (event.button !== 0 || pointer !== undefined) return;
+  pointer = event.pointerId;
+  event.currentTarget.setPointerCapture(pointer);
+  panes.value.classList.add('dragging');
+}
+
+function endDivider(event) {
+  if (pointer !== event.pointerId) return;
+  pointer = undefined;
+  panes.value.classList.remove('dragging');
+}
+
 async function start() {
   release();
   const current = generation;
@@ -65,10 +93,12 @@ watch(mode, resume, { flush: 'post' });
 watch(isDark, dark => tutorial?.set_dark(dark));
 watch(() => props.chapter, start, { flush: 'post' });
 onMounted(() => {
+  detachFrame = mountPreviewFrame(canvas.value.parentElement, zh.value);
   start();
   document.addEventListener('visibilitychange', resume);
 });
 onBeforeUnmount(() => {
+  detachFrame?.();
   release();
   document.removeEventListener('visibilitychange', resume);
 });
@@ -78,17 +108,26 @@ onBeforeUnmount(() => {
   <section class="lesson-workspace" :data-mode="mode" :aria-label="zh ? '本章代码和预览' : 'Chapter code and preview'">
     <header class="lesson-tools">
       <span class="lesson-file">{{ file }}</span>
-      <fieldset class="lesson-modes" :aria-label="zh ? '工作区视图' : 'Workspace view'">
+      <fieldset class="lesson-modes" :style="{ '--selected': modes.findIndex(entry => entry[0] === mode) }" :aria-label="zh ? '工作区视图' : 'Workspace view'">
         <label v-for="[value, en, cn] in modes" :key="value">
           <input v-model="mode" type="radio" :name="group" :value="value" />
           <span>{{ zh ? cn : en }}</span>
         </label>
       </fieldset>
     </header>
-    <div class="lesson-panes">
-      <div v-show="mode !== 'preview'" class="lesson-source"><slot /></div>
-      <div v-show="mode !== 'code'" class="lesson-preview" :data-status="status">
-        <canvas ref="canvas" tabindex="0" :aria-label="zh ? '任务清单' : 'Task list'"></canvas>
+    <div ref="panes" class="lesson-panes" :style="{ '--split': split + '%' }">
+      <div :inert="mode === 'preview'" class="lesson-source"><slot /></div>
+      <div v-show="mode === 'split'" role="separator" tabindex="0" aria-orientation="vertical"
+        class="lesson-divider" :aria-label="zh ? '调整分栏宽度' : 'Adjust pane widths'"
+        :aria-valuenow="split" aria-valuemin="30" aria-valuemax="70"
+        @pointerdown.prevent="grabDivider" @pointermove="moveDivider" @lostpointercapture="endDivider"
+        @pointercancel="endDivider" @pointerup="endDivider"
+        @keydown.left.prevent="setSplit(split - 2)" @keydown.right.prevent="setSplit(split + 2)"
+        @keydown.home.prevent="setSplit(50)" @dblclick="setSplit(50)"></div>
+      <div :inert="mode === 'code'" class="lesson-preview" :data-status="status">
+        <div class="lesson-device"><div class="preview-frame">
+          <canvas ref="canvas" tabindex="0" :aria-label="zh ? '任务清单' : 'Task list'"></canvas>
+        </div></div>
         <div v-if="status !== 'ready'" class="lesson-status" role="status">
           <span>{{ status === 'loading' ? (zh ? '正在加载预览…' : 'Loading preview…') : status === 'stopped' ? (zh ? '预览已关闭' : 'Preview closed') : (zh ? '预览加载失败' : 'Preview unavailable') }}</span>
           <button v-if="status !== 'loading'" class="site-cta" @click="start">{{ zh ? '重新打开' : 'Reopen preview' }}</button>

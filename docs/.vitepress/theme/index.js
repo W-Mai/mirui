@@ -7,6 +7,7 @@ import TutorialWorkspace from './TutorialWorkspace.vue';
 import mark from '../../../gallery/web/favicon.svg?url';
 import '../../../gallery/web/site-chrome.css';
 import './style.css';
+import '../../../gallery/web/device-frame.css';
 import './workspace.css';
 
 export default {

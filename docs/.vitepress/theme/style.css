@@ -1,5 +1,7 @@
 :root,
 :root.dark {
+  --manual-duration: 260ms;
+  --manual-motion: var(--manual-duration) cubic-bezier(.22, 1, .36, 1);
   --vp-font-family-base: Geist, var(--font-ui);
   --vp-font-family-mono: 'Geist Mono', var(--font-mono);
   --vp-c-bg: var(--site-panel);
@@ -250,6 +252,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root, :root.dark { --manual-duration: 0s; }
   .VPNavScreen,
   .VPNavScreen .container,
   .VPSidebar,

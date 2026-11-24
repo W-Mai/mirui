@@ -1091,34 +1091,6 @@ html[data-mode="focus"] .device-grip { display: none; }
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.035) 38%, transparent 38.5%);
 }
 
-.device-grip {
-  position: absolute;
-  z-index: 4;
-  left: var(--gx, 100%);
-  top: var(--gy, 100%);
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  margin: -13px 0 0 -13px;
-  padding: 0;
-  border: 1px solid var(--site-rule-strong);
-  border-radius: 50%;
-  background: var(--site-panel);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 var(--rim-top);
-  color: var(--site-muted);
-  cursor: nwse-resize;
-  touch-action: none;
-  opacity: 0.55;
-  transition: opacity 0.2s ease, transform 0.18s ease, color 0.18s ease;
-}
-
-.wb-stage:hover .device-grip,
-.device-grip:focus-visible,
-.workbench.resizing .device-grip { opacity: 1; color: var(--site-ink); }
-.device-grip:hover { transform: scale(1.08); }
-.device-grip:focus-visible { outline: 2px solid var(--site-blue); outline-offset: 2px; }
-.workbench.resizing .device-grip { transform: scale(1.12); color: var(--site-blue); }
 .workbench.resizing { cursor: nwse-resize; user-select: none; }
 
 /* ── Pixel loupe ─────────────────────────────────────────── */
