@@ -1,0 +1,77 @@
+@font-face {
+  font-family: Geist;
+  src: url('../../../gallery/web/fonts/geist-latin-wght.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('../../../gallery/web/fonts/geist-mono-latin-wght.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  --vp-font-family-base: Geist, var(--font-ui);
+  --vp-font-family-mono: 'Geist Mono', var(--font-mono);
+  --vp-c-bg: var(--bg);
+  --vp-c-bg-alt: var(--panel);
+  --vp-c-bg-elv: var(--raised);
+  --vp-c-bg-soft: var(--panel-2);
+  --vp-c-divider: var(--line);
+  --vp-c-gutter: var(--line);
+  --vp-c-text-1: var(--ink);
+  --vp-c-text-2: var(--ink-dim);
+  --vp-c-brand-1: var(--signal-bright);
+  --vp-c-brand-2: var(--signal);
+  --vp-c-brand-3: var(--signal);
+  --vp-c-brand-soft: var(--signal-wash);
+  --vp-button-brand-text: var(--signal-on);
+  --vp-button-brand-hover-text: var(--signal-on);
+  --vp-button-brand-active-text: var(--signal-on);
+  --vp-code-block-bg: var(--well);
+  --vp-sidebar-bg-color: var(--panel);
+}
+
+.VPNav .VPNavBarTranslations,
+.VPNav .VPNavScreenTranslations {
+  display: none;
+}
+
+.manual-selectors {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-block: .6rem;
+}
+
+.manual-selectors-desktop {
+  display: none;
+  margin: 0 0 0 1rem;
+}
+
+@media (min-width: 768px) {
+  .manual-selectors-desktop {
+    display: flex;
+  }
+}
+
+.manual-selectors select {
+  appearance: auto;
+  color: var(--ink);
+  padding: .3rem .45rem;
+  border: 1px solid var(--line-strong);
+  border-radius: .4rem;
+  font-size: .875rem;
+  background: var(--panel);
+}
+
+.manual-notice {
+  margin: 0 0 1rem;
+  padding: .55rem .8rem;
+  border-inline-start: 2px solid var(--signal-deep);
+  background: var(--vp-c-brand-soft);
+  font-size: .875rem;
+}

@@ -178,7 +178,7 @@ Select the editor, then use the keyboard buttons. Preedit replaces the selected 
 
 Requests are delivered after callback borrows are released. The default event preset includes text-input commands; explicit configurations use `CommandCapacity::text_input(count)` and a nonzero flush limit. The software request queue is prepared from the configured command record count. Invalid sessions are discarded; capacity exhaustion logs a warning and drops the new request without replay or rollback.
 
-See [Widget input and notifications](https://github.com/W-Mai/mirui/blob/main/docs/widget-events.md) for notification ordering. Gallery's [Editor Lab](https://github.com/W-Mai/mirui/tree/main/src/gallery/demos/editor_lab) includes search filtering, command submission, shared-document editing, and a software keyboard with a static n → ni → 你 sequence.
+See [Widget input and notifications](widget-events.md) for notification ordering. Gallery's [Editor Lab](../src/gallery/demos/editor_lab) includes search filtering, command submission, shared-document editing, and a software keyboard with a static n → ni → 你 sequence.
 
 Run Editor Lab with SDL or WGPU, then select **System** to use the operating system's input method:
 
