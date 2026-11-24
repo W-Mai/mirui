@@ -3,8 +3,6 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 use crate::ui::widgets::{ParagraphStyle, Slider, Text};
 
-use alloc::format;
-
 #[derive(Clone, Copy, Default)]
 struct Stats {
     pub last_value: i32,
@@ -29,6 +27,9 @@ pub fn build_widgets() {
     );
 
     //~focus-start
+    let label = style!(
+        width: Dimension::percent(100), max_width: 480, paragraph: ParagraphStyle::label()
+    );
     ui! {
         Column (
             grow: 1.0,
@@ -39,21 +40,18 @@ pub fn build_widgets() {
         ) {
             Text (
                 "Value",
-                width: Dimension::percent(100),
-                max_width: 480,
+                style: label.clone(),
                 height: 16,
                 font_size: 12,
-                text_color: ColorToken::OnSurfaceVariant,
-                paragraph: ParagraphStyle::label()
+                text_color: ColorToken::OnSurfaceVariant
             )
             Text (
-                text: ${ format!("{}", s_value_text.get().last_value) },
-                width: Dimension::percent(100),
-                max_width: 480,
+                text: ${ format_args!("{}", s_value_text.get().last_value) },
+                capacity: 11,
+                style: label.clone(),
                 height: 70,
                 font_size: 56,
-                text_color: ColorToken::OnSurface,
-                paragraph: ParagraphStyle::label()
+                text_color: ColorToken::OnSurface
             )
             Slider (
                 width: Dimension::percent(100),
@@ -84,14 +82,16 @@ pub fn build_widgets() {
                     });
             }
             Text (
-                text: ${ format!("{} changes · {} drag edges", s_read.get().changes, s_read.get().drags) },
+                text: ${
+                    let stats = s_read.get();
+                    format_args!("{} changes · {} drag edges", stats.changes, stats.drags)
+                },
+                capacity: " changes ·  drag edges".len() + 20,
                 id: "stats_label",
-                width: Dimension::percent(100),
-                max_width: 480,
+                style: label,
                 height: 24,
                 font_size: 12,
-                text_color: ColorToken::OnSurfaceVariant,
-                paragraph: ParagraphStyle::label()
+                text_color: ColorToken::OnSurfaceVariant
             )
         }
     };

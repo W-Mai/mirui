@@ -3,43 +3,39 @@ extern crate alloc;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, Text};
 
-use alloc::vec::Vec;
-
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct Card {
     id: u32,
     name: &'static str,
     color: ColorToken,
 }
 
-fn deck() -> Vec<Card> {
-    alloc::vec![
-        Card {
-            id: 0,
-            name: "Red",
-            color: ColorToken::Error
-        },
-        Card {
-            id: 1,
-            name: "Green",
-            color: ColorToken::Success
-        },
-        Card {
-            id: 2,
-            name: "Blue",
-            color: ColorToken::Primary
-        },
-        Card {
-            id: 3,
-            name: "Gold",
-            color: ColorToken::OnSurfaceVariant
-        },
-    ]
-}
+const DECK: [Card; 4] = [
+    Card {
+        id: 0,
+        name: "Red",
+        color: ColorToken::Error,
+    },
+    Card {
+        id: 1,
+        name: "Green",
+        color: ColorToken::Success,
+    },
+    Card {
+        id: 2,
+        name: "Blue",
+        color: ColorToken::Primary,
+    },
+    Card {
+        id: 3,
+        name: "Gold",
+        color: ColorToken::OnSurfaceVariant,
+    },
+];
 
 #[compose]
 pub fn build_widgets() {
-    let cards = Signal::new(deck());
+    let cards = Signal::new(DECK);
     let rotate = cards.clone();
     let rows = cards.clone();
 
@@ -53,6 +49,7 @@ pub fn build_widgets() {
             row_gap: 12
         ) {
             Button (
+                "Rotate keyed rows",
                 font_size: 15,
                 text_color: ColorToken::OnPrimary,
                 width: Dimension::percent(100),
@@ -61,17 +58,7 @@ pub fn build_widgets() {
                 border_radius: 21,
                 normal_color: ColorToken::Primary,
                 pressed_color: ColorToken::Secondary
-            ) [
-                Text::label("Rotate keyed rows"),
-            ] on Tap {
-                rotate
-                    .update(|c| {
-                        if !c.is_empty() {
-                            let head = c.remove(0);
-                            c.push(head);
-                        }
-                    });
-            }
+            ) on Tap { rotate.update(|cards| cards.rotate_left(1)); }
             Column (
                 id: "state_keyed_list",
                 bg_color: ColorToken::SurfaceVariant,

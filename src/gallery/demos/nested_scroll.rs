@@ -4,9 +4,28 @@ use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
 use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
+fn section_style() -> StylePreset {
+    style!(bg_color: ColorToken::SurfaceVariant, border_radius: 18, clip_children: true)
+}
+
+fn heading_style() -> StylePreset<Text> {
+    style!(
+        height: 34,
+        font_size: 13,
+        text_color: ColorToken::OnSurfaceVariant,
+        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+    )
+}
+
 #[compose]
 pub fn build_widgets() {
-    let sections = [(); 5];
+    let sections = [
+        "Section 01",
+        "Section 02",
+        "Section 03",
+        "Section 04",
+        "Section 05",
+    ];
     // A ramp of greys, so that a row of tiles reads as a row and not as five colours.
     let tiles = [
         ColorToken::Outline,
@@ -16,7 +35,9 @@ pub fn build_widgets() {
         ColorToken::Tertiary,
         ColorToken::Secondary,
     ];
-    let cards = [(); 6];
+    let cards = [
+        "Card 01", "Card 02", "Card 03", "Card 04", "Card 05", "Card 06",
+    ];
 
     //~focus-start
     ui! {
@@ -26,16 +47,10 @@ pub fn build_widgets() {
             padding: Padding::all(16),
             row_gap: 12
         ) [
-            ScrollOffset {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-            },
+            ScrollOffset::default(),
             ScrollConfig {
-                direction: ScrollAxis::Vertical,
-                elastic: true,
                 content_height: Fixed::from_int(1200),
-                content_width: Fixed::ZERO,
-                transition: None,
+                ..Default::default()
             },
         ] {
             Text (
@@ -46,31 +61,15 @@ pub fn build_widgets() {
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
-            walk sections.iter().enumerate() with item {
-                Column (
-                    height: 200,
-                    bg_color: ColorToken::SurfaceVariant,
-                    border_radius: 18,
-                    clip_children: true
-                ) {
-                    Text (
-                        text: ${ alloc::format!("Section {:02}", item.0 + 1) },
-                        height: 34,
-                        font_size: 13,
-                        text_color: ColorToken::OnSurfaceVariant,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                    )
+            walk sections with title {
+                Column (style: section_style(), height: 200) {
+                    Text (title, style: heading_style())
                     Row (grow: 1.0, column_gap: 8) [
-                        ScrollOffset {
-                            x: Fixed::ZERO,
-                            y: Fixed::ZERO,
-                        },
+                        ScrollOffset::default(),
                         ScrollConfig {
                             direction: ScrollAxis::Horizontal,
-                            elastic: true,
-                            content_height: Fixed::ZERO,
                             content_width: Fixed::from_int(640),
-                            transition: None,
+                            ..Default::default()
                         },
                     ] {
                         walk tiles.iter() with tone {
@@ -79,37 +78,20 @@ pub fn build_widgets() {
                     }
                 }
             }
-            Column (
-                height: 300,
-                bg_color: ColorToken::SurfaceVariant,
-                border_radius: 18,
-                clip_children: true
-            ) {
-                Text (
-                    "Nested vertical list",
-                    height: 34,
-                    font_size: 13,
-                    text_color: ColorToken::OnSurfaceVariant,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
+            Column (style: section_style(), height: 300) {
+                Text ("Nested vertical list", style: heading_style())
                 Column (
                     grow: 1.0,
                     padding: Padding::all(6),
                     row_gap: 6
                 ) [
-                    ScrollOffset {
-                        x: Fixed::ZERO,
-                        y: Fixed::ZERO,
-                    },
+                    ScrollOffset::default(),
                     ScrollConfig {
-                        direction: ScrollAxis::Vertical,
-                        elastic: true,
                         content_height: Fixed::from_int(500),
-                        content_width: Fixed::ZERO,
-                        transition: None,
+                        ..Default::default()
                     },
                 ] {
-                    walk cards.iter().enumerate() with item {
+                    walk cards with title {
                         Row (
                             height: 56,
                             bg_color: ColorToken::Outline,
@@ -118,7 +100,7 @@ pub fn build_widgets() {
                             padding: Padding::all(16)
                         ) {
                             Text (
-                                text: ${ alloc::format!("Card {:02}", item.0 + 1) },
+                                title,
                                 grow: 1.0,
                                 height: 24,
                                 font_size: 15,

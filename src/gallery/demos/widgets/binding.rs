@@ -26,7 +26,8 @@ fn row(item: model!(ListItem)) -> Entity {
             }
         ) {
             Text (
-                text: ${ alloc::format!("Row {}", item.index()) },
+                text: ${ format_args!("Row {}", item.index()) },
+                capacity: 14,
                 grow: 1.0,
                 height: 24,
                 font_size: 14,

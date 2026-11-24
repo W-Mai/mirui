@@ -5,9 +5,27 @@ use crate::ui::widgets::{
     TextAlign, TextInput,
 };
 
+const THEME_BUTTON: StylePreset = style!(grow: 1.0, height: 40, border_radius: 20);
+const CONTROL_ROW: StylePreset = style!(
+    width: 200, grow: 1.0, height: 38, align: AlignItems::Center, column_gap: 10
+);
+
+#[event]
+fn choose_theme(event: event!(Tap), choices: query!(ThemeChoice), commands: commands!()) {
+    if let Some(theme) = choices.get(event.target) {
+        commands.set_theme(theme.0);
+    }
+}
+
 #[compose]
 pub fn build_widgets() {
     //~focus-start
+    let control_label = style!(
+        width: 64, height: 38, text_color: ColorToken::OnSurfaceVariant,
+        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+    );
+    let tab_label =
+        style!(grow: 1.0, text_color: ColorToken::OnSurface, paragraph: ParagraphStyle::label());
     ui! {
         Column (
             grow: 1.0,
@@ -29,60 +47,37 @@ pub fn build_widgets() {
                 width: Dimension::percent(100),
                 max_width: 480,
                 height: 40,
-                column_gap: 8
+                column_gap: 8,
+                font_size: 14
             ) {
                 Button (
-                    grow: 1.0,
-                    height: 40,
-                    border_radius: 20,
-                    font_size: 14,
+                    text: "Graphite",
+                    style: THEME_BUTTON,
                     text_color: Color::rgb(242, 184, 64),
                     normal_color: Color::rgb(27, 28, 32),
                     pressed_color: Color::rgb(48, 50, 56)
                 ) [
                     ThemeChoice(ThemeId::new("midnight-amber")),
-                    Text::label("Graphite"),
-                ] on Tap(|event: event!(Tap), rows: query!(ThemeChoice), commands: commands!()| {
-                    let theme = rows.get(event.target).map(|choice| choice.0);
-                    if let Some(theme) = theme {
-                        commands.set_theme(theme);
-                    }
-                })
+                ] on Tap(choose_theme::callback())
                 Button (
-                    grow: 1.0,
-                    height: 40,
-                    border_radius: 20,
-                    font_size: 14,
+                    text: "Paper",
+                    style: THEME_BUTTON,
                     text_color: Color::rgb(196, 56, 88),
                     normal_color: Color::rgb(238, 234, 235),
                     pressed_color: Color::rgb(222, 215, 217)
                 ) [
                     ThemeChoice(ThemeId::new("paper-rose")),
-                    Text::label("Paper"),
-                ] on Tap(|event: event!(Tap), rows: query!(ThemeChoice), commands: commands!()| {
-                    let theme = rows.get(event.target).map(|choice| choice.0);
-                    if let Some(theme) = theme {
-                        commands.set_theme(theme);
-                    }
-                })
+                ] on Tap(choose_theme::callback())
                 Button (
                     id: "theme_custom",
-                    grow: 1.0,
-                    height: 40,
-                    border_radius: 20,
-                    font_size: 14,
+                    text: "Deep sea",
+                    style: THEME_BUTTON,
                     text_color: Color::rgb(64, 196, 220),
                     normal_color: Color::rgb(18, 34, 47),
                     pressed_color: Color::rgb(38, 60, 78)
                 ) [
                     ThemeChoice(ThemeId::new("deep-sea")),
-                    Text::label("Deep sea"),
-                ] on Tap(|event: event!(Tap), rows: query!(ThemeChoice), commands: commands!()| {
-                    let theme = rows.get(event.target).map(|choice| choice.0);
-                    if let Some(theme) = theme {
-                        commands.set_theme(theme);
-                    }
-                })
+                ] on Tap(choose_theme::callback())
             }
             Row (
                 id: "theme_token_grid",
@@ -96,22 +91,13 @@ pub fn build_widgets() {
                 row_gap: 4,
                 column_gap: 16,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 18
+                border_radius: 18,
+                font_size: 13
             ) {
-                Row (
-                    width: 200,
-                    grow: 1.0,
-                    height: 38,
-                    align: AlignItems::Center,
-                    column_gap: 10
-                ) {
+                Row (style: CONTROL_ROW) {
                     Text (
                         "Slider",
-                        width: 64,
-                        height: 38,
-                        font_size: 13,
-                        text_color: ColorToken::OnSurfaceVariant,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                        style: control_label.clone()
                     )
                     Slider (
                         min: Fixed::ZERO,
@@ -123,20 +109,10 @@ pub fn build_widgets() {
                         thumb_color: Color::rgb(245, 246, 248)
                     )
                 }
-                Row (
-                    width: 200,
-                    grow: 1.0,
-                    height: 38,
-                    align: AlignItems::Center,
-                    column_gap: 10
-                ) {
+                Row (style: CONTROL_ROW) {
                     Text (
                         "Switch",
-                        width: 64,
-                        height: 38,
-                        font_size: 13,
-                        text_color: ColorToken::OnSurfaceVariant,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                        style: control_label.clone()
                     )
                     Switch (
                         width: 44,
@@ -145,20 +121,10 @@ pub fn build_widgets() {
                         thumb_color: Color::rgb(245, 246, 248)
                     )
                 }
-                Row (
-                    width: 200,
-                    grow: 1.0,
-                    height: 38,
-                    align: AlignItems::Center,
-                    column_gap: 10
-                ) {
+                Row (style: CONTROL_ROW) {
                     Text (
                         "Checkbox",
-                        width: 64,
-                        height: 38,
-                        font_size: 13,
-                        text_color: ColorToken::OnSurfaceVariant,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                        style: control_label.clone()
                     )
                     Checkbox (
                         width: 22,
@@ -167,20 +133,10 @@ pub fn build_widgets() {
                         unchecked_color: ColorToken::Outline
                     )
                 }
-                Row (
-                    width: 200,
-                    grow: 1.0,
-                    height: 38,
-                    align: AlignItems::Center,
-                    column_gap: 10
-                ) {
+                Row (style: CONTROL_ROW) {
                     Text (
                         "Progress",
-                        width: 64,
-                        height: 38,
-                        font_size: 13,
-                        text_color: ColorToken::OnSurfaceVariant,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                        style: control_label.clone()
                     )
                     ProgressBar (
                         grow: 1.0,
@@ -190,25 +146,14 @@ pub fn build_widgets() {
                         track_color: ColorToken::Outline
                     )
                 }
-                Row (
-                    width: 200,
-                    grow: 1.0,
-                    height: 38,
-                    align: AlignItems::Center,
-                    column_gap: 10
-                ) {
+                Row (style: CONTROL_ROW) {
                     Text (
                         "Input",
-                        width: 64,
-                        height: 38,
-                        font_size: 13,
-                        text_color: ColorToken::OnSurfaceVariant,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                        style: control_label.clone()
                     )
                     TextInput (
                         grow: 1.0,
                         height: 32,
-                        font_size: 13,
                         border_radius: 16,
                         bg_color: ColorToken::Surface,
                         border_color: ColorToken::Outline,
@@ -217,60 +162,33 @@ pub fn build_widgets() {
                         Placeholder("Theme-aware"),
                     ]
                 }
-                Row (
-                    width: 200,
-                    grow: 1.0,
-                    height: 38,
-                    align: AlignItems::Center,
-                    column_gap: 10
-                ) {
+                Row (style: CONTROL_ROW) {
                     Text (
                         "Tabs",
-                        width: 64,
-                        height: 38,
-                        font_size: 13,
-                        text_color: ColorToken::OnSurfaceVariant,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                        style: control_label.clone()
                     )
                     TabBar (count: 3, grow: 1.0, height: 28) {
                         Text (
                             "A",
-                            grow: 1.0,
-                            font_size: 13,
-                            text_color: ColorToken::OnSurface,
-                            paragraph: ParagraphStyle::label()
+                            style: tab_label.clone()
                         )
                         Text (
                             "B",
-                            grow: 1.0,
-                            font_size: 13,
-                            text_color: ColorToken::OnSurface,
-                            paragraph: ParagraphStyle::label()
+                            style: tab_label.clone()
                         )
                         Text (
                             "C",
-                            grow: 1.0,
-                            font_size: 13,
-                            text_color: ColorToken::OnSurface,
-                            paragraph: ParagraphStyle::label()
+                            style: tab_label
                         )
                     }
                 }
                 Row (
                     id: "theme_accent_row",
-                    width: 200,
-                    grow: 1.0,
-                    height: 38,
-                    align: AlignItems::Center,
-                    column_gap: 10
+                    style: CONTROL_ROW
                 ) {
                     Text (
                         "Accent",
-                        width: 64,
-                        height: 38,
-                        font_size: 13,
-                        text_color: ColorToken::OnSurfaceVariant,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                        style: control_label
                     )
                     View (grow: 1.0, height: 22, border_radius: 11, bg_color: ACCENT)
                 }

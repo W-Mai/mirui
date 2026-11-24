@@ -9,11 +9,24 @@ use crate::ui::widgets::{
 };
 
 const ITEM_COUNT: u32 = 50;
+const FORM_BUTTON: StylePreset = style!(grow: 1.0, height: 40, border_radius: 20);
+
+fn tab_panel() -> StylePreset {
+    style!(
+        position: Position::Absolute, left: 0, top: 0,
+        width: Dimension::percent(100), height: Dimension::percent(100),
+        bg_color: ColorToken::SurfaceVariant
+    )
+}
 
 #[compose]
 pub fn build_widgets() {
     const ROW_HEIGHT: i32 = 38;
     //~focus-start
+    let tab_label = style!(
+        grow: 1.0, height: Dimension::percent(100), text_color: ColorToken::OnSurface,
+        paragraph: ParagraphStyle::label()
+    );
     ui! {
         Column (
             bg_color: ColorToken::Surface,
@@ -48,34 +61,23 @@ pub fn build_widgets() {
                 width: Dimension::percent(100),
                 height: 40,
                 count: 3,
-                indicator_height: Fixed::from_int(3)
+                indicator_height: Fixed::from_int(3),
+                font_size: 14
             ) {
                 Text (
                     "List",
                     id: "widgets_tab_list",
-                    grow: 1.0,
-                    height: Dimension::percent(100),
-                    font_size: 14,
-                    text_color: ColorToken::OnSurface,
-                    paragraph: ParagraphStyle::label()
+                    style: tab_label.clone()
                 )
                 Text (
                     "Controls",
                     id: "widgets_tab_form",
-                    grow: 1.0,
-                    height: Dimension::percent(100),
-                    font_size: 14,
-                    text_color: ColorToken::OnSurface,
-                    paragraph: ParagraphStyle::label()
+                    style: tab_label.clone()
                 )
                 Text (
                     "Theme",
                     id: "widgets_tab_theme",
-                    grow: 1.0,
-                    height: Dimension::percent(100),
-                    font_size: 14,
-                    text_color: ColorToken::OnSurface,
-                    paragraph: ParagraphStyle::label()
+                    style: tab_label
                 )
             }
             View (
@@ -87,12 +89,7 @@ pub fn build_widgets() {
             ) {
                 LazyList (
                     id: "widgets_list",
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100),
-                    bg_color: ColorToken::SurfaceVariant,
+                    style: tab_panel(),
                     items: ITEM_COUNT,
                     item_extent: Fixed::from_int(ROW_HEIGHT)
                 ) [
@@ -111,14 +108,9 @@ pub fn build_widgets() {
                     },
                 ] on CreateCell(create_row::callback())
                 Column (
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100),
+                    style: tab_panel(),
                     padding: Padding::all(18),
-                    row_gap: 12,
-                    bg_color: ColorToken::SurfaceVariant
+                    row_gap: 12
                 ) [
                     TabContent {
                         tab_bar: id("widgets_tabs"),
@@ -174,31 +166,24 @@ pub fn build_widgets() {
                     Row (
                         height: 44,
                         align: AlignItems::Center,
-                        column_gap: 10
+                        column_gap: 10,
+                        font_size: 15
                     ) {
                         Image (width: 28, height: 28, src: "thumbs_up")
                         Button (
-                            grow: 1.0,
-                            height: 40,
-                            border_radius: 20,
-                            font_size: 15,
+                            "Apply",
+                            style: FORM_BUTTON,
                             normal_color: ColorToken::Primary,
                             pressed_color: ColorToken::Secondary,
                             text_color: ColorToken::OnPrimary
-                        ) [
-                            Text::label("Apply"),
-                        ]
+                        )
                         Button (
-                            grow: 1.0,
-                            height: 40,
-                            border_radius: 20,
-                            font_size: 15,
+                            "Reset",
+                            style: FORM_BUTTON,
                             normal_color: ColorToken::Surface,
                             pressed_color: ColorToken::Outline,
                             text_color: ColorToken::OnSurface
-                        ) [
-                            Text::label("Reset"),
-                        ]
+                        )
                     }
                     Row (height: 32, align: AlignItems::Center, column_gap: 10) {
                         Text (
@@ -227,14 +212,9 @@ pub fn build_widgets() {
                     }
                 }
                 Column (
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100),
+                    style: tab_panel(),
                     padding: Padding::all(18),
-                    row_gap: 8,
-                    bg_color: ColorToken::SurfaceVariant
+                    row_gap: 8
                 ) [
                     TabContent {
                         tab_bar: id("widgets_tabs"),

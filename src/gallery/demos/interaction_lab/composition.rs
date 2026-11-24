@@ -51,7 +51,7 @@ fn compose_header(model: model!(InteractionModel)) -> Entity {
             Row (height: 30, justify: JustifyContent::SpaceBetween) {
                 Text (
                     id: "interaction_scroll_status",
-                    text: ${ alloc::format!("Scroll {}", model.scroll_position()) },
+                    text: ${ format_args!("Scroll {}", model.scroll_position()) },
                     capacity: 20,
                     grow: 1.0,
                     min_width: 0,
