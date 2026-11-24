@@ -832,6 +832,8 @@ fn controls(compact: Signal<bool>) {
 
 The Button and Text builders expose the same binding through `.bind_style(move || preset)`.
 
+The [Counter composition](../src/gallery/demos/state_counter/composition.rs) shares its button dimensions and label layout. It inherits the button label size from the row and formats the count into bounded text storage.
+
 Inside `ui!`, prefix an attribute value with `$` to bind it reactively. A
 bare path reads the signal; a `${ … }` block runs an expression:
 

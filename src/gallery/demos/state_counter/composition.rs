@@ -2,6 +2,12 @@ use super::model::CounterModel;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
+const STEP: StylePreset = style!(grow: 1.0, height: 44, border_radius: 22);
+
+fn label() -> StylePreset<Text> {
+    style!(width: Dimension::percent(100), paragraph: ParagraphStyle::label())
+}
+
 #[compose]
 pub fn build_widgets(counter: model!(CounterModel)) {
     //~focus-start
@@ -11,23 +17,17 @@ pub fn build_widgets(counter: model!(CounterModel)) {
             align: AlignItems::Center,
             justify: JustifyContent::Center,
             padding: Padding::all(20),
-            row_gap: 6
+            row_gap: 6,
+            font_size: 12,
+            text_color: ColorToken::OnSurface
         ) {
+            Text ("Count", style: label(), height: 16, text_color: ColorToken::OnSurfaceVariant)
             Text (
-                text: "Count",
-                width: Dimension::percent(100),
-                height: 16,
-                font_size: 12,
-                text_color: ColorToken::OnSurfaceVariant,
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                text: ${ alloc::format!("{}", counter.count()) },
-                width: Dimension::percent(100),
+                style: label(),
+                text: ${ format_args!("{}", counter.count()) },
+                capacity: 11,
                 height: 76,
-                font_size: 48,
-                text_color: ColorToken::OnSurface,
-                paragraph: ParagraphStyle::label()
+                font_size: 48
             )
             Row (
                 width: Dimension::percent(100),
@@ -36,30 +36,22 @@ pub fn build_widgets(counter: model!(CounterModel)) {
                 padding: Padding::all(4),
                 column_gap: 4,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 26
+                border_radius: 26,
+                font_size: 26
             ) {
                 Button (
-                    font_size: 26,
-                    grow: 1.0,
-                    height: 44,
-                    border_radius: 22,
+                    "-",
+                    style: STEP,
                     normal_color: ColorToken::Outline,
-                    pressed_color: ColorToken::SurfaceVariant,
-                    text_color: ColorToken::OnSurface
-                ) [
-                    Text::label("-"),
-                ] on Tap { counter.decrement(); }
+                    pressed_color: ColorToken::SurfaceVariant
+                ) on Tap { counter.decrement(); }
                 Button (
-                    font_size: 26,
-                    grow: 1.0,
-                    height: 44,
-                    border_radius: 22,
+                    "+",
+                    style: STEP,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary,
                     text_color: ColorToken::OnPrimary
-                ) [
-                    Text::label("+"),
-                ] on Tap { counter.increment(); }
+                ) on Tap { counter.increment(); }
             }
         }
     };
