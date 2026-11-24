@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Reuse cached text measurement and layout across geometry-only changes.
 - Preserve unchanged style fields when a class rule changes.
 - Reuse the Effect ownership index to share ancestry checks when revealing retained UI.
 - Reuse Parent storage during Effect ordering and resolve each dequeued Effect's ownership and role together.

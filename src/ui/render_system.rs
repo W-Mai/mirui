@@ -1011,8 +1011,22 @@ fn prune_parked_layout_nodes(
 struct LayoutTreeChanges {
     parked: bool,
     structure: bool,
-    reuse_inputs: bool,
+    reuse_inputs: TextInputReuse,
     solve: super::layout::solve::SolveScope,
+}
+
+#[derive(Clone, Copy, Default)]
+enum TextInputReuse {
+    #[default]
+    Disabled,
+    CleanNodes,
+    UnchangedInputs,
+}
+
+impl TextInputReuse {
+    fn enabled(self) -> bool {
+        !matches!(self, Self::Disabled)
+    }
 }
 
 fn refresh_layout_tree(
@@ -1045,7 +1059,7 @@ fn refresh_layout_values(
     changes: &mut LayoutTreeChanges,
 ) -> Result<(), TextLayoutFailure> {
     let next_style = layout_style(world, entity, style.layout);
-    if changes.reuse_inputs
+    if changes.reuse_inputs.enabled()
         && node.style == next_style
         && !world.has::<super::dirty::Dirty>(entity)
         && !world.has::<crate::ui::widgets::Text>(entity)
@@ -1063,8 +1077,8 @@ fn refresh_layout_values(
     node.style = next_style;
     node.intrinsic_width = None;
     node.intrinsic_height = None;
-    let reused = changes.reuse_inputs
-        && reuse_text_inputs(world, entity)
+    let reused = changes.reuse_inputs.enabled()
+        && reuse_text_inputs(world, entity, changes.reuse_inputs)
         && reuse_text_intrinsic(world, entity, style, node);
     if !reused {
         apply_text_intrinsic(world, entity, node)?;
@@ -1189,7 +1203,7 @@ fn layout_text(
     world: &World,
     entity: Entity,
     width: Fixed,
-    reuse_inputs: bool,
+    reuse_inputs: TextInputReuse,
 ) -> Result<Option<LaidOutText>, TextLayoutFailure> {
     use crate::render::font::ResolvedFontStack;
     use crate::ui::widgets::text::Text;
@@ -1213,8 +1227,8 @@ fn layout_text(
         },
     )
     .w;
-    if reuse_inputs
-        && reuse_text_inputs(world, entity)
+    if reuse_inputs.enabled()
+        && reuse_text_inputs(world, entity, reuse_inputs)
         && let Some(handle) = world.get::<crate::text::TextLayoutHandle>(entity).copied()
         && let Some(measure) = resource.storage_mut().layouts.reuse_layout(
             handle,
@@ -1540,7 +1554,7 @@ fn layout_text_tree(
     world: &mut World,
     entities: &[Entity],
     index: &mut usize,
-    reuse_inputs: bool,
+    reuse_inputs: TextInputReuse,
 ) -> Result<bool, TextLayoutFailure> {
     if *index >= entities.len() {
         return Ok(false);
@@ -1558,7 +1572,7 @@ fn layout_text_node(
     node: &mut LayoutNode,
     world: &mut World,
     entity: Entity,
-    reuse_inputs: bool,
+    reuse_inputs: TextInputReuse,
 ) -> Result<bool, TextLayoutFailure> {
     #[cfg(test)]
     local_layout_tests::record_input_visit(true);
@@ -1661,7 +1675,7 @@ fn prepare_local_layout(
         .paths
         .node_mut(&mut snapshot.layout_tree, target)
         .expect("prepared leaf");
-    if layout_text_node(node, world, target, false)? {
+    if layout_text_node(node, world, target, TextInputReuse::Disabled)? {
         snapshot.invalidate();
         return Ok(false);
     }
@@ -1688,6 +1702,7 @@ fn compute_layout_snapshot(
     output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
     let font_inputs = FontInputs::capture(world);
+    let text_inputs = TextInputRevisions::capture(world);
     if super::branch::is_authored_hidden(world, root) {
         output_plan::invalidate_structure(world);
         if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
@@ -1717,11 +1732,21 @@ fn compute_layout_snapshot(
     let local_solve = previous.as_ref().is_some_and(|snapshot| {
         snapshot.matches(root, logical_w, logical_h) && !snapshot.bindings_pending
     });
-    let reuse_inputs = incremental
+    let reuse_inputs = if incremental
         && local_solve
         && previous.as_ref().is_some_and(|snapshot| {
             snapshot.maintenance_current(world) && snapshot.font_inputs.matches(&font_inputs)
-        });
+        }) {
+        if text_inputs.is_some()
+            && previous.as_ref().and_then(|snapshot| snapshot.text_inputs) == text_inputs
+        {
+            TextInputReuse::UnchangedInputs
+        } else {
+            TextInputReuse::CleanNodes
+        }
+    } else {
+        TextInputReuse::Disabled
+    };
     let initial_demand = (!previous
         .as_ref()
         .is_some_and(|snapshot| snapshot.root == root))
@@ -1855,6 +1880,7 @@ fn compute_layout_snapshot(
                     scroll_config_revision: 0,
                     maintenance_revisions: [0; 6],
                     font_inputs: FontInputs::default(),
+                    text_inputs: None,
                     layout_tree,
                     parked,
                     reachable: Vec::new(),
@@ -1941,6 +1967,7 @@ fn compute_layout_snapshot(
     snapshot.logical_h = logical_h;
     snapshot.maintenance_revisions = LayoutSnapshot::maintenance_revisions(world);
     snapshot.font_inputs = font_inputs;
+    snapshot.text_inputs = text_inputs;
     snapshot.valid = true;
     Ok(Some(snapshot))
 }
@@ -2055,8 +2082,8 @@ fn text_layout_owner(entity: Entity) -> u64 {
     u64::from(entity.id) | (u64::from(entity.generation) << 32)
 }
 
-fn reuse_text_inputs(world: &World, entity: Entity) -> bool {
-    !world.has::<super::dirty::Dirty>(entity)
+fn reuse_text_inputs(world: &World, entity: Entity, reuse: TextInputReuse) -> bool {
+    (matches!(reuse, TextInputReuse::UnchangedInputs) || !world.has::<super::dirty::Dirty>(entity))
         && !world.has::<crate::text::TextPath>(entity)
         && world
             .get::<crate::ui::widgets::Text>(entity)
@@ -3846,6 +3873,41 @@ struct FontInputs {
     providers: u64,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct TextInputRevisions {
+    content: u64,
+    style_metrics: u64,
+}
+
+impl TextInputRevisions {
+    fn capture(world: &mut World) -> Option<Self> {
+        use crate::ecs::world::ComponentChangeKind;
+        use crate::ui::widgets::Text;
+
+        let style_metrics = match world.filtered_component_revision::<Style>() {
+            Some(revision) => revision,
+            None => {
+                if !world.has_any_by_id(core::any::TypeId::of::<Text>()) {
+                    return None;
+                }
+                world.watch_component_revision::<Text>();
+                world.watch_filtered_component_revision::<Style>(|kind| match kind {
+                    ComponentChangeKind::Component => true,
+                    ComponentChangeKind::InheritedStyle(fields) => {
+                        super::style::metrics_changed(fields)
+                    }
+                    _ => false,
+                });
+                world.filtered_component_revision::<Style>()?
+            }
+        };
+        Some(Self {
+            content: world.tracked_component_revision::<Text>()?,
+            style_metrics,
+        })
+    }
+}
+
 impl FontInputs {
     fn capture(world: &World) -> Self {
         use core::hash::{Hash, Hasher};
@@ -3897,6 +3959,7 @@ pub(crate) struct LayoutSnapshot {
     scroll_config_revision: u64,
     maintenance_revisions: [u64; 6],
     font_inputs: FontInputs,
+    text_inputs: Option<TextInputRevisions>,
     pub(crate) layout_tree: LayoutNode,
     parked: Vec<LayoutNode>,
     reachable: Vec<Entity>,

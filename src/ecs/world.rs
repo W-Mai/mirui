@@ -280,11 +280,16 @@ impl ComponentChangeKind {
     }
 }
 
-#[derive(Clone, Copy)]
+struct FilteredComponentRevision {
+    accepts: fn(ComponentChangeKind) -> bool,
+    revision: u64,
+}
+
 struct WatchedComponentType {
     type_id: TypeId,
     revision: u64,
     membership_revision: u64,
+    filtered: Option<Box<FilteredComponentRevision>>,
     entity_tracking: bool,
     query_tracking: bool,
     query_pending: Option<QueryDependencyCause>,
@@ -359,6 +364,11 @@ fn record_component_change(
     };
     watched.record_query_change(QueryDependencyCause::Component);
     watched.revision = watched.revision.wrapping_add(1);
+    if let Some(filtered) = watched.filtered.as_mut()
+        && (filtered.accepts)(kind)
+    {
+        filtered.revision = watched.revision;
+    }
     if !watched.entity_tracking {
         return;
     }
@@ -615,6 +625,32 @@ impl World {
         self.watch_component_type_entry(TypeId::of::<T>());
     }
 
+    /// Track a subset of writes to a component type, before change records are
+    /// merged or drained. All callers for a type must use the same filter.
+    pub(crate) fn watch_filtered_component_revision<T: 'static>(
+        &mut self,
+        accepts: fn(ComponentChangeKind) -> bool,
+    ) {
+        let watched = self.watch_component_type_entry(TypeId::of::<T>());
+        if let Some(filtered) = watched.filtered.as_ref() {
+            debug_assert!(core::ptr::fn_addr_eq(filtered.accepts, accepts));
+            return;
+        }
+        watched.filtered = Some(Box::new(FilteredComponentRevision {
+            accepts,
+            revision: watched.revision,
+        }));
+    }
+
+    pub(crate) fn filtered_component_revision<T: 'static>(&self) -> Option<u64> {
+        self.watched_component_types
+            .iter()
+            .find(|watched| watched.type_id == TypeId::of::<T>())?
+            .filtered
+            .as_ref()
+            .map(|filtered| filtered.revision)
+    }
+
     pub(crate) fn component_revision<T: 'static>(&self) -> u64 {
         self.tracked_component_revision::<T>().unwrap_or(0)
     }
@@ -675,6 +711,7 @@ impl World {
                 type_id,
                 revision: 0,
                 membership_revision: 0,
+                filtered: None,
                 entity_tracking: false,
                 query_tracking: false,
                 query_pending: None,
@@ -730,7 +767,7 @@ impl World {
             }
         }
         for index in 0..count {
-            let watched = self.watched_component_types[index];
+            let watched = &self.watched_component_types[index];
             if let Some(cause) = watched.query_snapshot {
                 visit(self, watched.type_id, cause);
                 self.watched_component_types[index].query_snapshot = None;
@@ -1012,6 +1049,29 @@ mod tests {
         let revision = world.component_revision::<u32>();
         world.remove::<u32>(entity);
         assert_eq!(world.component_revision::<u32>(), revision);
+    }
+
+    #[test]
+    fn filtered_revisions_track_writes_before_queue_merging() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, 1u32);
+        world.watch_component_type(TypeId::of::<u32>());
+        world.watch_filtered_component_revision::<u32>(|kind| {
+            matches!(kind, ComponentChangeKind::Component)
+        });
+        world.drain_component_changes(|_, _| {});
+        let initial = world.filtered_component_revision::<u32>();
+        world.get_mut_with_change::<u32>(entity, ComponentChangeKind::Layout);
+        assert_eq!(world.filtered_component_revision::<u32>(), initial);
+        world.get_mut::<u32>(entity);
+        let written = world.filtered_component_revision::<u32>();
+        assert_ne!(written, initial);
+        assert_eq!(world.component_changes.len(), 1);
+        world.drain_component_changes(|_, _| {});
+        assert_eq!(world.filtered_component_revision::<u32>(), written);
+        world.despawn(entity);
+        assert_ne!(world.filtered_component_revision::<u32>(), written);
     }
 
     #[test]

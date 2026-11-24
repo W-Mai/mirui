@@ -695,17 +695,24 @@ fn parked_dirty_nodes_do_not_block_active_leaf_preparation() {
 
 #[test]
 fn incremental_text_inputs_reuse_arenas_and_reflow_at_changed_width() {
+    use crate::ui::property::{apply_to_world, prop};
+
     let mut app = App::headless(160, 120);
     app.with_default_widgets();
     let root = app.spawn_root().id();
     app.compose(root, |cx| {
         ui! {
-            View (id: "panel", width: 140, height: 100, direction: FlexDirection::Column) {
+            View (
+                id: "panel",
+                width: 140,
+                height: 100,
+                direction: FlexDirection::Column,
+                font_size: 8
+            ) {
                 Text (
                     "one two three four five six seven eight",
                     id: "label",
-                    width: 100,
-                    font_size: 8
+                    width: 100
                 )
                 View (id: "moving", width: 10, height: 5, bg_color: Color::rgb(100, 20, 30))
             }
@@ -720,6 +727,24 @@ fn incremental_text_inputs_reuse_arenas_and_reflow_at_changed_width() {
         app.world.get_mut::<Style>(moving).unwrap().layout.height = Dimension::px(height);
         app.render_dirty().unwrap();
         assert_eq!(TEXT_PREPARATIONS.with(Cell::get), (0, 0));
+    }
+    let label_layout = *app
+        .world
+        .get::<crate::text::TextLayoutHandle>(label)
+        .unwrap();
+    for height in 28..34 {
+        TEXT_PREPARATIONS.with(|counts| counts.set((0, 0)));
+        apply_to_world::<prop::Height>(&mut app.world, label, Dimension::px(height));
+        app.render_dirty().unwrap();
+        assert_eq!(
+            app.world.get::<ComputedRect>(label).unwrap().0.h,
+            height.into()
+        );
+        assert_eq!(TEXT_PREPARATIONS.with(Cell::get), (0, 0));
+        assert_eq!(
+            app.world.get::<crate::text::TextLayoutHandle>(label),
+            Some(&label_layout)
+        );
     }
     let resident = app
         .world
@@ -769,9 +794,11 @@ fn incremental_text_inputs_reuse_arenas_and_reflow_at_changed_width() {
         );
     }
 
-    for change in 0..4 {
+    for change in 0..6 {
+        apply_to_world::<prop::Height>(&mut app.world, label, Dimension::px(34 + change));
         match change {
             0 => {
+                app.dirty_regions().unwrap();
                 app.world
                     .get_mut::<Text>(label)
                     .unwrap()
@@ -783,12 +810,21 @@ fn incremental_text_inputs_reuse_arenas_and_reflow_at_changed_width() {
             2 => {
                 app.handle_memory_warning();
             }
+            3 => {
+                app.world.get_mut::<Style>(panel).unwrap().set_font_size(12);
+            }
+            4 => {
+                apply_to_world::<prop::FontSize>(&mut app.world, panel, 16.into());
+            }
             _ => {
-                app.world.get_mut::<Style>(label).unwrap().set_font_size(12);
+                apply_to_world::<prop::Paragraph>(
+                    &mut app.world,
+                    label,
+                    crate::ui::widgets::ParagraphStyle::label(),
+                );
             }
         }
         TEXT_PREPARATIONS.with(|counts| counts.set((0, 0)));
-        app.world.get_mut::<Style>(moving).unwrap().layout.height = Dimension::px(13 + change);
         app.render_dirty().unwrap();
         let (measure, layout) = TEXT_PREPARATIONS.with(Cell::get);
         assert!(
