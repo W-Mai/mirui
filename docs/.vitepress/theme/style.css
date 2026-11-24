@@ -1,37 +1,24 @@
-@font-face {
-  font-family: Geist;
-  src: url('../../../gallery/web/fonts/geist-latin-wght.woff2') format('woff2');
-  font-weight: 100 900;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Geist Mono';
-  src: url('../../../gallery/web/fonts/geist-mono-latin-wght.woff2') format('woff2');
-  font-weight: 100 900;
-  font-display: swap;
-}
-
-:root {
+:root,
+:root.dark {
   --vp-font-family-base: Geist, var(--font-ui);
   --vp-font-family-mono: 'Geist Mono', var(--font-mono);
-  --vp-c-bg: var(--bg);
-  --vp-c-bg-alt: var(--panel);
-  --vp-c-bg-elv: var(--raised);
-  --vp-c-bg-soft: var(--panel-2);
-  --vp-c-divider: var(--line);
-  --vp-c-gutter: var(--line);
-  --vp-c-text-1: var(--ink);
-  --vp-c-text-2: var(--ink-dim);
-  --vp-c-brand-1: var(--signal-bright);
+  --vp-c-bg: var(--site-panel);
+  --vp-c-bg-alt: var(--site-panel-2);
+  --vp-c-bg-elv: var(--site-panel);
+  --vp-c-bg-soft: var(--site-well);
+  --vp-c-divider: var(--site-rule);
+  --vp-c-gutter: var(--site-rule);
+  --vp-c-text-1: var(--site-ink);
+  --vp-c-text-2: var(--site-muted);
+  --vp-c-brand-1: var(--site-blue-ink);
   --vp-c-brand-2: var(--signal);
   --vp-c-brand-3: var(--signal);
   --vp-c-brand-soft: var(--signal-wash);
   --vp-button-brand-text: var(--signal-on);
   --vp-button-brand-hover-text: var(--signal-on);
   --vp-button-brand-active-text: var(--signal-on);
-  --vp-code-block-bg: var(--well);
-  --vp-sidebar-bg-color: var(--panel);
+  --vp-code-block-bg: var(--code-bg);
+  --vp-sidebar-bg-color: var(--site-panel-2);
 }
 
 .VPNav .VPNavBarTranslations,
@@ -60,12 +47,12 @@
 
 .manual-selectors select {
   appearance: auto;
-  color: var(--ink);
+  color: var(--site-ink);
   padding: .3rem .45rem;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--site-rule-strong);
   border-radius: .4rem;
   font-size: .875rem;
-  background: var(--panel);
+  background: var(--site-panel-2);
 }
 
 .manual-notice {
@@ -95,7 +82,7 @@
 }
 
 .manual-version {
-  color: var(--signal-bright);
+  color: var(--site-blue-ink);
   font-family: var(--vp-font-family-mono);
   font-size: .8125rem;
 }
@@ -111,7 +98,7 @@
 
 .manual-intro p {
   max-width: 29rem;
-  color: var(--ink-dim);
+  color: var(--site-muted);
   font-size: clamp(1.05rem, 1.6vw, 1.3rem);
   line-height: 1.6;
 }
@@ -129,39 +116,12 @@
   margin-top: 1.7rem;
 }
 
-.manual-action,
-.vp-doc .manual-action {
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 44px;
-  padding: .55rem .9rem;
-  border-radius: .5rem;
-  background: var(--signal);
-  color: var(--signal-on);
-  font-weight: 610;
-  text-decoration: none;
-  transition: background-color 140ms ease, transform 140ms ease;
-}
-
-.manual-action:hover,
-.vp-doc .manual-action:hover {
-  background: var(--signal-bright);
-  color: var(--signal-on);
-  transform: translateY(-1px);
-}
-
-.manual-action:disabled {
-  opacity: .65;
-  cursor: wait;
-}
-
 .manual-guides {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: .75rem 1.15rem;
   padding-top: 1.3rem;
-  border-top: 1px solid var(--line-strong);
+  border-top: 1px solid var(--site-rule-strong);
 }
 
 .manual-guides h2 {
@@ -173,27 +133,27 @@
 .manual-guides a {
   display: block;
   padding-block: .4rem;
-  color: var(--ink-dim);
+  color: var(--site-muted);
 }
 
 .manual-guides a:hover,
 .frame-links a:hover {
-  color: var(--signal-bright);
+  color: var(--site-blue-ink);
 }
 
 .manual-guides small {
   margin-inline-start: .3em;
   font-family: var(--vp-font-family-mono);
-  color: var(--ink-dim);
+  color: var(--site-muted);
 }
 
 .frame-cutaway {
-  --background: var(--bg);
-  --foreground: var(--ink);
-  --frame-signal: var(--signal-bright);
-  --frame-edge: color-mix(in srgb, var(--ink) 34%, var(--bg));
-  --frame-detail: color-mix(in srgb, var(--ink) 18%, var(--bg));
-  --frame-metal: var(--panel-2);
+  --background: var(--site-panel);
+  --foreground: var(--site-ink);
+  --frame-signal: var(--site-blue-ink);
+  --frame-edge: color-mix(in srgb, var(--site-ink) 34%, var(--site-panel));
+  --frame-detail: color-mix(in srgb, var(--site-ink) 18%, var(--site-panel));
+  --frame-metal: var(--site-well);
   --frame-track: var(--signal-wash);
   min-width: 0;
 }
@@ -205,12 +165,12 @@
   overflow: visible;
 }
 
-.frame-figure .face { fill: var(--bg); stroke: var(--frame-edge); }
+.frame-figure .face { fill: var(--site-panel); stroke: var(--frame-edge); }
 .frame-figure .metal,
 .frame-figure .shade { fill: var(--frame-metal); }
 .frame-figure .etch { fill: none; stroke: var(--frame-detail); }
 .frame-figure .hairline { fill: none; stroke: var(--frame-edge); }
-.frame-figure .ink { fill: var(--ink); }
+.frame-figure .ink { fill: var(--site-ink); }
 .frame-figure .tint { fill: var(--frame-track); }
 .frame-figure .accent { fill: var(--frame-signal); }
 .frame-figure .beam { fill: none; stroke: var(--frame-signal); }
@@ -231,7 +191,7 @@
 
 .frame-actions {
   justify-content: space-between;
-  color: var(--ink-dim);
+  color: var(--site-muted);
 }
 
 .frame-links {
@@ -246,7 +206,7 @@
   align-content: center;
   min-height: 44px;
   padding-inline-start: .7rem;
-  border-inline-start: 1px solid var(--line-strong);
+  border-inline-start: 1px solid var(--site-rule-strong);
   font-size: .9rem;
   transition: color 140ms ease, border-color 140ms ease;
 }
@@ -257,16 +217,16 @@
 }
 
 .frame-links code {
-  color: var(--ink-dim);
+  color: var(--site-muted);
   font-size: .75rem;
 }
 
 .tutorial-demo {
   margin-block: 1.5rem;
   padding: 1rem;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--site-rule-strong);
   border-radius: .75rem;
-  background: var(--panel);
+  background: var(--site-panel-2);
 }
 
 .tutorial-stage {
@@ -279,7 +239,7 @@
   height: 440px;
   margin: .85rem auto 0;
   border-radius: .5rem;
-  background: var(--bg);
+  background: var(--site-panel);
 }
 
 .tutorial-placeholder {
@@ -295,7 +255,7 @@
 .tutorial-placeholder span {
   height: .75rem;
   border-radius: .25rem;
-  background: var(--raised-2);
+  background: var(--site-well);
 }
 
 .tutorial-placeholder span:nth-child(2) { width: 82%; }
@@ -326,6 +286,6 @@
   .VPNavScreen .container,
   .VPSidebar,
   .outline-marker,
-  .manual-action,
+  .site-cta,
   .frame-links a { transition: none !important; }
 }

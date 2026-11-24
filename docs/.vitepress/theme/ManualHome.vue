@@ -24,8 +24,8 @@ const guides = [
         <h1>{{ zh ? '从一帧开始' : 'Start with a frame.' }}</h1>
         <p>{{ zh ? '用 Mirui 写一个有动效的任务清单。从第一次点击，到桌面和浏览器上的同一份界面。' : 'Build a task list with motion. Follow one interaction all the way from Rust state to the desktop and browser.' }}</p>
         <div class="manual-actions">
-          <a class="manual-action" :href="course">{{ zh ? '开始教程' : 'Start the tutorial' }}</a>
-          <a :href="withBase('/quickstart.html')">{{ zh ? '安装与平台' : 'Setup and targets' }}</a>
+          <a class="site-cta primary" :href="course">{{ zh ? '开始教程' : 'Start the tutorial' }}</a>
+          <a class="site-cta" :href="withBase('/quickstart.html')">{{ zh ? '安装与平台' : 'Setup and targets' }}</a>
         </div>
       </div>
       <FrameCutaway />

@@ -100,7 +100,7 @@ onBeforeUnmount(() => {
     <div class="frame-figure" ref="scene" v-html="illustration"></div>
     <div class="frame-details">
       <div class="frame-actions">
-        <button class="manual-action" type="button" :disabled="pending" :aria-pressed="checked" @click="toggle">
+        <button class="site-cta primary" type="button" :disabled="pending" :aria-pressed="checked" @click="toggle">
           {{ zh ? (checked ? '取消勾选任务' : '勾选一条任务') : (checked ? 'Uncheck the task' : 'Complete a task') }}
         </button>
         <span role="status">{{ completed }} / 3 {{ zh ? '完成' : 'complete' }}</span>

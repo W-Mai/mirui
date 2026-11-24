@@ -60,7 +60,7 @@ onBeforeUnmount(close);
 <template>
   <section class="tutorial-demo" :aria-label="zh ? '章节运行示例' : 'Runnable chapter'">
     <div class="tutorial-toolbar">
-      <button class="manual-action" type="button" :disabled="pending" @click="running ? close() : start()">
+      <button class="site-cta primary" type="button" :disabled="pending" @click="running ? close() : start()">
         {{ running ? (zh ? '停止示例' : 'Stop example') : pending ? (zh ? '正在加载' : 'Loading') : (zh ? '运行这一章' : 'Run this chapter') }}
       </button>
       <a :href="withBase(`/play/?chapter=${chapter}`)">{{ zh ? '单独打开' : 'Open standalone' }}</a>

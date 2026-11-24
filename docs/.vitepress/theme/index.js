@@ -4,7 +4,7 @@ import VersionBar from './VersionBar.vue';
 import ReadingNotice from './ReadingNotice.vue';
 import ManualHome from './ManualHome.vue';
 import TutorialDemo from './TutorialDemo.vue';
-import '../../../gallery/web/shared-theme.css';
+import '../../../gallery/web/site-chrome.css';
 import './style.css';
 
 export default {
