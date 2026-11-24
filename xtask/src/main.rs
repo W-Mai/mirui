@@ -972,6 +972,13 @@ fn cmd_release() -> Result {
         eprintln!("  ⚠ templates-bump failed (non-fatal): {e}");
     }
 
+    println!("  → publishing the versioned manual...");
+    run_cmd(
+        "node",
+        &["docs/scripts/site.mjs", "promote", &version, &release_head],
+    )
+    .map_err(|e| format!("{tag} is published on crates.io; the manual is pending: {e}"))?;
+
     println!("\n  🎉 released {tag}!");
     Ok(())
 }

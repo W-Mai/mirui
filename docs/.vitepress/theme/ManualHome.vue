@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { useData, withBase } from 'vitepress';
 import FrameCutaway from './FrameCutaway.vue';
+import ReadingNotice from './ReadingNotice.vue';
 
 const { lang, theme } = useData();
 const zh = computed(() => lang.value === 'zh-CN');
@@ -16,6 +17,7 @@ const guides = [
 
 <template>
   <main class="manual-home">
+    <ReadingNotice hide-development />
     <section class="manual-hero">
       <div class="manual-intro">
         <span class="manual-version">{{ theme.version === 'dev' ? (zh ? '开发版' : 'Development') : theme.version }}</span>

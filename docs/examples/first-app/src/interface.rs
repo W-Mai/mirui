@@ -1,9 +1,6 @@
 use super::Chapter;
 use super::model::{Filter, Task, Tasks};
-use super::motion::{
-    AnimateProgress, Progress, ProgressTarget, indicator_transition, progress_ratio,
-    progress_transition,
-};
+use super::motion::{Progress, ProgressTarget, indicator_transition, progress_ratio};
 use mirui::core::model::{ModelHandle, ModelItemId};
 use mirui::input::event::scroll::{ScrollConfig, ScrollOffset};
 use mirui::prelude::*;
@@ -64,7 +61,9 @@ fn task_row(
             Button (
                 text: ${ format_args!("{}  {}", if task.done() { "[x]" } else { "[ ]" }, title) },
                 grow: 1.0,
+                min_width: 0,
                 height: 42,
+                clip_children: true,
                 capacity: 172,
                 class: ${
                     (
@@ -122,7 +121,7 @@ fn task_controls(
 ) -> Entity {
     let (open, done) = (Filter::Open, Filter::Done);
     ui! {
-        Column (row_gap: 9, shrink: 0.0) {
+        Column (height: 85, row_gap: 9, shrink: 0.0) {
             Row (height: 38, column_gap: 6) {
                 all_tasks (tasks, chapter.has_motion().then(|| id("filter_marker")), chapter)
                 filter_button (
@@ -197,7 +196,6 @@ pub(crate) fn task_list(
                 View (height: 6, bg_color: ColorToken::SurfaceVariant, border_radius: 3) [
                     Progress(start),
                     ProgressTarget(start),
-                    AnimateProgress(progress_transition(reduced).motion(start, start)),
                 ]
             }
             if chapter.has_list() {

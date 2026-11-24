@@ -11,18 +11,19 @@ pub(crate) struct ProgressTarget(pub Fixed);
 
 pub(crate) struct MotionSettings(pub Transition);
 
-// #region retarget
+// #region progress-motion
 #[system(order = Animation)]
 pub(crate) fn aim_progress(
     tasks: model!(Tasks),
     settings: res!(MotionSettings),
-    meters: query!(mut ProgressTarget, mut AnimateProgress),
+    meters: query!(Entity, mut ProgressTarget, Progress),
+    commands: commands!(),
 ) {
     let goal = progress_ratio(tasks.completed(), tasks.total());
-    for (target, motion) in meters {
+    for (entity, target, progress) in meters {
         if target.0 != goal {
             target.0 = goal;
-            settings.0.retarget(&mut motion.0, goal);
+            commands.insert(entity, AnimateProgress(settings.0.motion(progress.0, goal)));
         }
     }
 }
@@ -31,7 +32,7 @@ pub(crate) fn aim_progress(
 pub(crate) fn apply_progress(value: motion!(), progress: component!(mut Progress)) {
     progress.0 = value;
 }
-// #endregion retarget
+// #endregion progress-motion
 
 #[view(component = Progress, invalidation = Visual)]
 pub(crate) fn paint_progress(progress: component!(), theme: res!(Theme), paint: paint!()) {

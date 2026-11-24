@@ -27,6 +27,7 @@ test('matching pages and anchors remain selected', () => {
 
 test('version and language fallbacks stay within the requested version', () => {
   expect(chapterTarget(index, 'zh/learn/styles.html', 'zh', '#classes')).toBe('/docs/0.57.0/learn/styles.html?reading=language#classes');
+  expect(chapterTarget(index, 'learn/styles', 'zh', '#classes')).toBe('/docs/0.57.0/learn/styles.html?reading=language#classes');
   expect(chapterTarget(index, 'learn/window.html', 'en', '#old-anchor')).toBe('/docs/0.57.0/learn/window.html?reading=anchor');
   expect(chapterTarget(index, 'learn/missing.html', 'en')).toBe('/docs/0.57.0/learn/?reading=page');
   expect(chapterTarget(index, 'zh/', 'en')).toBe('/docs/0.57.0/');

@@ -4,10 +4,10 @@
 
 ## 顺着代码做 {#source}
 
-1. 从完成数求出归一化的 `Fixed` 目标。进度视图保留显示值和最近的目标。快速反选时，`Transition::retarget` 从当前显示值继续。
-2. `#[animate]` 回调把动画推进后的值用于绘制。选中框是一个附了 `FollowBounds` 的普通 `View`，筛选按钮决定目标，`INTERACTIVE` 提供弹簧参数。
+1. 从完成数求出归一化的 `Fixed` 目标。目标变动时，从当前显示值启动 Tween。动画中再次点击，也从当时显示的位置开始。
+2. `#[animate]` 回调更新显示值。动画播完后，动画组件从实体移除。选中框通过 `FollowBounds` 跟随筛选按钮，使用 `INTERACTIVE` 弹簧。
 
-<<< @/examples/first-app/src/motion.rs#retarget{rust}
+<<< @/examples/first-app/src/motion.rs#progress-motion{rust}
 
 ## 运行并核对 {#run}
 

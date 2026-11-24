@@ -1,5 +1,10 @@
 # Build a task list
 
+<script setup>
+import { useData } from 'vitepress';
+const { theme } = useData();
+</script>
+
 Start with one window and turn it into an interactive, animated task list with persistence. The seven chapters share one project and each has a runnable checkpoint.
 
 - [Open a window](window.md)
@@ -11,3 +16,9 @@ Start with one window and turn it into an interactive, animated task list with p
 - [Run and verify it in the browser](web.md)
 
 Install Rust and SDL2 before starting the desktop example. Readers with a working setup can jump to any chapter and start from its checkpoint.
+
+Clone the repository and check out the source used by this manual.
+
+<pre><code>git clone https://github.com/W-Mai/mirui.git
+cd mirui
+git checkout {{ theme.source }}</code></pre>

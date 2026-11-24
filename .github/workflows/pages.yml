@@ -1,9 +1,14 @@
 name: Pages
+run-name: ${{ inputs.docs_request || github.event.head_commit.message || 'Pages' }}
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      docs_request:
+        description: Identify the documentation deployment
+        type: string
 
 permissions:
   contents: read
@@ -15,7 +20,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  gallery:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +29,7 @@ jobs:
           bun-version: 1.3.14
       - name: Check chord control protocol
         run: bun test gallery/web/tests/chord-prompter.test.js
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97.0
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
@@ -32,9 +37,8 @@ jobs:
         uses: jetli/trunk-action@1346cc09eace4beb84e403e199a471346d4684c9 # v0.5.1
         with:
           version: v0.21.14
-      - name: Configure Pages
-        id: pages
-        uses: actions/configure-pages@v5
+      - name: Resolve Cargo dependencies
+        run: cargo generate-lockfile
       - name: Build Web gallery
         working-directory: gallery/web
         run: trunk build --release --locked --public-url /
@@ -68,17 +72,82 @@ jobs:
           grep --fixed-strings --quiet 'property="og:image" content="https://mirui.rs/orbit-console.png"' gallery/web/dist/index.html
           grep --extended-regexp --quiet "from '/[^']+\\.js'" gallery/web/dist/index.html
           grep --extended-regexp --quiet "module_or_path: '/[^']+\\.wasm'" gallery/web/dist/index.html
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
+          name: gallery
           path: gallery/web/dist
+
+  documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Trunk
+        uses: jetli/trunk-action@1346cc09eace4beb84e403e199a471346d4684c9 # v0.5.1
+        with:
+          version: v0.21.14
+      - name: Install documentation dependencies
+        working-directory: docs
+        run: bun install --frozen-lockfile
+      - name: Check documentation and tutorial
+        run: |
+          bun run --cwd docs test
+          cargo test -p mirui-first-app
+      - name: Build tutorial Wasm
+        run: bun run --cwd docs playground --locked
+      - name: Build documentation
+        working-directory: docs
+        run: |
+          export MIRUI_DOCS_OUT_DIR="$RUNNER_TEMP/mirui-docs-dev"
+          bun run build
+          version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "mirui") | .version')"
+          export MIRUI_DOCS_VERSION="$version"
+          export MIRUI_DOCS_OUT_DIR="$RUNNER_TEMP/mirui-docs-release"
+          bun run build
+          node scripts/site.mjs package "$MIRUI_DOCS_OUT_DIR" "$RUNNER_TEMP/mirui-docs-candidate" "$version"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mirui-docs-dev
+          path: ${{ runner.temp }}/mirui-docs-dev
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mirui-docs-candidate
+          path: ${{ runner.temp }}/mirui-docs-candidate
+
+  assemble:
+    runs-on: ubuntu-latest
+    needs: [gallery, documentation]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: gallery
+          path: site
+      - uses: actions/download-artifact@v4
+        with:
+          name: mirui-docs-dev
+          path: docs-dev
+      - name: Assemble Pages bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node docs/scripts/site.mjs assemble site docs-dev
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
 
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
+    needs: assemble
     steps:
       - name: Deploy Pages
         id: deployment

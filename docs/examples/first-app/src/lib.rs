@@ -1,7 +1,9 @@
 use mirui::app::plugins::StdInstantClockPlugin;
+use mirui::core::cache::MaxSize;
 use mirui::core::persistence::PersistencePlugin;
 use mirui::core::storage::StorageHandle;
 use mirui::prelude::*;
+use mirui::render::font::{Font, FontManager};
 use mirui::ui::widgets::{Text, TextDocument};
 
 mod interface;
@@ -11,6 +13,8 @@ mod motion;
 mod web;
 
 pub use model::{Tasks, TasksHandle};
+
+const UI_FONT: &[u8] = include_bytes!("../../../../src/gallery/demos/assets/ui_geist.mirx");
 
 #[derive(Clone, Copy)]
 pub struct Chapter(u8);
@@ -48,6 +52,9 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
     storage: Option<StorageHandle>,
 ) -> Option<TasksHandle> {
     app.with_default_widgets().with_default_systems();
+    let font = Font::from_mirx("Geist", 14, UI_FONT, &Default::default())
+        .expect("decode the bundled tutorial font");
+    app.with_fonts(FontManager::new(MaxSize::Unbound, font));
     app.add_plugin(StdInstantClockPlugin);
     let root = app.spawn_root().id();
     if chapter.0 == 1 {

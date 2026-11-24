@@ -27,14 +27,18 @@ export function chapterTarget(index, current, language, hash = '') {
   const key = pageKey(current).replace(/^zh(?:\/|$)/, '');
   const prefix = language === 'zh' ? 'zh/' : '';
   const localized = suffix => pageKey(prefix + suffix);
+  const findPage = path => {
+    if (Object.hasOwn(pages, path)) return path;
+    if (Object.hasOwn(pages, path + '.html')) return path + '.html';
+  };
   let reason = '';
-  let destination = localized(key);
-  if (Object.hasOwn(pages, destination + '.html')) destination += '.html';
-  if (!Object.hasOwn(pages, destination)) {
+  let destination = findPage(localized(key));
+  if (destination === undefined) {
     reason = 'page';
-    if (prefix && Object.hasOwn(pages, key)) {
+    const english = prefix ? findPage(key) : undefined;
+    if (english !== undefined) {
       reason = 'language';
-      destination = key;
+      destination = english;
     } else {
       const sections = key.split('/').slice(0, -1);
       while (sections.length && !Object.hasOwn(pages, localized(sections.join('/')))) sections.pop();

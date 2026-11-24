@@ -72,6 +72,8 @@ export default defineConfig({
   description: 'Build responsive Rust interfaces for small screens, desktop, and the web.',
   srcExclude: ['**/node_modules/**'],
   outDir: process.env.MIRUI_DOCS_OUT_DIR || '.vitepress/dist',
+  // VitePress prefetch reads HTML anchor properties on SVG links.
+  router: { prefetchLinks: false },
   vite: {
     server: { fs: { allow: [docs, resolve(root, 'gallery/web')] } },
   },
@@ -163,6 +165,11 @@ export default defineConfig({
     },
   },
   sitemap: { hostname: 'https://mirui.rs' },
+  transformHead({ pageData }) {
+    const path = pageData.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '.html');
+    if (version === 'dev') return [['meta', { name: 'robots', content: 'noindex' }]];
+    return [['link', { rel: 'canonical', href: `https://mirui.rs${base}${path}` }]];
+  },
   async buildEnd(config) {
     await indexPages(config.outDir, { version, crateVersion, source });
   },

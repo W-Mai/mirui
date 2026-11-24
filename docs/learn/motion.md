@@ -4,10 +4,10 @@ Animate completion progress and make the selection outline follow the active fil
 
 ## Work through the code {#source}
 
-1. Derive a normalized `Fixed` target from the task count. The progress view stores its displayed value and the most recent target. `Transition::retarget` starts from the current motion value after a quick reversal.
-2. The framework’s `#[animate]` callback advances the progress appearance. The filter outline attaches `FollowBounds` to an ordinary `View`; the selected button supplies the target and `INTERACTIVE` supplies the spring.
+1. Derive a normalized `Fixed` target from the task count. When it changes, start a tween from the displayed progress. A second click during the tween starts from the same displayed position.
+2. The `#[animate]` callback applies the current value. The animation component leaves the entity when it finishes. The filter outline attaches `FollowBounds` to a `View` and moves to the selected button using `INTERACTIVE`.
 
-<<< @/examples/first-app/src/motion.rs#retarget{rust}
+<<< @/examples/first-app/src/motion.rs#progress-motion{rust}
 
 ## Run and check {#run}
 

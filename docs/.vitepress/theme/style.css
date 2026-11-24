@@ -220,6 +220,7 @@
 .frame-figure .model-check,
 .frame-figure .changed-pixels { opacity: 0; }
 .frame-figure [data-active="true"] .sheen,
+.frame-figure .layer-link:hover .sheen,
 .frame-figure[data-model="true"] .model-check,
 .frame-figure[data-done="true"] .screen-check,
 .frame-figure[data-done="true"] .changed-pixels { opacity: 1; }
@@ -300,6 +301,16 @@
 .tutorial-placeholder span:nth-child(2) { width: 82%; }
 .tutorial-placeholder span:nth-child(3) { width: 67%; }
 
+@keyframes manual-enter {
+  from { opacity: .85; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .VPDoc .vp-doc,
+  .tutorial-stage canvas { animation: manual-enter 160ms ease-out; }
+}
+
 @media (max-width: 800px) {
   .manual-hero {
     grid-template-columns: minmax(0, 1fr);
@@ -311,6 +322,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .VPNavScreen,
+  .VPNavScreen .container,
+  .VPSidebar,
+  .outline-marker,
   .manual-action,
-  .frame-links a { transition: none; }
+  .frame-links a { transition: none !important; }
 }

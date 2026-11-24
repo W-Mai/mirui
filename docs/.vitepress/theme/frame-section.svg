@@ -18,7 +18,7 @@
   </defs>
   <ellipse cx="193" cy="346" rx="168" ry="28" fill="url(#mirui-section-shadow)" />
   <path class="focus-line" d="M43 62V290 M319 73V309 M77 28V253" />
-  <g data-layer="3" transform="matrix(1 .16 -.43 .78 78 250)">
+  <a class="layer-link" href="#chapter-3" tabindex="-1"><g data-layer="3" transform="matrix(1 .16 -.43 .78 78 250)">
     <use href="#mirui-section-plate" />
     <rect x="18" y="14" width="216" height="63" rx="4" fill="url(#mirui-section-pixels)" />
     <g class="accent changed-pixels">
@@ -28,8 +28,8 @@
       <rect x="115" y="40" width="76" height="6" rx="3" /><rect x="115" y="51" width="47" height="5" rx="2" />
     </g>
     <rect class="sheen" x="34" y="16" width="164" height="51" rx="4" />
-  </g>
-  <g data-layer="2" transform="matrix(1 .16 -.43 .78 78 174)">
+  </g></a>
+  <a class="layer-link" href="#chapter-2" tabindex="-1"><g data-layer="2" transform="matrix(1 .16 -.43 .78 78 174)">
     <use href="#mirui-section-plate" />
     <rect x="18" y="13" width="216" height="64" rx="3" fill="url(#mirui-section-grid)" />
     <rect class="hairline" x="35" y="24" width="181" height="12" rx="2" />
@@ -38,8 +38,8 @@
     <rect class="beam" stroke-width="1" stroke-dasharray="3 2" x="35" y="42" width="151" height="21" rx="2" />
     <rect class="sheen" stroke-width="2" x="35" y="42" width="151" height="21" rx="2" />
     <path class="etch" d="M43 38v29 M61 38v29 M35 52h188" />
-  </g>
-  <g data-layer="1" transform="matrix(1 .16 -.43 .78 78 98)">
+  </g></a>
+  <a class="layer-link" href="#chapter-1" tabindex="-1"><g data-layer="1" transform="matrix(1 .16 -.43 .78 78 98)">
     <use href="#mirui-section-plate" />
     <path class="etch" d="M39 27h65v40H39z M113 26Q140 26 161 18H213 M113 44H213 M113 62Q140 62 161 70H213" />
     <path class="beam" d="M99 44H213" />
@@ -49,8 +49,8 @@
     <path class="beam model-check" d="M54 44l5 5 10-11" stroke-width="2.5" stroke-linecap="round" />
     <rect class="sheen" x="39" y="27" width="65" height="40" rx="4" />
     <path class="etch" d="M80 39h12 M80 49h12" />
-  </g>
-  <g data-layer="0" transform="matrix(1 .16 -.43 .78 78 22)">
+  </g></a>
+  <a class="layer-link" href="#chapter-0" tabindex="-1"><g data-layer="0" transform="matrix(1 .16 -.43 .78 78 22)">
     <use href="#mirui-section-plate" />
     <rect class="shade" x="17" y="12" width="219" height="66" rx="5" />
     <rect class="ink" x="31" y="21" width="62" height="4" rx="2" />
@@ -66,7 +66,7 @@
     <rect class="tint" x="152" y="37" width="64" height="6" rx="3" />
     <rect class="accent" data-meter x="152" y="37" width="21.33" height="6" rx="3" />
     <rect class="sheen" x="27" y="29" width="114" height="22" rx="4" />
-  </g>
+  </g></a>
   <path class="hairline" d="M327 63h20 M327 139h20 M327 215h20 M327 291h20" />
   <path class="focus-line" data-route d="M347 63 L364 63 Q372 63 372 72 V130 Q372 139 364 139 H348 H364 Q372 139 372 148 V206 Q372 215 364 215 H348 H364 Q372 215 372 224 V282 Q372 291 364 291 H348" />
   <circle class="tint" data-halo cx="347" cy="63" r="10" opacity="0" />

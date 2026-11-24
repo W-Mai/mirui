@@ -36,3 +36,9 @@ Toolchain components are explicit matrix prerequisites: formatting installs `rus
 The final `ci` job requires successful matrix preparation and successful completion of every group. Missing, skipped, cancelled or failed results cannot produce a successful summary. Architecture tests check that the matrix covers every registered check exactly once and execute the summary script against each result combination. The release tool continues to wait for the complete workflow on its exact commit.
 
 Parallel jobs reduce the serial critical path but can increase aggregate runner time and cache storage. New group caches may be cold; compare complete workflow durations on comparable runs before claiming a speedup. GitHub's [matrix execution documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations) describes runner concurrency and failure handling.
+
+## Documentation checks
+
+From `docs/`, install the locked dependencies with `bun install --frozen-lockfile`. Run `bun run playground` to build the optional browser application, then start the local site with `bun run dev`. The development manual is available under `/docs/dev/`.
+
+Use `bun run test` for routing and archive checks, `cargo test -p mirui-first-app` for the course checkpoints, and `bun run build` for the static site and link validation. The Pages workflow builds the Gallery and manual on separate runners. A release snapshot appears in the version selector after the course builds against the published crate and Pages verifies the snapshot.

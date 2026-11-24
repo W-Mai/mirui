@@ -18,6 +18,7 @@ const levels = [
   { en: 'Layout and repaint', zh: '布局与局部绘制', detail: 'View · Damage', href: '/backend-fallback.html' },
   { en: 'Rendering and submission', zh: '后端与帧提交', detail: 'Renderer · Surface', href: '/backend-targets.html#renderer-scopes' },
 ];
+const illustration = frameImage.replace(/href="#chapter-(\d)"/g, (_, layer) => `href="${withBase(levels[layer].href)}"`);
 let example;
 let frame = 0;
 let destroyed = false;
@@ -96,7 +97,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="frame-cutaway" :aria-label="zh ? '一帧的剖面' : 'An exploded view of a frame'">
-    <div class="frame-figure" ref="scene" v-html="frameImage"></div>
+    <div class="frame-figure" ref="scene" v-html="illustration"></div>
     <div class="frame-details">
       <div class="frame-actions">
         <button class="manual-action" type="button" :disabled="pending" :aria-pressed="checked" @click="toggle">

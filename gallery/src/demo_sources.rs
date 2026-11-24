@@ -511,7 +511,7 @@ split_demo_sources! {
     LAZY_LIST => {
         demo: "lazy_list",
         marker: "fn create_row",
-        parts: ["binding.rs", "composition.rs", "tests.rs"]
+        parts: ["composition.rs", "tests.rs"]
     },
     WIDGETS => {
         demo: "widgets",

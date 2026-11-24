@@ -4,6 +4,7 @@
 /target/
 **/target/
 Cargo.lock
+/task-list.mirui
 
 # macOS
 .DS_Store

@@ -12,7 +12,6 @@ type ModelHost =
 #[wasm_bindgen]
 pub struct Tutorial {
     app: App<WebCanvasSurface, WebCanvasRendererFactory>,
-    tasks: Option<TasksHandle>,
 }
 
 #[wasm_bindgen]
@@ -63,10 +62,10 @@ impl Tutorial {
         } else {
             None
         };
-        let tasks = install(&mut app, chapter, reduced, storage);
+        install(&mut app, chapter, reduced, storage);
         app.prepare_text_layout()
             .map_err(|error| JsError::new(&format!("{error:?}")))?;
-        Ok(Self { app, tasks })
+        Ok(Self { app })
     }
 
     pub fn tick(&mut self) -> bool {
@@ -75,26 +74,5 @@ impl Tutorial {
 
     pub fn set_dark(&mut self, dark: bool) {
         let _ = self.app.set_theme(if dark { "dark" } else { "light" });
-    }
-
-    pub fn toggle_first(&self) {
-        if let Some(task) = self.tasks.as_ref().and_then(|tasks| tasks.items().get(0)) {
-            task.toggle();
-        }
-    }
-
-    pub fn first_done(&self) -> bool {
-        self.tasks
-            .as_ref()
-            .and_then(|tasks| tasks.items().get(0))
-            .is_some_and(|task| task.done())
-    }
-
-    pub fn completed(&self) -> usize {
-        self.tasks.as_ref().map_or(0, TasksHandle::completed)
-    }
-
-    pub fn total(&self) -> usize {
-        self.tasks.as_ref().map_or(0, TasksHandle::total)
     }
 }

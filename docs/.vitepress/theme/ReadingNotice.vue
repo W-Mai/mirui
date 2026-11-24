@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import { useData } from 'vitepress';
 
 const { lang, theme } = useData();
+defineProps({ hideDevelopment: Boolean });
 const reason = ref('');
 const messages = {
   page: ['The selected version has no matching chapter. The nearest section is open.', '所选版本没有对应章节，已打开最近的目录。'],
@@ -18,7 +19,7 @@ onMounted(() => {
   <p v-if="messages[reason]" class="manual-notice" role="status">
     {{ messages[reason][lang === 'zh-CN' ? 1 : 0] }}
   </p>
-  <p v-if="theme.version === 'dev'" class="manual-notice">
+  <p v-if="theme.version === 'dev' && !hideDevelopment" class="manual-notice">
     {{ lang === 'zh-CN' ? '开发版文档' : 'Development documentation' }}
     · <a :href="`https://github.com/W-Mai/mirui/tree/${theme.source}`"><code>{{ theme.source.slice(0, 8) }}</code></a>
   </p>
