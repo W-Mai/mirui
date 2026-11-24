@@ -452,10 +452,18 @@ impl Text {
     }
 
     pub fn build(source: impl Into<Text>) -> TextBuilder {
+        let text = source.into();
+        let explicit = if text.paragraph == ParagraphStyle::default() {
+            0
+        } else {
+            crate::ui::style::StyleField::paragraph.bit()
+        };
         TextBuilder {
-            text: source.into(),
+            text,
             style: None,
             path: None,
+            explicit,
+            style_binding: (),
             properties: (),
             bindings: (),
         }
@@ -650,23 +658,45 @@ impl From<Localized> for Text {
     }
 }
 
-pub struct TextBuilder<P = (), B = ()> {
+pub struct TextBuilder<P = (), B = (), S = ()> {
     text: Text,
     style: Option<crate::ui::Style>,
     path: Option<crate::text::TextPath>,
+    explicit: u64,
+    style_binding: S,
     properties: P,
     bindings: B,
 }
 
-impl<P, B> TextBuilder<P, B> {
-    pub fn style(mut self, mut style: impl crate::ui::style::StyleInput<Text>) -> Self {
-        style.apply_widget(&mut self.text, 0);
-        style.apply_style(self.style.get_or_insert_default(), 0);
+impl<P, B, R> TextBuilder<P, B, R> {
+    pub fn style<S: crate::ui::style::StyleInput<Text>>(mut self, mut style: S) -> Self {
+        if S::COMPLETE {
+            self.explicit |= crate::ui::style::StyleField::COMMON;
+        }
+        self.explicit |= style.apply_widget(&mut self.text, 0);
+        self.explicit |= style.apply_style(self.style.get_or_insert_default(), 0);
         self
+    }
+
+    /// Bind a style computed from reactive values.
+    pub fn bind_style<S: crate::ui::style::StyleInput<Text>>(
+        self,
+        read: impl Fn() -> S + 'static,
+    ) -> TextBuilder<P, B, impl crate::__macro_support::PropertyBindings> {
+        TextBuilder {
+            style_binding: crate::ui::style::StyleBinding::<Text, _>::new(read),
+            text: self.text,
+            style: self.style,
+            path: self.path,
+            explicit: self.explicit,
+            properties: self.properties,
+            bindings: self.bindings,
+        }
     }
 
     pub fn paragraph(mut self, paragraph: ParagraphStyle) -> Self {
         self.text.paragraph = paragraph;
+        self.explicit |= crate::ui::style::StyleField::paragraph.bit();
         self
     }
 
@@ -677,29 +707,44 @@ impl<P, B> TextBuilder<P, B> {
 
     pub fn font(mut self, token: impl Into<crate::render::font::FontToken>) -> Self {
         self.style.get_or_insert_default().set_font_token(token);
+        self.explicit |= crate::ui::style::StyleField::font_stack.bit();
         self
     }
 
     pub fn font_stack(mut self, stack: impl Into<crate::render::font::FontStack>) -> Self {
         self.style.get_or_insert_default().set_font_stack(stack);
+        self.explicit |= crate::ui::style::StyleField::font_stack.bit();
         self
     }
 
     pub fn font_size(mut self, size: impl Into<crate::ui::FontSize>) -> Self {
         self.style.get_or_insert_default().set_font_size(size);
+        self.explicit |= crate::ui::style::StyleField::font_size.bit();
         self
     }
 }
 
-crate::ui::recipe::widget_builder_bindings!(TextBuilder, Text, text, style, path);
+crate::ui::recipe::widget_builder_bindings!(
+    TextBuilder,
+    Text,
+    [S],
+    text,
+    style,
+    path,
+    explicit,
+    style_binding
+);
 
-impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::EntityEventBindings>
-    crate::ui::recipe::WidgetRecipe for TextBuilder<P, B>
+impl<
+    P: crate::__macro_support::PropertyBindings,
+    B: crate::__macro_support::EntityEventBindings,
+    S: crate::__macro_support::PropertyBindings,
+> crate::ui::recipe::WidgetRecipe for TextBuilder<P, B, S>
 {
-    type Properties = P;
+    type Properties = (S, P);
     type Events = B;
 
-    fn insert(self, world: &mut World, entity: Entity) -> (P, B) {
+    fn insert(mut self, world: &mut World, entity: Entity) -> ((S, P), B) {
         world.insert(entity, self.text);
         if let Some(style) = self.style {
             world.insert(entity, style);
@@ -707,7 +752,11 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
         if let Some(path) = self.path {
             world.insert(entity, path);
         }
-        (self.properties, self.bindings)
+        if S::HAS_DYNAMIC_STYLE {
+            self.style_binding
+                .set_explicit_style(self.explicit | self.properties.style_fields());
+        }
+        ((self.style_binding, self.properties), self.bindings)
     }
 }
 

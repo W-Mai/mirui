@@ -779,6 +779,26 @@ ui! {
 
 ## Reactive attributes
 
+Use `style: ${ ... }` when several style fields depend on the same input. The binding updates the existing widget. A field omitted by the new preset returns to its default or inherited value. Direct widget attributes take priority over the preset.
+
+```rust,ignore
+#[compose]
+fn step(preset: prop!(StylePreset)) -> Entity {
+    ui! { Button (style: ${preset}, text: "+") }
+}
+
+#[compose]
+fn controls(compact: Signal<bool>) {
+    ui! {
+        Row {
+            step(${if compact.get() { style!(height: 36, border_radius: 18) } else { style!() }})
+        }
+    };
+}
+```
+
+The Button and Text builders expose the same binding through `.bind_style(move || preset)`.
+
 Inside `ui!`, prefix an attribute value with `$` to bind it reactively. A
 bare path reads the signal; a `${ … }` block runs an expression:
 

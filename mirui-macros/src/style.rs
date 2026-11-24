@@ -32,16 +32,26 @@ enum Binding {
     Both(&'static str),
 }
 
+#[derive(Clone, Copy)]
+enum Change {
+    Visual,
+    Layout,
+    FontStack,
+    FontSize,
+    TextColor,
+}
+
 pub(crate) struct Field {
     pub(crate) key: &'static str,
     pub(crate) target: Target,
     ty: &'static str,
     convert: Convert,
     binding: Binding,
+    change: Change,
 }
 
 macro_rules! define_fields {
-    ($( $target:ident $key:ident: $ty:ty => $convert:ident, $binding:expr );+ $(;)?) => {
+    ($( $target:ident $key:ident: $ty:ty => $convert:ident, $binding:expr $(, $change:ident)? );+ $(;)?) => {
         const FIELDS: &[Field] = &[
             $(Field {
                 key: stringify!($key),
@@ -49,9 +59,14 @@ macro_rules! define_fields {
                 ty: stringify!($ty),
                 convert: Convert::$convert,
                 binding: $binding,
+                change: define_fields!(@change $target $($change)?),
             },)+
         ];
     };
+    (@change $target:ident $change:ident) => { Change::$change };
+    (@change Layout) => { Change::Layout };
+    (@change Text) => { Change::Layout };
+    (@change $target:ident) => { Change::Visual };
 }
 
 use Binding::{Both, None as Static, Reactive, Responsive};
@@ -60,11 +75,11 @@ define_fields! {
     Common bg_color: Option<ThemedColor> => OptionalColor, Both("BackgroundColor");
     Common border_color: Option<ThemedColor> => OptionalColor, Reactive("BorderColor");
     Common border_width: Fixed => Fixed, Reactive("BorderWidth");
-    Common border_radius: Fixed => Fixed, Static;
-    Common text_color: Option<ThemedColor> => OptionalColor, Both("TextColor");
-    Common font_stack: Option<FontStack> => FontStack, Static;
-    Common font_size: FontSize => FontSize, Both("FontSize");
-    Common clip_children: bool => Plain, Static;
+    Common border_radius: Fixed => Fixed, Static, Layout;
+    Common text_color: Option<ThemedColor> => OptionalColor, Both("TextColor"), TextColor;
+    Common font_stack: Option<FontStack> => FontStack, Static, FontStack;
+    Common font_size: FontSize => FontSize, Both("FontSize"), FontSize;
+    Common clip_children: bool => Plain, Static, Layout;
     Layout direction: FlexDirection => Plain, Both("Direction");
     Layout wrap: FlexWrap => Plain, Static;
     Layout justify: JustifyContent => Plain, Static;
@@ -122,17 +137,39 @@ pub(crate) fn emit_schema() -> TokenStream {
     let mut common = Vec::new();
     let mut text = Vec::new();
     let mut button = Vec::new();
+    let mut properties = Vec::new();
     for field in FIELDS {
         let key = format_ident!("{}", field.key);
         let ty = field.ty.parse::<TokenStream>().expect("style field type");
+        match field.binding {
+            Binding::Reactive(name) | Binding::Responsive(name) | Binding::Both(name) => {
+                let property = format_ident!("{name}");
+                properties.push(quote! { #property => #key });
+            }
+            Binding::None => {}
+        }
+        let change = match field.change {
+            Change::Visual => quote!(ComponentChangeKind::Visual),
+            Change::Layout => quote!(ComponentChangeKind::Layout),
+            Change::FontStack => quote!(ComponentChangeKind::InheritedStyle(FONT_STACK)),
+            Change::FontSize => quote!(ComponentChangeKind::InheritedStyle(FONT_SIZE)),
+            Change::TextColor => quote!(ComponentChangeKind::InheritedStyle(TEXT_COLOR)),
+        };
         match field.target {
-            Target::Common => common.push(quote! { #key: #ty => #key }),
-            Target::Layout => common.push(quote! { #key: #ty => layout.#key }),
+            Target::Common => common.push(quote! { #key: #ty => #key [#change] }),
+            Target::Layout => common.push(quote! { #key: #ty => layout.#key [#change] }),
             Target::Text => text.push(quote! { #key: #ty }),
             Target::Button => button.push(quote! { #key: #ty }),
         }
     }
-    quote! { declare_styles! { common { #(#common,)* } text { #(#text,)* } button { #(#button,)* } } }
+    quote! {
+        declare_styles! {
+            common { #(#common,)* }
+            text { #(#text,)* }
+            button { #(#button,)* }
+            properties { #(#properties,)* }
+        }
+    }
 }
 
 impl Field {

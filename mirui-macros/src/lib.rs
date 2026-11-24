@@ -382,13 +382,19 @@ struct LayoutBind {
     value: crate::layout_reactive::LayoutValue,
 }
 
+struct PresetAttr {
+    value: syn::Expr,
+    reactive: bool,
+    static_input: Option<syn::Ident>,
+}
+
 struct WidgetCmd {
     name: syn::Ident,
     kind: WidgetKind,
     var: syn::Ident,
     attrs: Vec<proc_macro2::TokenStream>,
     layout_fields: Vec<proc_macro2::TokenStream>,
-    preset: Option<syn::Expr>,
+    preset: Option<PresetAttr>,
     style_fields: std::collections::BTreeSet<&'static str>,
     errors: Vec<proc_macro2::TokenStream>,
     enchants: Vec<proc_macro2::TokenStream>,
@@ -410,7 +416,7 @@ struct WidgetCmd {
 struct ParsedAttrs {
     builder_calls: Vec<proc_macro2::TokenStream>,
     layout_fields: Vec<proc_macro2::TokenStream>,
-    preset: Option<syn::Expr>,
+    preset: Option<PresetAttr>,
     style_fields: std::collections::BTreeSet<&'static str>,
     errors: Vec<proc_macro2::TokenStream>,
     component_inserts: Vec<proc_macro2::TokenStream>,
@@ -583,12 +589,12 @@ impl MiruiRune {
                 .unwrap_or_else(|| syn::spanned::Spanned::span(&attr.value));
 
             if name == "style" {
-                if attr.reactive {
-                    errors.push(
-                        syn::Error::new(attr_span, "use a static style preset here")
-                            .to_compile_error(),
-                    );
-                } else if preset.replace(value.clone()).is_some() {
+                let next = PresetAttr {
+                    value: value.clone(),
+                    reactive: attr.reactive,
+                    static_input: compose_input::direct_prop(&attr.value, &self.props).cloned(),
+                };
+                if preset.replace(next).is_some() {
                     errors.push(
                         syn::Error::new(attr_span, "duplicate `style` attribute")
                             .to_compile_error(),
@@ -1318,18 +1324,20 @@ impl MiruiRune {
             .iter()
             .map(|key| quote::format_ident!("{key}"));
         let explicit = quote! { (0u64 #(| ::mirui::ui::style::StyleField::#layout_fields.bit())*) };
-        let applied = if let Some(preset) = &cmd.preset {
-            let kind = &cmd.name;
-            let widget = if cmd.kind == WidgetKind::Component {
-                quote!(#kind)
-            } else {
-                quote!(())
-            };
+        let kind = &cmd.name;
+        let widget = if cmd.kind == WidgetKind::Component {
+            quote!(#kind)
+        } else {
+            quote!(())
+        };
+        let static_preset = cmd.preset.as_ref().filter(|preset| !preset.reactive);
+        let applied = if let Some(preset) = static_preset {
+            let preset = &preset.value;
             quote! {
                 ::mirui::ui::style::apply_preset::<#widget, _>(#world, #var, #preset, #explicit)
             }
         } else {
-            explicit
+            explicit.clone()
         };
         if cmd.name == "Button" {
             let fields = syn::Ident::new(
@@ -1340,9 +1348,38 @@ impl MiruiRune {
                 let #fields = #applied;
                 ::mirui::ui::style::mark_button_layout(#world, #var, #fields);
             });
-        } else if cmd.preset.is_some() {
+        } else if static_preset.is_some() {
             tokens.extend(quote! { #applied; });
         }
+
+        let preset_binding = cmd
+            .preset
+            .as_ref()
+            .filter(|preset| preset.reactive)
+            .map(|preset| {
+                let name =
+                    syn::Ident::new("__mirui_style_binding", proc_macro2::Span::mixed_site());
+                let once = syn::Ident::new("__mirui_style_once", proc_macro2::Span::mixed_site());
+                let static_input = preset
+                    .static_input
+                    .as_ref()
+                    .map_or_else(|| quote!(false), |prop| quote!(#prop.__mirui_is_static()));
+                let read = reactive_read(&preset.value);
+                let column = matches!(cmd.name.to_string().as_str(), "Column" | "Scroll");
+                let direction = if column { quote!(Column) } else { quote!(Row) };
+                let clips = cmd.name == "Scroll";
+                tokens.extend(quote! {
+                    let #once = #static_input;
+                    let #name = ::mirui::ui::style::prepare_style_binding::<#widget, _>(
+                        #var, #explicit, ::mirui::ui::style::StyleDefaults {
+                            direction: ::mirui::ui::layout::FlexDirection::#direction,
+                            clip_children: #clips,
+                        },
+                        move || #read,
+                    );
+                });
+                (name, once)
+            });
 
         // Capture bindings before attachments may move their declared Models.
         let mut prepared_bindings = Vec::new();
@@ -1425,6 +1462,9 @@ impl MiruiRune {
             let __widget_parent = #parent_var;
             ::mirui::__macro_support::finish_widget_static(#world, __widget_parent, #var);
         });
+        if let Some((name, once)) = preset_binding {
+            tokens.extend(quote! { #name(#world, #once); });
+        }
 
         for (property, value) in &cmd.property_values {
             tokens.extend(quote! {
@@ -3280,6 +3320,7 @@ impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
                 segment.ident == "effect_with_widget"
                     || segment.ident == "effect_with_role"
                     || segment.ident == "prepare_widget_effect"
+                    || segment.ident == "prepare_style_binding"
             })
         {
             return;

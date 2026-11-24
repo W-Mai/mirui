@@ -1,5 +1,6 @@
 //! Reusable, typed declarations for widget styles.
 
+use crate::ecs::world::ComponentChangeKind;
 use crate::ecs::{Entity, World};
 use crate::render::font::FontStack;
 use crate::types::{Dimension, Fixed};
@@ -9,14 +10,20 @@ mod typography;
 use crate::ui::layout::{AlignItems, FlexDirection, FlexWrap, JustifyContent, Padding, Position};
 use crate::ui::theme::ThemedColor;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
+use typography::FONT_STACK;
 pub(crate) use typography::{FONT_SIZE, TEXT_COLOR, TypographyDeclarations, metrics_changed};
 pub use typography::{FontSize, Typography};
 
+mod binding;
+pub(crate) use binding::StyleBinding;
+pub use binding::{StyleDefaults, prepare_style_binding};
+
 macro_rules! declare_styles {
     (
-        common { $( $key:ident: $ty:ty => $($target:ident).+,)* }
+        common { $( $key:ident: $ty:ty => $($target:ident).+ [$change:expr],)* }
         text { $($text:ident: $text_ty:ty,)* }
         button { $($button:ident: $button_ty:ty,)* }
+        properties { $($property:ident => $field:ident,)* }
     ) => {
         /// Common field identifiers shared by style declaration and construction.
         #[doc(hidden)]
@@ -27,6 +34,18 @@ macro_rules! declare_styles {
             $($key,)+
             $($text,)*
             $($button,)*
+        }
+
+        impl StyleField {
+            pub(crate) const COMMON: u64 = 0 $(| Self::$key.bit())+;
+
+            pub(crate) fn property<P: 'static>() -> u64 {
+                let property = core::any::TypeId::of::<P>();
+                $(if property == core::any::TypeId::of::<crate::ui::property::prop::$property>() {
+                    return Self::$field.bit();
+                })*
+                0
+            }
         }
 
         #[doc(hidden)]
@@ -50,10 +69,30 @@ macro_rules! declare_styles {
                 })+
                 applied
             }
+
+            fn declared(&self) -> u64 {
+                0 $(| if self.$key.is_some() { StyleField::$key.bit() } else { 0 })+
+            }
+
+            fn restore(&mut self, fields: u64, defaults: Style) {
+                $(if fields & StyleField::$key.bit() != 0 {
+                    self.$key = Some(defaults.$($target).+);
+                })+
+            }
+
+            fn change(&self, style: &Style, explicit: u64) -> Option<ComponentChangeKind> {
+                let mut change = None;
+                $(if explicit & StyleField::$key.bit() == 0
+                    && self.$key.as_ref().is_some_and(|value| value != &style.$($target).+)
+                {
+                    change = Some(change.map_or($change, |current: ComponentChangeKind| current.merge($change)));
+                })+
+                change
+            }
         }
 
         #[doc(hidden)]
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
         pub struct ButtonStyleFields {
             $(pub $button: Option<$button_ty>,)*
         }
@@ -65,6 +104,26 @@ macro_rules! declare_styles {
                 $(if explicit & StyleField::$button.bit() == 0 && let Some(value) = self.$button {
                     button.$button = value;
                 })*
+            }
+
+            fn declared(&self) -> u64 {
+                0 $(| if self.$button.is_some() { StyleField::$button.bit() } else { 0 })*
+            }
+
+            fn update(mut self, world: &mut World, entity: Entity, explicit: u64, previous: u64) -> u64 {
+                let declared = self.declared() & !explicit;
+                let removed = previous & !declared & !explicit;
+                let defaults = Button::default();
+                $(if removed & StyleField::$button.bit() != 0 { self.$button = Some(defaults.$button); })*
+                let changed = world.get::<Button>(entity).is_some_and(|button| {
+                    false $(|| (explicit & StyleField::$button.bit() == 0
+                        && self.$button.as_ref().is_some_and(|value| value != &button.$button)))*
+                });
+                if changed && let Some(button) = world.get_mut::<Button>(entity) {
+                    self.apply(button, explicit);
+                    world.invalidate_visual(entity);
+                }
+                declared
             }
         }
     };
@@ -109,6 +168,15 @@ impl<W: StyleTarget> Clone for StylePreset<W> {
         Self {
             common: self.common.clone(),
             specific: self.specific.clone(),
+        }
+    }
+}
+
+impl<W: StyleTarget<Fields: Default>> Default for StylePreset<W> {
+    fn default() -> Self {
+        Self {
+            common: StyleFields::EMPTY,
+            specific: W::Fields::default(),
         }
     }
 }
@@ -166,13 +234,29 @@ pub trait StyleInput<W> {
     const HAS_WIDGET_FIELDS: bool = false;
     const COMPLETE: bool = false;
 
-    fn apply_widget(&mut self, _widget: &mut W, _explicit: u64) {}
+    fn apply_widget(&mut self, _widget: &mut W, _explicit: u64) -> u64 {
+        0
+    }
     fn apply_style(self, style: &mut Style, explicit: u64) -> u64;
+    fn fields(self) -> StyleFields;
+    fn update_widget(
+        &mut self,
+        _world: &mut World,
+        _entity: Entity,
+        _explicit: u64,
+        _previous: u64,
+    ) -> u64 {
+        0
+    }
 }
 
 impl<W> StyleInput<W> for StylePreset {
     fn apply_style(self, style: &mut Style, explicit: u64) -> u64 {
         self.common.apply(style, explicit)
+    }
+
+    fn fields(self) -> StyleFields {
+        self.common
     }
 }
 
@@ -187,33 +271,85 @@ impl<W> StyleInput<W> for Style {
             StyleFields::from_style(self).apply(style, explicit)
         }
     }
+
+    fn fields(self) -> StyleFields {
+        StyleFields::from_style(self)
+    }
 }
 
 impl StyleInput<Text> for StylePreset<Text> {
     const HAS_WIDGET_FIELDS: bool = true;
 
-    fn apply_widget(&mut self, text: &mut Text, explicit: u64) {
+    fn apply_widget(&mut self, text: &mut Text, explicit: u64) -> u64 {
         if explicit & StyleField::paragraph.bit() == 0
             && let Some(paragraph) = self.specific.take()
         {
             text.set_paragraph(paragraph);
+            return StyleField::paragraph.bit();
         }
+        0
     }
 
     fn apply_style(self, style: &mut Style, explicit: u64) -> u64 {
         self.common.apply(style, explicit)
+    }
+
+    fn fields(self) -> StyleFields {
+        self.common
+    }
+
+    fn update_widget(
+        &mut self,
+        world: &mut World,
+        entity: Entity,
+        explicit: u64,
+        previous: u64,
+    ) -> u64 {
+        let bit = StyleField::paragraph.bit();
+        if explicit & bit != 0 {
+            return 0;
+        }
+        let value = self.specific.take();
+        let declared = if value.is_some() { bit } else { 0 };
+        let value = value.or_else(|| (previous & bit != 0).then(ParagraphStyle::default));
+        if let Some(value) = value
+            && world
+                .get::<Text>(entity)
+                .is_some_and(|text| text.paragraph() != &value)
+        {
+            crate::ui::property::apply_to_world::<crate::ui::property::prop::Paragraph>(
+                world, entity, value,
+            );
+        }
+        declared
     }
 }
 
 impl StyleInput<Button> for StylePreset<Button> {
     const HAS_WIDGET_FIELDS: bool = true;
 
-    fn apply_widget(&mut self, button: &mut Button, explicit: u64) {
+    fn apply_widget(&mut self, button: &mut Button, explicit: u64) -> u64 {
+        let declared = self.specific.declared() & !explicit;
         self.specific.apply(button, explicit);
+        declared
     }
 
     fn apply_style(self, style: &mut Style, explicit: u64) -> u64 {
         self.common.apply(style, explicit)
+    }
+
+    fn fields(self) -> StyleFields {
+        self.common
+    }
+
+    fn update_widget(
+        &mut self,
+        world: &mut World,
+        entity: Entity,
+        explicit: u64,
+        previous: u64,
+    ) -> u64 {
+        self.specific.update(world, entity, explicit, previous)
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
 use crate::types::Dimension;
-use crate::ui::layout::{AlignItems, JustifyContent, Padding};
+use crate::ui::layout::{AlignItems, JustifyContent, LayoutStyle, Padding};
 use crate::ui::style::{ExplicitButtonLayout, StyleField, StyleInput, mark_button_layout};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::{HitTarget, InteractionFeedback, Style};
@@ -45,6 +45,28 @@ impl ButtonSize {
                 min_height: Dimension::px(28),
             }),
             Self::Custom => None,
+        }
+    }
+
+    pub(crate) fn apply_layout_defaults(self, layout: &mut LayoutStyle, explicit: u64) {
+        let Some(metrics) = self.metrics() else {
+            return;
+        };
+        if explicit & StyleField::padding.bit() == 0 && layout.padding == Padding::default() {
+            layout.padding = metrics.padding;
+        }
+        if explicit & StyleField::min_height.bit() == 0
+            && layout.min_height == Dimension::Auto
+            && layout.height == Dimension::Auto
+        {
+            layout.min_height = metrics.min_height;
+        }
+        if explicit & StyleField::justify.bit() == 0 && layout.justify == JustifyContent::FlexStart
+        {
+            layout.justify = JustifyContent::Center;
+        }
+        if explicit & StyleField::align.bit() == 0 && layout.align == AlignItems::FlexStart {
+            layout.align = AlignItems::Center;
         }
     }
 }
@@ -100,38 +122,63 @@ impl Button {
             button: Button::new(),
             style: None,
             layout_fields: 0,
+            explicit: 0,
+            style_binding: (),
             properties: (),
             bindings: (),
         }
     }
 }
 
-pub struct ButtonBuilder<P = (), B = ()> {
+pub struct ButtonBuilder<P = (), B = (), S = ()> {
     button: Button,
     style: Option<crate::ui::Style>,
     layout_fields: u64,
+    explicit: u64,
+    style_binding: S,
     properties: P,
     bindings: B,
 }
 
-impl<P, B> ButtonBuilder<P, B> {
+impl<P, B, R> ButtonBuilder<P, B, R> {
     pub fn style<S: StyleInput<Button>>(mut self, mut style: S) -> Self {
         if S::COMPLETE {
             self.layout_fields = 0;
+            self.explicit |= StyleField::COMMON;
         }
-        style.apply_widget(&mut self.button, 0);
-        self.layout_fields |= style.apply_style(self.style.get_or_insert_default(), 0);
+        self.explicit |= style.apply_widget(&mut self.button, 0);
+        let fields = style.apply_style(self.style.get_or_insert_default(), 0);
+        self.layout_fields |= fields;
+        self.explicit |= fields;
         self
+    }
+
+    /// Bind a style computed from reactive values.
+    pub fn bind_style<S: StyleInput<Button>>(
+        self,
+        read: impl Fn() -> S + 'static,
+    ) -> ButtonBuilder<P, B, impl crate::__macro_support::PropertyBindings> {
+        ButtonBuilder {
+            style_binding: crate::ui::style::StyleBinding::<Button, _>::new(read),
+            button: self.button,
+            style: self.style,
+            layout_fields: self.layout_fields,
+            explicit: self.explicit,
+            properties: self.properties,
+            bindings: self.bindings,
+        }
     }
 
     /// Set the label's foreground colour.
     pub fn text_color(mut self, color: impl Into<ThemedColor>) -> Self {
         self.style.get_or_insert_default().set_text_color(color);
+        self.explicit |= StyleField::text_color.bit();
         self
     }
 
     pub fn normal_color(mut self, color: impl Into<ThemedColor>) -> Self {
         self.button.normal_color = color.into();
+        self.explicit |= StyleField::normal_color.bit();
         self
     }
 
@@ -142,30 +189,48 @@ impl<P, B> ButtonBuilder<P, B> {
 
     pub fn pressed_color(mut self, color: impl Into<ThemedColor>) -> Self {
         self.button.pressed_color = color.into();
+        self.explicit |= StyleField::pressed_color.bit();
         self
     }
 
     pub fn pressed_text_color(mut self, color: impl Into<ThemedColor>) -> Self {
         self.button.pressed_text_color = Some(color.into());
+        self.explicit |= StyleField::pressed_text_color.bit();
         self
     }
 }
 
-crate::ui::recipe::widget_builder_bindings!(ButtonBuilder, Button, button, style, layout_fields);
+crate::ui::recipe::widget_builder_bindings!(
+    ButtonBuilder,
+    Button,
+    [S],
+    button,
+    style,
+    layout_fields,
+    explicit,
+    style_binding
+);
 
-impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::EntityEventBindings>
-    crate::ui::recipe::WidgetRecipe for ButtonBuilder<P, B>
+impl<
+    P: crate::__macro_support::PropertyBindings,
+    B: crate::__macro_support::EntityEventBindings,
+    S: crate::__macro_support::PropertyBindings,
+> crate::ui::recipe::WidgetRecipe for ButtonBuilder<P, B, S>
 {
-    type Properties = P;
+    type Properties = (S, P);
     type Events = B;
 
-    fn insert(self, world: &mut World, entity: Entity) -> (P, B) {
+    fn insert(mut self, world: &mut World, entity: Entity) -> ((S, P), B) {
         world.insert(entity, self.button);
         if let Some(style) = self.style {
             world.insert(entity, style);
         }
         mark_button_layout(world, entity, self.layout_fields);
-        (self.properties, self.bindings)
+        if S::HAS_DYNAMIC_STYLE {
+            self.style_binding
+                .set_explicit_style(self.explicit | self.properties.style_fields());
+        }
+        ((self.style_binding, self.properties), self.bindings)
     }
 }
 
@@ -208,29 +273,12 @@ fn button_attach(
     if explicit != 0 {
         commands.remove::<ExplicitButtonLayout>(entity);
     }
-    let Some(metrics) = button.size.metrics() else {
-        commands.insert(entity, HitTarget);
-        commands.insert(entity, InteractionFeedback);
-        return;
-    };
-    if let Some(style) = styles.get(entity) {
-        if explicit & StyleField::padding.bit() == 0 && style.layout.padding == Padding::default() {
-            style.layout.padding = metrics.padding;
-        }
-        if explicit & StyleField::min_height.bit() == 0
-            && style.layout.min_height == Dimension::Auto
-            && style.layout.height == Dimension::Auto
-        {
-            style.layout.min_height = metrics.min_height;
-        }
-        if explicit & StyleField::justify.bit() == 0
-            && style.layout.justify == JustifyContent::FlexStart
-        {
-            style.layout.justify = JustifyContent::Center;
-        }
-        if explicit & StyleField::align.bit() == 0 && style.layout.align == AlignItems::FlexStart {
-            style.layout.align = AlignItems::Center;
-        }
+    if button.size != ButtonSize::Custom
+        && let Some(style) = styles.get(entity)
+    {
+        button
+            .size
+            .apply_layout_defaults(&mut style.layout, explicit);
     }
     commands.insert(entity, HitTarget);
     commands.insert(entity, InteractionFeedback);

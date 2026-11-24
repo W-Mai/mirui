@@ -33,7 +33,15 @@ impl<T: Component> WidgetRecipe for T {
 /// Installation-order property bindings retained by typed builders.
 #[doc(hidden)]
 pub trait PropertyBindings {
+    const HAS_DYNAMIC_STYLE: bool = false;
+
     fn install(self, world: &mut World, entity: Entity);
+
+    fn style_fields(&self) -> u64 {
+        0
+    }
+
+    fn set_explicit_style(&mut self, _fields: u64) {}
 }
 
 impl PropertyBindings for () {
@@ -57,6 +65,10 @@ impl<P, F> PropertyBinding<P, F> {
 impl<P: Property, F: Fn() -> P::Value + 'static> PropertyBindings for PropertyBinding<P, F> {
     fn install(self, world: &mut World, entity: Entity) {
         bind_property::<P>(world, entity, self.read);
+    }
+
+    fn style_fields(&self) -> u64 {
+        crate::ui::style::StyleField::property::<P>()
     }
 }
 
@@ -90,10 +102,24 @@ macro_rules! recipe_tuple {
         }
 
         impl<$($item: PropertyBindings),+> PropertyBindings for ($($item,)+) {
+            const HAS_DYNAMIC_STYLE: bool = false $(|| $item::HAS_DYNAMIC_STYLE)+;
+
             fn install(self, world: &mut World, entity: Entity) {
                 #[allow(non_snake_case)]
                 let ($($item,)+) = self;
                 $($item.install(world, entity);)+
+            }
+
+            fn style_fields(&self) -> u64 {
+                #[allow(non_snake_case)]
+                let ($($item,)+) = self;
+                0 $(| $item.style_fields())+
+            }
+
+            fn set_explicit_style(&mut self, fields: u64) {
+                #[allow(non_snake_case)]
+                let ($($item,)+) = self;
+                $($item.set_explicit_style(fields);)+
             }
         }
 
@@ -111,12 +137,18 @@ recipe_tuple!(A, B, C, D, E, F, G, H);
 
 macro_rules! widget_builder_bindings {
     ($builder:ident, $widget:ty, $($field:ident),+) => {
-        impl<P, B> $builder<P, B> {
+        $crate::ui::recipe::widget_builder_bindings!(@impl $builder, $widget, [], $($field),+);
+    };
+    ($builder:ident, $widget:ty, [$($param:ident),+], $($field:ident),+) => {
+        $crate::ui::recipe::widget_builder_bindings!(@impl $builder, $widget, [$($param),+], $($field),+);
+    };
+    (@impl $builder:ident, $widget:ty, [$($param:ident),*], $($field:ident),+) => {
+        impl<P, B $(, $param)*> $builder<P, B $(, $param)*> {
             /// Bind a reactive property after static components and View attachment.
             pub fn bind_property<Q: $crate::ui::property::Property>(
                 self,
                 read: impl Fn() -> Q::Value + 'static,
-            ) -> $builder<impl $crate::__macro_support::PropertyBindings, B>
+            ) -> $builder<impl $crate::__macro_support::PropertyBindings, B $(, $param)*>
             where
                 P: $crate::__macro_support::PropertyBindings,
             {
@@ -132,7 +164,7 @@ macro_rules! widget_builder_bindings {
                 self,
                 key: $crate::input::event::contract::EventKey<E>,
                 callback: $crate::__macro_support::EventCallback<E, $crate::__macro_support::EntityContext<$widget>>,
-            ) -> $builder<P, (B, $crate::__macro_support::EventBinding<E, $crate::__macro_support::EntityContext<$widget>>)>
+            ) -> $builder<P, (B, $crate::__macro_support::EventBinding<E, $crate::__macro_support::EntityContext<$widget>>) $(, $param)*>
             where
                 E: $crate::input::event::contract::Event,
                 E::Route: $crate::__macro_support::EntityInstallRoute<E>,
@@ -146,7 +178,7 @@ macro_rules! widget_builder_bindings {
             }
         }
 
-        impl<P, B> $crate::ui::recipe::sealed::Recipe for $builder<P, B> {}
+        impl<P, B $(, $param)*> $crate::ui::recipe::sealed::Recipe for $builder<P, B $(, $param)*> {}
     };
 }
 

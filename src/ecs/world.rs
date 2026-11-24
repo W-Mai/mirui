@@ -260,7 +260,7 @@ pub(crate) enum ComponentChangeKind {
 impl ComponentChangeKind {
     pub(crate) const LOCAL_LAYOUT: u8 = 1 << 7;
 
-    fn merge(self, other: Self) -> Self {
+    pub(crate) fn merge(self, other: Self) -> Self {
         if matches!(self, Self::Component) || matches!(other, Self::Component) {
             return Self::Component;
         }
