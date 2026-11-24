@@ -4401,56 +4401,56 @@ fn visit_overlay_rects(world: &World, mut visit: impl FnMut(Rect)) {
 }
 
 #[cfg(all(test, feature = "std"))]
-#[path = "render_system/tests/clip_children_check.rs"]
+#[path = "../../tests/unit/ui/render_system/clip_children_check.rs"]
 mod clip_children_check;
 #[cfg(test)]
-#[path = "render_system/tests/coverage_tests.rs"]
+#[path = "../../tests/unit/ui/render_system/coverage_tests.rs"]
 mod coverage_tests;
 #[cfg(all(test, feature = "std"))]
-#[path = "render_system/tests/disabled_state_check.rs"]
+#[path = "../../tests/unit/ui/render_system/disabled_state_check.rs"]
 mod disabled_state_check;
 #[cfg(test)]
-#[path = "render_system/tests/geometry_preparation_tests.rs"]
+#[path = "../../tests/unit/ui/render_system/geometry_preparation_tests.rs"]
 mod geometry_preparation_tests;
 #[cfg(all(test, feature = "std"))]
-#[path = "render_system/tests/hidden_check.rs"]
+#[path = "../../tests/unit/ui/render_system/hidden_check.rs"]
 mod hidden_check;
 #[cfg(test)]
-#[path = "render_system/tests/layout_snapshot_reuse_check.rs"]
+#[path = "../../tests/unit/ui/render_system/layout_snapshot_reuse_check.rs"]
 mod layout_snapshot_reuse_check;
 #[cfg(test)]
-#[path = "render_system/tests/local_layout_tests.rs"]
+#[path = "../../tests/unit/ui/render_system/local_layout_tests.rs"]
 mod local_layout_tests;
 #[cfg(test)]
-#[path = "render_system/tests/native_target_tests.rs"]
+#[path = "../../tests/unit/ui/render_system/native_target_tests.rs"]
 mod native_target_tests;
 #[cfg(all(test, feature = "std"))]
-#[path = "render_system/tests/offscreen_render_check.rs"]
+#[path = "../../tests/unit/ui/render_system/offscreen_render_check.rs"]
 mod offscreen_render_check;
 #[cfg(test)]
-#[path = "render_system/tests/overflow_tests.rs"]
+#[path = "../../tests/unit/ui/render_system/overflow_tests.rs"]
 mod overflow_tests;
 #[cfg(test)]
-#[path = "render_system/tests/paint_request_tests.rs"]
+#[path = "../../tests/unit/ui/render_system/paint_request_tests.rs"]
 mod paint_request_tests;
 #[cfg(test)]
-#[path = "render_system/tests/projective_transform_tests.rs"]
+#[path = "../../tests/unit/ui/render_system/projective_transform_tests.rs"]
 mod projective_transform_tests;
 #[cfg(all(test, feature = "std"))]
-#[path = "render_system/tests/scroll_blit_visual_check.rs"]
+#[path = "../../tests/unit/ui/render_system/scroll_blit_visual_check.rs"]
 mod scroll_blit_visual_check;
 #[cfg(all(test, feature = "std"))]
-#[path = "render_system/tests/scroll_plan_check.rs"]
+#[path = "../../tests/unit/ui/render_system/scroll_plan_check.rs"]
 mod scroll_plan_check;
 #[cfg(test)]
-#[path = "render_system/tests/state_resolve_check.rs"]
+#[path = "../../tests/unit/ui/render_system/state_resolve_check.rs"]
 mod state_resolve_check;
 #[cfg(all(test, feature = "std"))]
-#[path = "render_system/tests/text_layout_check.rs"]
+#[path = "../../tests/unit/ui/render_system/text_layout_check.rs"]
 mod text_layout_check;
 #[cfg(test)]
-#[path = "render_system/tests/text_layout_failure_tests.rs"]
+#[path = "../../tests/unit/ui/render_system/text_layout_failure_tests.rs"]
 mod text_layout_failure_tests;
 #[cfg(test)]
-#[path = "render_system/tests/transform_cache_tests.rs"]
+#[path = "../../tests/unit/ui/render_system/transform_cache_tests.rs"]
 mod transform_cache_tests;

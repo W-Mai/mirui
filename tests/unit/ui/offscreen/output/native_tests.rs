@@ -10,6 +10,7 @@ use crate::types::{Color, Fixed, Transform, Viewport};
 use alloc::boxed::Box;
 use core::any::Any;
 
+#[path = "native_tests/consumers.rs"]
 mod consumers;
 
 #[cfg(all(feature = "perf", feature = "std"))]
