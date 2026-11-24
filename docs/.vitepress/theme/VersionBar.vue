@@ -1,10 +1,11 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { useData } from 'vitepress';
+import { useData, useRouter } from 'vitepress';
 import { chapterTarget, isRelease, versionBase } from '../lib/versions.mjs';
 
 defineProps({ desktop: Boolean });
 const { theme, lang } = useData();
+const router = useRouter();
 const chinese = computed(() => lang.value === 'zh-CN');
 const currentVersion = computed(() => theme.value.version);
 const currentLanguage = computed(() => chinese.value ? 'zh' : 'en');
@@ -39,7 +40,9 @@ async function navigate(version, language) {
     if (!response.ok) throw new Error('Version unavailable');
     const index = await response.json();
     if (index.version !== version) throw new Error('Version index mismatch');
-    window.location.assign(chapterTarget(index, page, language, hash));
+    const target = chapterTarget(index, page, language, hash);
+    if (version === currentVersion.value && !target.includes('?')) await router.go(target);
+    else window.location.assign(target);
   } catch {
     error.value = true;
     selectedVersion.value = currentVersion.value;

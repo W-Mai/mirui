@@ -1,8 +1,9 @@
 <script setup>
-import { onMounted, ref } from 'vue';
-import { useData } from 'vitepress';
+import { onMounted, ref, watch } from 'vue';
+import { useData, useRoute } from 'vitepress';
 
 const { lang, theme } = useData();
+const route = useRoute();
 defineProps({ hideDevelopment: Boolean });
 const reason = ref('');
 const messages = {
@@ -10,9 +11,11 @@ const messages = {
   anchor: ['This section is unavailable in the selected version. The chapter is open.', '所选版本没有对应小节，已打开这一章。'],
   language: ['This page is available in English for this version.', '该版本暂有英文内容。'],
 };
-onMounted(() => {
+function readReason() {
   reason.value = new URLSearchParams(window.location.search).get('reading');
-});
+}
+onMounted(readReason);
+watch(() => route.path, readReason);
 </script>
 
 <template>

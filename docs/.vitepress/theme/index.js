@@ -4,6 +4,8 @@ import VersionBar from './VersionBar.vue';
 import ReadingNotice from './ReadingNotice.vue';
 import ManualHome from './ManualHome.vue';
 import TutorialWorkspace from './TutorialWorkspace.vue';
+import SidebarSelection from './SidebarSelection.vue';
+import { installReadingMotion } from './reading-motion';
 import mark from '../../../gallery/web/favicon.svg?url';
 import '../../../gallery/web/site-chrome.css';
 import './style.css';
@@ -12,7 +14,8 @@ import './workspace.css';
 
 export default {
   extends: DefaultTheme,
-  enhanceApp({ app }) {
+  enhanceApp({ app, router }) {
+    if (!import.meta.env.SSR) installReadingMotion(router);
     app.component('ManualHome', ManualHome);
     app.component('TutorialWorkspace', TutorialWorkspace);
   },
@@ -22,6 +25,7 @@ export default {
       'nav-bar-content-after': () => h(VersionBar, { desktop: true }),
       'nav-screen-content-after': () => h(VersionBar),
       'doc-before': () => h(ReadingNotice),
+      'sidebar-nav-before': () => h(SidebarSelection),
     });
   },
 };

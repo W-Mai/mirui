@@ -232,13 +232,30 @@
   font-size: .75rem;
 }
 
-@keyframes manual-enter {
-  from { opacity: .85; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
+#VPSidebarNav { position: relative; isolation: isolate; }
+.reading-selection {
+  position: absolute;
+  inset: 0 -8px auto;
+  z-index: -1;
+  border-inline-start: 2px solid var(--site-blue);
+  border-radius: 3px 7px 7px 3px;
+  background: var(--site-blue-wash);
+  pointer-events: none;
+  transition: transform var(--manual-motion), height var(--manual-motion);
 }
+#VPSidebarNav .indicator { background: transparent; }
 
-@media (prefers-reduced-motion: no-preference) {
-  .VPDoc .vp-doc { animation: manual-enter 160ms ease-out; }
+html.reading-turn { view-transition-name: none; }
+.reading-turn #VPContent { view-transition-name: manual-article; }
+::view-transition { pointer-events: none; }
+::view-transition-group(manual-article) { animation-duration: 0s; }
+::view-transition-old(manual-article) { animation: article-out 165ms ease-in both; }
+::view-transition-new(manual-article) { animation: article-in var(--manual-motion) both; }
+@keyframes article-out {
+  to { opacity: 0; transform: translateY(-5px); }
+}
+@keyframes article-in {
+  from { opacity: 0; transform: translateY(7px); }
 }
 
 @media (max-width: 800px) {
