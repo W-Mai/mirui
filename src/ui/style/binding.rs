@@ -87,9 +87,9 @@ pub(super) fn reconcile_style<W: 'static, S: StyleInput<W>>(
     base: StyleDefaults,
     previous: u64,
 ) -> u64 {
+    let declared = style.declared() & StyleField::COMMON & !explicit;
     let widget_fields = style.update_widget(world, entity, explicit, previous);
     let mut fields = style.fields();
-    let declared = fields.declared() & !explicit;
     let removed = previous & StyleField::COMMON & !declared & !explicit;
     let affected = declared | removed;
     if affected == 0 {
@@ -116,10 +116,8 @@ pub(super) fn reconcile_style<W: 'static, S: StyleInput<W>>(
         let authored = explicit | declared;
         let next_height = if removed & height != 0 {
             Dimension::Auto
-        } else if declared & height != 0 {
-            fields.height.unwrap_or(Dimension::Auto)
         } else {
-            current.layout.height
+            fields.height.unwrap_or(current.layout.height)
         };
         defaults.layout.height = next_height;
         button

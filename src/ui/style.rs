@@ -80,9 +80,12 @@ macro_rules! declare_styles {
                 0 $(| if self.$key.is_some() { StyleField::$key.bit() } else { 0 })+
             }
 
-            fn fill_from(&mut self, rule: &Self, explicit: u64) {
-                $(if self.$key.is_none() && explicit & StyleField::$key.bit() == 0 {
-                    self.$key.clone_from(&rule.$key);
+            fn fill_changes_from(&mut self, rule: &Self, current: &Style, claimed: &mut u64) {
+                $(if *claimed & StyleField::$key.bit() == 0 && let Some(value) = &rule.$key {
+                    *claimed |= StyleField::$key.bit();
+                    if value != &current.$($target).+ {
+                        self.$key = Some(value.clone());
+                    }
                 })+
             }
 

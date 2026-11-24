@@ -58,6 +58,7 @@ impl From<StylePreset<Text>> for ClassRule {
 
 struct ResolvedClasses {
     common: StyleFields,
+    common_declared: u64,
     button: ButtonStyleFields,
     paragraph: Option<ParagraphStyle>,
 }
@@ -68,7 +69,7 @@ impl StyleInput<()> for ResolvedClasses {
     }
 
     fn declared(&self) -> u64 {
-        self.common.declared()
+        self.common_declared
             | self.button.declared()
             | self
                 .paragraph
@@ -197,9 +198,12 @@ impl StyleSheet {
     ) -> ResolvedClasses {
         let mut resolved = ResolvedClasses {
             common: StyleFields::EMPTY,
+            common_declared: 0,
             button: ButtonStyleFields::EMPTY,
             paragraph: None,
         };
+        let mut claimed = explicit;
+        let current = world.get::<super::Style>(entity);
         for name in names.iter().rev() {
             let Ok(index) = self.index(name) else {
                 continue;
@@ -223,8 +227,13 @@ impl StyleSheet {
                     continue;
                 }
             }
-            resolved.common.fill_from(&value.common, explicit);
+            if let Some(current) = current {
+                resolved
+                    .common
+                    .fill_changes_from(&value.common, current, &mut claimed);
+            }
         }
+        resolved.common_declared = claimed & !explicit;
         resolved
     }
 }
