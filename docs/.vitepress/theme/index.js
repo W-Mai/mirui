@@ -4,6 +4,7 @@ import VersionBar from './VersionBar.vue';
 import ReadingNotice from './ReadingNotice.vue';
 import ManualHome from './ManualHome.vue';
 import TutorialWorkspace from './TutorialWorkspace.vue';
+import mark from '../../../gallery/web/favicon.svg?url';
 import '../../../gallery/web/site-chrome.css';
 import './style.css';
 import './workspace.css';
@@ -16,6 +17,7 @@ export default {
   },
   Layout() {
     return h(DefaultTheme.Layout, null, {
+      'nav-bar-title-before': () => h('img', { src: mark, alt: '', class: 'manual-mark', width: 28, height: 28 }),
       'nav-bar-content-after': () => h(VersionBar, { desktop: true }),
       'nav-screen-content-after': () => h(VersionBar),
       'doc-before': () => h(ReadingNotice),

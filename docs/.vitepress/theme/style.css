@@ -63,10 +63,18 @@
   font-size: .875rem;
 }
 
+.manual-mark { margin-inline-end: 9px; border-radius: 6px; }
+.manual-revision {
+  margin: 0 0 14px;
+  color: var(--site-muted);
+  font: 12px/1.4 var(--font-mono);
+}
+.manual-revision a:hover { color: var(--site-blue-ink); }
+
 .manual-home {
   max-width: 1380px;
   margin-inline: auto;
-  padding: clamp(2rem, 6vw, 6rem) clamp(1.25rem, 5vw, 5rem) 4rem;
+  padding: clamp(2rem, 3.5vw, 4rem) clamp(1.25rem, 5vw, 5rem) 4rem;
 }
 
 .manual-hero {
@@ -155,6 +163,8 @@
   --frame-metal: var(--site-well);
   --frame-track: var(--signal-wash);
   min-width: 0;
+  width: min(100%, 540px);
+  justify-self: end;
 }
 
 .frame-figure svg {
@@ -235,7 +245,7 @@
     min-height: 0;
     gap: 2.2rem;
   }
-  .frame-cutaway { width: min(100%, 530px); margin-inline: auto; }
+  .frame-cutaway { justify-self: center; }
   .manual-guides { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 2.2rem; }
 }
 

@@ -6,7 +6,7 @@ import ReadingNotice from './ReadingNotice.vue';
 
 const { lang, theme } = useData();
 const zh = computed(() => lang.value === 'zh-CN');
-const course = computed(() => withBase(zh.value ? '/zh/learn/' : '/learn/'));
+const course = computed(() => withBase(zh.value ? '/zh/learn/window.html' : '/learn/window.html'));
 const guides = [
   { en: 'Reactive state and styles', zh: '响应式状态与样式', href: '/state-management.html' },
   { en: 'Navigation and motion', zh: '导航与动效', href: '/navigation.html' },

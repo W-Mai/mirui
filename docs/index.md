@@ -1,5 +1,6 @@
 ---
-layout: home
+layout: page
+sidebar: false
 title: Mirui Manual
 ---
 
