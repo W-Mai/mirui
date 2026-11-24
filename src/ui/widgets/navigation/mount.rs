@@ -107,7 +107,7 @@ fn host(world: &mut World, parent: Entity) -> Entity {
         PageOffset::default(),
         WidgetTransform::default(),
     ));
-    let mut gate = crate::core::reactive::retained::RetainedEffects::new(world, |_, _| true);
+    let mut gate = crate::ui::retained::RetainedEffects::new(world, |_, _| true);
     gate.active = false;
     world.insert(host, gate);
     host
@@ -159,11 +159,11 @@ pub(super) fn wrap_root(world: &mut World, parent: Entity) -> Entity {
 
 pub(crate) fn reveal(world: &mut World, page: Entity) {
     world.remove::<InputBlocked>(page);
-    if let Some(gate) = world.get_mut::<crate::core::reactive::retained::RetainedEffects>(page) {
+    if let Some(gate) = world.get_mut::<crate::ui::retained::RetainedEffects>(page) {
         gate.active = true;
     }
     world.remove::<Hidden>(page);
-    crate::core::reactive::retained::wake(world, page);
+    crate::ui::retained::wake(world, page);
     world.mark_subtree_dirty(page);
     let focus = world
         .get::<PageFocus>(page)
@@ -173,7 +173,7 @@ pub(crate) fn reveal(world: &mut World, page: Entity) {
                 && world.has::<Focusable>(target)
                 && crate::ui::branch::is_in_subtree(world, page, target)
                 && !crate::ui::branch::is_hidden_in_tree(world, target)
-                && crate::core::reactive::retained::enabled(world, target)
+                && crate::ui::retained::enabled(world, target)
         });
     if let Some(state) = world.resource_mut::<FocusState>()
         && state.focused.is_none()
@@ -190,7 +190,7 @@ pub(super) fn conceal(world: &mut World, page: Entity) {
     if !world.is_alive(page) {
         return;
     }
-    if let Some(gate) = world.get_mut::<crate::core::reactive::retained::RetainedEffects>(page) {
+    if let Some(gate) = world.get_mut::<crate::ui::retained::RetainedEffects>(page) {
         gate.active = false;
     }
     world.insert(page, Hidden);
@@ -216,11 +216,11 @@ pub(super) fn present(world: &mut World, page: Entity) {
     if !world.is_alive(page) {
         return;
     }
-    if let Some(gate) = world.get_mut::<crate::core::reactive::retained::RetainedEffects>(page) {
+    if let Some(gate) = world.get_mut::<crate::ui::retained::RetainedEffects>(page) {
         gate.active = true;
     }
     world.remove::<Hidden>(page);
-    crate::core::reactive::retained::wake(world, page);
+    crate::ui::retained::wake(world, page);
     world.mark_subtree_dirty(page);
 }
 

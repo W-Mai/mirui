@@ -553,8 +553,8 @@ fn nested_effects_read_committed_content_and_do_not_receive_stale_selection() {
 
 #[test]
 fn document_effect_retiring_the_bound_item_does_not_publish_stale_editor_state() {
-    use crate::core::reactive::retained::RetainedEffects;
     use crate::input::event::runtime;
+    use crate::ui::retained::RetainedEffects;
     use alloc::rc::Rc;
     use core::cell::Cell;
 

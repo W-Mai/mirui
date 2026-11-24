@@ -312,7 +312,7 @@ where
         .queue
         .push_business(
             entity,
-            crate::core::reactive::retained::InputLease::capture(world, entity),
+            crate::ui::retained::InputLease::capture(world, entity),
             payload,
             capacity,
         )

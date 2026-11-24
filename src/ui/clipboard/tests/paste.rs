@@ -25,7 +25,7 @@ fn result(app: &mut TestApp) -> Result<ClipboardOutcome, ClipboardError> {
 
 #[test]
 fn paste_completions_do_not_cross_retained_item_rebinding() {
-    use crate::core::reactive::retained::{RetainedEffects, retire};
+    use crate::ui::retained::{RetainedEffects, retire};
 
     for denied in [false, true] {
         let (mut app, node) = fixture();

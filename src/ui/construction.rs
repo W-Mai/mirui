@@ -30,7 +30,8 @@ impl<P: super::property::Property> FieldProperty<P> {
         read: F,
     ) -> impl FnOnce(&mut World, Entity) + use<P, T, F> {
         move |world, entity| {
-            use crate::core::reactive::{BindingRole, widget_binding::prepare_widget_effect};
+            use crate::core::reactive::BindingRole;
+            use crate::ui::bindings::widget_binding::prepare_widget_effect;
             let effect = prepare_widget_effect(entity, BindingRole::Display, move || {
                 super::property::apply::<P>(entity, read());
             });

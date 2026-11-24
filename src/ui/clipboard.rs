@@ -3,12 +3,12 @@
 use alloc::{boxed::Box, collections::VecDeque};
 use core::any::Any;
 
-use crate::core::reactive::retained::InputLease;
 use crate::ecs::{CommandCapacity, Entity, World, commands::DeferredCommands, world::WorldId};
 use crate::input::event::{
     contract::{EntityNotification, EntityRequest, EntitySource, Event, RequestError},
     emission, request, runtime,
 };
+use crate::ui::retained::InputLease;
 
 mod data;
 #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]

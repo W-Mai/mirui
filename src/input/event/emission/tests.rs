@@ -44,13 +44,12 @@ fn queued_notifications_do_not_cross_retained_binding_replacement() {
         } else {
             fixture.node
         };
-        let gate =
-            crate::core::reactive::retained::RetainedEffects::new(&mut fixture.world, |_, _| true);
+        let gate = crate::ui::retained::RetainedEffects::new(&mut fixture.world, |_, _| true);
         fixture.world.insert(root, gate);
         assert_eq!(
             tracked_allocations(|| {
                 submit(&mut fixture.world, fixture.node, Hit { old: 0, new: 1 }).unwrap();
-                crate::core::reactive::retained::retire(&mut fixture.world, root);
+                crate::ui::retained::retire(&mut fixture.world, root);
                 fixture
                     .pending
                     .flush(&fixture.listeners, &mut fixture.world, 4)
@@ -82,12 +81,11 @@ fn invalidate_binding(valid: res!(mut BindingValid)) {
 fn notification_callbacks_recheck_retained_identity_between_listeners() {
     let mut fixture = Fixture::new(notification_capacity::<Hit>(1));
     fixture.world.insert_resource(BindingValid(true));
-    let gate =
-        crate::core::reactive::retained::RetainedEffects::new(&mut fixture.world, |world, _| {
-            world
-                .resource::<BindingValid>()
-                .is_some_and(|valid| valid.0)
-        });
+    let gate = crate::ui::retained::RetainedEffects::new(&mut fixture.world, |world, _| {
+        world
+            .resource::<BindingValid>()
+            .is_some_and(|valid| valid.0)
+    });
     fixture.world.insert(fixture.node, gate);
     fixture
         .listeners
@@ -1057,8 +1055,7 @@ fn record_owned(input: event!(OwnedHit), trace: res!(mut Trace)) {
 #[test]
 fn retired_notification_payloads_are_dropped_once_and_storage_is_reused() {
     let mut fixture = Fixture::new(notification_capacity::<OwnedHit>(1));
-    let gate =
-        crate::core::reactive::retained::RetainedEffects::new(&mut fixture.world, |_, _| true);
+    let gate = crate::ui::retained::RetainedEffects::new(&mut fixture.world, |_, _| true);
     fixture.world.insert(fixture.node, gate);
     fixture
         .listeners
@@ -1084,7 +1081,7 @@ fn retired_notification_payloads_are_dropped_once_and_storage_is_reused() {
                 )
                 .unwrap();
                 if expected == 1 {
-                    crate::core::reactive::retained::retire(&mut fixture.world, fixture.node);
+                    crate::ui::retained::retire(&mut fixture.world, fixture.node);
                 }
                 fixture
                     .pending

@@ -333,7 +333,7 @@ fn resolved_requests_do_not_follow_replaced_widgets_or_explicit_overrides() {
 
 #[test]
 fn resolved_requests_reject_foreign_worlds_and_retained_rebinding_without_allocation() {
-    use crate::core::reactive::retained::{RetainedEffects, retire};
+    use crate::ui::retained::{RetainedEffects, retire};
     let mut app = App::headless(32, 32);
     app.with_widget(selectable::view());
     let root = app.spawn_root().id();

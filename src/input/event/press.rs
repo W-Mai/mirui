@@ -3,9 +3,9 @@
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use crate::core::reactive::retained::{self, InputLease};
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
+use crate::ui::retained::{self, InputLease};
 use crate::ui::{IgnoreHitTest, Parent};
 
 use super::contract::{EntityNotification, EntitySource, Event, EventKey};

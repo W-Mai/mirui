@@ -2,10 +2,10 @@ use alloc::rc::Rc;
 use core::any::{Any, TypeId};
 use core::cell::Cell;
 
-use crate::core::reactive::retained::InputLease;
 use crate::ecs::world::WorldId;
 use crate::ecs::{Component, Entity, World};
 use crate::ui::lifecycle::ViewInputGuard;
+use crate::ui::retained::InputLease;
 use crate::ui::view::ViewRegistry;
 
 use super::callback::{CallbackContext, EventCallback, PreparedEvent};
@@ -205,7 +205,7 @@ where
         .map_err(|_| RequestError::Unavailable)?
         .allowed()
         || !E::Source::present(world, target)
-        || !crate::core::reactive::retained::enabled(world, target)
+        || !crate::ui::retained::enabled(world, target)
     {
         return Err(RequestError::Unavailable);
     }

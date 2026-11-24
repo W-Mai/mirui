@@ -1,8 +1,8 @@
 use super::contract::{EntityNotification, EntitySource, Event, EventKey};
 use super::listeners::InputBranch;
-use crate::core::reactive::retained::InputLease;
 use crate::ecs::Entity;
 use crate::ecs::World;
+use crate::ui::retained::InputLease;
 use core::cell::Cell;
 
 /// Keyboard focus entered or left this node. `related` is the other node in the transition.
@@ -76,7 +76,7 @@ impl FocusObserver {
             .and_then(|focus| focus.focused);
         let current = requested.filter(|&entity| {
             old.is_none_or(|old| old.entity() != entity || old.live(world))
-                && crate::core::reactive::retained::enabled(world, entity)
+                && crate::ui::retained::enabled(world, entity)
                 && InputBranch::scan(world, entity).is_ok_and(|branch| branch.allowed())
         });
         if current != requested

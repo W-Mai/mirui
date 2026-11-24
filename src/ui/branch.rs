@@ -119,7 +119,7 @@ fn set_selected(world: &mut World, root: Entity, selected: bool) {
         .selected = selected;
     crate::input::event::hit_test::invalidate_hit_test_geometry(world);
     if selected {
-        crate::core::reactive::retained::wake_display(world, root);
+        crate::ui::retained::wake_display(world, root);
         world.mark_subtree_dirty(root);
     } else {
         crate::input::event::retire_subtree_interaction(world, root);

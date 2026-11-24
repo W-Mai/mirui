@@ -4,9 +4,9 @@ use alloc::vec::Vec;
 use core::any::TypeId;
 use core::cell::RefCell;
 
-use crate::core::reactive::retained::InputLease;
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
+use crate::ui::retained::InputLease;
 use crate::ui::{IgnoreHitTest, Parent};
 
 use super::PointerCursor;
@@ -69,7 +69,7 @@ impl Pointer {
         self.target
             .filter(|(target, lease)| {
                 lease.is_none_or(|lease| lease.valid(world))
-                    && crate::core::reactive::retained::enabled(world, *target)
+                    && crate::ui::retained::enabled(world, *target)
                     && !world.has::<IgnoreHitTest>(*target)
                     && InputBranch::scan(world, *target).is_ok_and(|branch| branch.allowed())
             })
@@ -98,7 +98,7 @@ impl Observations {
 
     fn membership(&self, world: &World, entity: Entity) -> Option<Membership> {
         if world.has::<IgnoreHitTest>(entity)
-            || !crate::core::reactive::retained::enabled(world, entity)
+            || !crate::ui::retained::enabled(world, entity)
             || !InputBranch::scan(world, entity).is_ok_and(|branch| branch.allowed())
         {
             return None;
@@ -283,7 +283,7 @@ impl HoverObservers {
                     old.pointers & active != 0
                         && InputBranch::scan(world, entry.entity)
                             .is_ok_and(|branch| branch.allowed())
-                        && crate::core::reactive::retained::enabled(world, entry.entity)
+                        && crate::ui::retained::enabled(world, entry.entity)
                         && !world.has::<IgnoreHitTest>(entry.entity)
                 })
                 .map(|mut old| {

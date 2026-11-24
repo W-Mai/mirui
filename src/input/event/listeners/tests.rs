@@ -79,7 +79,7 @@ fn prepared_listener_uses_each_invocation_target_without_repreparing() {
     }
 }
 
-use crate::core::reactive::retained::RetainedEffects;
+use crate::ui::retained::RetainedEffects;
 #[crate::event]
 fn recycle(node: entity!(), _tap: event!(Tap), commands: commands!()) -> bool {
     commands.apply(node, (), |world, node, ()| {

@@ -743,7 +743,7 @@ pub(crate) fn dispatch_gesture(
         DragCancel, DragEnd, DragMove, DragStart, GesturePayload, LongPress, Pinch, Rotate, Tap,
     };
     let branch = InputBranch::scan(world, event.target())?;
-    if branch.is_hidden() || !crate::core::reactive::retained::enabled(world, event.target()) {
+    if branch.is_hidden() || !crate::ui::retained::enabled(world, event.target()) {
         return Ok(super::BubbleControl::Allow);
     }
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);

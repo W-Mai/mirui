@@ -426,7 +426,7 @@ fn update_list(
             cell.id,
             world.component_count(core::any::TypeId::of::<CellItem>()),
         );
-        let gate = crate::core::reactive::retained::RetainedEffects::new(world, cell_is_valid);
+        let gate = crate::ui::retained::RetainedEffects::new(world, cell_is_valid);
         world.insert(cell, gate);
         let slot = Slot {
             entity: cell,
@@ -483,9 +483,7 @@ fn update_list(
             changed = true;
         }
         let Some(index) = planned.next else {
-            if let Some(gate) =
-                world.get_mut::<crate::core::reactive::retained::RetainedEffects>(cell)
-            {
+            if let Some(gate) = world.get_mut::<crate::ui::retained::RetainedEffects>(cell) {
                 gate.active = false;
             }
             if !world.has::<Hidden>(cell) {
@@ -498,12 +496,11 @@ fn update_list(
             world.remove::<Hidden>(cell);
             changed = true;
         }
-        if let Some(gate) = world.get_mut::<crate::core::reactive::retained::RetainedEffects>(cell)
-        {
+        if let Some(gate) = world.get_mut::<crate::ui::retained::RetainedEffects>(cell) {
             let was_active = gate.active;
             gate.active = true;
             if !was_active {
-                crate::core::reactive::retained::wake(world, cell);
+                crate::ui::retained::wake(world, cell);
             }
         }
         if rebound && let Some(item) = world.get::<CellItem>(cell).map(|item| item.handle.clone()) {
@@ -573,7 +570,7 @@ pub(crate) fn reconcile(world: &mut World) -> bool {
     world.query::<LazyList>().collect_into(lists);
     let mut changed = false;
     for &entity in lists.iter() {
-        if !crate::core::reactive::retained::enabled(world, entity)
+        if !crate::ui::retained::enabled(world, entity)
             || crate::ui::branch::is_hidden_in_tree(world, entity)
         {
             continue;

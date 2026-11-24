@@ -118,11 +118,11 @@ pub fn dispatch_gesture(
 ) -> Result<BubbleControl, ListenerError> {
     prepare(world);
     let branch = InputBranch::scan(world, event.target())?;
-    if branch.is_hidden() || !crate::core::reactive::retained::enabled(world, event.target()) {
+    if branch.is_hidden() || !crate::ui::retained::enabled(world, event.target()) {
         return Ok(BubbleControl::Allow);
     }
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
-    let origin = crate::core::reactive::retained::InputLease::capture(world, event.target());
+    let origin = crate::ui::retained::InputLease::capture(world, event.target());
     if matches!(event, GestureEvent::Tap { .. })
         && !branch.preserves_pointer_focus()
         && let Some(focus) = world.resource_mut::<FocusState>()

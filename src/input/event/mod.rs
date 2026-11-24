@@ -224,7 +224,7 @@ fn dispatch_prepared_input(
     if let Some(invalid) = world
         .resource::<GestureSystem>()
         .and_then(|system| system.recognizer.captured_target())
-        .and_then(|target| crate::core::reactive::retained::invalid_root(world, target))
+        .and_then(|target| crate::ui::retained::invalid_root(world, target))
     {
         retire_subtree_interaction(world, invalid);
     }
@@ -254,8 +254,7 @@ fn dispatch_prepared_input(
         _ => None,
     };
     if pointer_down_target.is_some_and(|target| {
-        entity_or_ancestor_disabled(world, target)
-            || !crate::core::reactive::retained::enabled(world, target)
+        entity_or_ancestor_disabled(world, target) || !crate::ui::retained::enabled(world, target)
     }) {
         return;
     }
@@ -303,7 +302,7 @@ pub(crate) fn cancel_active_input(
 
 pub(crate) fn retire_subtree_interaction(world: &mut World, root: Entity) {
     use crate::ui::branch::is_in_subtree;
-    crate::core::reactive::retained::retire(world, root);
+    crate::ui::retained::retire(world, root);
     runtime::observe_press(world);
     let captured = world
         .resource::<GestureSystem>()

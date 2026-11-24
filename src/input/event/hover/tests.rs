@@ -269,18 +269,18 @@ fn failed_enqueue_advances_baseline_and_does_not_retry() {
 #[test]
 fn retired_identity_drops_queued_notifications_without_retargeting() {
     let (mut world, [root, a, _]) = setup();
-    let gate = crate::core::reactive::retained::RetainedEffects::new(&mut world, |_, _| true);
+    let gate = crate::ui::retained::RetainedEffects::new(&mut world, |_, _| true);
     world.insert(a, gate);
     runtime::observe_pointer(&mut world, &moved(PointerKind::Mouse, 0, 10), 100, 100);
-    crate::core::reactive::retained::retire(&mut world, a);
+    crate::ui::retained::retire(&mut world, a);
     world
-        .get_mut::<crate::core::reactive::retained::RetainedEffects>(a)
+        .get_mut::<crate::ui::retained::RetainedEffects>(a)
         .unwrap()
         .active = false;
     crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(take(&mut world), [(root, true), (root, false)]);
     world
-        .get_mut::<crate::core::reactive::retained::RetainedEffects>(a)
+        .get_mut::<crate::ui::retained::RetainedEffects>(a)
         .unwrap()
         .active = true;
     crate::ui::delivery::flush(&mut world).unwrap();

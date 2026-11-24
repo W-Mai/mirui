@@ -64,7 +64,7 @@ fn edit_target_rejects_other_worlds_and_replaced_entity_generations() {
 
 #[test]
 fn retained_rebinding_invalidates_old_edits_without_replacing_the_component() {
-    use crate::core::reactive::retained::{RetainedEffects, retire};
+    use crate::ui::retained::{RetainedEffects, retire};
     let mut world = World::new();
     let node = world.spawn_empty();
     world.insert(node, TextEditing::default());

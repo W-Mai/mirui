@@ -198,7 +198,7 @@ fn ready<R: Clone + 'static>(world: &mut World, entity: Entity) -> bool {
 
 fn reconcile<R: Clone + 'static>(world: &mut World, entity: Entity) -> bool {
     if crate::ui::branch::is_hidden_in_tree(world, entity)
-        || !crate::core::reactive::retained::enabled(world, entity)
+        || !crate::ui::retained::enabled(world, entity)
     {
         return false;
     }

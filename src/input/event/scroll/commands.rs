@@ -1,10 +1,10 @@
 use crate::core::model::ModelItemId;
-use crate::core::reactive::retained::{self, InputLease};
 use crate::ecs::commands::DeferredCommands;
 use crate::ecs::{CommandCapacity, Entity, World};
 use crate::types::{Fixed, Rect, Transform3D};
 use crate::ui::prepared_layout::{LayoutParticipant, PreparedLayout};
 use crate::ui::property::{PropertyChange, invalidate_for_change};
+use crate::ui::retained::{self, InputLease};
 use crate::ui::{Parent, Widget};
 
 use super::{ScrollAxis, ScrollConfig, ScrollOffset};

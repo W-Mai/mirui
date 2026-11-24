@@ -1,4 +1,6 @@
 use super::*;
+use crate::ui::dirty::{Dirty, VisualDirty};
+use crate::ui::retained;
 
 // std test threads are pooled and reused, so the per-thread runtime can
 // carry residue between tests on the same thread — reset at entry.
@@ -2488,3 +2490,4 @@ fn dropped_world_releases_owner_graph_and_effect_edges() {
     assert_eq!(runs.get(), 1);
     drop(effect);
 }
+use crate::ui::bindings::widget_binding;

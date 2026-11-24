@@ -1,8 +1,9 @@
 use core::{cell::Cell, marker::PhantomData};
 
-use crate::core::reactive::{BindingRole, widget_binding::prepare_widget_effect};
+use crate::core::reactive::BindingRole;
 use crate::ecs::world::ComponentChangeKind;
 use crate::ecs::{Entity, World};
+use crate::ui::bindings::widget_binding::prepare_widget_effect;
 use crate::ui::property::{PropertyChange, invalidate_for_change};
 use crate::ui::recipe::PropertyBindings;
 

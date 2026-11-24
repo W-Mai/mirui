@@ -132,7 +132,7 @@ fn acknowledgments_are_ordered_single_use_and_owned_by_the_issuing_app() {
 
 #[test]
 fn clipboard_completions_do_not_cross_retained_item_rebinding() {
-    use crate::core::reactive::retained::{RetainedEffects, retire};
+    use crate::ui::retained::{RetainedEffects, retire};
 
     for (cut_source, rebind_queued) in [(false, false), (true, false), (false, true), (true, true)]
     {

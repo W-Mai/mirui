@@ -252,7 +252,7 @@ pub(crate) fn advance<T: crate::ecs::Component>(
         .map_or(16, |dt| dt.0);
     world.for_each_stable::<T>(|world, container| {
         if crate::ui::branch::is_hidden_in_tree(world, container)
-            || !crate::core::reactive::retained::enabled(world, container)
+            || !crate::ui::retained::enabled(world, container)
         {
             return;
         }

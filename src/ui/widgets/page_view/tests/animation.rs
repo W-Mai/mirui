@@ -374,7 +374,7 @@ fn transition_locks_input_without_disabling_the_visual_theme_or_reactive_effects
             .unwrap()
             .transition = PageTransition::slide(config);
         let home = mounted(&app.world, container);
-        let old = crate::core::reactive::retained::InputLease::capture(&app.world, home).unwrap();
+        let old = crate::ui::retained::InputLease::capture(&app.world, home).unwrap();
         selection.select(Route::Details);
         app.render().unwrap();
         for host in [home, mounted(&app.world, container)] {
@@ -384,7 +384,7 @@ fn transition_locks_input_without_disabling_the_visual_theme_or_reactive_effects
                     .unwrap()
                     .allowed()
             );
-            assert!(crate::core::reactive::retained::enabled(&app.world, child));
+            assert!(crate::ui::retained::enabled(&app.world, child));
             assert!(!app.world.has::<crate::ui::state::UserState>(host));
         }
         assert!(!old.valid(&app.world));

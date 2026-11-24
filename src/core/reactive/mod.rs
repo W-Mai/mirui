@@ -3,7 +3,7 @@ extern crate alloc;
 mod effect_index;
 mod graph;
 mod identity;
-pub(crate) mod retained;
+pub(crate) mod schedule;
 
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::rc::{Rc, Weak};
@@ -14,7 +14,7 @@ use core::ptr::NonNull;
 
 use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, World};
-use crate::ui::dirty::{Dirty, VisualDirty};
+pub use crate::ui::bindings::{effect_with_role, effect_with_widget, flush_signal_dirty};
 use effect_index::EffectIndex;
 use graph::{ConsumerKey, PartitionKey, PendingKind, ReactiveGraph, SourceKey};
 use identity::{SlotAllocator, SlotId};
@@ -866,217 +866,6 @@ pub(crate) fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
     // walk/if/match re-run enters another scope); WorldGuard saves/restores the
     // previous pointer LIFO, so the innermost live &mut World always wins.
     Some(f(unsafe { &mut *window.pointer.as_ptr() }))
-}
-
-// An effect re-running may set signals that enqueue more effects/widgets in the
-// same frame; loop until both queues settle. The cap stops a runaway cycle from
-// hanging the frame — real cycle detection lands later.
-const FLUSH_MAX_PASSES: u32 = 32;
-
-fn pop_widget_for(
-    queue: &mut VecDeque<(Option<WorldId>, Entity)>,
-    world_id: WorldId,
-) -> Option<Entity> {
-    let (owner, entity) = queue.pop_front().expect("queued widget");
-    if owner.is_none_or(|owner| owner == world_id) {
-        Some(entity)
-    } else {
-        queue.push_back((owner, entity));
-        None
-    }
-}
-
-fn pop_visual_widget_for(
-    queue: &mut VecDeque<VisualInvalidation>,
-    world_id: WorldId,
-) -> Option<Entity> {
-    let entry = queue.pop_front().expect("queued visual widget");
-    if entry.pending.is_none()
-        && entry.condition != PaintRequestCondition::OnResourceWake
-        && entry.owner.is_none_or(|owner| owner == world_id)
-    {
-        Some(entry.entity)
-    } else {
-        queue.push_back(entry);
-        None
-    }
-}
-
-fn effect_tree_revision(world: &World) -> (u64, u64) {
-    (
-        world.component_revision::<crate::ui::Parent>(),
-        world.component_revision::<crate::ui::Children>(),
-    )
-}
-
-fn order_effects(world: &World, remaining: usize) {
-    if remaining < 2 {
-        return;
-    }
-    let retained = world.component_count(core::any::TypeId::of::<retained::RetainedEffects>()) > 0;
-    if !retained
-        && world.component_count(core::any::TypeId::of::<
-            crate::ui::branch::CachedBranchVisibility,
-        >()) == 0
-    {
-        return;
-    }
-    #[cfg(feature = "perf")]
-    crate::trace_span!("reactive.order");
-    let ancestry_depth = retained::ancestry_depth(world);
-    let world_id = world.id();
-    with_reactive(|runtime| {
-        let count = remaining.min(runtime.dirty_effects.len());
-        for (index, entry) in runtime.dirty_effects.iter_mut().take(count).enumerate() {
-            entry.order = runtime.effects.get(&entry.id).map_or(0, |effect| {
-                let effect = effect.borrow();
-                let foreign = effect.owner_world.is_some_and(|owner| owner != world_id);
-                let ordinary = effect.role == BindingRole::Ordinary;
-                let (lane, depth) = if foreign {
-                    // Entity identities only resolve within their own World.
-                    (3, 0)
-                } else if ordinary && !retained {
-                    (1, index)
-                } else {
-                    (
-                        if ordinary { 1 } else { 2 },
-                        effect.owner_entity.map_or(0, &ancestry_depth),
-                    )
-                };
-                // The 32-bit identity space bounds both depth and the queue ordinal.
-                // Keep the cycle sentinel above every finite depth on all targets.
-                let depth = if depth == usize::MAX {
-                    1u64 << 32
-                } else {
-                    depth as u64
-                };
-                // Zero sorts missing effects first. Each live lane has 33 depth
-                // bits and two role bits; the full ID breaks remaining ties.
-                (lane << 35) | (depth << 2) | u64::from(effect.role as u8)
-            });
-        }
-        runtime.dirty_effects.make_contiguous()[..count]
-            .sort_unstable_by_key(|entry| (entry.order, entry.id));
-    });
-}
-
-/// Drain queued reactive work at input delivery and frame boundaries:
-/// re-run dirty effects (which may dirty more), then mark dirty widgets. Dead
-/// entities are skipped (no reverse index; subscriber lists may retain
-/// despawned entities).
-#[cfg_attr(feature = "perf", crate::trace_fn("reactive.flush"))]
-pub fn flush_signal_dirty(world: &mut World) {
-    let resource_ready = world
-        .resource::<Rc<PaintWake>>()
-        .is_some_and(|wake| wake.0.take_ready());
-    with_reactive(|r| {
-        if !r.dirty_visual_widgets.is_empty() {
-            r.dirty_visual_widgets.retain_mut(|entry| {
-                if entry.owner == Some(world.id())
-                    && entry.condition == PaintRequestCondition::OnResourceWake
-                {
-                    if !world.is_alive(entry.entity) {
-                        return false;
-                    }
-                    if resource_ready {
-                        entry.condition = PaintRequestCondition::Always;
-                    }
-                }
-                true
-            });
-        }
-    });
-    // Preserve cold preparation even when no callback needs a structural window.
-    world.register_drop_hook::<ReactiveOwnerCleanup>(release_graph_owner);
-    register_graph_owner(world.id());
-    reclaim_dead_effects(world);
-    // Retiring captures may enqueue work, so inspect the queues after cleanup.
-    if with_reactive(|r| {
-        r.dirty_effects.is_empty()
-            && r.dirty_widgets.is_empty()
-            && r.dirty_visual_widgets.is_empty()
-    }) {
-        return;
-    }
-    let _guard = WorldGuard::enter(world);
-    let world_id = world.id();
-    for _ in 0..FLUSH_MAX_PASSES {
-        let mut ran_effect = false;
-        {
-            #[cfg(feature = "perf")]
-            crate::trace_span!("reactive.effects");
-            let pending_effects = with_reactive(|r| r.dirty_effects.len());
-            if pending_effects > 1 {
-                order_effects(world, pending_effects);
-            }
-            let mut tree_revision = effect_tree_revision(world);
-            for index in 0..pending_effects {
-                let revision = effect_tree_revision(world);
-                if revision != tree_revision {
-                    order_effects(world, pending_effects - index);
-                    tree_revision = revision;
-                }
-                let effect = with_reactive(|r| {
-                    let entry = r.dirty_effects.pop_front()?;
-                    let id = entry.id;
-                    let effect = r.effects.get(&id)?.borrow();
-                    if effect.owner_world.is_some_and(|owner| owner != world_id) {
-                        r.dirty_effects.push_back(entry);
-                        return None;
-                    }
-                    effect.queued.set(false);
-                    Some((id, effect.owner_entity, effect.role))
-                });
-                if let Some((effect, owner, role)) = effect {
-                    if owner.is_some_and(|entity| {
-                        !world.is_alive(entity)
-                            || !retained::enabled(world, entity)
-                            || (role == BindingRole::Display
-                                && !retained::display_enabled(world, entity))
-                    }) {
-                        continue;
-                    }
-                    run_effect(effect);
-                    ran_effect = true;
-                }
-            }
-        }
-        let mut marked_widget = false;
-        let mut marked_visual_widget = false;
-        {
-            #[cfg(feature = "perf")]
-            crate::trace_span!("reactive.mark_dirty");
-            let pending_widgets = with_reactive(|r| r.dirty_widgets.len());
-            for _ in 0..pending_widgets {
-                let entity = with_reactive(|r| pop_widget_for(&mut r.dirty_widgets, world_id));
-                if let Some(entity) = entity {
-                    marked_widget = true;
-                    if world.is_alive(entity) {
-                        world.insert(entity, Dirty);
-                    }
-                }
-            }
-            let pending_visual_widgets = with_reactive(|r| r.dirty_visual_widgets.len());
-            for _ in 0..pending_visual_widgets {
-                let entity =
-                    with_reactive(|r| pop_visual_widget_for(&mut r.dirty_visual_widgets, world_id));
-                if let Some(entity) = entity {
-                    marked_visual_widget = true;
-                    if world.is_alive(entity) {
-                        world.insert(entity, VisualDirty::New);
-                    }
-                }
-            }
-        }
-        if !ran_effect && !marked_widget && !marked_visual_widget {
-            return;
-        }
-    }
-    // cap reached = a cycle; debug panics, release stops instead of hanging
-    debug_assert!(
-        false,
-        "reactive flush did not settle in {FLUSH_MAX_PASSES} passes (cycle?)"
-    );
 }
 
 // Reclaim effects whose owning widget is gone. No ECS hook — flush holds the
@@ -1947,52 +1736,8 @@ pub fn with_owned_effects<T>(build: impl FnOnce() -> T) -> (T, OwnedEffects) {
     )
 }
 
-/// An effect owned by the runtime and tied to a widget entity: it re-runs on
-/// dependency change and lives until the widget is despawned (cleanup later),
-/// not until a returned handle drops. Hence no handle is returned — dropping
-/// one would immediately unregister the effect.
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn effect_with_widget(entity: Entity, f: impl Fn() + 'static) {
-    effect_with_role(entity, BindingRole::Ordinary, f);
-}
-
-#[doc(hidden)]
-pub fn effect_with_role(entity: Entity, role: BindingRole, f: impl Fn() + 'static) {
-    if role != BindingRole::Ordinary {
-        with_world(|world| {
-            world.watch_component_revision::<crate::ui::Parent>();
-            world.watch_component_revision::<crate::ui::Children>();
-        });
-    }
+pub(crate) fn register_entity_effect(entity: Entity, role: BindingRole, f: impl Fn() + 'static) {
     core::mem::forget(Effect::spawn(f, Some(entity), role));
-}
-
-pub(crate) mod widget_binding {
-    use super::{BindingRole, Entity, World, effect_with_role, with_world_scope};
-
-    pub struct PreparedWidgetEffect<F> {
-        entity: Entity,
-        run: F,
-        role: BindingRole,
-    }
-
-    pub fn prepare_widget_effect<F: Fn() + 'static>(
-        entity: Entity,
-        role: BindingRole,
-        run: F,
-    ) -> PreparedWidgetEffect<F> {
-        PreparedWidgetEffect { entity, run, role }
-    }
-
-    impl<F: Fn() + 'static> PreparedWidgetEffect<F> {
-        pub fn install_once(self, world: &mut World) {
-            with_world_scope(world, self.run);
-        }
-
-        pub fn install(self, world: &mut World) {
-            with_world_scope(world, || effect_with_role(self.entity, self.role, self.run));
-        }
-    }
 }
 
 // Clone the closure Rc out under the lock, then run it OUTSIDE — running user

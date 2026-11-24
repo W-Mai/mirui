@@ -9,6 +9,7 @@
 //! `Widget::new()` on no-arg widgets is kept as an alias for
 //! `Widget::default()` so the call site can stay either form.
 
+pub(crate) mod bindings;
 #[doc(hidden)]
 pub mod branch;
 pub(crate) mod builder;
@@ -33,6 +34,7 @@ pub(crate) mod recipe;
 pub mod render_system;
 #[doc(hidden)]
 pub mod resource_access;
+pub(crate) mod retained;
 pub(crate) mod retirement;
 pub mod scope;
 pub mod selection;
@@ -64,7 +66,7 @@ pub use state::{InteractionState, UserState};
 pub use style::{ClassList, FontSize, StylePreset, StyleSheet, StyleSheetPlugin, Typography};
 
 pub(crate) fn flush_bindings(world: &mut crate::ecs::World) {
-    crate::core::reactive::flush_signal_dirty(world);
+    bindings::flush_signal_dirty(world);
     style::reconcile_classes(world);
 }
 pub use theme::{ColorToken, Theme, ThemeCatalog, ThemeError, ThemeSource, ThemedColor};

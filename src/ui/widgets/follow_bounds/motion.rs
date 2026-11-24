@@ -75,7 +75,7 @@ pub(super) fn follow_bounds_motion(world: &mut World) -> Result<(), crate::ecs::
     world.for_each_stable::<FollowMotion>(|world, entity| {
         if !world.has::<FollowBounds>(entity)
             || crate::ui::branch::is_hidden_in_tree(world, entity)
-            || !crate::core::reactive::retained::enabled(world, entity)
+            || !crate::ui::retained::enabled(world, entity)
         {
             return;
         }

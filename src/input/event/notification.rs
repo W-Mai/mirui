@@ -4,9 +4,9 @@ use core::cell::{Cell, RefCell};
 use core::mem::{self, size_of};
 use core::ptr::NonNull;
 
-use crate::core::reactive::retained::InputLease;
 use crate::ecs::Entity;
 use crate::ecs::payload::{PayloadArena, PayloadError, PayloadLayout, drop_stored};
+use crate::ui::retained::InputLease;
 
 use super::contract::{AppNotification, EntityNotification, Event};
 use super::lifecycle::AppNotice;

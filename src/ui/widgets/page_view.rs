@@ -141,7 +141,7 @@ fn animate_selection<R: Clone + PartialEq + 'static>(world: &mut World, entity: 
 
 fn reconcile<R: Clone + PartialEq + 'static>(world: &mut World, entity: Entity) -> bool {
     if crate::ui::branch::is_hidden_in_tree(world, entity)
-        || !crate::core::reactive::retained::enabled(world, entity)
+        || !crate::ui::retained::enabled(world, entity)
     {
         return false;
     }

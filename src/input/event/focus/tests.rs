@@ -234,10 +234,10 @@ fn hidden_and_destroyed_focus_clears_without_retargeting_reused_bindings() {
             }
         )]
     );
-    let gate = crate::core::reactive::retained::RetainedEffects::new(&mut world, |_, _| true);
+    let gate = crate::ui::retained::RetainedEffects::new(&mut world, |_, _| true);
     world.insert(b, gate);
     select(&mut world, Some(b));
-    crate::core::reactive::retained::retire(&mut world, b);
+    crate::ui::retained::retire(&mut world, b);
     crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     assert_eq!(world.resource::<FocusState>().unwrap().focused, None);

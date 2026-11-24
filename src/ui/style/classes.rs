@@ -394,7 +394,7 @@ pub fn prepare_class_binding<L: Into<ClassList>>(
     entity: Entity,
     read: impl Fn() -> L + 'static,
 ) -> impl FnOnce(&mut World, bool) {
-    let effect = crate::core::reactive::widget_binding::prepare_widget_effect(
+    let effect = crate::ui::bindings::widget_binding::prepare_widget_effect(
         entity,
         BindingRole::Display,
         move || {

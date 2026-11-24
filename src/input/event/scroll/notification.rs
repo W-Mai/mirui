@@ -3,8 +3,8 @@
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use crate::core::reactive::retained::{self, InputLease};
 use crate::ecs::{Entity, World};
+use crate::ui::retained::{self, InputLease};
 
 use super::{ScrollMotion, ScrollOffset};
 use crate::input::event::contract::{EntityNotification, Event, EventKey, ScrollSource};

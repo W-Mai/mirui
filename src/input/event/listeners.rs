@@ -8,10 +8,10 @@ use core::marker::PhantomData;
 use core::mem::size_of;
 use core::ptr::NonNull;
 
-use crate::core::reactive::retained::InputLease;
 use crate::ecs::commands::{CommandCapacity, CommandError};
 use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, World};
+use crate::ui::retained::InputLease;
 
 use super::BubbleControl;
 use super::callback::{

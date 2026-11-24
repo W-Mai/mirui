@@ -165,7 +165,6 @@ pub mod __macro_support {
     pub use crate::anim::MotionComponent;
     pub use crate::anim::generated::{MotionFrame, advance_motion};
     pub use crate::core::model::{BindingOwner, ModelOwnerError};
-    pub use crate::core::reactive::widget_binding::{PreparedWidgetEffect, prepare_widget_effect};
     pub use crate::core::reactive::{
         BindingRole, OwnedEffects, effect_with_role, with_owned_effects,
     };
@@ -204,6 +203,7 @@ pub mod __macro_support {
     pub use crate::input::event::runtime::{RuntimeInstallError, RuntimeRunError};
     pub use crate::input::event::view_attach::{AttachDefinition, PreparedAttach, prepare_attach};
     pub use crate::input::event::view_input::{PreparedInputs, prepare_inputs};
+    pub use crate::ui::bindings::widget_binding::{PreparedWidgetEffect, prepare_widget_effect};
     pub use crate::ui::builder::WidgetBuilder;
     pub use crate::ui::construction::{ReservedWidget, finish_widget_static};
     pub use crate::ui::delivery::{

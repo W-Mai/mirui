@@ -1,4 +1,7 @@
-use super::*;
+use crate::core::reactive::{BindingRole, schedule::wake_entity_effects};
+use crate::ecs::{Entity, World};
+
+use super::Parent;
 
 /// Internal gate for retained subtrees whose data binding can be inactive.
 pub(crate) struct RetainedEffects {
@@ -57,7 +60,7 @@ impl InputLease {
                     issued: world.resource::<RetainedClock>().map_or(0, |clock| clock.0),
                 });
             }
-            entity = world.get::<crate::ui::Parent>(entity)?.0;
+            entity = world.get::<Parent>(entity)?.0;
         }
         None
     }
@@ -76,46 +79,13 @@ pub(crate) fn wake_display(world: &World, root: Entity) {
 }
 
 fn wake_matching(world: &World, root: Entity, accepts: impl Fn(BindingRole) -> bool) {
-    let contains = crate::ui::branch::subtree_membership(world, root);
-    with_reactive(|runtime| {
-        if let Some(effects) = runtime.effect_index.entity_effects(world.id()) {
-            let queued = runtime.dirty_effects.len();
-            let mut previous = None;
-            let mut included = false;
-            for (entity, id) in effects {
-                if previous != Some(entity) {
-                    previous = Some(entity);
-                    included = contains(entity);
-                }
-                if included {
-                    let effect = runtime.effects[&id].borrow();
-                    if accepts(effect.role) {
-                        PendingEffect::enqueue(&mut runtime.dirty_effects, id, &effect);
-                    }
-                }
-            }
-            if runtime.dirty_effects.len() - queued > 1 {
-                // Wake order follows the registry even when entity IDs differ.
-                runtime.dirty_effects.make_contiguous()[queued..]
-                    .sort_unstable_by_key(|entry| entry.id);
-            }
-            return;
-        }
-        for (&id, effect) in &runtime.effects {
-            let effect = effect.borrow();
-            if effect.owner_world == Some(world.id())
-                && accepts(effect.role)
-                && effect.owner_entity.is_some_and(&contains)
-            {
-                PendingEffect::enqueue(&mut runtime.dirty_effects, id, &effect);
-            }
-        }
-    });
+    let contains = super::branch::subtree_membership(world, root);
+    wake_entity_effects(world, contains, accepts);
 }
 
 pub(super) fn display_enabled(world: &World, mut entity: Entity) -> bool {
-    let branches = world.storage::<crate::ui::branch::CachedBranchVisibility>();
-    let parents = world.storage::<crate::ui::Parent>();
+    let branches = world.storage::<super::branch::CachedBranchVisibility>();
+    let parents = world.storage::<Parent>();
     for _ in 0..=world.live_entity_count() {
         if branches
             .and_then(|branches| branches.get(entity))
@@ -142,14 +112,14 @@ pub(crate) fn invalid_root(world: &World, mut entity: Entity) -> Option<Entity> 
         {
             return Some(entity);
         }
-        entity = world.get::<crate::ui::Parent>(entity)?.0;
+        entity = world.get::<Parent>(entity)?.0;
     }
     None
 }
 
 fn enabled_at(world: &World, mut entity: Entity, issued: u64) -> bool {
     let gates = world.storage::<RetainedEffects>();
-    let parents = world.storage::<crate::ui::Parent>();
+    let parents = world.storage::<Parent>();
     for _ in 0..=world.live_entity_count() {
         if let Some(gate) = gates.and_then(|gates| gates.get(entity))
             && (!gate.active
@@ -168,7 +138,7 @@ fn enabled_at(world: &World, mut entity: Entity, issued: u64) -> bool {
 }
 
 pub(super) fn ancestry_depth(world: &World) -> impl Fn(Entity) -> usize + '_ {
-    let parents = world.storage::<crate::ui::Parent>();
+    let parents = world.storage::<Parent>();
     let limit = world.live_entity_count();
     move |mut entity| {
         for depth in 0..=limit {
@@ -182,39 +152,5 @@ pub(super) fn ancestry_depth(world: &World) -> impl Fn(Entity) -> usize + '_ {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn input_lease_checks_every_retained_ancestor_without_allocating() {
-        let mut world = World::new();
-        let outer = world.spawn_empty();
-        let inner = world.spawn_empty();
-        let child = world.spawn_empty();
-        let unrelated = world.spawn_empty();
-        world.insert(inner, crate::ui::Parent(outer));
-        world.insert(child, crate::ui::Parent(inner));
-        for entity in [outer, inner, unrelated] {
-            let gate = RetainedEffects::new(&mut world, |_, _| true);
-            world.insert(entity, gate);
-        }
-        assert_eq!(
-            crate::test_support::tracked_allocations(|| {
-                let lease = InputLease::capture(&world, child).unwrap();
-                retire(&mut world, unrelated);
-                assert!(lease.valid(&world));
-                retire(&mut world, outer);
-                assert!(!lease.valid(&world));
-                let lease = InputLease::capture(&world, child).unwrap();
-                assert!(lease.valid(&world));
-                retire(&mut world, inner);
-                retire(&mut world, inner);
-                assert!(!lease.valid(&world));
-                assert!(InputLease::capture(&world, child).unwrap().valid(&world));
-                world.get_mut::<RetainedEffects>(outer).unwrap().active = false;
-                assert!(!enabled(&world, child));
-            }),
-            0
-        );
-    }
-}
+#[path = "../../tests/unit/ui/retained/tests.rs"]
+mod tests;

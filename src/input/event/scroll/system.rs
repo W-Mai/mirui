@@ -523,7 +523,7 @@ fn pointer_scroll_allowed(world: &World, start: Entity, gesture_dir: ScrollAxis)
 }
 
 fn input_allowed(world: &World, entity: Entity) -> bool {
-    crate::core::reactive::retained::enabled(world, entity)
+    crate::ui::retained::enabled(world, entity)
         && crate::input::event::listeners::InputBranch::scan(world, entity)
             .is_ok_and(|branch| branch.allowed())
 }

@@ -313,7 +313,7 @@ fn a_second_container_cannot_claim_a_live_path_and_can_claim_it_after_retirement
 fn returning_to_a_cached_page_invalidates_old_input_leases() {
     let (mut app, stack, path) = setup(0);
     let root = shown(&app.world, stack);
-    let lease = crate::core::reactive::retained::InputLease::capture(&app.world, root).unwrap();
+    let lease = crate::ui::retained::InputLease::capture(&app.world, root).unwrap();
     assert!(lease.valid(&app.world));
     path.push(Route::Details(1)).unwrap();
     settle(&mut app);
@@ -323,7 +323,7 @@ fn returning_to_a_cached_page_invalidates_old_input_leases() {
     assert_eq!(shown(&app.world, stack), root);
     assert!(!lease.valid(&app.world));
     assert!(
-        crate::core::reactive::retained::InputLease::capture(&app.world, root)
+        crate::ui::retained::InputLease::capture(&app.world, root)
             .unwrap()
             .valid(&app.world)
     );

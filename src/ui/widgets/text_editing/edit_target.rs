@@ -1,9 +1,9 @@
 use core::any::TypeId;
 
 use crate::core::model::{BindType, ModelHandle};
-use crate::core::reactive::retained::InputLease;
 use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, World};
+use crate::ui::retained::InputLease;
 
 use super::{TextDocument, TextEditing};
 
