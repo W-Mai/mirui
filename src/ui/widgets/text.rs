@@ -659,8 +659,9 @@ pub struct TextBuilder<P = (), B = ()> {
 }
 
 impl<P, B> TextBuilder<P, B> {
-    pub fn style(mut self, style: crate::ui::Style) -> Self {
-        self.style = Some(style);
+    pub fn style(mut self, mut style: impl crate::ui::style::StyleInput<Text>) -> Self {
+        style.apply_widget(&mut self.text, 0);
+        style.apply_style(self.style.get_or_insert_default(), 0);
         self
     }
 

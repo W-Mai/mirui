@@ -10,7 +10,7 @@ use mirui::ecs::{Entity, World};
 use mirui::input::event::{BubbleControl, gesture::GestureEvent};
 use mirui::prelude::*;
 use mirui::ui::property::prop;
-use mirui::ui::widgets::{Button, Slider, Text};
+use mirui::ui::widgets::{Button, ParagraphStyle, Slider, Text};
 use mirui::ui::{Children, HitTarget, InteractionFeedback, NamedId, Parent, Style, Widget};
 
 #[model]
@@ -36,6 +36,72 @@ impl Controls {
 #[event]
 fn reset(controls: model!(Controls)) {
     controls.reset();
+}
+
+const STEP_STYLE: StylePreset = style!(grow: 1.0, width: 30, height: 44, border_radius: 22);
+
+#[compose]
+fn preset_widgets() {
+    ui! {
+        Row (width: 50, style: STEP_STYLE, id: "styled-row") {
+            Button (
+                style: style!(normal_color : ColorToken::Primary, padding : Padding::all(0)),
+                normal_color: ColorToken::Secondary,
+                text: "+",
+                id: "styled-button"
+            )
+            Text (
+                style: style!(paragraph : ParagraphStyle::label()),
+                text: "Number",
+                id: "styled-text"
+            )
+        }
+    };
+}
+
+#[test]
+fn presets_merge_through_dsl_and_builder_construction() {
+    let mut app = App::headless(100, 100);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.compose(root, preset_widgets());
+    let row = app.world.find_by_id("styled-row").unwrap();
+    let button = app.world.find_by_id("styled-button").unwrap();
+    let label = app.world.find_by_id("styled-text").unwrap();
+
+    let row_style = app.world.get::<Style>(row).unwrap();
+    assert_eq!(row_style.layout.direction, FlexDirection::Row);
+    assert_eq!(row_style.layout.width, Dimension::px(50));
+    assert_eq!(row_style.layout.height, Dimension::px(44));
+    assert_eq!(row_style.border_radius, Fixed::from_int(22));
+    assert_eq!(
+        app.world.get::<Style>(button).unwrap().layout.padding,
+        Padding::all(0)
+    );
+    assert_eq!(
+        app.world.get::<Button>(button).unwrap().normal_color,
+        ColorToken::Secondary.into()
+    );
+    assert_eq!(
+        app.world.get::<Text>(label).unwrap().paragraph(),
+        &ParagraphStyle::label()
+    );
+
+    let built = app.compose(root, |scope| {
+        scope.spawn(
+            Button::build()
+                .style(STEP_STYLE)
+                .text_color(ColorToken::OnPrimary),
+        )
+    });
+    assert_eq!(
+        app.world.get::<Style>(built).unwrap().layout.height,
+        Dimension::px(44)
+    );
+    assert_eq!(
+        app.world.get::<Style>(built).unwrap().text_color,
+        ColorToken::OnPrimary.into()
+    );
 }
 
 #[component]

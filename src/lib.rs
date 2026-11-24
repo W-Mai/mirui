@@ -224,7 +224,7 @@ pub mod __macro_support {
 pub mod gallery;
 
 pub use mirui_macros::{
-    animate, com, component, compose, event, model, path, scene, system, timer, trace_fn,
+    animate, com, component, compose, event, model, path, scene, style, system, timer, trace_fn,
     trace_span, ui, view,
 };
 
@@ -279,12 +279,14 @@ pub mod prelude {
     pub use crate::ui::theme::{
         ColorToken, Theme, ThemeCatalog, ThemeError, ThemeId, ThemeInfo, ThemeSource, ThemedColor,
     };
-    pub use crate::ui::{HitTarget, InteractionFeedback, Prop, RespectSafeArea, Style, Widget};
+    pub use crate::ui::{
+        HitTarget, InteractionFeedback, Prop, RespectSafeArea, Style, StylePreset, Widget,
+    };
     pub use crate::ui::{WidgetMut, property};
 
     pub use mirui_macros::{
-        animate, com, component, compose, event, model, path, scene, system, timer, trace_fn,
-        trace_span, ui, view,
+        animate, com, component, compose, event, model, path, scene, style, system, timer,
+        trace_fn, trace_span, ui, view,
     };
 
     /// Surface integration — picking and wiring a backend.

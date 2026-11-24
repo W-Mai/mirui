@@ -15,12 +15,13 @@ See [Persistence](persistence.md) for storage and automatic-save configuration.
 1. [Registered model instances](#registered-model-instances)
 2. [Choosing state and rendering roles](#choosing-state-and-rendering-roles)
 3. [Primitives](#primitives)
-4. [Reactive attributes](#reactive-attributes)
-5. [Layout-responsive attributes](#layout-responsive-attributes)
-6. [Reactive control flow](#reactive-control-flow)
-7. [Lists: `walk`, index vs keyed](#lists)
-8. [The flush model](#the-flush-model)
-9. [Limits](#limits)
+4. [Reusable styles](#reusable-styles)
+5. [Reactive attributes](#reactive-attributes)
+6. [Layout-responsive attributes](#layout-responsive-attributes)
+7. [Reactive control flow](#reactive-control-flow)
+8. [Lists: `walk`, index vs keyed](#lists)
+9. [The flush model](#the-flush-model)
+10. [Limits](#limits)
 
 ## Registered model instances
 
@@ -760,6 +761,21 @@ let _effect = Effect::new(move || {
 
 Signals are `Clone` (cheap, reference-counted), so clone one into each
 closure that needs it.
+
+## Reusable styles
+
+`style!` produces a typed preset of declared fields. Apply it with `style:` and override individual fields directly on the widget. Common fields can be shared across different widget types. Presets with widget-specific fields such as `paragraph` or `pressed_color` carry that widget's type. Button and Text builders accept the same presets through `.style(...)`.
+
+```rust,ignore
+const STEP: StylePreset = style!(grow: 1.0, height: 44, border_radius: 22);
+
+ui! {
+    Row (column_gap: 4) {
+        Button (style: STEP, text: "-")
+        Button (style: STEP, height: 48, text: "+")
+    }
+};
+```
 
 ## Reactive attributes
 

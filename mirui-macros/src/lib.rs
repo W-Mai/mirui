@@ -12,6 +12,7 @@ mod diag;
 mod event_attr;
 mod function_attrs;
 mod layout_reactive;
+mod style;
 mod vector;
 mod view_attr;
 mod visit_id;
@@ -25,6 +26,20 @@ use syn::visit_mut::VisitMut;
 mod model_attr;
 mod system_attr;
 mod timer_attr;
+
+/// Declare a typed, reusable group of widget style fields.
+#[proc_macro]
+pub fn style(input: TokenStream) -> TokenStream {
+    style::expand(input.into())
+        .unwrap_or_else(|error| error.to_compile_error())
+        .into()
+}
+
+#[doc(hidden)]
+#[proc_macro]
+pub fn __style_fields(_input: TokenStream) -> TokenStream {
+    style::emit_schema().into()
+}
 
 /// Declare entity data with optional Model fields and output dependencies.
 ///
@@ -273,21 +288,9 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
         "text" => Some("TextContent"),
         "src" if widget == "Image" => Some("ImageSource"),
         "visible" => Some("Visible"),
-        "bg_color" => Some("BackgroundColor"),
-        "text_color" => Some("TextColor"),
-        "border_color" => Some("BorderColor"),
-        "border_width" => Some("BorderWidth"),
-        "normal_color" if widget == "Button" => Some("ButtonNormalColor"),
         "render_key" => Some("RenderKey"),
         "transform" => Some("Transform"),
         "scroll_offset" => Some("ScrollOffset"),
-        "font_size" => Some("FontSize"),
-        "direction" => Some("Direction"),
-        "width" => Some("Width"),
-        "height" => Some("Height"),
-        "left" => Some("Left"),
-        "top" => Some("Top"),
-        "paragraph" if widget == "Text" || widget == "Button" => Some("Paragraph"),
         "path" if widget == "Text" => Some("TextPath"),
         "value" if widget == "ProgressBar" => Some("ProgressValue"),
         "value" if widget == "Slider" => Some("SliderValue"),
@@ -299,19 +302,19 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
         "item_extent" if widget == "LazyList" => Some("LazyListExtent"),
         "on" if widget == "Switch" => Some("SwitchOn"),
         "checked" if widget == "Checkbox" => Some("CheckboxChecked"),
-        _ => None,
+        _ => style::property(widget, attr, false),
     }
 }
 
 fn binding_role(property: &syn::Ident) -> proc_macro2::TokenStream {
-    let role = match property.to_string().as_str() {
+    let name = property.to_string();
+    let role = match name.as_str() {
         "Visible" | "Page" | "PageTransition" | "LazyListItems" | "LazyListExtent" => "Maintenance",
-        "TextContent" | "ImageSource" | "BackgroundColor" | "TextColor" | "BorderColor"
-        | "BorderWidth" | "ButtonNormalColor" | "RenderKey" | "Transform" | "FontSize"
-        | "Direction" | "Width" | "Height" | "Left" | "Top" | "Paragraph" | "TextPath"
+        "TextContent" | "ImageSource" | "RenderKey" | "Transform" | "TextPath"
         | "ProgressValue" | "SliderValue" | "SwitchOn" | "CheckboxChecked" | "ScrollOffset" => {
             "Display"
         }
+        _ if style::is_display_binding(&name) => "Display",
         _ => "Ordinary",
     };
     let role = syn::Ident::new(role, property.span());
@@ -370,24 +373,7 @@ mod binding_role_tests {
 fn responsive_property(widget: &str, attr: &str) -> Option<&'static str> {
     match attr {
         "visible" => Some("Visible"),
-        "bg_color" => Some("BackgroundColor"),
-        "text_color" => Some("TextColor"),
-        "normal_color" if widget == "Button" => Some("ButtonNormalColor"),
-        "font_size" => Some("FontSize"),
-        "direction" => Some("Direction"),
-        "paragraph" if widget == "Text" || widget == "Button" => Some("Paragraph"),
-        "width" => Some("Width"),
-        "min_width" => Some("MinWidth"),
-        "max_width" => Some("MaxWidth"),
-        "height" => Some("Height"),
-        "min_height" => Some("MinHeight"),
-        "max_height" => Some("MaxHeight"),
-        "padding" => Some("Padding"),
-        "row_gap" => Some("RowGap"),
-        "column_gap" => Some("ColumnGap"),
-        "left" => Some("Left"),
-        "top" => Some("Top"),
-        _ => None,
+        _ => style::property(widget, attr, true),
     }
 }
 
@@ -402,6 +388,8 @@ struct WidgetCmd {
     var: syn::Ident,
     attrs: Vec<proc_macro2::TokenStream>,
     layout_fields: Vec<proc_macro2::TokenStream>,
+    preset: Option<syn::Expr>,
+    style_fields: std::collections::BTreeSet<&'static str>,
     errors: Vec<proc_macro2::TokenStream>,
     enchants: Vec<proc_macro2::TokenStream>,
     on_handlers: Vec<OnCmd>,
@@ -422,6 +410,8 @@ struct WidgetCmd {
 struct ParsedAttrs {
     builder_calls: Vec<proc_macro2::TokenStream>,
     layout_fields: Vec<proc_macro2::TokenStream>,
+    preset: Option<syn::Expr>,
+    style_fields: std::collections::BTreeSet<&'static str>,
     errors: Vec<proc_macro2::TokenStream>,
     component_inserts: Vec<proc_macro2::TokenStream>,
     component_fields: Vec<proc_macro2::TokenStream>,
@@ -505,6 +495,8 @@ impl MiruiRune {
     ) -> ParsedAttrs {
         let mut builder_calls = Vec::new();
         let mut layout_fields = Vec::new();
+        let mut preset = None;
+        let mut style_fields = std::collections::BTreeSet::new();
         let mut errors = Vec::new();
         let mut component_inserts = Vec::new();
         let mut component_fields = Vec::new();
@@ -590,6 +582,22 @@ impl MiruiRune {
                 .as_ref()
                 .map(|n| n.span())
                 .unwrap_or_else(|| syn::spanned::Spanned::span(&attr.value));
+
+            if name == "style" {
+                if attr.reactive {
+                    errors.push(
+                        syn::Error::new(attr_span, "use a static style preset here")
+                            .to_compile_error(),
+                    );
+                } else if preset.replace(value.clone()).is_some() {
+                    errors.push(
+                        syn::Error::new(attr_span, "duplicate `style` attribute")
+                            .to_compile_error(),
+                    );
+                }
+                continue;
+            }
+            style_fields.extend(style::fields(&name).map(|field| field.key));
 
             if name == "preedit_capacity" && is_text_input_widget {
                 if preedit_capacity.is_some() {
@@ -783,65 +791,31 @@ impl MiruiRune {
                 continue;
             }
 
+            let mut is_layout = false;
+            for field in style::fields(&name).filter(|field| field.target == style::Target::Layout)
+            {
+                let key = quote::format_ident!("{}", field.key);
+                let value = field.layout_value(value, false);
+                layout_fields.push(quote! { #key: #value });
+                is_layout = true;
+            }
+            if is_layout {
+                user_set_direction |= name == "direction";
+                continue;
+            }
+
+            if style::fields(&name).any(|field| field.target == style::Target::Common) {
+                if name == "border_color" {
+                    builder_calls.push(quote! { .border(#value, 1) });
+                } else {
+                    let name = quote::format_ident!("{name}");
+                    builder_calls.push(quote! { .#name(#value) });
+                }
+                continue;
+            }
+
             match name.as_str() {
-                "bg_color" => builder_calls.push(quote! { .bg_color(#value) }),
                 "text" => builder_calls.push(quote! { .text(#value) }),
-                "text_color" => builder_calls.push(quote! { .text_color(#value) }),
-                "border_radius" => builder_calls.push(quote! { .border_radius(#value) }),
-                "clip_children" => builder_calls.push(quote! { .clip_children(#value) }),
-                "border_color" => builder_calls.push(quote! { .border(#value, 1) }),
-                "border_width" => builder_calls.push(quote! { .border_width(#value) }),
-                "font" => builder_calls.push(quote! { .font(#value) }),
-                "font_stack" => builder_calls.push(quote! { .font_stack(#value) }),
-                "font_size" => builder_calls.push(quote! { .font_size(#value) }),
-                "width" => {
-                    layout_fields.push(quote! { width: mirui::types::Dimension::from(#value) })
-                }
-                "min_width" => {
-                    layout_fields.push(quote! { min_width: mirui::types::Dimension::from(#value) })
-                }
-                "max_width" => {
-                    layout_fields.push(quote! { max_width: mirui::types::Dimension::from(#value) })
-                }
-                "height" => {
-                    layout_fields.push(quote! { height: mirui::types::Dimension::from(#value) })
-                }
-                "min_height" => {
-                    layout_fields.push(quote! { min_height: mirui::types::Dimension::from(#value) })
-                }
-                "max_height" => {
-                    layout_fields.push(quote! { max_height: mirui::types::Dimension::from(#value) })
-                }
-                "grow" => {
-                    layout_fields.push(quote! { grow: mirui::types::Fixed::from_f32(#value) })
-                }
-                "shrink" => {
-                    layout_fields.push(quote! { shrink: mirui::types::Fixed::from_f32(#value) })
-                }
-                "direction" => {
-                    user_set_direction = true;
-                    layout_fields.push(quote! { direction: #value });
-                }
-                "wrap" => layout_fields.push(quote! { wrap: #value }),
-                "justify" => layout_fields.push(quote! { justify: #value }),
-                "align" => layout_fields.push(quote! { align: #value }),
-                "padding" => layout_fields.push(quote! { padding: #value }),
-                "gap" => {
-                    layout_fields.push(quote! { row_gap: mirui::types::Dimension::from(#value) });
-                    layout_fields
-                        .push(quote! { column_gap: mirui::types::Dimension::from(#value) });
-                }
-                "row_gap" => {
-                    layout_fields.push(quote! { row_gap: mirui::types::Dimension::from(#value) })
-                }
-                "column_gap" => {
-                    layout_fields.push(quote! { column_gap: mirui::types::Dimension::from(#value) })
-                }
-                "position" => layout_fields.push(quote! { position: #value }),
-                "left" => {
-                    layout_fields.push(quote! { left: mirui::types::Dimension::from(#value) })
-                }
-                "top" => layout_fields.push(quote! { top: mirui::types::Dimension::from(#value) }),
                 "image" => builder_calls.push(quote! { .image(#value) }),
                 "id" => match Self::extract_id_str(value) {
                     Some(s) => id = Some(s),
@@ -904,6 +878,8 @@ impl MiruiRune {
         ParsedAttrs {
             builder_calls,
             layout_fields,
+            preset,
+            style_fields,
             errors,
             component_inserts,
             component_fields,
@@ -1336,6 +1312,37 @@ impl MiruiRune {
                     #apply
                 });
             });
+        }
+
+        let layout_fields = cmd
+            .style_fields
+            .iter()
+            .map(|key| quote::format_ident!("{key}"));
+        let explicit = quote! { (0u64 #(| ::mirui::ui::style::StyleField::#layout_fields.bit())*) };
+        let applied = if let Some(preset) = &cmd.preset {
+            let kind = &cmd.name;
+            let widget = if cmd.kind == WidgetKind::Component {
+                quote!(#kind)
+            } else {
+                quote!(())
+            };
+            quote! {
+                ::mirui::ui::style::apply_preset::<#widget, _>(#world, #var, #preset, #explicit)
+            }
+        } else {
+            explicit
+        };
+        if cmd.name == "Button" {
+            let fields = syn::Ident::new(
+                "__mirui_button_style_fields",
+                proc_macro2::Span::mixed_site(),
+            );
+            tokens.extend(quote! {
+                let #fields = #applied;
+                ::mirui::ui::style::mark_button_layout(#world, #var, #fields);
+            });
+        } else if cmd.preset.is_some() {
+            tokens.extend(quote! { #applied; });
         }
 
         // Capture bindings before attachments may move their declared Models.
@@ -2388,6 +2395,8 @@ impl DsRune for MiruiRune {
             var,
             attrs: parsed.builder_calls,
             layout_fields: parsed.layout_fields,
+            preset: parsed.preset,
+            style_fields: parsed.style_fields,
             errors: parsed.errors,
             enchants: enchant_tokens,
             on_handlers: collected_on_handlers,
