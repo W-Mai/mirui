@@ -87,42 +87,35 @@ pub(super) fn panel(keyboard: model!(Keyboard)) -> Entity {
                 text_color: ColorToken::Primary
             )
             Row (height: 32, column_gap: 8) {
-                Button (id: "ime_software", width: 112) [
-                    Text::label("Screen"),
-                ] on Tap { commands!().text_input().set_mode(TextInputMode::Software); }
-                Button (id: "ime_native", width: 112) [
-                    Text::label("System"),
-                ] on Tap { commands!().text_input().set_mode(TextInputMode::Native); }
-                Text (text: ${ keyboard.spelling() }, grow: 1.0)
+                Button (id: "ime_software", width: 112, text: "Screen") on Tap { commands!().text_input().set_mode(TextInputMode::Software); }
+                Button (id: "ime_native", width: 112, text: "System") on Tap { commands!().text_input().set_mode(TextInputMode::Native); }
+                Text (text: ${ keyboard.spelling() }, capacity: 2, grow: 1.0)
             }
             Row (height: 36, column_gap: 8) {
-                Button (id: "ime_n", width: 48) [
-                    Text::label("n"),
-                ] on Tap {
+                Button (id: "ime_n", width: 48, text: "n") on Tap {
                     if let Some(session) = keyboard.session() {
                         keyboard.type_n();
                         commands!().text_input().preedit(session, "n", Some(1..1));
                     }
                 }
-                Button (id: "ime_i", width: 48) [
-                    Text::label("i"),
-                ] on Tap {
+                Button (id: "ime_i", width: 48, text: "i") on Tap {
                     if keyboard.spelling() == "n" && let Some(session) = keyboard.session() {
                         keyboard.type_i();
                         commands!().text_input().preedit(session, "ni", Some(2..2));
                     }
                 }
-                Button (id: "ime_choose", width: 64, visible: ${ keyboard.spelling() == "ni" }) [
-                    Text::label("你"),
-                ] on Tap {
+                Button (
+                    id: "ime_choose",
+                    width: 64,
+                    visible: ${ keyboard.spelling() == "ni" },
+                    text: "你"
+                ) on Tap {
                     if keyboard.spelling() == "ni" && let Some(session) = keyboard.session() {
                         keyboard.choose();
                         commands!().text_input().commit(session, "你");
                     }
                 }
-                Button (id: "ime_delete", width: 96) [
-                    Text::label("Delete"),
-                ] on Tap {
+                Button (id: "ime_delete", width: 96, text: "Delete") on Tap {
                     if let Some(session) = keyboard.session() {
                         if keyboard.spelling().is_empty() {
                             commands!()

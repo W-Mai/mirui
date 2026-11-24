@@ -399,7 +399,8 @@ fn editing_field(state: model!(Launcher), epoch: u64) -> Entity {
                 FONT_PAINT,
             ]
             Text (
-                text: ${ state.wifi_length().to_string() },
+                text: ${ format_args!("{}", state.wifi_length()) },
+                capacity: usize::MAX.ilog10() as usize + 1,
                 font: font(BODY_SIZE),
                 font_size: BODY_SIZE,
                 text_color: SECONDARY,

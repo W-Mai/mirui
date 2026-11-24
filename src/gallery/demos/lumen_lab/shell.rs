@@ -356,6 +356,10 @@ fn compose_readout(model: model!(LumenModel)) -> Entity {
 
 #[compose]
 fn compose_side(model: model!(LumenModel)) -> Entity {
+    let control = style!(
+        width: SIDE_WIDTH, height: 28, font_size: 10, border_radius: 7,
+        pressed_color: CONTROL_PRESSED, pressed_text_color: BOARD
+    );
     ui! {
         Column (
             position: Position::Absolute,
@@ -370,59 +374,35 @@ fn compose_side(model: model!(LumenModel)) -> Entity {
             Button (
                 id: "lumen_undo",
                 size: ButtonSize::Compact,
-                width: SIDE_WIDTH,
-                height: 28,
-                font_size: 10,
+                text: tr!(en : "↺ Undo", zh : "↺ 撤销"),
+                style: control.clone(),
                 normal_color: ${ control_color(model.can_undo(), false) },
-                pressed_color: CONTROL_PRESSED,
-                pressed_text_color: BOARD,
-                text_color: ${ control_text_color(model.can_undo(), false) },
-                border_radius: 7
-            ) [
-                Text::label(tr!(en : "↺ Undo", zh : "↺ 撤销")),
-            ] on Tap { model.undo(); }
+                text_color: ${ control_text_color(model.can_undo(), false) }
+            ) on Tap { model.undo(); }
             Button (
                 id: "lumen_hint",
                 size: ButtonSize::Compact,
-                width: SIDE_WIDTH,
-                height: 28,
-                font_size: 10,
+                text: tr!(en : "? Hint", zh : "? 提示"),
+                style: control.clone(),
                 normal_color: ${ control_color(!model.solved(), false) },
-                pressed_color: CONTROL_PRESSED,
-                pressed_text_color: BOARD,
-                text_color: ${ control_text_color(!model.solved(), false) },
-                border_radius: 7
-            ) [
-                Text::label(tr!(en : "? Hint", zh : "? 提示")),
-            ] on Tap { model.reveal_hint(); }
+                text_color: ${ control_text_color(!model.solved(), false) }
+            ) on Tap { model.reveal_hint(); }
             Button (
                 id: "lumen_restart",
                 size: ButtonSize::Compact,
-                width: SIDE_WIDTH,
-                height: 28,
-                font_size: 10,
+                text: tr!(en : "↻ Restart", zh : "↻ 重来"),
+                style: control.clone(),
                 normal_color: CONTROL,
-                pressed_color: CONTROL_PRESSED,
-                pressed_text_color: BOARD,
-                text_color: TEXT,
-                border_radius: 7
-            ) [
-                Text::label(tr!(en : "↻ Restart", zh : "↻ 重来")),
-            ] on Tap { model.reset(); }
+                text_color: TEXT
+            ) on Tap { model.reset(); }
             Button (
                 id: "lumen_levels",
                 size: ButtonSize::Compact,
-                width: SIDE_WIDTH,
-                height: 28,
-                font_size: 10,
+                text: tr!(en : "☰ Puzzles", zh : "☰ 选关"),
+                style: control,
                 normal_color: CONTROL,
-                pressed_color: CONTROL_PRESSED,
-                pressed_text_color: BOARD,
-                text_color: TEXT,
-                border_radius: 7
-            ) [
-                Text::label(tr!(en : "☰ Puzzles", zh : "☰ 选关")),
-            ] on Tap { model.open_levels(); }
+                text_color: TEXT
+            ) on Tap { model.open_levels(); }
         }
     }
 }

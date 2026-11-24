@@ -9,7 +9,7 @@ use super::style::*;
 use super::widgets::paragraph;
 use crate::prelude::*;
 use crate::ui::widgets::{Text, TextAlign::Start};
-use alloc::string::{String, ToString};
+use alloc::string::String;
 #[compose]
 pub(super) fn page(
     view: &Snapshot,
@@ -137,7 +137,7 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
                     }
                     if ${ !(page == Page::Games && state.status().is_empty()) } {
                         Text (
-                            text: ${ if page == Page::Lobby { String::new() } else { state.status().to_string() } },
+                            text: ${ if page == Page::Lobby { "" } else { state.status() } },
                             height: if page == Page::Lobby { Dimension::px(0) } else { Dimension::Content },
                             min_height: if page == Page::Lobby { 0 } else { i32::from(metrics.small) + LABEL_LEADING },
                             shrink: 0.0,

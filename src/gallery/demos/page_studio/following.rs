@@ -45,6 +45,7 @@ pub(super) fn bounds_panel(controls: model!(Studio)) -> Entity {
 
 #[compose]
 fn tiles(controls: model!(Studio), frame: Entity) -> Entity {
+    let tile = style!(pressed_color: LINE, text_color: INK, font_size: 14, border_radius: 8);
     ui! {
         Row (
             grow: 1.0,
@@ -57,37 +58,25 @@ fn tiles(controls: model!(Studio), frame: Entity) -> Entity {
                 width: 64,
                 height: 32,
                 normal_color: MINT,
-                pressed_color: LINE,
-                text_color: INK,
-                font_size: 14,
-                border_radius: 8
-            ) [
-                Text::label("01"),
-            ] on Tap(select::callback(frame, controls))
+                text: "01",
+                style: tile.clone()
+            ) on Tap(select::callback(frame, controls))
             Button (
                 id: "pages_follow_b",
                 width: 92,
                 height: 52,
                 normal_color: colors(1).0,
-                pressed_color: LINE,
-                text_color: INK,
-                font_size: 14,
-                border_radius: 8
-            ) [
-                Text::label("02"),
-            ] on Tap(select::callback(frame, controls))
+                text: "02",
+                style: tile.clone()
+            ) on Tap(select::callback(frame, controls))
             Button (
                 id: "pages_follow_c",
                 width: 54,
                 height: 40,
                 normal_color: colors(2).0,
-                pressed_color: LINE,
-                text_color: INK,
-                font_size: 14,
-                border_radius: 8
-            ) [
-                Text::label("03"),
-            ] on Tap(select::callback(frame, controls))
+                text: "03",
+                style: tile
+            ) on Tap(select::callback(frame, controls))
         }
     }
 }

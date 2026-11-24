@@ -1,6 +1,6 @@
 use super::model::{Route, Scene};
 use super::style::*;
-use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, Placeholder, Slider, Switch, Text, TextInput};
 use crate::ui::widgets::{
@@ -63,6 +63,10 @@ pub(super) fn artwork(index: u8) -> Entity {
     }
 }
 
+fn page_action() -> StylePreset {
+    style!(width: Dimension::percent(100), height: 44, border_radius: 12, font_size: 14)
+}
+
 #[compose]
 pub(super) fn home(path: model!(NavigationPath<Route>)) -> Entity {
     ui! {
@@ -77,16 +81,12 @@ pub(super) fn home(path: model!(NavigationPath<Route>)) -> Entity {
             )
             Button (
                 id: "pages_explore",
-                width: Dimension::percent(100),
-                height: 44,
-                border_radius: 12,
+                text: "Explore the collection  >",
+                style: page_action(),
                 normal_color: INK,
                 pressed_color: MUTED,
-                text_color: CARD,
-                font_size: 14
-            ) [
-                Text::label("Explore the collection  >"),
-            ] on Tap {
+                text_color: CARD
+            ) on Tap {
                 if let Err(error) = path.push(Route::Library) {
                     crate::warn!("navigation rejected: {:?}", error);
                 }
@@ -126,11 +126,7 @@ fn library(path: model!(NavigationPath<Route>)) -> Entity {
             )
             Column (id: "pages_collection", grow: 1.0, row_gap: 10, clip_children: true) [
                 ScrollOffset::default(),
-                ScrollConfig {
-                    direction: ScrollAxis::Vertical,
-                    elastic: true,
-                    ..Default::default()
-                },
+                ScrollConfig::default(),
             ] {
                 walk PLACES.iter().enumerate() with entry {
                     place_card (path.clone(), entry.0 as u8)
@@ -189,16 +185,12 @@ fn place(path: model!(NavigationPath<Route>), index: u8) -> Entity {
                 thumb_color: INK
             )
             Button (
-                width: Dimension::percent(100),
-                height: 44,
-                border_radius: 12,
+                text: "Write a note  >",
+                style: page_action(),
                 normal_color: MINT,
                 pressed_color: LINE,
-                text_color: INK,
-                font_size: 14
-            ) [
-                Text::label("Write a note  >"),
-            ] on Tap {
+                text_color: INK
+            ) on Tap {
                 if let Err(error) = path.push(Route::Notes) {
                     crate::warn!("navigation rejected: {:?}", error);
                 }

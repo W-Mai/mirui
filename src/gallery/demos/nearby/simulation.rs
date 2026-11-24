@@ -222,7 +222,8 @@ pub(super) fn controls(state: model!(DisplayState)) -> Entity {
                 Button ("Close", width: 52, height: 24, font: FONT, font_size: 12) on Tap { state.toggle_controls(); }
             }
             Text (
-                text: ${ alloc::format!("{:?} / {:?}", state.focus_page(), state.presentation().phase) },
+                text: ${ format_args!("{:?} / {:?}", state.focus_page(), state.presentation().phase) },
+                capacity: 40,
                 height: 20,
                 shrink: 0.0,
                 font: FONT,

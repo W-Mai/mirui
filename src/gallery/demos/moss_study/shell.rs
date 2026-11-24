@@ -302,6 +302,14 @@ fn compose_header(model: model!(MossModel)) -> Entity {
 
 #[compose]
 fn compose_seeds(model: model!(MossModel)) -> Entity {
+    let seed_card = style!(
+        position: Position::Absolute, top: SEED_CARD_TOP, width: 135, height: 96, border_radius: 7,
+        normal_color: Color::rgba(0, 0, 0, 0), pressed_color: Color::rgba(208, 236, 157, 40)
+    );
+    let seed_button = style!(
+        position: Position::Absolute, top: SEED_CARD_TOP + 102, width: 135, height: 28,
+        font_size: 10, border_radius: 7, pressed_color: ACTIVE
+    );
     ui! {
         View (
             id: "moss_seeds",
@@ -315,90 +323,51 @@ fn compose_seeds(model: model!(MossModel)) -> Entity {
             Button (
                 "",
                 id: "moss_seed_card_0",
-                position: Position::Absolute,
+                style: seed_card.clone(),
                 left: SEED_CARD_LEFT[0],
-                top: SEED_CARD_TOP,
-                width: 135,
-                height: 96,
-                size: ButtonSize::Custom,
-                normal_color: Color::rgba(0, 0, 0, 0),
-                pressed_color: Color::rgba(208, 236, 157, 40),
-                border_radius: 7
+                size: ButtonSize::Custom
             ) on Tap { model.load_seed(0); }
             Button (
                 "",
                 id: "moss_seed_card_1",
-                position: Position::Absolute,
+                style: seed_card.clone(),
                 left: SEED_CARD_LEFT[1],
-                top: SEED_CARD_TOP,
-                width: 135,
-                height: 96,
-                size: ButtonSize::Custom,
-                normal_color: Color::rgba(0, 0, 0, 0),
-                pressed_color: Color::rgba(208, 236, 157, 40),
-                border_radius: 7
+                size: ButtonSize::Custom
             ) on Tap { model.load_seed(1); }
             Button (
                 "",
                 id: "moss_seed_card_2",
-                position: Position::Absolute,
+                style: seed_card,
                 left: SEED_CARD_LEFT[2],
-                top: SEED_CARD_TOP,
-                width: 135,
-                height: 96,
-                size: ButtonSize::Custom,
-                normal_color: Color::rgba(0, 0, 0, 0),
-                pressed_color: Color::rgba(208, 236, 157, 40),
-                border_radius: 7
+                size: ButtonSize::Custom
             ) on Tap { model.load_seed(2); }
             Button (
                 id: "moss_seed_0",
-                position: Position::Absolute,
+                text: tr!(en : "Drifting garden", zh : "漂流花园"),
+                style: seed_button.clone(),
                 left: SEED_CARD_LEFT[0],
-                top: SEED_CARD_TOP + 102,
-                width: 135,
-                height: 28,
                 size: ButtonSize::Compact,
-                font_size: 10,
                 normal_color: ${ control_color(model.seed_id() == 0, true) },
-                pressed_color: ACTIVE,
-                text_color: ${ control_text_color(model.seed_id() == 0, true) },
-                border_radius: 7
-            ) [
-                Text::label(tr!(en : "Drifting garden", zh : "漂流花园")),
-            ] on Tap { model.load_seed(0); }
+                text_color: ${ control_text_color(model.seed_id() == 0, true) }
+            ) on Tap { model.load_seed(0); }
             Button (
                 id: "moss_seed_1",
-                position: Position::Absolute,
+                text: tr!(en : "Twin pulse", zh : "双生脉冲"),
+                style: seed_button.clone(),
                 left: SEED_CARD_LEFT[1],
-                top: SEED_CARD_TOP + 102,
-                width: 135,
-                height: 28,
                 size: ButtonSize::Compact,
-                font_size: 10,
                 normal_color: ${ control_color(model.seed_id() == 1, true) },
-                pressed_color: ACTIVE,
-                text_color: ${ control_text_color(model.seed_id() == 1, true) },
-                border_radius: 7
-            ) [
-                Text::label(tr!(en : "Twin pulse", zh : "双生脉冲")),
-            ] on Tap { model.load_seed(1); }
+                text_color: ${ control_text_color(model.seed_id() == 1, true) }
+            ) on Tap { model.load_seed(1); }
             Button (
                 id: "moss_seed_2",
-                position: Position::Absolute,
+                text: tr!(en : "Random garden", zh : "随机花园"),
+                style: seed_button,
                 left: SEED_CARD_LEFT[2],
-                top: SEED_CARD_TOP + 102,
-                width: 135,
-                height: 28,
                 size: ButtonSize::Compact,
-                font_size: 10,
                 normal_color: ${ control_color(model.seed_id() == 2, true) },
-                pressed_color: ACTIVE,
-                text_color: ${ control_text_color(model.seed_id() == 2, true) },
-                border_radius: 7
-            ) [
-                Text::label(tr!(en : "Random garden", zh : "随机花园")),
-            ] on Tap { model.load_seed(2); }
+                text_color: ${ control_text_color(model.seed_id() == 2, true) }
+            ) on Tap { model.load_seed(2); }
             Text (
                 tr!(
                     en :

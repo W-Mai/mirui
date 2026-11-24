@@ -7,6 +7,9 @@ use crate::ui::widgets::navigation::{NavigationPath, NavigationStack};
 use crate::ui::widgets::page_view::PageView;
 use crate::ui::widgets::{Button, Text};
 
+const CONTROL_CHIP: StylePreset = style!(height: 34, border_radius: 10, font_size: 12);
+const NAV_BUTTON: StylePreset = style!(height: 30, border_radius: 8, font_size: 12);
+
 #[compose]
 pub fn build_widgets(path: model!(NavigationPath<Route>), controls: model!(Studio)) {
     ui! {
@@ -65,32 +68,26 @@ pub fn build_widgets(path: model!(NavigationPath<Route>), controls: model!(Studi
                         )
                         Button (
                             id: "pages_back",
+                            text: "< Back",
+                            style: NAV_BUTTON,
                             width: 68,
-                            height: 30,
-                            font_size: 12,
-                            border_radius: 8,
                             normal_color: CARD,
                             pressed_color: LINE,
                             text_color: INK
-                        ) [
-                            Text::label("< Back"),
-                        ] on Tap {
+                        ) on Tap {
                             if let Err(error) = path.pop() {
                                 crate::warn!("navigation rejected: {:?}", error);
                             }
                         }
                         Button (
                             id: "pages_home",
+                            text: "Home",
+                            style: NAV_BUTTON,
                             width: 62,
-                            height: 30,
-                            font_size: 12,
-                            border_radius: 8,
                             normal_color: CARD,
                             pressed_color: LINE,
                             text_color: INK
-                        ) [
-                            Text::label("Home"),
-                        ] on Tap {
+                        ) on Tap {
                             if let Err(error) = path.clear() {
                                 crate::warn!("navigation rejected: {:?}", error);
                             }
@@ -119,16 +116,13 @@ pub fn build_widgets(path: model!(NavigationPath<Route>), controls: model!(Studi
                         )
                         Button (
                             id: "pages_cycle",
+                            text: "Next >",
+                            style: NAV_BUTTON,
                             width: 72,
-                            height: 30,
-                            font_size: 12,
-                            border_radius: 8,
                             normal_color: INK,
                             pressed_color: MUTED,
                             text_color: CARD
-                        ) [
-                            Text::label("Next >"),
-                        ] on Tap { controls.next(); }
+                        ) on Tap { controls.next(); }
                     }
                     PageView (
                         id: "pages_scene",
@@ -170,16 +164,13 @@ pub fn build_widgets(path: model!(NavigationPath<Route>), controls: model!(Studi
 fn effect_button(controls: model!(Studio), index: u8, label: &'static str) -> Entity {
     ui! {
         Button (
+            label,
+            style: CONTROL_CHIP,
             width: 72,
-            height: 34,
-            border_radius: 10,
-            font_size: 12,
             normal_color: ${ if controls.effect() == index { INK } else { CARD } },
             text_color: ${ if controls.effect() == index { CARD } else { INK } },
             pressed_color: MUTED
-        ) [
-            Text::label(label),
-        ] on Tap { controls.set_effect(index); }
+        ) on Tap { controls.set_effect(index); }
     }
 }
 
@@ -187,16 +178,13 @@ fn effect_button(controls: model!(Studio), index: u8, label: &'static str) -> En
 fn preset_button(controls: model!(Studio), index: u8, label: &'static str) -> Entity {
     ui! {
         Button (
+            label,
+            style: CONTROL_CHIP,
             width: 100,
-            height: 34,
-            border_radius: 10,
-            font_size: 12,
             normal_color: ${ if controls.preset() == index { MINT } else { CARD } },
             text_color: INK,
             pressed_color: LINE
-        ) [
-            Text::label(label),
-        ] on Tap { controls.set_preset(index); }
+        ) on Tap { controls.set_preset(index); }
     }
 }
 
@@ -204,16 +192,13 @@ fn preset_button(controls: model!(Studio), index: u8, label: &'static str) -> En
 fn motion_button(controls: model!(Studio), motion: MotionKind, label: &'static str) -> Entity {
     ui! {
         Button (
+            label,
+            style: CONTROL_CHIP,
             width: 86,
-            height: 34,
-            border_radius: 10,
-            font_size: 12,
             normal_color: ${ if controls.motion() == motion { INK } else { CARD } },
             text_color: ${ if controls.motion() == motion { CARD } else { INK } },
             pressed_color: MUTED
-        ) [
-            Text::label(label),
-        ] on Tap { controls.set_motion(motion); }
+        ) on Tap { controls.set_motion(motion); }
     }
 }
 
@@ -221,15 +206,13 @@ fn motion_button(controls: model!(Studio), motion: MotionKind, label: &'static s
 fn scene_button(controls: model!(Studio), scene: Scene, label: &'static str) -> Entity {
     ui! {
         Button (
+            label,
+            style: CONTROL_CHIP,
             width: 82,
             height: 30,
-            border_radius: 10,
-            font_size: 12,
             normal_color: ${ if controls.scene() == scene { INK } else { PAPER } },
             text_color: ${ if controls.scene() == scene { CARD } else { MUTED } },
             pressed_color: LINE
-        ) [
-            Text::label(label),
-        ] on Tap { controls.select(scene); }
+        ) on Tap { controls.select(scene); }
     }
 }

@@ -560,6 +560,10 @@ fn compose_route_labels(model: model!(PostModel)) -> Entity {
 
 #[compose]
 fn compose_foot(model: model!(PostModel)) -> Entity {
+    let queue_label = style!(
+        position: Position::Absolute, top: FOOT_TOP, width: 17, height: 14,
+        paragraph: ParagraphStyle::label()
+    );
     ui! {
         View (
             id: "post_foot",
@@ -567,7 +571,8 @@ fn compose_foot(model: model!(PostModel)) -> Entity {
             left: 0,
             top: 0,
             width: 480,
-            height: 320
+            height: 320,
+            font_size: 10
         ) {
             Text (
                 tr!(en : "Next", zh : "待发"),
@@ -576,7 +581,6 @@ fn compose_foot(model: model!(PostModel)) -> Entity {
                 top: FOOT_TOP,
                 width: 34,
                 height: 14,
-                font_size: 10,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
@@ -585,70 +589,45 @@ fn compose_foot(model: model!(PostModel)) -> Entity {
                 capacity: 1,
                 id: "post_queue_0",
                 visible: ${ model.queued_slots()[0].is_some() },
-                position: Position::Absolute,
+                style: queue_label.clone(),
                 left: queue_slot_left(0) + 1,
-                top: FOOT_TOP,
-                width: 17,
-                height: 14,
-                font_size: 10,
-                text_color: ${ destination_color(model.queued_slots()[0]) },
-                paragraph: ParagraphStyle::label()
+                text_color: ${ destination_color(model.queued_slots()[0]) }
             )
             Text (
                 text: ${ destination_letter(model.queued_slots()[1]) },
                 capacity: 1,
                 id: "post_queue_1",
                 visible: ${ model.queued_slots()[1].is_some() },
-                position: Position::Absolute,
+                style: queue_label.clone(),
                 left: queue_slot_left(1) + 1,
-                top: FOOT_TOP,
-                width: 17,
-                height: 14,
-                font_size: 10,
-                text_color: ${ destination_color(model.queued_slots()[1]) },
-                paragraph: ParagraphStyle::label()
+                text_color: ${ destination_color(model.queued_slots()[1]) }
             )
             Text (
                 text: ${ destination_letter(model.queued_slots()[2]) },
                 capacity: 1,
                 id: "post_queue_2",
                 visible: ${ model.queued_slots()[2].is_some() },
-                position: Position::Absolute,
+                style: queue_label.clone(),
                 left: queue_slot_left(2) + 1,
-                top: FOOT_TOP,
-                width: 17,
-                height: 14,
-                font_size: 10,
-                text_color: ${ destination_color(model.queued_slots()[2]) },
-                paragraph: ParagraphStyle::label()
+                text_color: ${ destination_color(model.queued_slots()[2]) }
             )
             Text (
                 text: ${ destination_letter(model.queued_slots()[3]) },
                 capacity: 1,
                 id: "post_queue_3",
                 visible: ${ model.queued_slots()[3].is_some() },
-                position: Position::Absolute,
+                style: queue_label.clone(),
                 left: queue_slot_left(3) + 1,
-                top: FOOT_TOP,
-                width: 17,
-                height: 14,
-                font_size: 10,
-                text_color: ${ destination_color(model.queued_slots()[3]) },
-                paragraph: ParagraphStyle::label()
+                text_color: ${ destination_color(model.queued_slots()[3]) }
             )
             Text (
                 text: ${ destination_letter(model.queued_slots()[4]) },
                 capacity: 1,
                 id: "post_queue_4",
                 visible: ${ model.queued_slots()[4].is_some() },
-                position: Position::Absolute,
+                style: queue_label,
                 left: queue_slot_left(4) + 1,
-                top: FOOT_TOP,
-                width: 17,
-                height: 14,
-                font_size: 10,
-                text_color: ${ destination_color(model.queued_slots()[4]) },
-                paragraph: ParagraphStyle::label()
+                text_color: ${ destination_color(model.queued_slots()[4]) }
             )
             Text (
                 text: ${
@@ -664,7 +643,6 @@ fn compose_foot(model: model!(PostModel)) -> Entity {
                 top: FOOT_TOP,
                 width: 76,
                 height: 14,
-                font_size: 10,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
@@ -685,7 +663,6 @@ fn compose_foot(model: model!(PostModel)) -> Entity {
                 top: FOOT_TOP,
                 width: 214,
                 height: 14,
-                font_size: 10,
                 text_color: ${ if model.missed() > 0 && model.started() { MISS } else { ACCENT } },
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
