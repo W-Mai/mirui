@@ -32,13 +32,18 @@ pub fn build_widgets(settings: model!(SettingsModel)) {
                 ) on Toggled { settings.set_show_details(event.now); }
                 Text ("Show details", grow: 1.0, font_size: 14)
             }
-            Button (id: "settings_preview_toggle", height: 32, border_radius: 16, font_size: 13) [
-                Text::label("Toggle preview"),
-            ] on Tap { settings.toggle_preview(); }
+            Button (
+                "Toggle preview",
+                id: "settings_preview_toggle",
+                height: 32,
+                border_radius: 16,
+                font_size: 13
+            ) on Tap { settings.toggle_preview(); }
             Column (
                 padding: Padding::all(10),
                 row_gap: 6,
                 bg_color: ColorToken::SurfaceVariant,
+                font_size: 12,
                 visible: ${ settings.preview_open() }
             ) {
                 Text (
@@ -52,7 +57,6 @@ pub fn build_widgets(settings: model!(SettingsModel)) {
                     "Notes from the window seat.",
                     id: "settings_preview_details",
                     height: 24,
-                    font_size: 12,
                     visible: ${ settings.show_details() },
                     paragraph: ParagraphStyle::label()
                 )

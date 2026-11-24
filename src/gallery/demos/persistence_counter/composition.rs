@@ -1,6 +1,8 @@
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
+const STEP: StylePreset = style!(grow: 1.0, height: 44, border_radius: 22);
+
 #[compose]
 pub fn build_widgets(count: model!(Signal<i32>)) {
     //~focus-start
@@ -13,7 +15,8 @@ pub fn build_widgets(count: model!(Signal<i32>)) {
             row_gap: 14
         ) {
             Text (
-                text: ${ alloc::format!("Saved  {}", count.get()) },
+                text: ${ format_args!("Saved  {}", count.get()) },
+                capacity: "Saved  ".len() + 11,
                 width: Dimension::percent(100),
                 max_width: 260,
                 height: 56,
@@ -28,30 +31,23 @@ pub fn build_widgets(count: model!(Signal<i32>)) {
                 padding: Padding::all(4),
                 column_gap: 4,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 26
+                border_radius: 26,
+                font_size: 26
             ) {
                 Button (
-                    font_size: 26,
-                    grow: 1.0,
-                    height: 44,
-                    border_radius: 22,
+                    "-",
+                    style: STEP,
                     normal_color: ColorToken::Outline,
                     pressed_color: ColorToken::SurfaceVariant,
                     text_color: ColorToken::OnSurface
-                ) [
-                    Text::label("-"),
-                ] on Tap { count.update(|n| *n -= 1); }
+                ) on Tap { count.update(|n| *n -= 1); }
                 Button (
-                    font_size: 26,
-                    grow: 1.0,
-                    height: 44,
-                    border_radius: 22,
+                    "+",
+                    style: STEP,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary,
                     text_color: ColorToken::OnPrimary
-                ) [
-                    Text::label("+"),
-                ] on Tap { count.update(|n| *n += 1); }
+                ) on Tap { count.update(|n| *n += 1); }
             }
             Text (
                 "Persists across reloads and restarts",

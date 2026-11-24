@@ -5,13 +5,18 @@ use crate::prelude::*;
 use crate::ui::icons::ICON_CHECK;
 use crate::ui::widgets::{Button, Icon, ParagraphStyle, Text};
 
+const ACTION: StylePreset = style!(grow: 1.0, border_radius: 17);
+
+fn list_width() -> StylePreset {
+    style!(width: Dimension::percent(100), max_width: 280)
+}
+
 #[compose]
 fn todo_row(item: model!(TodoItemModel)) -> Entity {
     let title = item.read(|item| item.title.clone());
     ui! {
         Button (
-            width: Dimension::percent(100),
-            max_width: 280,
+            style: list_width(),
             height: 40,
             border_radius: 14,
             normal_color: ColorToken::SurfaceVariant,
@@ -47,59 +52,49 @@ pub fn build_widgets(todo: model!(TodoModel)) {
             row_gap: 8
         ) {
             Text (
-                text: ${ alloc::format!("{} remaining", todo.remaining()) },
-                width: Dimension::percent(100),
-                max_width: 280,
+                text: ${ format_args!("{} remaining", todo.remaining()) },
+                capacity: usize::MAX.ilog10() as usize + 1 + " remaining".len(),
+                style: list_width(),
                 height: 30,
                 font_size: 18,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label()
             )
             Row (
-                width: Dimension::percent(100),
-                max_width: 280,
+                style: list_width(),
                 height: 42,
                 padding: Padding::all(4),
                 column_gap: 4,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 21
+                border_radius: 21,
+                font_size: 13
             ) {
                 Button (
-                    grow: 1.0,
-                    font_size: 13,
-                    border_radius: 17,
+                    "Add",
+                    style: ACTION,
                     text_color: ColorToken::OnPrimary,
                     normal_color: ColorToken::Primary
-                ) [
-                    Text::label("Add"),
-                ] on Tap {
+                ) on Tap {
                     if let Err(error) = todo.add() {
                         crate::warn!("cannot add task: {:?}", error);
                     }
                 }
                 Button (
-                    grow: 1.0,
-                    font_size: 13,
-                    border_radius: 17,
+                    "Rotate",
+                    style: ACTION,
                     normal_color: ColorToken::Outline,
                     text_color: ColorToken::OnSurface
-                ) [
-                    Text::label("Rotate"),
-                ] on Tap { todo.rotate(); }
+                ) on Tap { todo.rotate(); }
                 Button (
-                    grow: 1.0,
-                    font_size: 13,
-                    border_radius: 17,
+                    "Clear",
+                    style: ACTION,
                     normal_color: ColorToken::Outline,
                     text_color: ColorToken::OnSurface
-                ) [
-                    Text::label("Clear"),
-                ] on Tap { todo.clear_completed(); }
+                ) on Tap { todo.clear_completed(); }
             }
             Column (
                 grow: 1.0,
-                width: Dimension::percent(100),
-                max_width: 280,
+                style: list_width(),
                 row_gap: 8,
                 clip_children: true
             ) [

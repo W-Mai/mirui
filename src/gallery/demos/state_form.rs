@@ -4,6 +4,14 @@ use crate::core::reactive::{Computed, Signal};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, Checkbox, Placeholder, Text, TextEditing, TextInput};
 
+fn form_width() -> StylePreset {
+    style!(width: Dimension::percent(100), max_width: 280)
+}
+
+fn submit_style() -> StylePreset {
+    style!(width: Dimension::percent(100), max_width: 280, font_size: 16, height: 44, border_radius: 22)
+}
+
 #[compose]
 pub fn build_widgets() {
     let name_filled = Signal::new(false);
@@ -28,16 +36,14 @@ pub fn build_widgets() {
         ) {
             Text (
                 "Signal form",
-                width: Dimension::percent(100),
-                max_width: 280,
+                style: form_width(),
                 height: 34,
                 font_size: 20,
                 text_color: ColorToken::OnSurface
             )
             TextInput (
                 id: "state_form_name",
-                width: Dimension::percent(100),
-                max_width: 280,
+                style: form_width(),
                 height: 42,
                 font_size: 15,
                 bg_color: ColorToken::SurfaceVariant,
@@ -48,8 +54,7 @@ pub fn build_widgets() {
                 Placeholder("Your name"),
             ] on TextEditing::Changed { name_changed.set(event.len > 0); }
             Row (
-                width: Dimension::percent(100),
-                max_width: 280,
+                style: form_width(),
                 height: 38,
                 align: AlignItems::Center,
                 column_gap: 10
@@ -69,32 +74,22 @@ pub fn build_widgets() {
             }
             if $submit_bg {
                 Button (
-                    font_size: 16,
+                    "Ready to submit",
                     id: "state_form_submit_ready",
-                    width: Dimension::percent(100),
-                    max_width: 280,
-                    height: 44,
-                    border_radius: 22,
+                    style: submit_style(),
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary,
                     text_color: ColorToken::OnPrimary
-                ) [
-                    Text::label("Ready to submit"),
-                ]
+                )
             } else {
                 Button (
-                    font_size: 16,
+                    "Complete the form",
                     id: "state_form_submit_pending",
-                    width: Dimension::percent(100),
-                    max_width: 280,
-                    height: 44,
-                    border_radius: 22,
+                    style: submit_style(),
                     normal_color: ColorToken::Outline,
                     pressed_color: ColorToken::Outline,
                     text_color: ColorToken::OnSurfaceVariant
-                ) [
-                    Text::label("Complete the form"),
-                ]
+                )
             }
         }
     };

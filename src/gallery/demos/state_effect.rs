@@ -10,6 +10,9 @@ pub fn build_widgets() {
     let changes = Signal::new(0i32);
     let (bump, vlabel, clabel) = (value.clone(), value.clone(), changes.clone());
 
+    let label_style = style!(
+        width: Dimension::percent(100), max_width: 260, paragraph: ParagraphStyle::label()
+    );
     //~focus-start
     let panel = ui! {
         Column (
@@ -20,23 +23,22 @@ pub fn build_widgets() {
             row_gap: 10
         ) {
             Text (
-                text: ${ alloc::format!("Value  {}", vlabel.get()) },
-                width: Dimension::percent(100),
-                max_width: 260,
+                style: label_style.clone(),
+                text: ${ format_args!("Value  {}", vlabel.get()) },
+                capacity: "Value  ".len() + 11,
                 height: 52,
                 font_size: 24,
-                text_color: ColorToken::OnSurface,
-                paragraph: ParagraphStyle::label()
+                text_color: ColorToken::OnSurface
             )
             Text (
-                text: ${ alloc::format!("effect observed {} updates", clabel.get()) },
-                width: Dimension::percent(100),
-                max_width: 260,
+                style: label_style,
+                text: ${ format_args!("effect observed {} updates", clabel.get()) },
+                capacity: "effect observed  updates".len() + 11,
                 height: 30,
-                text_color: ColorToken::OnSurfaceVariant,
-                paragraph: ParagraphStyle::label()
+                text_color: ColorToken::OnSurfaceVariant
             )
             Button (
+                "Bump value",
                 font_size: 16,
                 width: Dimension::percent(100),
                 max_width: 180,
@@ -45,9 +47,7 @@ pub fn build_widgets() {
                 normal_color: ColorToken::Primary,
                 pressed_color: ColorToken::Secondary,
                 text_color: ColorToken::OnPrimary
-            ) [
-                Text::label("Bump value"),
-            ] on Tap { bump.update(|v| *v += 1); }
+            ) on Tap { bump.update(|v| *v += 1); }
         }
     };
     effect_with_widget(panel, move || {

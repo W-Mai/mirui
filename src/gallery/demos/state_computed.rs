@@ -9,7 +9,10 @@ pub fn build_widgets() {
     let n = Signal::new(2i32);
     let squared = {
         let n = n.clone();
-        Computed::new(move || n.get() * n.get())
+        Computed::new(move || {
+            let value = n.get();
+            value * value
+        })
     };
     let (inc, label) = (n.clone(), squared.clone());
 
@@ -23,7 +26,8 @@ pub fn build_widgets() {
             row_gap: 14
         ) {
             Text (
-                text: ${ alloc::format!("n × n = {}", label.get()) },
+                text: ${ format_args!("n × n = {}", label.get()) },
+                capacity: "n × n = ".len() + 11,
                 width: Dimension::percent(100),
                 max_width: 260,
                 height: 58,
@@ -32,6 +36,7 @@ pub fn build_widgets() {
                 paragraph: ParagraphStyle::label()
             )
             Button (
+                "Increment n",
                 font_size: 16,
                 width: Dimension::percent(100),
                 max_width: 180,
@@ -40,9 +45,7 @@ pub fn build_widgets() {
                 normal_color: ColorToken::Primary,
                 pressed_color: ColorToken::Secondary,
                 text_color: ColorToken::OnPrimary
-            ) [
-                Text::label("Increment n"),
-            ] on Tap { inc.update(|v| *v += 1); }
+            ) on Tap { inc.update(|v| *v += 1); }
         }
     };
     //~focus-end

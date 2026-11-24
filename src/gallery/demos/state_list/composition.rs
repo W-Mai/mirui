@@ -3,6 +3,8 @@ use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
+const STEP: StylePreset = style!(grow: 1.0, height: 40, border_radius: 20);
+
 #[compose]
 pub fn build_widgets() {
     let fruits = Signal::new(alloc::vec![
@@ -23,7 +25,8 @@ pub fn build_widgets() {
             row_gap: 10
         ) {
             Text (
-                text: ${ alloc::format!("{} fruits", label.with(| f | f.len())) },
+                text: ${ format_args!("{} fruits", label.with(| f | f.len())) },
+                capacity: usize::MAX.ilog10() as usize + 1 + " fruits".len(),
                 width: Dimension::percent(100),
                 max_width: 260,
                 height: 36,
@@ -38,34 +41,27 @@ pub fn build_widgets() {
                 padding: Padding::all(4),
                 column_gap: 4,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 24
+                border_radius: 24,
+                font_size: 26
             ) {
                 Button (
-                    font_size: 26,
+                    "-",
+                    style: STEP,
                     text_color: ColorToken::OnSurface,
-                    grow: 1.0,
-                    height: 40,
-                    border_radius: 20,
                     normal_color: ColorToken::Outline,
                     pressed_color: ColorToken::SurfaceVariant
-                ) [
-                    Text::label("-"),
-                ] on Tap {
+                ) on Tap {
                     dec.update(|f| {
                         f.pop();
                     });
                 }
                 Button (
-                    font_size: 26,
+                    "+",
+                    style: STEP,
                     text_color: ColorToken::OnPrimary,
-                    grow: 1.0,
-                    height: 40,
-                    border_radius: 20,
                     normal_color: ColorToken::Primary,
                     pressed_color: ColorToken::Secondary
-                ) [
-                    Text::label("+"),
-                ] on Tap {
+                ) on Tap {
                     inc.update(|f| {
                         let next = PALETTE[f.len() % PALETTE.len()].clone();
                         f.push(next);
