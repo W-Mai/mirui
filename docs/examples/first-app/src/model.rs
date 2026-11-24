@@ -2,6 +2,7 @@ use mirui::core::model::{ModelItemId, ModelList};
 use mirui::prelude::*;
 
 pub const TITLES: [&str; 3] = ["Connect the display", "Open a window", "Try the browser"];
+pub(crate) const TASK_LIMIT: usize = 8;
 
 // #region task
 #[model(persistence)]
@@ -51,7 +52,7 @@ pub struct Tasks {
 
 impl Default for Tasks {
     fn default() -> Self {
-        let mut items = ModelList::bounded(8);
+        let mut items = ModelList::bounded(TASK_LIMIT);
         for (index, title) in TITLES.into_iter().enumerate() {
             assert!(
                 items

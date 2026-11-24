@@ -21,7 +21,7 @@ aside: false
 
 ## 顺着代码做 {#source}
 
-1. 在 compose 前用 `app.add_model(Tasks::default()).finish()` 注册任务清单。每行拿到任务自己的 Model handle，行文字和完成数都可以读取 `done`。
+1. 在 compose 前用 `app.add_model(Tasks::default()).finish()` 注册任务清单。每行拿到任务自己的 Model handle，勾选标记和完成数都可以读取 `done`。
 2. 行的 `on Tap` 调用 `task.toggle()`，绑定随即更新勾选标记。连续点同一行两次，观察两次反向变化。完成数从任务列表推导出来。
 
 ## 在本机运行 {#run}

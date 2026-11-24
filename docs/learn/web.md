@@ -9,7 +9,7 @@ Use the same interface and Model from a Web Canvas host, then verify the tutoria
 
 <TutorialWorkspace :chapter="7" file="web.rs">
 
-<<< @/examples/first-app/src/web.rs{rust}
+<<< @/examples/first-app/src/web.rs#web-host{rust}
 
 <template #exercise>
 

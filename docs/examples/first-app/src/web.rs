@@ -51,6 +51,7 @@ impl Tutorial {
         persist: bool,
     ) -> Result<Self, JsError> {
         let chapter = Chapter::new(chapter).ok_or_else(|| JsError::new("Unknown chapter"))?;
+        // #region web-host
         let surface = WebCanvasSurface::new(canvas);
         let mut app = App::with_factory(surface, WebCanvasRendererFactory::new());
         app.set_theme(if dark { "dark" } else { "light" })
@@ -66,6 +67,7 @@ impl Tutorial {
         app.prepare_text_layout()
             .map_err(|error| JsError::new(&format!("{error:?}")))?;
         Ok(Self { app })
+        // #endregion web-host
     }
 
     pub fn tick(&mut self) -> bool {
@@ -73,6 +75,6 @@ impl Tutorial {
     }
 
     pub fn set_dark(&mut self, dark: bool) {
-        let _ = self.app.set_theme(if dark { "dark" } else { "light" });
+        self.app.with_theme(crate::palette::book(dark));
     }
 }

@@ -9,7 +9,7 @@ aside: false
 
 <TutorialWorkspace :chapter="7" file="web.rs">
 
-<<< @/examples/first-app/src/web.rs{rust}
+<<< @/examples/first-app/src/web.rs#web-host{rust}
 
 <template #exercise>
 

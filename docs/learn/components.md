@@ -24,6 +24,8 @@ Toggle a row and compare its appearance with the rows that remain open.
 1. Use `#[compose]` to give a reusable filter control a typed Model and a display prop. Callers can pass a literal label or a reactive value to `prop!(String)`; the control binds it once at the display site.
 2. Register shared `task`, `task.complete`, and `filter` rules with `StyleSheetPlugin`. Select classes from reactive state so each completed row changes independently. Inherited typography stays on the container.
 
+<<< @/examples/first-app/src/lib.rs#task-styles{rust}
+
 ## Run locally {#run}
 
 Run this in the repository checkout for the current documentation version.

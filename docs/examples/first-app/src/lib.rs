@@ -9,6 +9,7 @@ use mirui::ui::widgets::{Text, TextDocument};
 mod interface;
 pub mod model;
 mod motion;
+mod palette;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
@@ -51,6 +52,7 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
     reduced: bool,
     storage: Option<StorageHandle>,
 ) -> Option<TasksHandle> {
+    app.with_theme(palette::book(app.theme().id().as_str() == "dark"));
     app.with_default_widgets().with_default_systems();
     let font = Font::from_mirx("Geist", 14, UI_FONT, &Default::default())
         .expect("decode the bundled tutorial font");
@@ -70,15 +72,17 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
     }
     // #endregion persistence
     if chapter.has_presets() {
+        // #region task-styles
         app.add_plugin(
             StyleSheetPlugin::new()
-                .class("task", style!(height: 42, border_radius: 10))
+                .class("task", style!(text_color: ColorToken::OnSurface))
                 .class(
                     "task.complete",
-                    style!(normal_color: ColorToken::Secondary, text_color: ColorToken::OnSecondary),
+                    style!(text_color: ColorToken::OnSurfaceVariant),
                 )
-                .class("filter", style!(height: 36, border_radius: 6)),
+                .class("filter", style!(font_size: 13)),
         );
+        // #endregion task-styles
     }
     let tasks = app.add_model(Tasks::default()).finish();
     if chapter.has_motion() {
@@ -100,8 +104,15 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
 #[compose]
 fn first_window() {
     ui! {
-        Column (padding: Padding::all(22), row_gap: 12) {
-            Text ("Task list", font_size: 28, height: 38)
+        Column (grow: 1.0, padding: Padding::all(20), row_gap: 16) {
+            Column (
+                height: 76,
+                padding: Padding::all(16),
+                bg_color: ColorToken::Secondary,
+                border_radius: 12
+            ) {
+                Text ("Task list", font_size: 32, height: 44, text_color: ColorToken::OnSecondary)
+            }
             Text ("Connect the display", height: 26)
             Text ("Open a window", height: 26)
         }

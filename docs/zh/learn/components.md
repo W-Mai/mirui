@@ -24,6 +24,8 @@ aside: false
 1. 用 `#[compose]` 定义筛选按钮，Model 参数用于业务操作，`prop!(String)` 用于显示文字。调用者可传字面量或动态值，最终在控件上绑定。
 2. 用 `StyleSheetPlugin` 注册 `task`、`task.complete`、`filter`。任务行根据状态选 class，每行独立更新。子节点共用容器上的字体和颜色。
 
+<<< @/examples/first-app/src/lib.rs#task-styles{rust}
+
 ## 在本机运行 {#run}
 
 在当前文档版本对应的仓库根目录执行。

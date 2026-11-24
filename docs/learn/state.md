@@ -22,7 +22,7 @@ Click the first row. Its checkmark appears and the total moves from one complete
 ## Work through the code {#source}
 
 1. Register `Tasks` with `app.add_model(Tasks::default()).finish()` before composing the UI. Each row receives the handle to a task, so both the row and the derived count can observe `done`.
-2. The row binds its label to the task and calls `task.toggle()` from `on Tap`. Click the same row twice to see the change and its reversal. The completion count is derived from the list, so there is no second count to update.
+2. The row binds its checkmark to the task and calls `task.toggle()` from `on Tap`. Click the same row twice to see the change and its reversal. The completion count is derived from the list, so there is no second count to update.
 
 ## Run locally {#run}
 
