@@ -1,3 +1,7 @@
 /node_modules/
 /.vitepress/cache/
 /.vitepress/dist/
+/public/play/
+/examples/first-app/dist/
+/examples/first-app/task-list.mirui
+/task-list.mirui

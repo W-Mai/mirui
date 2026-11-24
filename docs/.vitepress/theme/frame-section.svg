@@ -1,0 +1,78 @@
+<svg class="instrument" viewBox="0 0 408 381" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <g id="mirui-section-plate">
+      <path fill="var(--frame-metal)" stroke="var(--frame-edge)" d="M0 90 H254 V96 H0 Z M254 0 V96 L259 92 V0 Z" />
+      <rect fill="var(--background)" stroke="var(--frame-edge)" width="254" height="90" rx="5" />
+      <path fill="none" stroke="var(--frame-detail)" d="M7 12 V7 H12 M242 7 H247 V12 M7 78 V83 H12 M242 83 H247 V78" />
+    </g>
+    <pattern id="mirui-section-grid" width="10" height="10" patternUnits="userSpaceOnUse">
+      <path class="etch" d="M0 0H10M0 0V10" />
+    </pattern>
+    <pattern id="mirui-section-pixels" width="10" height="10" patternUnits="userSpaceOnUse">
+      <rect class="shade" x="1" y="1" width="8" height="8" rx="1" />
+    </pattern>
+    <radialGradient id="mirui-section-shadow">
+      <stop stop-color="var(--foreground)" stop-opacity=".16" />
+      <stop offset="1" stop-color="var(--foreground)" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <ellipse cx="193" cy="346" rx="168" ry="28" fill="url(#mirui-section-shadow)" />
+  <path class="focus-line" d="M43 62V290 M319 73V309 M77 28V253" />
+  <g data-layer="3" transform="matrix(1 .16 -.43 .78 78 250)">
+    <use href="#mirui-section-plate" />
+    <rect x="18" y="14" width="216" height="63" rx="4" fill="url(#mirui-section-pixels)" />
+    <g class="accent changed-pixels">
+      <rect x="41" y="31" width="8" height="8" rx="1" /><rect x="51" y="41" width="8" height="8" rx="1" />
+      <rect x="61" y="51" width="8" height="8" rx="1" /><rect x="71" y="41" width="8" height="8" rx="1" />
+      <rect x="81" y="31" width="8" height="8" rx="1" /><rect x="91" y="21" width="8" height="8" rx="1" />
+      <rect x="115" y="40" width="76" height="6" rx="3" /><rect x="115" y="51" width="47" height="5" rx="2" />
+    </g>
+    <rect class="sheen" x="34" y="16" width="164" height="51" rx="4" />
+  </g>
+  <g data-layer="2" transform="matrix(1 .16 -.43 .78 78 174)">
+    <use href="#mirui-section-plate" />
+    <rect x="18" y="13" width="216" height="64" rx="3" fill="url(#mirui-section-grid)" />
+    <rect class="hairline" x="35" y="24" width="181" height="12" rx="2" />
+    <rect class="hairline" x="35" y="42" width="181" height="21" rx="2" />
+    <rect class="tint" x="35" y="42" width="151" height="21" rx="2" />
+    <rect class="beam" stroke-width="1" stroke-dasharray="3 2" x="35" y="42" width="151" height="21" rx="2" />
+    <rect class="sheen" stroke-width="2" x="35" y="42" width="151" height="21" rx="2" />
+    <path class="etch" d="M43 38v29 M61 38v29 M35 52h188" />
+  </g>
+  <g data-layer="1" transform="matrix(1 .16 -.43 .78 78 98)">
+    <use href="#mirui-section-plate" />
+    <path class="etch" d="M39 27h65v40H39z M113 26Q140 26 161 18H213 M113 44H213 M113 62Q140 62 161 70H213" />
+    <path class="beam" d="M99 44H213" />
+    <circle class="accent" cx="214" cy="44" r="3.5" />
+    <circle class="shade" cx="214" cy="18" r="3.5" /><circle class="shade" cx="214" cy="70" r="3.5" />
+    <rect class="tint" x="50" y="33" width="23" height="23" rx="4" />
+    <path class="beam model-check" d="M54 44l5 5 10-11" stroke-width="2.5" stroke-linecap="round" />
+    <rect class="sheen" x="39" y="27" width="65" height="40" rx="4" />
+    <path class="etch" d="M80 39h12 M80 49h12" />
+  </g>
+  <g data-layer="0" transform="matrix(1 .16 -.43 .78 78 22)">
+    <use href="#mirui-section-plate" />
+    <rect class="shade" x="17" y="12" width="219" height="66" rx="5" />
+    <rect class="ink" x="31" y="21" width="62" height="4" rx="2" />
+    <rect class="face" x="32" y="34" width="13" height="13" rx="3" />
+    <rect class="tint" x="30" y="32" width="17" height="17" rx="3" />
+    <path class="beam screen-check" d="M34 40l4 4 6-7" stroke-width="2" stroke-linecap="round" />
+    <rect class="ink" x="55" y="38" width="81" height="4" rx="2" />
+    <rect class="face" x="32" y="50" width="11" height="11" rx="2" />
+    <rect class="accent" x="34" y="52" width="7" height="7" rx="1.5" />
+    <rect class="ink" x="55" y="54" width="55" height="4" rx="2" />
+    <rect class="face" x="32" y="64" width="11" height="11" rx="2" />
+    <rect class="ink" x="55" y="68" width="73" height="4" rx="2" />
+    <rect class="tint" x="152" y="37" width="64" height="6" rx="3" />
+    <rect class="accent" data-meter x="152" y="37" width="21.33" height="6" rx="3" />
+    <rect class="sheen" x="27" y="29" width="114" height="22" rx="4" />
+  </g>
+  <path class="hairline" d="M327 63h20 M327 139h20 M327 215h20 M327 291h20" />
+  <path class="focus-line" data-route d="M347 63 L364 63 Q372 63 372 72 V130 Q372 139 364 139 H348 H364 Q372 139 372 148 V206 Q372 215 364 215 H348 H364 Q372 215 372 224 V282 Q372 291 364 291 H348" />
+  <circle class="tint" data-halo cx="347" cy="63" r="10" opacity="0" />
+  <circle class="accent" data-pulse cx="347" cy="63" r="4" opacity="0" />
+  <circle class="accent" cx="347" cy="63" r="2.4" />
+  <circle class="accent" cx="347" cy="139" r="2.4" />
+  <circle class="accent" cx="347" cy="215" r="2.4" />
+  <circle class="accent" cx="347" cy="291" r="2.4" />
+</svg>

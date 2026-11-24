@@ -1,0 +1,100 @@
+use crate::{Chapter, TasksHandle, install};
+use mirui::app::App;
+use mirui::core::storage::{LocalStorageStorage, Storage};
+use mirui::render::web_canvas::WebCanvasRendererFactory;
+use mirui::surface::web_canvas::WebCanvasSurface;
+use wasm_bindgen::prelude::*;
+use web_sys::HtmlCanvasElement;
+
+type ModelHost =
+    App<mirui::surface::framebuf::FramebufSurface<fn(&[u8], mirui::types::PhysicalRect)>>;
+
+#[wasm_bindgen]
+pub struct Tutorial {
+    app: App<WebCanvasSurface, WebCanvasRendererFactory>,
+    tasks: Option<TasksHandle>,
+}
+
+#[wasm_bindgen]
+pub struct FrameExample {
+    _app: ModelHost,
+    tasks: TasksHandle,
+}
+
+#[wasm_bindgen]
+impl FrameExample {
+    /// Keep the same tutorial Model registered without creating a visible runner.
+    pub fn create() -> Self {
+        let mut app = App::headless(1, 1);
+        let tasks = app.add_model(crate::Tasks::default()).finish();
+        Self { _app: app, tasks }
+    }
+
+    pub fn toggle(&self) -> bool {
+        let task = self.tasks.items().get(0).expect("initial task");
+        task.toggle();
+        task.done()
+    }
+
+    pub fn completed(&self) -> usize {
+        self.tasks.completed()
+    }
+}
+
+#[wasm_bindgen]
+impl Tutorial {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        canvas: HtmlCanvasElement,
+        chapter: u8,
+        reduced: bool,
+        dark: bool,
+        persist: bool,
+    ) -> Result<Self, JsError> {
+        let chapter = Chapter::new(chapter).ok_or_else(|| JsError::new("Unknown chapter"))?;
+        let surface = WebCanvasSurface::new(canvas);
+        let mut app = App::with_factory(surface, WebCanvasRendererFactory::new());
+        app.set_theme(if dark { "dark" } else { "light" })
+            .map_err(|error| JsError::new(&format!("{error:?}")))?;
+        let storage = if persist && chapter.has_storage() {
+            LocalStorageStorage::with_prefix(concat!("mirui-first-app-", env!("CARGO_PKG_VERSION")))
+                .ok()
+                .map(Storage::into_handle)
+        } else {
+            None
+        };
+        let tasks = install(&mut app, chapter, reduced, storage);
+        app.prepare_text_layout()
+            .map_err(|error| JsError::new(&format!("{error:?}")))?;
+        Ok(Self { app, tasks })
+    }
+
+    pub fn tick(&mut self) -> bool {
+        self.app.tick()
+    }
+
+    pub fn set_dark(&mut self, dark: bool) {
+        let _ = self.app.set_theme(if dark { "dark" } else { "light" });
+    }
+
+    pub fn toggle_first(&self) {
+        if let Some(task) = self.tasks.as_ref().and_then(|tasks| tasks.items().get(0)) {
+            task.toggle();
+        }
+    }
+
+    pub fn first_done(&self) -> bool {
+        self.tasks
+            .as_ref()
+            .and_then(|tasks| tasks.items().get(0))
+            .is_some_and(|task| task.done())
+    }
+
+    pub fn completed(&self) -> usize {
+        self.tasks.as_ref().map_or(0, TasksHandle::completed)
+    }
+
+    pub fn total(&self) -> usize {
+        self.tasks.as_ref().map_or(0, TasksHandle::total)
+    }
+}

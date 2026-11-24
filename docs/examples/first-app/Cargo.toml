@@ -1,0 +1,23 @@
+[package]
+name = "mirui-first-app"
+version = "0.57.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+desktop = ["mirui/sdl"]
+
+[dependencies]
+mirui = { path = "../../..", features = ["std", "persistence"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+mirui = { path = "../../..", features = ["web-canvas"] }
+wasm-bindgen = "0.2.122"
+web-sys = { version = "0.3.99", features = ["HtmlCanvasElement"] }
+
+[[example]]
+name = "desktop"
+required-features = ["desktop"]

@@ -6,6 +6,7 @@
     "dev": "vitepress dev --host 127.0.0.1",
     "build": "vitepress build",
     "preview": "vitepress preview --host 127.0.0.1",
+    "playground": "cd examples/first-app && env -u NO_COLOR trunk --no-color build --release --dist ../../public/play --public-url ./",
     "test": "bun test tests"
   },
   "devDependencies": {

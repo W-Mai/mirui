@@ -21,6 +21,14 @@ const sidebar = [
   {
     text: 'Start',
     items: [
+      { text: 'Build a task list', link: '/learn/' },
+      { text: 'Open a window', link: '/learn/window' },
+      { text: 'Complete a task', link: '/learn/state' },
+      { text: 'Add, remove, and filter', link: '/learn/collections' },
+      { text: 'Reuse components and styles', link: '/learn/components' },
+      { text: 'Give the interface motion', link: '/learn/motion' },
+      { text: 'Save and restore the list', link: '/learn/storage' },
+      { text: 'Run it in the browser', link: '/learn/web' },
       { text: 'Quickstart and targets', link: '/quickstart' },
     ],
   },
@@ -64,6 +72,9 @@ export default defineConfig({
   description: 'Build responsive Rust interfaces for small screens, desktop, and the web.',
   srcExclude: ['**/node_modules/**'],
   outDir: process.env.MIRUI_DOCS_OUT_DIR || '.vitepress/dist',
+  vite: {
+    server: { fs: { allow: [docs, resolve(root, 'gallery/web')] } },
+  },
   head: [
     ['script', {}, 'const syncMiruiTheme=()=>{document.documentElement.dataset.theme=document.documentElement.classList.contains("dark")?"dark":"light"};syncMiruiTheme();new MutationObserver(syncMiruiTheme).observe(document.documentElement,{attributes:true,attributeFilter:["class"]});'],
   ],
@@ -74,7 +85,22 @@ export default defineConfig({
       lang: 'zh-CN',
       themeConfig: {
         nav: [{ text: 'Gallery', link: 'https://mirui.rs/#demos' }, { text: 'API 参考', link: api }],
-        sidebar: [{ text: '指南', items: [{ text: '文档首页', link: '/zh/' }, { text: '英文快速开始', link: '/quickstart' }] }],
+        sidebar: [
+          {
+            text: '动手做一个任务清单',
+            items: [
+              { text: '教程总览', link: '/zh/learn/' },
+              { text: '打开窗口', link: '/zh/learn/window' },
+              { text: '完成一条任务', link: '/zh/learn/state' },
+              { text: '增删和筛选任务', link: '/zh/learn/collections' },
+              { text: '复用组件和样式', link: '/zh/learn/components' },
+              { text: '给应用加动效', link: '/zh/learn/motion' },
+              { text: '保存和恢复任务', link: '/zh/learn/storage' },
+              { text: '在浏览器运行并验证', link: '/zh/learn/web' },
+            ],
+          },
+          { text: '指南', items: [{ text: '英文快速开始', link: '/quickstart' }] },
+        ],
         outline: { label: '本节内容' },
         docFooter: { prev: '上一节', next: '下一节' },
         returnToTopLabel: '返回顶部',
