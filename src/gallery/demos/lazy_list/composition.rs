@@ -1,9 +1,11 @@
-use super::binding::{ITEM_COUNT, ROW_H, create_row};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
+use crate::gallery::sample_widgets::{NUMBERED_ROW_HEIGHT, create_numbered_row};
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::widgets::{LazyList, Text};
+
+const ITEM_COUNT: u32 = 1 << 16;
 
 #[compose]
 fn compose_list() -> Entity {
@@ -14,7 +16,7 @@ fn compose_list() -> Entity {
             max_width: 420,
             grow: 1.0,
             items: ITEM_COUNT,
-            item_extent: Fixed::from_int(ROW_H)
+            item_extent: Fixed::from_int(NUMBERED_ROW_HEIGHT)
         ) [
             ScrollOffset {
                 x: Fixed::ZERO,
@@ -25,7 +27,7 @@ fn compose_list() -> Entity {
                 elastic: true,
                 ..Default::default()
             },
-        ] on CreateCell(create_row::callback())
+        ] on CreateCell(create_numbered_row::callback(Dimension::px(12)))
     }
 }
 

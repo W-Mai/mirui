@@ -1,6 +1,6 @@
-use super::binding::ROW_H;
 use super::composition::build_widgets;
 use crate::ecs::SystemScheduler;
+use crate::gallery::sample_widgets::NUMBERED_ROW_HEIGHT;
 use crate::input::event::scroll::ScrollOffset;
 use crate::prelude::*;
 use crate::ui::Children;
@@ -31,7 +31,7 @@ fn build_widgets_smoke() {
     let paragraph = world.get::<Text>(label).unwrap().paragraph().clone();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(crate::ui::widgets::lazy_list::lazy_list_system::system());
-    world.get_mut::<ScrollOffset>(list).unwrap().y = Fixed::from_int(42 * ROW_H);
+    world.get_mut::<ScrollOffset>(list).unwrap().y = Fixed::from_int(42 * NUMBERED_ROW_HEIGHT);
     scheduler.run_all(&mut world).unwrap();
     crate::core::reactive::flush_signal_dirty(&mut world);
     let row = *world

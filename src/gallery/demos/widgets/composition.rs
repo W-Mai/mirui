@@ -1,6 +1,6 @@
-use super::binding::create_row;
 use super::state::{ACCENT, FormProgress, FormSlider};
 use crate::gallery::sample_style::primary_action;
+use crate::gallery::sample_widgets::{NUMBERED_ROW_HEIGHT, create_numbered_row};
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::OffscreenRender;
@@ -22,7 +22,6 @@ fn tab_panel() -> StylePreset {
 
 #[compose]
 pub fn build_widgets() {
-    const ROW_HEIGHT: i32 = 38;
     //~focus-start
     let tab_label = style!(
         grow: 1.0, height: Dimension::percent(100), text_color: ColorToken::OnSurface,
@@ -92,7 +91,7 @@ pub fn build_widgets() {
                     id: "widgets_list",
                     style: tab_panel(),
                     items: ITEM_COUNT,
-                    item_extent: Fixed::from_int(ROW_HEIGHT)
+                    item_extent: Fixed::from_int(NUMBERED_ROW_HEIGHT)
                 ) [
                     TabContent {
                         tab_bar: id("widgets_tabs"),
@@ -107,7 +106,7 @@ pub fn build_widgets() {
                         elastic: false,
                         ..Default::default()
                     },
-                ] on CreateCell(create_row::callback())
+                ] on CreateCell(create_numbered_row::callback(Dimension::px(14)))
                 Column (
                     style: tab_panel(),
                     padding: Padding::all(18),

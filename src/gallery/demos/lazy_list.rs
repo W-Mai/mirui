@@ -1,6 +1,5 @@
 extern crate alloc;
 
-mod binding;
 mod composition;
 
 #[cfg(test)]

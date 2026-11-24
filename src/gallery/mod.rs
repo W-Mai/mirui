@@ -5,6 +5,7 @@ pub(crate) mod brand;
 pub mod demos;
 pub(crate) mod play;
 mod sample_style;
+mod sample_widgets;
 pub mod showcase_theme;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

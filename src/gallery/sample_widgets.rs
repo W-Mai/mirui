@@ -2,18 +2,17 @@ use crate::prelude::*;
 use crate::ui::widgets::lazy_list::{CreateCell, ListItem};
 use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
-pub(super) const ROW_H: i32 = 38;
-pub(super) const ITEM_COUNT: u32 = 1 << 16;
+pub(super) const NUMBERED_ROW_HEIGHT: i32 = 38;
 
 #[event]
-pub(super) fn create_row(event: event!(CreateCell)) -> Entity {
+pub(super) fn create_numbered_row(event: event!(CreateCell), inset: Dimension) -> Entity {
     ui! {
-        row (event.item.clone())
+        numbered_list_row (event.item.clone(), inset)
     }
 }
 
 #[compose]
-fn row(item: model!(ListItem)) -> Entity {
+fn numbered_list_row(item: model!(ListItem), inset: Dimension) -> Entity {
     ui! {
         Row (
             bg_color: ${ if item.index() % 2 == 0 { ColorToken::Surface } else { ColorToken::SurfaceVariant } },
@@ -21,9 +20,9 @@ fn row(item: model!(ListItem)) -> Entity {
             align: AlignItems::Center,
             padding: Padding {
                 top: Dimension::px(0),
-                right: Dimension::px(12),
+                right: inset,
                 bottom: Dimension::px(0),
-                left: Dimension::px(12),
+                left: inset,
             }
         ) {
             Text (
@@ -35,12 +34,7 @@ fn row(item: model!(ListItem)) -> Entity {
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
-            View (
-                width: 6,
-                height: 6,
-                bg_color: ColorToken::Primary,
-                border_radius: 3
-            )
+            View (width: 6, height: 6, bg_color: ColorToken::Primary, border_radius: 3)
         }
     }
 }
