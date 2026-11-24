@@ -8,8 +8,8 @@ use winit::window::Window;
 
 pub use super::wgpu_surface::SoftwareRenderScale;
 use super::wgpu_surface::{
-    MobileEventFlow, MobileHost, MobileSurface, MobileSurfaceError, WgpuConfig, WgpuRuntime,
-    WgpuState, WgpuSurfaceError,
+    MobileEventFlow, MobileSurface, MobileSurfaceError, WgpuConfig, WgpuRuntime, WgpuState,
+    WgpuSurfaceError,
 };
 use super::{
     BackbufferPersistence, DisplayInfo, FramebufferAccess, InputEvent, SafeAreaInsets, Surface,
@@ -552,25 +552,7 @@ impl FramebufferAccess for SoftwareUploadSurface {
     }
 }
 
-pub fn software_mobile_host<Build>(
-    title: impl Into<alloc::string::String>,
-    config: SoftwareUploadConfig,
-    build: Build,
-) -> MobileHost<
-    SoftwareUploadSurface,
-    SwRendererFactory,
-    impl FnOnce(Arc<Window>) -> Result<SoftwareUploadSurface, MobileSurfaceError>,
-    Build,
->
-where
-    Build: FnOnce(SoftwareUploadSurface) -> crate::app::App<SoftwareUploadSurface> + 'static,
-{
-    MobileHost::new(
-        title,
-        move |window| SoftwareUploadSurface::new(window, config),
-        build,
-    )
-}
+pub use crate::app::mobile_host::software_mobile_host;
 
 const _: fn() = || {
     fn assert_factory<B: Surface, F: RendererFactory<B>>() {}

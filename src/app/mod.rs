@@ -1,5 +1,7 @@
 mod frame;
 pub mod lifecycle;
+#[cfg(all(feature = "wgpu", any(target_os = "android", target_os = "ios")))]
+pub(crate) mod mobile_host;
 mod model;
 pub mod plugin;
 pub mod plugins;

@@ -10,7 +10,7 @@ use winit::{
 
 use super::WgpuSurfaceError;
 
-pub(super) fn prepare_window(window: &Window) -> Result<(), WgpuSurfaceError> {
+pub(crate) fn prepare_window(window: &Window) -> Result<(), WgpuSurfaceError> {
     let error = |message: &str| WgpuSurfaceError::Backend(message.into());
     let mtm = MainThreadMarker::new()
         .ok_or_else(|| error("iOS window preparation requires the main thread"))?;
