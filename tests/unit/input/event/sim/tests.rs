@@ -1,0 +1,2154 @@
+use super::*;
+use crate::core::time::mock;
+use crate::ecs::MonoClock;
+use crate::input::event::contract::Event;
+use crate::input::event::gesture::GestureSystem;
+use crate::types::Point;
+
+fn setup_world() -> World {
+    let mut world = World::default();
+    world.insert_resource(crate::input::event::scroll::ScrollDragState::default());
+    world.insert_resource(crate::input::event::scroll::ScrollMotion::default());
+    world.insert_resource(GestureSystem::default());
+    world.insert_resource(crate::input::event::focus::FocusState::default());
+    world.insert_resource(crate::surface::DisplayInfo {
+        width: 128,
+        height: 128,
+        scale: crate::types::Fixed::ONE,
+        format: crate::render::texture::ColorFormat::RGBA8888,
+    });
+    let root = world.spawn_empty();
+    world.insert_resource(SimRootFallback(root));
+    // Caller must hold mock::install()'s guard for the test's
+    // duration so parallel tests don't share the same mock clock.
+    mock::set_ns(0);
+    world.insert_resource(MonoClock::from_time_source());
+    world
+}
+
+#[crate::event]
+fn replace_timeline(commands: commands!()) {
+    commands.insert_resource(SimTimeline::new(alloc::vec![SimAction::wait(1000)]));
+}
+
+#[derive(Default)]
+struct ProgramTrace {
+    codes: [u32; 8],
+    len: usize,
+    replace: bool,
+}
+
+#[derive(Default)]
+struct TextProgramTrace {
+    pointer: usize,
+    calls: usize,
+}
+
+#[crate::event]
+fn program_text(
+    input: event!(crate::input::event::input::TextCommitted),
+    trace: res!(mut TextProgramTrace),
+) {
+    assert_eq!(input.text().len(), 300);
+    assert_eq!(input.text().as_ptr() as usize, trace.pointer);
+    trace.calls += 1;
+}
+
+#[test]
+fn looping_owned_text_keeps_its_buffer_without_per_cycle_cloning() {
+    use crate::input::event::input::TextCommitted;
+    let _guard = mock::install();
+    let mut app = crate::app::App::headless(32, 32);
+    let text = "界".repeat(100);
+    app.add_resource(TextProgramTrace {
+        pointer: text.as_ptr() as usize,
+        calls: 0,
+    });
+    app.on_event(TextCommitted::EVENT, program_text::callback());
+    app.add_resource(
+        SimulatedInput::new(alloc::vec![SimCommand::at(
+            0,
+            TextCommitted::new(text).into()
+        )])
+        .looping(true),
+    );
+    sim_input_system(&mut app.world).unwrap();
+    let allocations = crate::test_support::tracked_allocations(|| {
+        for _ in 0..8 {
+            sim_input_system(&mut app.world).unwrap();
+        }
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(app.world.resource::<TextProgramTrace>().unwrap().calls, 9);
+}
+
+fn program_key(code: u32) -> InputEvent {
+    super::super::input::Key {
+        physical: None,
+        code,
+        pressed: true,
+        modifiers: None,
+        repeat: None,
+    }
+    .into()
+}
+
+#[crate::event]
+fn program_input(
+    input: event!(super::super::input::Key),
+    trace: res!(mut ProgramTrace),
+    commands: commands!(),
+) -> bool {
+    let index = trace.len;
+    trace.codes[index] = input.code;
+    trace.len += 1;
+    if input.code == 1 {
+        if trace.replace {
+            commands.insert_resource(SimulatedInput::new(alloc::vec![SimCommand::at(
+                0,
+                program_key(9)
+            )]));
+        } else {
+            commands.remove_resource::<SimulatedInput>();
+        }
+    }
+    true
+}
+
+#[test]
+fn scheduled_batch_survives_removing_or_replacing_its_program() {
+    let _guard = mock::install();
+    for replace in [false, true] {
+        let mut app = crate::app::App::headless(32, 32);
+        app.add_resource(ProgramTrace {
+            replace,
+            ..Default::default()
+        });
+        app.on_event(super::super::input::Key::EVENT, program_input::callback());
+        app.add_resource(
+            SimulatedInput::new(alloc::vec![
+                SimCommand::at(0, program_key(1)),
+                SimCommand::at(0, program_key(2)),
+            ])
+            .looping(true),
+        );
+        sim_input_system(&mut app.world).unwrap();
+        let trace = app.world.resource::<ProgramTrace>().unwrap();
+        assert_eq!(&trace.codes[..trace.len], &[1, 2]);
+        sim_input_system(&mut app.world).unwrap();
+        let trace = app.world.resource::<ProgramTrace>().unwrap();
+        assert_eq!(
+            &trace.codes[..trace.len],
+            if replace { &[1, 2, 9][..] } else { &[1, 2][..] }
+        );
+    }
+}
+
+#[test]
+fn looping_program_reuses_storage_and_preserves_due_order() {
+    let _guard = mock::install();
+    let mut app = crate::app::App::headless(32, 32);
+    app.add_resource(MonoClock::from_time_source());
+    app.add_resource(ProgramTrace::default());
+    app.on_event(super::super::input::Key::EVENT, program_input::callback());
+    app.add_resource(
+        SimulatedInput::new(alloc::vec![
+            SimCommand::at(0, program_key(2)),
+            SimCommand::after(5, program_key(3)),
+        ])
+        .looping(true),
+    );
+    mock::set_ns(0);
+    sim_input_system(&mut app.world).unwrap();
+    mock::advance_ms(5);
+    sim_input_system(&mut app.world).unwrap();
+    app.world.resource_mut::<ProgramTrace>().unwrap().len = 0;
+    let allocations = crate::test_support::tracked_allocations(|| {
+        sim_input_system(&mut app.world).unwrap();
+        sim_input_system(&mut app.world).unwrap();
+        mock::advance_ms(5);
+        sim_input_system(&mut app.world).unwrap();
+    });
+    assert_eq!(allocations, 0);
+    let trace = app.world.resource::<ProgramTrace>().unwrap();
+    assert_eq!(&trace.codes[..trace.len], &[2, 3]);
+}
+
+#[test]
+fn completing_action_does_not_advance_a_timeline_installed_by_its_callback() {
+    let _guard = mock::install();
+    mock::set_ns(0);
+    let mut app = crate::app::App::headless(32, 32);
+    app.add_resource(MonoClock::from_time_source());
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        crate::ui! {
+            View (width: 32, height: 32) on Tap(replace_timeline::callback())
+        }
+    });
+    app.render().unwrap();
+    app.add_resource(SimTimeline::new(alloc::vec![SimAction::tap(Point {
+        x: 4.into(),
+        y: 4.into()
+    })]));
+    sim_timeline_system(&mut app.world).unwrap();
+    mock::advance_ms(50);
+    sim_timeline_system(&mut app.world).unwrap();
+    let timeline = app.world.resource::<SimTimeline>().unwrap();
+    assert_eq!(timeline.total_ms, 1000);
+    assert_eq!(timeline.cursor, 0);
+    assert!(timeline.start_ms.is_none());
+    assert!(timeline.is_running());
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SimTapObservation {
+    focused: Option<Entity>,
+    time_ms: u32,
+    tracker_count: u8,
+    callback_count: u8,
+}
+
+#[derive(Default)]
+struct SimTapTrace {
+    observations: [Option<SimTapObservation>; 2],
+    len: usize,
+}
+
+#[crate::event]
+fn record_sim_tap(
+    input: event!(crate::input::event::gesture::Tap),
+    target: entity!(),
+    focus: res!(crate::input::event::focus::FocusState),
+    taps: res!(crate::input::event::multi_tap::MultiTapTracker),
+    trace: res!(mut SimTapTrace),
+) -> bool {
+    assert_eq!(input.target, target);
+    let entry = taps.last.unwrap();
+    assert_eq!(entry.entity, target);
+    let index = trace.len;
+    trace.observations[index] = Some(SimTapObservation {
+        focused: focus.focused,
+        time_ms: entry.time_ms,
+        tracker_count: entry.count,
+        callback_count: entry.count,
+    });
+    trace.len += 1;
+    true
+}
+
+fn setup_sim_tap_contract_world() -> (World, Entity) {
+    let mut world = setup_world();
+    let target = crate::ui::builder::WidgetBuilder::new(&mut world)
+        .layout(crate::ui::layout::LayoutStyle {
+            width: crate::types::Dimension::px(128),
+            height: crate::types::Dimension::px(128),
+            ..Default::default()
+        })
+        .id();
+    world.insert(target, crate::ui::HitTarget);
+    world.insert(target, crate::input::event::focus::Focusable);
+    world.insert_resource(crate::input::event::multi_tap::MultiTapTracker::new());
+    world.insert_resource(SimTapTrace::default());
+    crate::input::event::runtime::install_entity(
+        &mut world,
+        target,
+        crate::input::event::gesture::Tap::EVENT,
+        record_sim_tap::callback::<crate::__macro_support::NodeContext>(),
+    )
+    .unwrap();
+    set_sim_root(&mut world, target);
+    crate::ui::render_system::try_update_layout(
+        &mut world,
+        target,
+        &crate::types::Viewport::new(128, 128, Fixed::ONE),
+    )
+    .unwrap();
+    (world, target)
+}
+
+fn assert_sim_tap_contract(world: &World, target: Entity, index: usize, time_ms: u32) {
+    let count = index as u8 + 1;
+    let entry = world
+        .resource::<crate::input::event::multi_tap::MultiTapTracker>()
+        .unwrap()
+        .last
+        .unwrap();
+    assert_eq!(entry.entity, target);
+    assert_eq!(entry.time_ms, time_ms);
+    assert_eq!(entry.count, count);
+    let trace = world.resource::<SimTapTrace>().unwrap();
+    assert_eq!(trace.len, index + 1);
+    let observed = trace.observations[index].unwrap();
+    assert_eq!(observed.focused, Some(target));
+    assert_eq!(observed.time_ms, time_ms);
+    assert_eq!(observed.tracker_count, count);
+    assert_eq!(observed.callback_count, count);
+}
+
+#[test]
+fn scheduled_taps_update_focus_clock_and_count_before_callback() {
+    let _guard = mock::install();
+    let (mut world, target) = setup_sim_tap_contract_world();
+    mock::set_ms(1000);
+    world.insert_resource(SimulatedInput::new(alloc::vec![
+        SimCommand::at(
+            0,
+            InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x: Fixed::from_int(64),
+                y: Fixed::from_int(64),
+            },
+        ),
+        SimCommand::at(
+            50,
+            InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x: Fixed::from_int(64),
+                y: Fixed::from_int(64),
+            },
+        ),
+        SimCommand::at(
+            100,
+            InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x: Fixed::from_int(64),
+                y: Fixed::from_int(64),
+            },
+        ),
+        SimCommand::at(
+            150,
+            InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x: Fixed::from_int(64),
+                y: Fixed::from_int(64),
+            },
+        ),
+    ]));
+
+    sim_input_system(&mut world).unwrap();
+    mock::advance_ms(50);
+    sim_input_system(&mut world).unwrap();
+    assert_sim_tap_contract(&world, target, 0, 1050);
+    mock::advance_ms(50);
+    sim_input_system(&mut world).unwrap();
+    mock::advance_ms(50);
+    sim_input_system(&mut world).unwrap();
+    assert_sim_tap_contract(&world, target, 1, 1150);
+}
+
+#[test]
+fn timeline_taps_update_focus_clock_and_count_before_callback() {
+    let _guard = mock::install();
+    let (mut world, target) = setup_sim_tap_contract_world();
+    mock::set_ms(1000);
+    let point = Point {
+        x: Fixed::from_int(64),
+        y: Fixed::from_int(64),
+    };
+    world.insert_resource(SimTimeline::new(alloc::vec![
+        SimAction::tap(point),
+        SimAction::tap(point),
+    ]));
+
+    sim_timeline_system(&mut world).unwrap();
+    assert_eq!(
+        world
+            .resource::<crate::input::event::scroll::ScrollDragState>()
+            .unwrap()
+            .pointer,
+        (crate::surface::PointerKind::Mouse, 0),
+    );
+    mock::advance_ms(50);
+    sim_timeline_system(&mut world).unwrap();
+    assert_sim_tap_contract(&world, target, 0, 1050);
+    mock::advance_ms(50);
+    sim_timeline_system(&mut world).unwrap();
+    mock::advance_ms(50);
+    sim_timeline_system(&mut world).unwrap();
+    assert_sim_tap_contract(&world, target, 1, 1150);
+}
+
+#[test]
+fn scheduled_input_updates_pointer_state_without_a_root() {
+    let _guard = mock::install();
+    let mut world = setup_world();
+    world.remove_resource::<SimRootFallback>();
+    world.insert_resource(SimulatedInput::new(alloc::vec![
+        SimCommand::at(
+            0,
+            InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x: Fixed::from_int(4),
+                y: Fixed::from_int(5),
+            },
+        ),
+        SimCommand::at(
+            50,
+            InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x: Fixed::from_int(6),
+                y: Fixed::from_int(7),
+            },
+        ),
+    ]));
+    sim_input_system(&mut world).unwrap();
+    let cursor = world.resource::<super::super::PointerCursor>().unwrap();
+    assert!(cursor.down);
+    assert_eq!(
+        (cursor.x, cursor.y),
+        (Fixed::from_int(4), Fixed::from_int(5))
+    );
+    mock::advance_ms(50);
+    sim_input_system(&mut world).unwrap();
+    let cursor = world.resource::<super::super::PointerCursor>().unwrap();
+    assert!(!cursor.down);
+    assert_eq!(
+        (cursor.x, cursor.y),
+        (Fixed::from_int(6), Fixed::from_int(7))
+    );
+    assert_eq!(cursor.event_seq, 2);
+    assert!(world.resource::<SimRootFallback>().is_none());
+}
+
+#[derive(Default)]
+struct SimKeyTrace {
+    pressed: [bool; 2],
+    len: usize,
+}
+
+#[crate::event]
+fn record_simulated_key(
+    input: event!(crate::input::event::input::Key),
+    trace: res!(mut SimKeyTrace),
+) -> bool {
+    assert_eq!(input.code, crate::input::event::input::KEY_ROTARY_PRESS);
+    let index = trace.len;
+    trace.pressed[index] = input.pressed;
+    trace.len += 1;
+    true
+}
+
+#[test]
+fn scheduled_input_and_timeline_use_the_same_app_keyboard_route_without_a_root() {
+    use crate::input::event::callback::AppContext;
+    let _guard = mock::install();
+    for (index, run) in [sim_input_system, sim_timeline_system]
+        .into_iter()
+        .enumerate()
+    {
+        let mut world = setup_world();
+        world.remove_resource::<SimRootFallback>();
+        world.insert_resource(SimKeyTrace::default());
+        super::super::runtime::install_app(
+            &mut world,
+            crate::input::event::input::Key::EVENT,
+            record_simulated_key::callback::<AppContext>(),
+        )
+        .unwrap();
+        if index == 0 {
+            world.insert_resource(SimulatedInput::new(alloc::vec![
+                SimCommand::at(
+                    0,
+                    InputEvent::Key {
+                        physical: None,
+                        code: crate::input::event::input::KEY_ROTARY_PRESS,
+                        pressed: true,
+                        modifiers: Some(Default::default()),
+                        repeat: Some(false),
+                    },
+                ),
+                SimCommand::at(
+                    50,
+                    InputEvent::Key {
+                        physical: None,
+                        code: crate::input::event::input::KEY_ROTARY_PRESS,
+                        pressed: false,
+                        modifiers: Some(Default::default()),
+                        repeat: Some(false),
+                    },
+                ),
+            ]));
+        } else {
+            world.insert_resource(SimTimeline::new(alloc::vec![SimAction::RotaryClick]));
+        }
+        run(&mut world).unwrap();
+        mock::advance_ms(50);
+        run(&mut world).unwrap();
+        let trace = world.resource::<SimKeyTrace>().unwrap();
+        assert_eq!(trace.len, 2);
+        assert_eq!(trace.pressed, [true, false]);
+        assert!(world.resource::<SimRootFallback>().is_none());
+    }
+}
+
+#[derive(Default)]
+struct SimBatchTrace {
+    values: [i32; 2],
+    len: usize,
+}
+
+#[crate::event]
+fn record_sim_batch_tap(
+    input: event!(crate::input::event::gesture::Tap),
+    node: entity!(),
+    trace: res!(mut SimBatchTrace),
+) -> bool {
+    assert_eq!(input.target, node);
+    let index = trace.len;
+    trace.values[index] = input.x.to_int();
+    trace.len += 1;
+    true
+}
+
+#[test]
+fn scheduled_input_and_timeline_share_retained_gesture_batch_storage() {
+    use crate::input::event::gesture::GestureEvent;
+
+    let _guard = mock::install();
+    let mut world = setup_world();
+    let root = world.resource::<SimRootFallback>().unwrap().0;
+    world.insert_resource(SimBatchTrace::default());
+    crate::input::event::runtime::install_entity(
+        &mut world,
+        root,
+        crate::input::event::gesture::Tap::EVENT,
+        record_sim_batch_tap::callback::<crate::__macro_support::NodeContext>(),
+    )
+    .unwrap();
+    world.insert_resource(SimulatedInput::new(alloc::vec![SimCommand::at(
+        1000,
+        InputEvent::AppResume,
+    )]));
+    world.insert_resource(SimTimeline::new(alloc::vec![SimAction::wait(1000)]));
+    let original = world
+        .resource::<GestureSystem>()
+        .unwrap()
+        .events
+        .buffer
+        .as_ptr();
+    for (index, run) in [sim_input_system, sim_timeline_system]
+        .into_iter()
+        .enumerate()
+    {
+        world
+            .resource_mut::<GestureSystem>()
+            .unwrap()
+            .events
+            .push(GestureEvent::Tap {
+                x: Fixed::from_int(index as i32 + 1),
+                y: Fixed::ZERO,
+                target: root,
+            });
+        run(&mut world).unwrap();
+        let buffer = &world.resource::<GestureSystem>().unwrap().events.buffer;
+        assert!(buffer.is_empty());
+        assert_eq!(buffer.capacity(), 4);
+        assert_eq!(buffer.as_ptr() == original, index == 1);
+    }
+    assert_eq!(world.resource::<SimBatchTrace>().unwrap().values, [1, 2]);
+}
+
+#[test]
+fn move_to_emits_pointer_move_without_pressing() {
+    let _g = mock::install();
+    let mut world = setup_world();
+    world.insert_resource(SimTimeline::new(alloc::vec![SimAction::move_to(
+        Point {
+            x: Fixed::from_int(10),
+            y: Fixed::from_int(10),
+        },
+        Point {
+            x: Fixed::from_int(50),
+            y: Fixed::from_int(10),
+        },
+        200,
+        crate::anim::ease::linear,
+    )]));
+
+    sim_timeline_system(&mut world).unwrap();
+    let cursor = world
+        .resource::<crate::input::event::PointerCursor>()
+        .copied()
+        .expect("cursor seeded by sim");
+    assert_eq!(cursor.x, Fixed::from_int(10));
+    assert!(!cursor.down, "MoveTo must keep cursor.down false");
+
+    for _ in 0..7 {
+        mock::advance_ms(16);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    let mid = world
+        .resource::<crate::input::event::PointerCursor>()
+        .copied()
+        .unwrap();
+    assert!(
+        mid.x > Fixed::from_int(10) && mid.x < Fixed::from_int(50),
+        "cursor must interpolate between endpoints, got {:?}",
+        mid.x,
+    );
+    assert!(!mid.down);
+
+    for _ in 0..20 {
+        mock::advance_ms(16);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    let end = world
+        .resource::<crate::input::event::PointerCursor>()
+        .copied()
+        .unwrap();
+    assert_eq!(end.x, Fixed::from_int(50));
+    assert!(!end.down);
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().cursor,
+        1,
+        "MoveTo timeline cursor must advance past completion",
+    );
+}
+
+#[test]
+fn rotate_advances_after_step_ms_per_tick() {
+    let _g = mock::install();
+    let mut world = setup_world();
+    // 5 ticks × 20 ms each = 100 ms total.
+    world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate(5, 20)]));
+
+    sim_timeline_system(&mut world).unwrap();
+    assert_eq!(world.resource::<SimTimeline>().unwrap().cursor, 0);
+
+    for _ in 0..3 {
+        mock::advance_ms(16);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().rotate_emitted,
+        2,
+        "rotate_emitted must equal elapsed_ms / step_ms",
+    );
+    assert_eq!(world.resource::<SimTimeline>().unwrap().cursor, 0);
+
+    for _ in 0..6 {
+        mock::advance_ms(16);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().cursor,
+        1,
+        "rotate failed to advance after total duration",
+    );
+    assert_eq!(world.resource::<SimTimeline>().unwrap().rotate_emitted, 0);
+}
+
+#[test]
+fn rotate_smooth_with_linear_ease_matches_rotate() {
+    // Linear ease is the identity timing curve, so rotate_smooth
+    // with linear must emit detents at the same relative tempo as
+    // the legacy rotate(...).
+    let _g = mock::install();
+    let mut world = setup_world();
+    world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate_smooth(
+        4,
+        80,
+        crate::anim::ease::linear,
+    )]));
+
+    sim_timeline_system(&mut world).unwrap();
+    for _ in 0..2 {
+        mock::advance_ms(20);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().rotate_emitted,
+        2,
+        "linear ease at 50% time → 2 of 4 detents",
+    );
+}
+
+#[test]
+fn rotate_smooth_back_loaded_curve_stalls_then_finishes() {
+    // ease_in_out_cubic is back-loaded: at t=0.25 progress is far
+    // below 0.25, so detent emissions should lag the linear case.
+    // Pin the contract by checking that no detents have fired
+    // halfway through total_ms when ease_in_out_cubic is used,
+    // while linear would have fired half by then.
+    let _g = mock::install();
+    let mut world = setup_world();
+    world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate_smooth(
+        4,
+        100,
+        crate::anim::ease::ease_in_out_cubic,
+    )]));
+
+    sim_timeline_system(&mut world).unwrap();
+    // 25% elapsed: ease_in_out_cubic(0.25) ≈ 0.0625 → 0 detents.
+    for _ in 0..1 {
+        mock::advance_ms(25);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    let mid_emitted = world.resource::<SimTimeline>().unwrap().rotate_emitted;
+    assert!(
+        mid_emitted < 2,
+        "ease_in_out_cubic at 25% should not have emitted half the detents (got {mid_emitted})",
+    );
+
+    // Run past total_ms; all 4 detents must have fired and the
+    // cursor must advance.
+    for _ in 0..8 {
+        mock::advance_ms(20);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().cursor,
+        1,
+        "rotate_smooth must fully complete after total_ms",
+    );
+}
+
+#[test]
+fn rotate_smooth_non_divisible_total_rounds_up_step_ms() {
+    let _g = mock::install();
+    let mut world = setup_world();
+    world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate_smooth(
+        3,
+        100,
+        crate::anim::ease::linear,
+    )]));
+
+    sim_timeline_system(&mut world).unwrap();
+    for _ in 0..9 {
+        mock::advance_ms(16);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().cursor,
+        1,
+        "rotate_smooth(3, 100) must retire after ~102 ms",
+    );
+}
+
+#[test]
+fn rotary_click_emits_key_pair() {
+    let _g = mock::install();
+    let mut world = setup_world();
+    world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotary_click()]));
+
+    sim_timeline_system(&mut world).unwrap();
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().cursor,
+        0,
+        "RotaryClick must not advance on first frame (pressed phase)",
+    );
+
+    // Hold past the 50 ms release threshold.
+    for _ in 0..5 {
+        mock::advance_ms(16);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().cursor,
+        1,
+        "RotaryClick must advance after release fires",
+    );
+}
+
+#[test]
+fn move_to_does_not_bump_event_seq() {
+    let _g = mock::install();
+    let mut world = setup_world();
+    world.insert_resource(SimTimeline::new(alloc::vec![SimAction::move_to(
+        Point {
+            x: Fixed::from_int(0),
+            y: Fixed::ZERO,
+        },
+        Point {
+            x: Fixed::from_int(40),
+            y: Fixed::ZERO,
+        },
+        100,
+        crate::anim::ease::linear,
+    )]));
+
+    sim_timeline_system(&mut world).unwrap();
+    let initial_seq = world
+        .resource::<crate::input::event::PointerCursor>()
+        .map(|c| c.event_seq)
+        .unwrap_or(0);
+
+    for _ in 0..10 {
+        mock::advance_ms(16);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    let final_seq = world
+        .resource::<crate::input::event::PointerCursor>()
+        .map(|c| c.event_seq)
+        .unwrap_or(0);
+    assert_eq!(
+        initial_seq, final_seq,
+        "PointerMove must not bump event_seq; only Down/Up do",
+    );
+}
+
+#[test]
+fn wait_holds_cursor_for_full_duration() {
+    let _g = mock::install();
+    let mut world = setup_world();
+    world.insert_resource(SimTimeline::new(alloc::vec![SimAction::Wait(800)]));
+
+    sim_timeline_system(&mut world).unwrap();
+    assert_eq!(world.resource::<SimTimeline>().unwrap().cursor, 0);
+
+    for _ in 0..25 {
+        mock::advance_ms(16);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().cursor,
+        0,
+        "cursor advanced during Wait — timeline drifted",
+    );
+
+    for _ in 0..30 {
+        mock::advance_ms(16);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().cursor,
+        1,
+        "cursor failed to advance past Wait",
+    );
+}
+
+/// Drive sim_timeline for `step_ms` per call, recording every
+/// cursor change with the wall-clock-equivalent ms at which it
+/// occurred. Returns the (cursor, ms) trace.
+fn trace_cursors(world: &mut World, step_ms: u64, max_steps: u32) -> alloc::vec::Vec<(usize, u64)> {
+    let mut trace = alloc::vec::Vec::new();
+    let mut elapsed: u64 = 0;
+    let mut last: usize = usize::MAX;
+    for _ in 0..max_steps {
+        sim_timeline_system(world).unwrap();
+        let cur = world
+            .resource::<SimTimeline>()
+            .map(|t| t.cursor)
+            .unwrap_or(usize::MAX);
+        if cur != last {
+            trace.push((cur, elapsed));
+            last = cur;
+        }
+        mock::advance_ms(step_ms);
+        elapsed += step_ms;
+    }
+    trace
+}
+
+#[test]
+fn wait_survives_u32_ms_wrap() {
+    // sim_timeline computes `elapsed = now_ms.wrapping_sub(start)`.
+    // When the clock is positioned so that within one Wait the
+    // u32-ms representation wraps, `wrapping_sub` must still yield
+    // the correct relative duration. Tests that the wrap doesn't
+    // collapse a 800-ms Wait into an instant-fire (or stretch it
+    // across the full u32 range).
+    let _g = mock::install();
+    let mut world = setup_world();
+    // Position the clock 200 ms before u32::MAX-ms wraps. A 800-ms
+    // Wait will cross the boundary mid-way.
+    mock::set_ms((u32::MAX as u64) - 200);
+    world.insert_resource(SimTimeline::new(alloc::vec![SimAction::Wait(800)]));
+
+    // Halfway through the Wait — cursor must still be 0.
+    sim_timeline_system(&mut world).unwrap();
+    for _ in 0..25 {
+        mock::advance_ms(16);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().cursor,
+        0,
+        "Wait collapsed across u32 ms wrap",
+    );
+
+    // Past full 800 ms — should advance.
+    for _ in 0..30 {
+        mock::advance_ms(16);
+        sim_timeline_system(&mut world).unwrap();
+    }
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().cursor,
+        1,
+        "Wait did not advance after full duration across wrap",
+    );
+}
+
+#[test]
+fn cycle_stability_two_cycles_match() {
+    // Wait 100, Tap (100), Wait 800, Tap (100), Wait 100. Total
+    // 1200 ms per cycle. Looping. Verify cycle 2's per-cursor
+    // timings match cycle 1's (no drift in re-run).
+    let _g = mock::install();
+    let mut world = setup_world();
+    world.insert_resource(
+        SimTimeline::new(alloc::vec![
+            SimAction::wait(100),
+            SimAction::tap((10, 10)),
+            SimAction::wait(800),
+            SimAction::tap((20, 20)),
+            SimAction::wait(100),
+        ])
+        .looping(true),
+    );
+
+    let step = 16u64;
+    // Two full cycles + buffer = 2 × 1200 + 800 = 3200 ms ≈ 200
+    // frames @ 16 ms/frame.
+    let trace = trace_cursors(&mut world, step, 250);
+
+    // Find the *second* time cursor returns to 0 (cycle 2 reset).
+    // Cycle 1 reset is the first (after the timeline length is
+    // exceeded). Total ms of cycle 1 = ms at second 0.
+    let zero_resets: alloc::vec::Vec<u64> = trace
+        .iter()
+        .filter(|(c, _)| *c == 0)
+        .map(|(_, ms)| *ms)
+        .collect();
+
+    // Initial state is cursor=0 at ms=0; first looping reset is
+    // the second 0; second cycle's reset is the third 0.
+    assert!(
+        zero_resets.len() >= 3,
+        "expected at least 3 cursor=0 events (initial + 2 loop resets), \
+             trace={trace:?}",
+    );
+
+    let cycle1_len = zero_resets[1] - zero_resets[0];
+    let cycle2_len = zero_resets[2] - zero_resets[1];
+    let drift = cycle1_len.abs_diff(cycle2_len);
+
+    assert!(
+        drift <= step,
+        "cycle drift {drift} ms > frame ({step} ms): \
+             cycle1={cycle1_len} ms, cycle2={cycle2_len} ms\n\
+             trace={trace:?}",
+    );
+
+    // Sanity: each cycle should be ~1200 ms.
+    assert!(
+        (1100..=1300).contains(&cycle1_len),
+        "cycle1 length {cycle1_len} ms outside [1100, 1300]; trace={trace:?}",
+    );
+}
+
+fn spawn_widget(world: &mut World, parent: Option<Entity>, style: crate::ui::Style) -> Entity {
+    use crate::ui::{Children, Parent, Widget};
+    let e = world.spawn_empty();
+    world.insert(e, Widget);
+    world.insert(e, style);
+    if let Some(p) = parent {
+        world.insert(e, Parent(p));
+        if let Some(children) = world.get_mut::<Children>(p) {
+            children.0.push(e);
+        } else {
+            world.insert(p, Children(alloc::vec![e]));
+        }
+    }
+    e
+}
+
+fn install_root(world: &mut World) -> Entity {
+    use crate::types::Dimension;
+    use crate::ui::layout::LayoutStyle;
+    let root = spawn_widget(
+        world,
+        None,
+        crate::ui::Style {
+            layout: LayoutStyle {
+                width: Dimension::Px(Fixed::from_int(128)),
+                height: Dimension::Px(Fixed::from_int(128)),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    world.insert_resource(SimRootFallback(root));
+    root
+}
+
+#[test]
+fn tap_on_resolves_to_entity_centre() {
+    use crate::types::{Dimension, Viewport};
+    use crate::ui::layout::{LayoutStyle, Position};
+    let _g = mock::install();
+    let mut world = setup_world();
+    let root = install_root(&mut world);
+    let target = spawn_widget(
+        &mut world,
+        Some(root),
+        crate::ui::Style {
+            layout: LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::Px(Fixed::from_int(40)),
+                top: Dimension::Px(Fixed::from_int(20)),
+                width: Dimension::Px(Fixed::from_int(60)),
+                height: Dimension::Px(Fixed::from_int(30)),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    let viewport = Viewport::new(128, 128, Fixed::ONE);
+    crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
+
+    world.insert_resource(SimTimeline::new(alloc::vec![
+        SimAction::tap(DimPoint::CENTER).on(target),
+    ]));
+    for _ in 0..10 {
+        sim_timeline_system(&mut world).unwrap();
+        mock::advance_ms(16);
+    }
+
+    let tl = world.resource::<SimTimeline>().unwrap();
+    assert!(tl.cursor >= 1, "TapOn never advanced cursor");
+}
+
+#[test]
+fn tap_on_waits_indefinitely_for_computed_rect() {
+    let _g = mock::install();
+    let mut world = setup_world();
+    let target = world.spawn_empty();
+
+    world.insert_resource(SimTimeline::new(alloc::vec![
+        SimAction::tap(DimPoint::CENTER).on(target),
+    ]));
+    for _ in 0..50 {
+        sim_timeline_system(&mut world).unwrap();
+        mock::advance_ms(16);
+    }
+    assert_eq!(
+        world.resource::<SimTimeline>().unwrap().cursor,
+        0,
+        "TapOn must wait indefinitely so a deferred-layout target still fires once visible",
+    );
+}
+
+#[test]
+fn drag_on_anchors_endpoints_to_entity() {
+    use crate::types::{Dimension, Viewport};
+    use crate::ui::layout::{LayoutStyle, Position};
+    let _g = mock::install();
+    let mut world = setup_world();
+    let root = install_root(&mut world);
+    let target = spawn_widget(
+        &mut world,
+        Some(root),
+        crate::ui::Style {
+            layout: LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::Px(Fixed::from_int(10)),
+                top: Dimension::Px(Fixed::from_int(10)),
+                width: Dimension::Px(Fixed::from_int(20)),
+                height: Dimension::Px(Fixed::from_int(20)),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    let viewport = Viewport::new(128, 128, Fixed::ONE);
+    crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
+
+    world.insert_resource(SimTimeline::new(alloc::vec![
+        SimAction::drag(
+            DimPoint::CENTER,
+            DimPoint::px(60, 10),
+            100,
+            crate::anim::ease::linear,
+        )
+        .on(target),
+    ]));
+
+    for _ in 0..15 {
+        sim_timeline_system(&mut world).unwrap();
+        mock::advance_ms(16);
+    }
+    assert!(
+        world.resource::<SimTimeline>().unwrap().cursor >= 1,
+        "DragOn never completed",
+    );
+}
+
+// -- Widget-level integration tests ---------------------------
+//
+// These build a tree resembling demo_widgets (TabBar + 3 pages,
+// Slider on page 1, Switch on page 2) and exercise the full
+// input pipeline through dispatch_input + sim_timeline. Their
+// job is to reproduce ESP-side behaviours (cycle drift,
+// hit_test mis-routing, lost toggles) deterministically on host.
+
+use crate::input::event::dispatch_input;
+use crate::input::event::hit_test::hit_test;
+use crate::surface::InputEvent;
+use crate::types::Dimension;
+use crate::ui::builder::WidgetBuilder;
+use crate::ui::layout::{AlignItems, FlexDirection, JustifyContent, LayoutStyle};
+use crate::ui::widgets::slider::Slider;
+use crate::ui::widgets::switch::Switch;
+use crate::ui::widgets::tab_pages::{TabContent, tab_pages_system};
+use crate::ui::widgets::tabbar::TabBar;
+fn build_widget_world() -> (World, Entity, Entity, Entity) {
+    let mut app = crate::app::App::headless(128, 128);
+    app.with_default_widgets();
+    let root = app
+        .spawn_root()
+        .layout(LayoutStyle {
+            direction: FlexDirection::Column,
+            width: Dimension::px(128),
+            height: Dimension::px(128),
+            ..Default::default()
+        })
+        .id();
+    app.compose(root, |cx| {
+        crate::ui! {
+            TabBar (id: "tabs", count: 3, width: 128, height: 14)
+        };
+        crate::ui! {
+            View (
+                width: 128,
+                height: 114,
+                align: AlignItems::Center,
+                justify: JustifyContent::Center
+            ) [
+                TabContent {
+                    tab_bar: id("tabs"),
+                    index: 0,
+                },
+            ]
+        };
+        crate::ui! {
+            View (
+                width: 128,
+                height: 114,
+                align: AlignItems::Center,
+                justify: JustifyContent::Center
+            ) [
+                TabContent {
+                    tab_bar: id("tabs"),
+                    index: 1,
+                },
+            ] {
+                Slider (id: "slider", min: 0, max: 100, width: 108, height: 12)
+            }
+        };
+        crate::ui! {
+            View (
+                width: 128,
+                height: 114,
+                align: AlignItems::Center,
+                justify: JustifyContent::Center
+            ) [
+                TabContent {
+                    tab_bar: id("tabs"),
+                    index: 2,
+                },
+            ] {
+                Switch (id: "switch", width: 50, height: 26)
+            }
+        };
+    });
+    let world = app.world;
+    let slider = world.find_by_id("slider").unwrap();
+    let switch = world.find_by_id("switch").unwrap();
+    (world, root, slider, switch)
+}
+
+/// Bug repro for ESP cycle-2 toggle-Tap-misses-Switch:
+/// Hit-testing at the Switch's centre should return the Switch
+/// entity, not the TabContent wrapper that hosts it.
+#[test]
+fn hit_test_finds_switch_when_sw_tab_visible() {
+    let _g = mock::install();
+    mock::set_ms(0);
+    let (mut world, root, _slider, switch) = build_widget_world();
+    world.insert_resource(MonoClock::from_time_source());
+
+    let bar = world.query::<TabBar>().collect();
+    let bar = bar.first().copied().expect("TabBar entity");
+    if let Some(tb) = world.get_mut::<TabBar>(bar) {
+        tb.selected = 2;
+    }
+    tab_pages_system(&mut world).unwrap();
+    crate::ui::render_system::try_update_layout(
+        &mut world,
+        root,
+        &crate::types::Viewport::new(128, 128, Fixed::ONE),
+    )
+    .unwrap();
+
+    let cx = Fixed::from_int(64);
+    let cy = Fixed::from_int(71);
+    let hit = hit_test(&world, root, cx, cy, 128, 128);
+    assert_eq!(
+        hit,
+        Some(switch),
+        "hit_test at Switch centre returned {:?}, expected Switch entity {:?}",
+        hit,
+        switch,
+    );
+}
+
+/// Pins the per-entity-Vec walk-alignment invariant. Tree:
+///
+///   root  (column, 60x90)
+///   ├── hidden  (Hidden, ScrollOffset.y=30)
+///   │   └── decoy
+///   ├── visible_a
+///   └── target
+///
+/// entities (build_rects skips Hidden) = [root, visible_a, target].
+/// Buggy compute_scroll walked into the Hidden subtree; when it
+/// reached `decoy` the accumulator was (0, 30) and it wrote
+/// that into offsets[2] — `target`'s slot. The fix gates the
+/// scroll/transform walks on the same Widget+!Hidden+Style
+/// triple build_rects uses, so offsets stay (0,0) and Tap at
+/// target's centre hits target.
+#[test]
+fn hit_test_skips_hidden_subtree_scroll_offset() {
+    use crate::input::event::scroll::ScrollOffset;
+    use crate::ui::{Children, Hidden, HitTarget, Parent};
+    let mut world = World::new();
+    let mk = |w: &mut World, h: i32| {
+        WidgetBuilder::new(w)
+            .layout(LayoutStyle {
+                direction: FlexDirection::Column,
+                width: Dimension::px(60),
+                height: Dimension::px(h),
+                ..Default::default()
+            })
+            .id()
+    };
+    let attach = |w: &mut World, parent: Entity, child: Entity| {
+        w.insert(child, Parent(parent));
+        if let Some(c) = w.get_mut::<Children>(parent) {
+            c.0.push(child);
+        }
+    };
+
+    let root = mk(&mut world, 90);
+    let hidden = mk(&mut world, 30);
+    let decoy = mk(&mut world, 30);
+    let visible_a = mk(&mut world, 30);
+    let target = mk(&mut world, 30);
+    world.insert(target, HitTarget);
+    attach(&mut world, hidden, decoy);
+    attach(&mut world, root, hidden);
+    attach(&mut world, root, visible_a);
+    attach(&mut world, root, target);
+    world.insert(hidden, Hidden);
+    world.insert(
+        hidden,
+        ScrollOffset {
+            x: Fixed::ZERO,
+            y: Fixed::from_int(30),
+        },
+    );
+    crate::ui::render_system::try_update_layout(
+        &mut world,
+        root,
+        &crate::types::Viewport::new(60, 90, Fixed::ONE),
+    )
+    .unwrap();
+
+    let hit = hit_test(
+        &world,
+        root,
+        Fixed::from_int(30),
+        Fixed::from_int(45),
+        60,
+        90,
+    );
+    assert_eq!(
+        hit,
+        Some(target),
+        "hit at target centre returned {hit:?}; index alignment \
+             between build_rects and compute_scroll_offsets is broken",
+    );
+}
+
+/// Regression: scrolled-past row must not steal taps from a tabbar above.
+#[test]
+fn hit_test_clips_scrolled_child_to_container_rect() {
+    use crate::input::event::scroll::ScrollOffset;
+    use crate::ui::layout::Position;
+    use crate::ui::{Children, HitTarget, Parent};
+    let mut world = World::new();
+    let mk = |w: &mut World, width: i32, h: i32| {
+        WidgetBuilder::new(w)
+            .layout(LayoutStyle {
+                direction: FlexDirection::Column,
+                width: Dimension::px(width),
+                height: Dimension::px(h),
+                ..Default::default()
+            })
+            .id()
+    };
+    let attach = |w: &mut World, parent: Entity, child: Entity| {
+        w.insert(child, Parent(parent));
+        if let Some(c) = w.get_mut::<Children>(parent) {
+            c.0.push(child);
+        }
+    };
+
+    let root = mk(&mut world, 100, 100);
+    let tab = mk(&mut world, 100, 20);
+    world.insert(tab, HitTarget);
+    let scroll = mk(&mut world, 100, 80);
+    attach(&mut world, root, tab);
+    attach(&mut world, root, scroll);
+
+    let row = WidgetBuilder::new(&mut world)
+        .layout(LayoutStyle {
+            position: Position::Absolute,
+            top: Dimension::px(80),
+            left: Dimension::px(0),
+            width: Dimension::px(100),
+            height: Dimension::px(40),
+            ..Default::default()
+        })
+        .id();
+    attach(&mut world, scroll, row);
+
+    // tabbar y=[0,20). row layout y=100, ScrollOffset 95 → visual y=5.
+    world.insert(
+        scroll,
+        ScrollOffset {
+            x: Fixed::ZERO,
+            y: Fixed::from_int(95),
+        },
+    );
+    crate::ui::render_system::try_update_layout(
+        &mut world,
+        root,
+        &crate::types::Viewport::new(100, 100, Fixed::ONE),
+    )
+    .unwrap();
+
+    let hit = hit_test(
+        &world,
+        root,
+        Fixed::from_int(50),
+        Fixed::from_int(10),
+        100,
+        100,
+    );
+    assert_eq!(hit, Some(tab));
+}
+
+/// Bug repro: a Tap event delivered through dispatch_input at
+/// the Switch's centre must run switch_handler and toggle on.
+#[test]
+fn switch_tap_via_dispatch_input_toggles_on() {
+    let _g = mock::install();
+    mock::set_ms(0);
+    let (mut world, root, _slider, switch) = build_widget_world();
+    world.insert_resource(MonoClock::from_time_source());
+
+    let bar = world
+        .query::<TabBar>()
+        .collect()
+        .first()
+        .copied()
+        .expect("TabBar");
+    if let Some(tb) = world.get_mut::<TabBar>(bar) {
+        tb.selected = 2;
+    }
+    tab_pages_system(&mut world).unwrap();
+    crate::ui::render_system::try_update_layout(
+        &mut world,
+        root,
+        &crate::types::Viewport::new(128, 128, Fixed::ONE),
+    )
+    .unwrap();
+
+    let cx = Fixed::from_int(64);
+    let cy = Fixed::from_int(71);
+
+    let now_ms = world.resource::<MonoClock>().unwrap().now_ms();
+    dispatch_input(
+        &mut world,
+        Some(root),
+        &InputEvent::PointerDown {
+            kind: crate::input::event::input::PointerKind::Mouse,
+            id: 0,
+            x: cx,
+            y: cy,
+        },
+        now_ms,
+        128,
+        128,
+    );
+
+    mock::advance_ms(50);
+    let now_ms = world.resource::<MonoClock>().unwrap().now_ms();
+    dispatch_input(
+        &mut world,
+        Some(root),
+        &InputEvent::PointerUp {
+            kind: crate::input::event::input::PointerKind::Mouse,
+            id: 0,
+            x: cx,
+            y: cy,
+        },
+        now_ms,
+        128,
+        128,
+    );
+
+    assert_eq!(
+        crate::input::event::gesture::system::drain_gestures(
+            &mut world,
+            |world, gesture| -> Result<(), crate::input::event::runtime::RuntimeRunError> {
+                crate::ui::delivery::dispatch_gesture(world, gesture, now_ms)?;
+                crate::ui::delivery::flush(world).map(|_| ())
+            },
+        ),
+        Ok(1)
+    );
+
+    let on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);
+    assert!(on, "Switch.on should flip true after Tap at its centre.");
+}
+
+/// 100 sequential Tap events at the Switch's centre must flip
+/// Switch.on exactly 100 times. Catches "stuck after N taps"
+/// regressions: handler not idempotent on Down/Up pairing,
+/// recognizer carrying stale state across taps, animation
+/// systems blocking subsequent toggles.
+#[test]
+fn switch_n_tap_toggles_n_times() {
+    let _g = mock::install();
+    mock::set_ms(0);
+    let (mut world, root, _slider, switch) = build_widget_world();
+    world.insert_resource(MonoClock::from_time_source());
+
+    let bar = world
+        .query::<TabBar>()
+        .collect()
+        .first()
+        .copied()
+        .expect("TabBar");
+    if let Some(tb) = world.get_mut::<TabBar>(bar) {
+        tb.selected = 2;
+    }
+    tab_pages_system(&mut world).unwrap();
+    crate::ui::render_system::try_update_layout(
+        &mut world,
+        root,
+        &crate::types::Viewport::new(128, 128, Fixed::ONE),
+    )
+    .unwrap();
+
+    let cx = Fixed::from_int(64);
+    let cy = Fixed::from_int(71);
+    let mut flips = 0u32;
+    let mut prev_on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);
+
+    for _ in 0..100 {
+        let now_ms = world.resource::<MonoClock>().unwrap().now_ms();
+        dispatch_input(
+            &mut world,
+            Some(root),
+            &InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x: cx,
+                y: cy,
+            },
+            now_ms,
+            128,
+            128,
+        );
+        mock::advance_ms(50);
+        let now_ms = world.resource::<MonoClock>().unwrap().now_ms();
+        dispatch_input(
+            &mut world,
+            Some(root),
+            &InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x: cx,
+                y: cy,
+            },
+            now_ms,
+            128,
+            128,
+        );
+        // Drain & bubble pending Tap events the same way
+        // sim_timeline_system does at the end of each sim tick.
+        crate::input::event::gesture::system::drain_gestures(
+            &mut world,
+            |world, gesture| -> Result<(), crate::input::event::runtime::RuntimeRunError> {
+                crate::ui::delivery::dispatch_gesture(world, gesture, now_ms)?;
+                crate::ui::delivery::flush(world).map(|_| ())
+            },
+        )
+        .unwrap();
+        // Gap between taps so the recognizer fully resets.
+        mock::advance_ms(150);
+
+        let on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);
+        if on != prev_on {
+            flips += 1;
+        }
+        prev_on = on;
+    }
+
+    assert_eq!(
+        flips, 100,
+        "100 Taps should produce 100 toggles, got {flips}",
+    );
+}
+
+/// slider_handler must clamp ratio to [0, 1] for any Tap x —
+/// inside the rect, exactly on either edge, and one pixel past
+/// either edge. Floor at left, ceiling at right, no overflow.
+#[test]
+fn slider_handler_clamps_ratio_at_boundaries() {
+    use crate::input::event::gesture::GestureEvent;
+    use crate::types::Rect;
+    use crate::ui::ComputedRect;
+    use crate::ui::widgets::slider::Slider;
+
+    let mut world = World::new();
+    let e = world.spawn_empty();
+    world.insert(e, Slider::new(Fixed::ZERO, Fixed::from_int(100)));
+    world.insert(
+        e,
+        ComputedRect(Rect {
+            x: Fixed::from_int(20),
+            y: Fixed::ZERO,
+            w: Fixed::from_int(100),
+            h: Fixed::from_int(20),
+        }),
+    );
+
+    let cases: &[(Fixed, i32)] = &[
+        (Fixed::from_int(19), 0),     // 1 px left of rect
+        (Fixed::from_int(20), 0),     // exact left edge
+        (Fixed::from_int(70), 500),   // centre
+        (Fixed::from_int(120), 1000), // exact right edge
+        (Fixed::from_int(121), 1000), // 1 px past right
+        (Fixed::from_int(-50), 0),
+        (Fixed::from_int(10_000), 1000),
+    ];
+    for &(x, want_promille) in cases {
+        let ev = GestureEvent::Tap {
+            x,
+            y: Fixed::from_int(10),
+            target: e,
+        };
+        assert_eq!(
+            crate::input::event::view_input::invoke_gesture(
+                crate::ui::widgets::slider::view(),
+                &mut world,
+                e,
+                &ev
+            ),
+            Ok(true),
+            "handler accepts Tap"
+        );
+        let r = world.get::<Slider>(e).unwrap().ratio();
+        assert!(
+            r >= Fixed::ZERO && r <= Fixed::ONE,
+            "ratio out of [0,1] at x={}: {:?}",
+            x.to_int(),
+            r,
+        );
+        let got = (r * Fixed::from_int(1000)).to_int();
+        assert!(
+            (got - want_promille).abs() <= 5,
+            "x={}: got promille={}, want={}",
+            x.to_int(),
+            got,
+            want_promille,
+        );
+    }
+}
+
+/// Bug repro for ESP cycle-2 toggle loss: after one full sim
+/// cycle the timeline must still fire toggles in cycle 2. Drives
+/// ~25 s of virtual time. Catches drift / state-leak regressions
+/// that survived a single-frame check but break across cycles.
+///
+/// Note: this passes today on host but the ESP-side bug
+/// observed in v0.12.2 (cycle-2 hit_test routing toggle Tap to
+/// the TabContent wrapper instead of the Switch entity) does
+/// **not** reproduce here yet. Pending: tighten the fixture
+/// further (full App::run + FramebufSurface + sync_delta_time_ms)
+/// so it matches the device runtime path 1:1.
+#[test]
+fn cycle_2_switch_toggle_still_works() {
+    let _g = mock::install();
+    mock::set_ms(0);
+    let (mut world, _root, _slider, switch) = build_widget_world();
+    world.insert_resource(MonoClock::from_time_source());
+
+    world.insert_resource(
+        SimTimeline::new(alloc::vec![
+            SimAction::wait(500),
+            SimAction::tap((64, 7)),
+            SimAction::wait(1500),
+            SimAction::drag(
+                (14, 71),
+                (116, 71),
+                600,
+                crate::anim::ease::ease_in_out_cubic
+            ),
+            SimAction::wait(800),
+            SimAction::tap((108, 7)),
+            SimAction::wait(1200),
+            SimAction::tap((64, 71)),
+            SimAction::wait(800),
+            SimAction::tap((64, 71)),
+            SimAction::wait(800),
+            SimAction::tap((20, 7)),
+            SimAction::wait(800),
+            SimAction::drag(
+                (64, 100),
+                (64, 30),
+                700,
+                crate::anim::ease::ease_in_out_cubic
+            ),
+            SimAction::wait(800),
+            SimAction::drag(
+                (64, 30),
+                (64, 100),
+                700,
+                crate::anim::ease::ease_in_out_cubic
+            ),
+            SimAction::wait(800),
+        ])
+        .looping(true),
+    );
+
+    let cycle_ms: u64 = 9700;
+    let step: u64 = 16;
+    let total_frames: u64 = (cycle_ms * 25 / 10) / step; // ~2.5 cycles
+
+    let viewport = crate::types::Viewport::new(128, 128, Fixed::ONE);
+    crate::ui::render_system::try_update_layout(&mut world, _root, &viewport).unwrap();
+
+    let mut cycle1_toggles = 0u32;
+    let mut cycle2_toggles = 0u32;
+    let mut last_on = false;
+    let mut switch_systems = crate::ecs::SystemScheduler::new();
+    switch_systems.add(crate::ui::widgets::switch::switch_init_system::system());
+    switch_systems.add(crate::ui::widgets::switch::AnimateSwitchBgT::system());
+    switch_systems.add(crate::ui::widgets::switch::AnimateThumbX::system());
+
+    for frame in 0..total_frames {
+        sim_timeline_system(&mut world).unwrap();
+        crate::input::event::scroll::system::scroll_inertia_system(&mut world).unwrap();
+        tab_pages_system(&mut world).unwrap();
+        switch_systems.run_all(&mut world).unwrap();
+        crate::ui::render_system::try_update_layout(&mut world, _root, &viewport).unwrap();
+
+        let on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);
+        if on != last_on {
+            let elapsed = frame * step;
+            if elapsed < cycle_ms {
+                cycle1_toggles += 1;
+            } else if elapsed < 2 * cycle_ms {
+                cycle2_toggles += 1;
+            }
+            last_on = on;
+        }
+        mock::advance_ms(step);
+    }
+
+    assert!(
+        cycle1_toggles >= 2,
+        "cycle 1 expected ≥ 2 toggles, got {cycle1_toggles}",
+    );
+    assert!(
+        cycle2_toggles >= 2,
+        "cycle 2 expected ≥ 2 toggles, got {cycle2_toggles} \
+             (cycle1 saw {cycle1_toggles}). Same Switch entity, same \
+             timeline — drift is the bug we want to catch.",
+    );
+}
+
+#[derive(Default)]
+struct PinchProbe {
+    accum_scale: Fixed,
+    accum_scale64: crate::types::Fixed64,
+    per_frame: Vec<Fixed>,
+    deltas: Vec<crate::types::Fixed64>,
+    rotate_deltas: Vec<Fixed>,
+}
+
+#[crate::event]
+fn record_sim_pinch(
+    input: event!(crate::input::event::gesture::Pinch),
+    probe: res!(mut PinchProbe),
+) -> bool {
+    if probe.accum_scale == Fixed::ZERO {
+        probe.accum_scale = Fixed::ONE;
+        probe.accum_scale64 = crate::types::Fixed64::ONE;
+    }
+    probe.deltas.push(input.scale_delta);
+    probe.accum_scale64 = probe.accum_scale64 * input.scale_delta;
+    probe.accum_scale = probe.accum_scale64.to_fixed();
+    let scale = probe.accum_scale;
+    probe.per_frame.push(scale);
+    true
+}
+
+#[crate::event]
+fn record_sim_rotate(
+    input: event!(crate::input::event::gesture::Rotate),
+    probe: res!(mut PinchProbe),
+) -> bool {
+    probe.rotate_deltas.push(input.angle);
+    true
+}
+
+fn install_pinch_probe(world: &mut World, target: Entity) {
+    world.insert_resource(PinchProbe::default());
+    crate::input::event::runtime::install_entity(
+        world,
+        target,
+        crate::input::event::gesture::Pinch::EVENT,
+        record_sim_pinch::callback::<crate::__macro_support::NodeContext>(),
+    )
+    .unwrap();
+    crate::input::event::runtime::install_entity(
+        world,
+        target,
+        crate::input::event::gesture::Rotate::EVENT,
+        record_sim_rotate::callback::<crate::__macro_support::NodeContext>(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn pinch_two_rounds_handler_scale_is_continuous() {
+    use crate::types::{Dimension, Viewport};
+    use crate::ui::layout::{LayoutStyle, Position};
+    let _g = mock::install();
+    let mut world = setup_world();
+    let root = install_root(&mut world);
+    let target = spawn_widget(
+        &mut world,
+        Some(root),
+        crate::ui::Style {
+            layout: LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::Px(Fixed::from_int(20)),
+                top: Dimension::Px(Fixed::from_int(20)),
+                width: Dimension::Px(Fixed::from_int(88)),
+                height: Dimension::Px(Fixed::from_int(88)),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    install_pinch_probe(&mut world, target);
+    let viewport = Viewport::new(128, 128, Fixed::ONE);
+    crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
+
+    let center = Point {
+        x: Fixed::from_int(64),
+        y: Fixed::from_int(64),
+    };
+    world.insert_resource(SimTimeline::new(alloc::vec![
+        SimAction::pinch(
+            center,
+            Fixed::from_int(20),
+            Fixed::from_int(70),
+            200,
+            crate::anim::ease::linear,
+        ),
+        SimAction::wait(100),
+        SimAction::pinch(
+            center,
+            Fixed::from_int(70),
+            Fixed::from_int(20),
+            200,
+            crate::anim::ease::linear,
+        ),
+    ]));
+
+    sim_timeline_system(&mut world).unwrap();
+    assert_eq!(
+        world
+            .resource::<crate::input::event::scroll::ScrollDragState>()
+            .unwrap()
+            .pointer,
+        (crate::surface::PointerKind::Touch, 1),
+    );
+    for _ in 0..40 {
+        sim_timeline_system(&mut world).unwrap();
+        mock::advance_ms(16);
+    }
+
+    let probe = world.resource::<PinchProbe>().expect("probe present");
+    assert!(
+        probe.per_frame.len() >= 5,
+        "Pinch fired too few times ({}); expected at least 5 across two 200ms rounds",
+        probe.per_frame.len(),
+    );
+
+    let mut max_jump = Fixed::ZERO;
+    for w in probe.per_frame.windows(2) {
+        let prev = w[0];
+        let curr = w[1];
+        let ratio = if prev > curr {
+            prev / curr
+        } else {
+            curr / prev
+        };
+        let jump = ratio - Fixed::ONE;
+        if jump > max_jump {
+            max_jump = jump;
+        }
+    }
+    assert!(
+        max_jump < Fixed::ONE / Fixed::from_int(2),
+        "frame-to-frame scale jumped > 50%: max_jump = {:?}, frames = {:?}",
+        max_jump,
+        probe.per_frame,
+    );
+
+    let final_scale = *probe.per_frame.last().unwrap();
+    let drift = if final_scale > Fixed::ONE {
+        final_scale - Fixed::ONE
+    } else {
+        Fixed::ONE - final_scale
+    };
+    assert!(
+        drift < Fixed::ONE / Fixed::from_int(4),
+        "round-trip Pinch did not return to ~1.0×: final = {:?}",
+        final_scale,
+    );
+}
+
+#[test]
+fn pinch_demo_timeline_emits_expand_and_shrink_deltas() {
+    use crate::types::{Dimension, Viewport};
+    use crate::ui::layout::{LayoutStyle, Position};
+    let _g = mock::install();
+    let mut world = setup_world();
+    let root = install_root(&mut world);
+    let target = spawn_widget(
+        &mut world,
+        Some(root),
+        crate::ui::Style {
+            layout: LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::Px(Fixed::from_int(20)),
+                top: Dimension::Px(Fixed::from_int(20)),
+                width: Dimension::Px(Fixed::from_int(88)),
+                height: Dimension::Px(Fixed::from_int(88)),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    install_pinch_probe(&mut world, target);
+    let viewport = Viewport::new(128, 128, Fixed::ONE);
+    crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
+
+    let center = Point {
+        x: Fixed::from_int(64),
+        y: Fixed::from_int(64),
+    };
+    let small = Fixed::from_int(40);
+    let large = Fixed::from_int(80);
+    world.insert_resource(SimTimeline::new(alloc::vec![
+        SimAction::pinch(
+            center,
+            small,
+            large,
+            1500,
+            crate::anim::ease::ease_in_out_cubic,
+        ),
+        SimAction::wait(800),
+        SimAction::pinch(
+            center,
+            large,
+            small,
+            1500,
+            crate::anim::ease::ease_in_out_cubic,
+        ),
+    ]));
+
+    for _ in 0..260 {
+        sim_timeline_system(&mut world).unwrap();
+        mock::advance_ms(16);
+    }
+
+    let probe = world.resource::<PinchProbe>().expect("probe present");
+    let has_expand = probe.deltas.iter().any(|d| *d > crate::types::Fixed64::ONE);
+    let has_shrink = probe.deltas.iter().any(|d| *d < crate::types::Fixed64::ONE);
+    assert!(has_expand, "no expand deltas: {:?}", probe.deltas);
+    assert!(has_shrink, "no shrink deltas: {:?}", probe.deltas);
+    let final_scale = probe.accum_scale;
+    let drift = if final_scale > Fixed::ONE {
+        final_scale - Fixed::ONE
+    } else {
+        Fixed::ONE - final_scale
+    };
+    assert!(
+        drift <= Fixed::from_ratio(1, 32),
+        "demo shrink/expand roundtrip should return near 1.0x, got {:?}, deltas={:?}",
+        final_scale,
+        probe.deltas,
+    );
+}
+
+#[test]
+fn anchored_pinch_clamps_span_to_target_rect() {
+    use crate::types::{Dimension, Viewport};
+    use crate::ui::layout::{LayoutStyle, Position};
+    let _g = mock::install();
+    let mut world = setup_world();
+    let root = install_root(&mut world);
+    let target = spawn_widget(
+        &mut world,
+        Some(root),
+        crate::ui::Style {
+            layout: LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::Px(Fixed::from_int(20)),
+                top: Dimension::Px(Fixed::from_int(20)),
+                width: Dimension::Px(Fixed::from_int(88)),
+                height: Dimension::Px(Fixed::from_int(88)),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    install_pinch_probe(&mut world, target);
+    let viewport = Viewport::new(128, 128, Fixed::ONE);
+    crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
+
+    world.insert_resource(SimTimeline::new(alloc::vec![
+        SimAction::pinch(
+            DimPoint::CENTER,
+            Fixed::from_int(40),
+            Fixed::from_int(160),
+            400,
+            crate::anim::ease::linear,
+        )
+        .on(target)
+    ]));
+
+    for _ in 0..40 {
+        sim_timeline_system(&mut world).unwrap();
+        mock::advance_ms(16);
+    }
+
+    let probe = world.resource::<PinchProbe>().expect("probe present");
+    assert!(
+        probe.deltas.iter().any(|d| *d > crate::types::Fixed64::ONE),
+        "wide anchored Pinch should still hit target after clamping, got {:?}",
+        probe.deltas,
+    );
+}
+
+#[test]
+fn anchored_pinch_recenters_outside_local_center() {
+    use crate::types::{Dimension, Viewport};
+    use crate::ui::layout::{LayoutStyle, Position};
+    let _g = mock::install();
+    let mut world = setup_world();
+    let root = install_root(&mut world);
+    let target = spawn_widget(
+        &mut world,
+        Some(root),
+        crate::ui::Style {
+            layout: LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::Px(Fixed::from_int(20)),
+                top: Dimension::Px(Fixed::from_int(20)),
+                width: Dimension::Px(Fixed::from_int(88)),
+                height: Dimension::Px(Fixed::from_int(88)),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    install_pinch_probe(&mut world, target);
+    let viewport = Viewport::new(128, 128, Fixed::ONE);
+    crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
+
+    world.insert_resource(SimTimeline::new(alloc::vec![
+        SimAction::pinch(
+            (Dimension::px(-100), Dimension::px(-100)),
+            Fixed::from_int(40),
+            Fixed::from_int(80),
+            400,
+            crate::anim::ease::linear,
+        )
+        .on(target),
+    ]));
+
+    for _ in 0..40 {
+        sim_timeline_system(&mut world).unwrap();
+        mock::advance_ms(16);
+    }
+
+    let probe = world.resource::<PinchProbe>().expect("probe present");
+    assert!(
+        probe.deltas.iter().any(|d| *d > crate::types::Fixed64::ONE),
+        "anchored Pinch with outside local center should be recentered, got {:?}",
+        probe.deltas,
+    );
+}
+
+#[test]
+fn anchored_rotate_gesture_clamps_radius_to_target_rect() {
+    use crate::types::{Dimension, Viewport};
+    use crate::ui::layout::{LayoutStyle, Position};
+    let _g = mock::install();
+    let mut world = setup_world();
+    let root = install_root(&mut world);
+    let target = spawn_widget(
+        &mut world,
+        Some(root),
+        crate::ui::Style {
+            layout: LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::Px(Fixed::from_int(20)),
+                top: Dimension::Px(Fixed::from_int(20)),
+                width: Dimension::Px(Fixed::from_int(88)),
+                height: Dimension::Px(Fixed::from_int(88)),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    install_pinch_probe(&mut world, target);
+    let viewport = Viewport::new(128, 128, Fixed::ONE);
+    crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
+
+    world.insert_resource(SimTimeline::new(alloc::vec![
+        SimAction::rotate_gesture(
+            DimPoint::CENTER,
+            Fixed::from_int(100),
+            Fixed::ZERO,
+            Fixed::PI / Fixed::from_int(2),
+            400,
+            crate::anim::ease::linear,
+        )
+        .on(target),
+    ]));
+
+    for _ in 0..40 {
+        sim_timeline_system(&mut world).unwrap();
+        mock::advance_ms(16);
+    }
+
+    let probe = world.resource::<PinchProbe>().expect("probe present");
+    assert!(
+        probe.rotate_deltas.iter().any(|d| *d != Fixed::ZERO),
+        "wide anchored RotateGesture should still hit target after clamping, got {:?}",
+        probe.rotate_deltas,
+    );
+}
+
+#[test]
+fn pinch_rotate_demo_loop_expands_shrinks_and_rotates() {
+    use crate::types::{Dimension, Viewport};
+    use crate::ui::layout::{LayoutStyle, Position};
+    let _g = mock::install();
+    let mut world = setup_world();
+    let root = install_root(&mut world);
+    let target = spawn_widget(
+        &mut world,
+        Some(root),
+        crate::ui::Style {
+            layout: LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::Px(Fixed::from_int(20)),
+                top: Dimension::Px(Fixed::from_int(20)),
+                width: Dimension::Px(Fixed::from_int(88)),
+                height: Dimension::Px(Fixed::from_int(88)),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    install_pinch_probe(&mut world, target);
+    let viewport = Viewport::new(128, 128, Fixed::ONE);
+    crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
+
+    let center = Point {
+        x: Fixed::from_int(64),
+        y: Fixed::from_int(64),
+    };
+    let small = Fixed::from_int(40);
+    let large = Fixed::from_int(80);
+    let radius = Fixed::from_int(30);
+    world.insert_resource(
+        SimTimeline::new(alloc::vec![
+            SimAction::pinch(
+                center,
+                small,
+                large,
+                1500,
+                crate::anim::ease::ease_in_out_cubic,
+            ),
+            SimAction::wait(800),
+            SimAction::pinch(
+                center,
+                large,
+                small,
+                1500,
+                crate::anim::ease::ease_in_out_cubic,
+            ),
+            SimAction::wait(800),
+            SimAction::rotate_gesture(
+                center,
+                radius,
+                Fixed::ZERO,
+                Fixed::PI / Fixed::from_int(2),
+                1500,
+                crate::anim::ease::ease_in_out_cubic,
+            ),
+            SimAction::wait(800),
+            SimAction::rotate_gesture(
+                center,
+                radius,
+                Fixed::PI / Fixed::from_int(2),
+                Fixed::ZERO,
+                1500,
+                crate::anim::ease::ease_in_out_cubic,
+            ),
+            SimAction::wait(800),
+        ])
+        .looping(true),
+    );
+
+    for _ in 0..1100 {
+        sim_timeline_system(&mut world).unwrap();
+        mock::advance_ms(16);
+    }
+
+    let probe = world.resource::<PinchProbe>().expect("probe present");
+    let has_expand = probe.deltas.iter().any(|d| *d > crate::types::Fixed64::ONE);
+    let has_shrink = probe.deltas.iter().any(|d| *d < crate::types::Fixed64::ONE);
+    let has_rotate = probe.rotate_deltas.iter().any(|d| *d != Fixed::ZERO);
+    assert!(has_expand, "loop has no expand deltas: {:?}", probe.deltas);
+    assert!(has_shrink, "loop has no shrink deltas: {:?}", probe.deltas);
+    assert!(
+        has_rotate,
+        "loop has no rotate deltas: {:?}",
+        probe.rotate_deltas
+    );
+}
