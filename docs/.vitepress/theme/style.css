@@ -190,6 +190,7 @@
 .frame-figure .screen-check,
 .frame-figure .model-check,
 .frame-figure .changed-pixels { opacity: 0; }
+.frame-figure :is(.sheen, .screen-check, .model-check, .changed-pixels) { transition: opacity var(--manual-motion); }
 .frame-figure [data-active="true"] .sheen,
 .frame-figure .layer-link:hover .sheen,
 .frame-figure[data-model="true"] .model-check,

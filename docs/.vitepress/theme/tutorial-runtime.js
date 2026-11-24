@@ -1,5 +1,6 @@
 import { withBase } from 'vitepress';
 
+export const workspaceSettings = Symbol('tutorial workspace');
 let moduleRequest;
 
 export function loadTutorial() {

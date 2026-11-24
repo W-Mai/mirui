@@ -13,7 +13,7 @@ Use the same interface and Model from a Web Canvas host, then verify the tutoria
 
 <template #exercise>
 
-Resize the runner, add a task, and switch filters. The interface and animation are driven by the same Rust source as the desktop example.
+Drag the bottom-right corner to narrow the list to phone width, then add a task and switch filters. Click the dimensions to restore the responsive size.
 
 </template>
 

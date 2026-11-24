@@ -1,5 +1,6 @@
 import DefaultTheme from 'vitepress/theme';
-import { h } from 'vue';
+import { h, reactive } from 'vue';
+import { workspaceSettings } from './tutorial-runtime';
 import VersionBar from './VersionBar.vue';
 import ReadingNotice from './ReadingNotice.vue';
 import ManualHome from './ManualHome.vue';
@@ -15,6 +16,7 @@ import './workspace.css';
 export default {
   extends: DefaultTheme,
   enhanceApp({ app, router }) {
+    app.provide(workspaceSettings, reactive({ mode: 'split', split: 50, width: '', height: '' }));
     if (!import.meta.env.SSR) installReadingMotion(router);
     app.component('ManualHome', ManualHome);
     app.component('TutorialWorkspace', TutorialWorkspace);

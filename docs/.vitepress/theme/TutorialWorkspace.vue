@@ -1,18 +1,19 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
+import { computed, inject, onBeforeUnmount, onMounted, ref, toRefs, useId, watch } from 'vue';
 import { useData, withBase } from 'vitepress';
-import { loadTutorial } from './tutorial-runtime';
+import { loadTutorial, workspaceSettings } from './tutorial-runtime';
 import { mountPreviewFrame } from '../../examples/first-app/preview-frame.js';
 
 const props = defineProps({ chapter: { type: Number, required: true }, file: { type: String, required: true } });
 const { lang, isDark } = useData();
 const zh = computed(() => lang.value === 'zh-CN');
 const modes = [['code', 'Code', '代码'], ['split', 'Split', '分栏'], ['preview', 'Preview', '预览']];
-const mode = ref('split');
+const settings = inject(workspaceSettings);
+const { mode, split } = toRefs(settings);
+const workspace = ref();
 const group = useId();
 const canvas = ref();
 const panes = ref();
-const split = ref(50);
 let pointer;
 let detachFrame;
 const status = ref('loading');
@@ -93,11 +94,16 @@ watch(mode, resume, { flush: 'post' });
 watch(isDark, dark => tutorial?.set_dark(dark));
 watch(() => props.chapter, start, { flush: 'post' });
 onMounted(() => {
+  const style = workspace.value.style;
+  if (settings.width) style.setProperty('--preview-width', settings.width);
+  if (settings.height) style.setProperty('--preview-height', settings.height);
   detachFrame = mountPreviewFrame(canvas.value.parentElement, zh.value);
   start();
   document.addEventListener('visibilitychange', resume);
 });
 onBeforeUnmount(() => {
+  settings.width = workspace.value.style.getPropertyValue('--preview-width');
+  settings.height = workspace.value.style.getPropertyValue('--preview-height');
   detachFrame?.();
   release();
   document.removeEventListener('visibilitychange', resume);
@@ -105,7 +111,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="lesson-workspace" :data-mode="mode" :aria-label="zh ? '本章代码和预览' : 'Chapter code and preview'">
+  <section ref="workspace" class="lesson-workspace" :data-mode="mode" :aria-label="zh ? '本章代码和预览' : 'Chapter code and preview'">
     <header class="lesson-tools">
       <span class="lesson-file">{{ file }}</span>
       <fieldset class="lesson-modes" :style="{ '--selected': modes.findIndex(entry => entry[0] === mode) }" :aria-label="zh ? '工作区视图' : 'Workspace view'">
@@ -117,7 +123,7 @@ onBeforeUnmount(() => {
     </header>
     <div ref="panes" class="lesson-panes" :style="{ '--split': split + '%' }">
       <div :inert="mode === 'preview'" class="lesson-source"><slot /></div>
-      <div v-show="mode === 'split'" role="separator" tabindex="0" aria-orientation="vertical"
+      <div :inert="mode !== 'split'" role="separator" tabindex="0" aria-orientation="vertical"
         class="lesson-divider" :aria-label="zh ? '调整分栏宽度' : 'Adjust pane widths'"
         :aria-valuenow="split" aria-valuemin="30" aria-valuemax="70"
         @pointerdown.prevent="grabDivider" @pointermove="moveDivider" @lostpointercapture="endDivider"
@@ -128,10 +134,10 @@ onBeforeUnmount(() => {
         <div class="lesson-device"><div class="preview-frame">
           <canvas ref="canvas" tabindex="0" :aria-label="zh ? '任务清单' : 'Task list'"></canvas>
         </div></div>
-        <div v-if="status !== 'ready'" class="lesson-status" role="status">
+        <Transition name="lesson-status"><div v-if="status !== 'ready'" class="lesson-status" role="status">
           <span>{{ status === 'loading' ? (zh ? '正在加载预览…' : 'Loading preview…') : status === 'stopped' ? (zh ? '预览已关闭' : 'Preview closed') : (zh ? '预览加载失败' : 'Preview unavailable') }}</span>
           <button v-if="status !== 'loading'" class="site-cta" @click="start">{{ zh ? '重新打开' : 'Reopen preview' }}</button>
-        </div>
+        </div></Transition>
       </div>
     </div>
     <footer class="lesson-footer">

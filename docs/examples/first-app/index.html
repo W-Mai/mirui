@@ -18,7 +18,7 @@
     <script type="module">
       import { mountPreviewFrame } from "./preview-frame.js";
       mountPreviewFrame(document.querySelector(".preview-frame"));
-      window.addEventListener('TrunkApplicationStarted', () => {
+      function start() {
         const dark = matchMedia('(prefers-color-scheme: dark)');
         const reduced = matchMedia('(prefers-reduced-motion: reduce)');
         const chapter = Number(new URLSearchParams(location.search).get('chapter')) || 7;
@@ -29,7 +29,9 @@
         };
         requestAnimationFrame(draw);
         dark.addEventListener('change', () => app.set_dark(dark.matches));
-      }, { once: true });
+      }
+      if (window.wasmBindings) start();
+      else window.addEventListener('TrunkApplicationStarted', start, { once: true });
     </script>
   </body>
 </html>

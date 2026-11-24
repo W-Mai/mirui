@@ -105,12 +105,15 @@
   z-index: 4;
   top: 0;
   bottom: 0;
-  left: var(--split);
+  grid-column: 1 / 2;
+  right: 0;
   width: 12px;
-  transform: translateX(-50%);
+  transform: translateX(50%);
   cursor: col-resize;
   touch-action: none;
+  transition: opacity var(--manual-motion);
 }
+.lesson-divider[inert] { opacity: 0; pointer-events: none; }
 .lesson-divider::after {
   content: "";
   display: block;
@@ -133,6 +136,9 @@
   gap: 12px;
   background: var(--site-panel-2);
 }
+.lesson-status-enter-active, .lesson-status-leave-active { transition: opacity var(--manual-motion); }
+.lesson-status-enter-from, .lesson-status-leave-to { opacity: 0; }
+.lesson-status-leave-active { pointer-events: none; }
 .lesson-footer { align-items: baseline; font-size: 13px; color: var(--site-ink-2); }
 .lesson-footer p { margin: 0; line-height: 1.6; }
 .lesson-footer a { flex: none; }
