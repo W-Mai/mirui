@@ -15,7 +15,7 @@ Start with one window and turn it into an interactive, animated task list with p
 - [Save and restore the list](storage.md)
 - [Run and verify it in the browser](web.md)
 
-Install Rust and SDL2 before starting the desktop example. Readers with a working setup can jump to any chapter and start from its checkpoint.
+Try each chapter in the browser. Install Rust and SDL2 to edit and run the same code locally.
 
 Clone the repository and check out the source used by this manual.
 

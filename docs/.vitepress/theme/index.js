@@ -3,15 +3,16 @@ import { h } from 'vue';
 import VersionBar from './VersionBar.vue';
 import ReadingNotice from './ReadingNotice.vue';
 import ManualHome from './ManualHome.vue';
-import TutorialDemo from './TutorialDemo.vue';
+import TutorialWorkspace from './TutorialWorkspace.vue';
 import '../../../gallery/web/site-chrome.css';
 import './style.css';
+import './workspace.css';
 
 export default {
   extends: DefaultTheme,
   enhanceApp({ app }) {
     app.component('ManualHome', ManualHome);
-    app.component('TutorialDemo', TutorialDemo);
+    app.component('TutorialWorkspace', TutorialWorkspace);
   },
   Layout() {
     return h(DefaultTheme.Layout, null, {

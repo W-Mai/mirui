@@ -104,8 +104,7 @@
 }
 
 .manual-actions,
-.frame-actions,
-.tutorial-toolbar {
+.frame-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -221,54 +220,13 @@
   font-size: .75rem;
 }
 
-.tutorial-demo {
-  margin-block: 1.5rem;
-  padding: 1rem;
-  border: 1px solid var(--site-rule-strong);
-  border-radius: .75rem;
-  background: var(--site-panel-2);
-}
-
-.tutorial-stage {
-  min-height: calc(440px + .85rem);
-}
-
-.tutorial-stage canvas {
-  display: block;
-  width: min(100%, 420px);
-  height: 440px;
-  margin: .85rem auto 0;
-  border-radius: .5rem;
-  background: var(--site-panel);
-}
-
-.tutorial-placeholder {
-  display: grid;
-  align-content: center;
-  gap: .8rem;
-  width: min(100%, 420px);
-  min-height: calc(440px + .85rem);
-  margin-inline: auto;
-  padding: 12%;
-}
-
-.tutorial-placeholder span {
-  height: .75rem;
-  border-radius: .25rem;
-  background: var(--site-well);
-}
-
-.tutorial-placeholder span:nth-child(2) { width: 82%; }
-.tutorial-placeholder span:nth-child(3) { width: 67%; }
-
 @keyframes manual-enter {
   from { opacity: .85; transform: translateY(3px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .VPDoc .vp-doc,
-  .tutorial-stage canvas { animation: manual-enter 160ms ease-out; }
+  .VPDoc .vp-doc { animation: manual-enter 160ms ease-out; }
 }
 
 @media (max-width: 800px) {

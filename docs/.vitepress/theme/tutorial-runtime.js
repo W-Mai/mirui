@@ -4,7 +4,7 @@ let moduleRequest;
 
 export function loadTutorial() {
   if (!moduleRequest) {
-    const entry = withBase('/play/mirui-first-app.js');
+    const entry = new URL(withBase('/play/mirui-first-app.js'), window.location.origin).href;
     moduleRequest = import(/* @vite-ignore */ entry).then(async module => {
       await module.default();
       return module;
