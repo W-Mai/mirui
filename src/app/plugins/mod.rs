@@ -8,9 +8,12 @@ pub mod frame_rate;
 pub mod image_resources;
 pub mod input_feedback;
 pub mod perf_report;
+#[cfg(feature = "persistence")]
+mod persistence;
 pub mod resources;
 #[cfg(feature = "std")]
 pub mod std_clock;
+mod style_sheet;
 
 #[cfg(feature = "audio")]
 pub use audio::AudioPlugin;

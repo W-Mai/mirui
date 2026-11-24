@@ -1,9 +1,7 @@
 use alloc::{borrow::Cow, boxed::Box, vec::Vec};
 
-use crate::app::{App, RendererFactory, plugin::Plugin};
 use crate::core::reactive::{BindingRole, Effect, with_world, with_world_scope};
 use crate::ecs::{Component, Entity, World};
-use crate::surface::Surface;
 use crate::ui::recipe::PropertyBindings;
 
 use super::{
@@ -278,12 +276,9 @@ impl StyleSheetPlugin {
         self.0.bind_class(name, read);
         self
     }
-}
-
-impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for StyleSheetPlugin {
-    fn build(&mut self, app: &mut App<B, F>) {
+    pub(crate) fn install(&mut self, world: &mut World) {
         let configured = core::mem::take(&mut self.0);
-        if let Some(sheet) = app.world.resource_mut::<StyleSheet>() {
+        if let Some(sheet) = world.resource_mut::<StyleSheet>() {
             for rule in configured.rules {
                 let entry = sheet.rule_mut(rule.name);
                 entry.pending = rule.pending;
@@ -293,7 +288,7 @@ impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for StyleSheetPlugin {
                 sheet.rules_pending = true;
             }
         } else {
-            app.add_resource(configured);
+            world.insert_resource(configured);
         }
     }
 }
