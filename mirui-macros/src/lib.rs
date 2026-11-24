@@ -518,7 +518,6 @@ impl MiruiRune {
         let is_button_widget = widget_name == "Button";
         let is_text_input_widget = widget_name == "TextInput";
         const TEXT_INPUT_FIELDS: &[&str] = &[
-            "text_color",
             "placeholder_color",
             "cursor_color",
             "focus_border_color",

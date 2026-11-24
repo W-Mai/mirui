@@ -1349,7 +1349,7 @@ fn catalog_windows_resize_from_their_content_and_keep_selected_entry_identity() 
                 }) && app
                     .world
                     .get::<Style>(node)
-                    .is_some_and(|style| style.font_size == Some(24)))
+                    .is_some_and(|style| style.font_size == crate::ui::FontSize::Pixels(24)))
                 .then_some(node)
             });
             assert!(title.is_some());
@@ -1403,7 +1403,7 @@ fn short_catalog_search_and_connection_lists_use_native_titles_and_bounded_windo
             }) && app
                 .world
                 .get::<Style>(node)
-                .is_some_and(|style| style.font_size == Some(24))
+                .is_some_and(|style| style.font_size == crate::ui::FontSize::Pixels(24))
         }));
         assert!((1..=8).contains(&library.list_layout().rows()));
     }
@@ -1449,7 +1449,7 @@ fn short_catalog_search_and_connection_lists_use_native_titles_and_bounded_windo
             }) && app
                 .world
                 .get::<Style>(node)
-                .is_some_and(|style| style.font_size == Some(24))
+                .is_some_and(|style| style.font_size == crate::ui::FontSize::Pixels(24))
         }));
     }
 }

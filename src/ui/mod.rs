@@ -61,7 +61,7 @@ pub use property::WidgetMut;
 pub(crate) use retirement::despawn_subtree;
 pub use scope::UiScope;
 pub use state::{InteractionState, UserState};
-pub use style::StylePreset;
+pub use style::{FontSize, StylePreset, Typography};
 pub use theme::{ColorToken, Theme, ThemeCatalog, ThemeError, ThemeSource, ThemedColor};
 pub use view::{View, ViewInvalidation, ViewRegistry};
 pub use visibility::{Hidden, HitTarget, IgnoreHitTest, InteractionFeedback};
@@ -95,10 +95,10 @@ pub struct Style {
     pub border_color: Option<ThemedColor>,
     pub border_width: Fixed,
     pub border_radius: Fixed,
-    /// Always present; for transparent text set alpha on the resolved colour.
-    pub text_color: ThemedColor,
-    pub font_stack: crate::render::font::FontStack,
-    pub font_size: Option<u16>,
+    /// Local text colour. An absent declaration inherits its parent value.
+    pub text_color: Option<ThemedColor>,
+    pub font_stack: Option<crate::render::font::FontStack>,
+    pub font_size: FontSize,
     pub layout: LayoutStyle,
     pub clip_children: bool,
 }
@@ -110,9 +110,9 @@ impl Default for Style {
             border_color: None,
             border_width: Fixed::ZERO,
             border_radius: Fixed::ZERO,
-            text_color: ThemedColor::Token(ColorToken::OnSurface),
-            font_stack: crate::render::font::FontStack::default(),
-            font_size: None,
+            text_color: None,
+            font_stack: None,
+            font_size: FontSize::Inherit,
             layout: LayoutStyle::default(),
             clip_children: false,
         }
@@ -141,7 +141,12 @@ impl Style {
     }
 
     pub fn set_text_color(&mut self, color: impl Into<ThemedColor>) -> &mut Self {
-        self.text_color = color.into();
+        self.text_color = Some(color.into());
+        self
+    }
+
+    pub fn clear_text_color(&mut self) -> &mut Self {
+        self.text_color = None;
         self
     }
 
@@ -149,7 +154,7 @@ impl Style {
         &mut self,
         token: impl Into<crate::render::font::FontToken>,
     ) -> &mut Self {
-        self.font_stack = crate::render::font::FontStack::new(token.into());
+        self.font_stack = Some(crate::render::font::FontStack::new(token.into()));
         self
     }
 
@@ -157,17 +162,22 @@ impl Style {
         &mut self,
         stack: impl Into<crate::render::font::FontStack>,
     ) -> &mut Self {
-        self.font_stack = stack.into();
+        self.font_stack = Some(stack.into());
         self
     }
 
-    pub fn set_font_size(&mut self, size: u16) -> &mut Self {
-        self.font_size = Some(size.max(1));
+    pub fn clear_font_stack(&mut self) -> &mut Self {
+        self.font_stack = None;
+        self
+    }
+
+    pub fn set_font_size(&mut self, size: impl Into<FontSize>) -> &mut Self {
+        self.font_size = size.into();
         self
     }
 
     pub fn clear_font_size(&mut self) -> &mut Self {
-        self.font_size = None;
+        self.font_size = FontSize::Inherit;
         self
     }
 
@@ -194,7 +204,11 @@ mod style_tests {
     #[test]
     fn default_text_color_tracks_on_surface() {
         let s = Style::default();
-        assert_eq!(s.text_color, ThemedColor::Token(ColorToken::OnSurface));
+        assert_eq!(s.text_color, None);
+        assert_eq!(
+            Typography::local(&s).text_color,
+            ThemedColor::Token(ColorToken::OnSurface)
+        );
     }
 
     #[test]
@@ -224,10 +238,10 @@ mod style_tests {
     #[test]
     fn font_size_is_optional_and_never_zero() {
         let mut style = Style::default();
-        assert_eq!(style.font_size, None);
-        assert_eq!(style.set_font_size(24).font_size, Some(24));
-        assert_eq!(style.set_font_size(0).font_size, Some(1));
-        assert_eq!(style.clear_font_size().font_size, None);
+        assert_eq!(style.font_size, FontSize::Inherit);
+        assert_eq!(style.set_font_size(24).font_size, FontSize::Pixels(24));
+        assert_eq!(style.set_font_size(0).font_size, FontSize::Pixels(1));
+        assert_eq!(style.clear_font_size().font_size, FontSize::Inherit);
     }
 }
 

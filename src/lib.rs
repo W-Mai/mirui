@@ -280,7 +280,7 @@ pub mod prelude {
         ColorToken, Theme, ThemeCatalog, ThemeError, ThemeId, ThemeInfo, ThemeSource, ThemedColor,
     };
     pub use crate::ui::{
-        HitTarget, InteractionFeedback, Prop, RespectSafeArea, Style, StylePreset, Widget,
+        FontSize, HitTarget, InteractionFeedback, Prop, RespectSafeArea, Style, StylePreset, Widget,
     };
     pub use crate::ui::{WidgetMut, property};
 

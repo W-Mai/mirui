@@ -4,9 +4,13 @@ use crate::ecs::{Entity, World};
 use crate::render::font::FontStack;
 use crate::types::{Dimension, Fixed};
 use crate::ui::Style;
+
+mod typography;
 use crate::ui::layout::{AlignItems, FlexDirection, FlexWrap, JustifyContent, Padding, Position};
 use crate::ui::theme::ThemedColor;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
+pub(crate) use typography::{FONT_SIZE, TEXT_COLOR, TypographyDeclarations, metrics_changed};
+pub use typography::{FontSize, Typography};
 
 macro_rules! declare_styles {
     (

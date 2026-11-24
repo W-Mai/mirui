@@ -22,7 +22,10 @@ fn assert_controls(app: &TestApp, size: u16, details: bool) {
         Fixed::from_int(i32::from(size))
     );
     assert_eq!(world.get::<Checkbox>(checkbox).unwrap().checked, details);
-    assert_eq!(world.get::<Style>(title).unwrap().font_size, Some(size));
+    assert_eq!(
+        world.get::<Style>(title).unwrap().font_size,
+        crate::ui::FontSize::Pixels(size)
+    );
     assert_eq!(world.has::<crate::ui::Hidden>(detail), !details);
 }
 

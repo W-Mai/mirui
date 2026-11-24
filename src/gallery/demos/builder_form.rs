@@ -108,7 +108,7 @@ where
             c.spawn(
                 Text::build("Builder API")
                     .style(Style {
-                        font_size: Some(20),
+                        font_size: 20.into(),
                         ..row_style(32)
                     })
                     .paragraph(ParagraphStyle::label().with_align(TextAlign::Start)),
@@ -116,7 +116,7 @@ where
             c.spawn(
                 Text::build("Level and notifications")
                     .style(Style {
-                        font_size: Some(13),
+                        font_size: 13.into(),
                         text_color: ColorToken::OnSurfaceVariant.into(),
                         ..row_style(26)
                     })

@@ -1227,10 +1227,11 @@ fn layout_text(
     #[cfg(test)]
     local_layout_tests::record_text_preparation(false);
     let face_limit = resource.storage().layouts.limits().fallback_faces;
+    let typography = super::Typography::inherited(world, entity, style);
     let Some(fonts) = ResolvedFontStack::resolve(
         world.resource::<crate::render::font::FontManager>(),
-        &style.font_stack,
-        style.font_size,
+        typography.font_stack,
+        typography.font_size,
         face_limit,
     )
     .map_err(|error| {
@@ -1388,10 +1389,11 @@ fn publish_text_geometry(world: &World, entities: &[Entity]) -> Result<(), TextL
             let (rect, affine, projective) = widget_render_geometry(world, entity)?;
             let storage = outputs.storage();
             let layout = storage.layouts.get(handle)?;
+            let typography = super::Typography::inherited(world, entity, style);
             let fonts = ResolvedFontStack::resolve(
                 world.resource::<crate::render::font::FontManager>(),
-                &style.font_stack,
-                style.font_size,
+                typography.font_stack,
+                typography.font_size,
                 storage.layouts.limits().fallback_faces,
             )
             .ok()??;
@@ -1962,10 +1964,11 @@ pub(crate) fn apply_text_intrinsic(
         return Ok(());
     };
     let face_limit = cache.storage().layouts.limits().fallback_faces;
+    let typography = super::Typography::inherited(world, entity, style);
     let Some(fonts) = ResolvedFontStack::resolve(
         world.resource::<crate::render::font::FontManager>(),
-        &style.font_stack,
-        style.font_size,
+        typography.font_stack,
+        typography.font_size,
         face_limit,
     )
     .map_err(|error| {
@@ -2108,11 +2111,13 @@ fn apply_input_intrinsic(world: &World, entity: Entity, style: &Style, node: &mu
     if !world.has::<super::widgets::TextInput>(entity) {
         return;
     }
-    let Some(font) = crate::render::font::resolve_or_default(world, style.font_stack.primary())
+    let typography = super::Typography::inherited(world, entity, style);
+    let Some(font) =
+        crate::render::font::resolve_or_default(world, typography.font_stack.primary())
     else {
         return;
     };
-    let ppem = font.ppem_for(style.font_size);
+    let ppem = font.ppem_for(typography.font_size);
     let rows = world
         .get::<super::widgets::TextInput>(entity)
         .map_or(1, |input| i32::from(input.lines.max(1)));
@@ -2135,11 +2140,13 @@ fn apply_static_glyph_intrinsic(
     let Some(run) = world.get::<crate::ui::widgets::StaticGlyphRun>(entity) else {
         return;
     };
-    let Some(font) = crate::render::font::resolve_or_default(world, style.font_stack.primary())
+    let typography = super::Typography::inherited(world, entity, style);
+    let Some(font) =
+        crate::render::font::resolve_or_default(world, typography.font_stack.primary())
     else {
         return;
     };
-    let ppem = font.ppem_for(style.font_size);
+    let ppem = font.ppem_for(typography.font_size);
     let metrics = font.metrics(ppem);
     let (width, height) = run.measure(metrics.line_height);
     node.set_intrinsic_size(width, height);
@@ -2206,6 +2213,11 @@ fn draw_tree_offset(
         skip_subtree(node, idx, preparation, output_plan);
         return Ok(());
     }
+    let parent_typography = entities.get(*idx).and_then(|entity| {
+        let parent = world.get::<super::Parent>(*entity)?.0;
+        let style = world.get::<Style>(parent)?;
+        Some(super::Typography::inherited(world, parent, style))
+    });
     draw_visible_tree_offset(
         node,
         world,
@@ -2220,6 +2232,7 @@ fn draw_tree_offset(
         output_plan,
         requests,
         preparation,
+        parent_typography.as_ref(),
     )
 }
 
@@ -2239,6 +2252,7 @@ fn draw_visible_tree_offset(
     output_plan: Option<&output_plan::TexturePlan>,
     requests: &PaintRequestScope,
     preparation: Option<&PreparedPaint>,
+    parent_typography: Option<&super::Typography<'_>>,
 ) -> Result<(), RenderError> {
     let Some(&entity) = entities.get(*idx) else {
         return Ok(());
@@ -2271,6 +2285,7 @@ fn draw_visible_tree_offset(
             output_plan,
             requests,
             preparation,
+            parent_typography,
         );
     }
     let rect = Rect {
@@ -2311,6 +2326,7 @@ fn draw_visible_tree_offset(
                 output_plan,
                 requests,
                 preparation,
+                parent_typography,
             )
         },
     );
@@ -2335,6 +2351,7 @@ fn draw_tree_content(
     output_plan: Option<&output_plan::TexturePlan>,
     requests: &PaintRequestScope,
     preparation: Option<&PreparedPaint>,
+    parent_typography: Option<&super::Typography<'_>>,
 ) -> Result<(), RenderError> {
     let shifted_rect = Rect {
         x: node.rect.x - offset_x,
@@ -2510,6 +2527,7 @@ fn draw_tree_content(
                         ctx.set_workspace(&plan.workspace);
                     }
                     ctx.set_layout_offset(Point::new(offset_x, offset_y));
+                    ctx.set_parent_typography(parent_typography);
                     render_views(world, entity, &mut ctx, requests, preparation, *idx)
                 };
                 result?;
@@ -2520,11 +2538,20 @@ fn draw_tree_content(
                     ctx.set_workspace(&plan.workspace);
                 }
                 ctx.set_layout_offset(Point::new(offset_x, offset_y));
+                ctx.set_parent_typography(parent_typography);
                 render_views(world, entity, &mut ctx, requests, preparation, *idx)?;
             }
         }
     }
     *idx += 1;
+
+    if node.children.is_empty() {
+        return Ok(());
+    }
+    let own_typography = style
+        .filter(|style| super::Typography::declared_style(style))
+        .map(|style| super::Typography::with_parent(style, parent_typography));
+    let child_typography = own_typography.as_ref().or(parent_typography);
 
     let (sx, sy) = scroll.map_or((offset_x, offset_y), |scroll| {
         (offset_x + scroll.x, offset_y + scroll.y)
@@ -2545,6 +2572,7 @@ fn draw_tree_content(
             output_plan,
             requests,
             preparation,
+            child_typography,
         )?;
     }
     Ok(())
@@ -4773,7 +4801,10 @@ mod layout_snapshot_reuse_check {
 
         for width in [24, 28, 40, 16] {
             world.get_mut::<Style>(leaf).unwrap().layout.width = Dimension::px(width);
-            world.get_mut::<Style>(label).unwrap().font_size = Some(width as u16);
+            world
+                .get_mut::<Style>(label)
+                .unwrap()
+                .set_font_size(width as u16);
             world
                 .get_mut::<Text>(label)
                 .unwrap()
@@ -6739,7 +6770,7 @@ mod text_layout_check {
             &mut world,
             Some(root),
             Style {
-                font_stack: FontStack::new(FontToken::Default).with_fallbacks(&FALLBACKS[..]),
+                font_stack: Some(FontStack::new(FontToken::Default).with_fallbacks(&FALLBACKS[..])),
                 layout: LayoutStyle {
                     width: Dimension::Content,
                     height: Dimension::Content,
@@ -6807,7 +6838,7 @@ mod text_layout_check {
     }
 
     #[test]
-    fn style_font_size_drives_intrinsic_measurement() {
+    fn inherited_font_size_drives_intrinsic_measurement() {
         let mut world = world();
         world.resource::<FontManager>().unwrap().add_static(
             "scalable",
@@ -6824,6 +6855,8 @@ mod text_layout_check {
             &mut world,
             None,
             Style {
+                font_stack: Some(FontStack::new(FontToken::Custom("scalable"))),
+                font_size: 20.into(),
                 layout: LayoutStyle {
                     direction: FlexDirection::Column,
                     width: Dimension::px(64),
@@ -6837,8 +6870,6 @@ mod text_layout_check {
             &mut world,
             Some(root),
             Style {
-                font_stack: FontStack::new(FontToken::Custom("scalable")),
-                font_size: Some(20),
                 layout: LayoutStyle {
                     width: Dimension::Content,
                     height: Dimension::Content,
@@ -6891,9 +6922,11 @@ mod text_layout_check {
             &mut world,
             Some(root),
             Style {
-                font_stack: FontStack::new(FontToken::Custom("primary-scalable"))
-                    .with_fallbacks(&FALLBACKS[..]),
-                font_size: Some(20),
+                font_stack: Some(
+                    FontStack::new(FontToken::Custom("primary-scalable"))
+                        .with_fallbacks(&FALLBACKS[..]),
+                ),
+                font_size: 20.into(),
                 layout: LayoutStyle {
                     width: Dimension::Content,
                     height: Dimension::Content,
@@ -9551,7 +9584,7 @@ mod offscreen_render_check {
                 &mut w,
                 Some(er),
                 Style {
-                    text_color: ColorToken::OnSurface.into(),
+                    text_color: Some(ColorToken::OnSurface.into()),
                     layout: LayoutStyle {
                         grow: Fixed::ONE,
                         ..Default::default()

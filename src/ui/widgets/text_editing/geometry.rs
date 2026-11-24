@@ -144,10 +144,11 @@ fn with_layout_request<R>(
         return Ok(None);
     };
     let face_limit = outputs.storage().layouts.limits().fallback_faces;
+    let typography = crate::ui::Typography::inherited(world, entity, style);
     let Some(fonts) = crate::render::font::ResolvedFontStack::resolve(
         world.resource::<crate::render::font::FontManager>(),
-        &style.font_stack,
-        style.font_size,
+        typography.font_stack,
+        typography.font_size,
         face_limit,
     )
     .map_err(|error| {

@@ -89,7 +89,7 @@ fn main() {
             ..sized(200, 80)
         });
         tree.spawn(Text::build("SDL GPU BACKEND").style(Style {
-            text_color: Color::rgba(255, 255, 255, 255).into(),
+            text_color: Some(Color::rgba(255, 255, 255, 255).into()),
             ..sized(200, 20)
         }));
         tree.spawn(Image::build("thumbs_up").style(sized(
@@ -106,7 +106,7 @@ fn main() {
                     border_color: Some(Color::rgba(255, 255, 255, 255).into()),
                     border_width: Fixed::from_int(2),
                     border_radius: Fixed::from_int(12),
-                    text_color: Color::rgba(255, 255, 255, 255).into(),
+                    text_color: Some(Color::rgba(255, 255, 255, 255).into()),
                     layout: LayoutStyle {
                         position: Position::Absolute,
                         width: Dimension::px(160),

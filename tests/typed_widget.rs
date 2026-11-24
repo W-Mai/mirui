@@ -110,7 +110,7 @@ mod tests {
 
         let entity = world.query::<Text>().collect()[0];
         let style = world.get::<Style>(entity).unwrap();
-        assert_eq!(style.font_size, Some(18));
+        assert_eq!(style.font_size, mirui::ui::FontSize::Pixels(18));
         assert_eq!(style.layout.width, mirui::types::Dimension::Content);
         assert_eq!(style.layout.height, mirui::types::Dimension::Auto);
     }
@@ -151,8 +151,9 @@ mod tests {
         let entity = world.query::<Text>().collect()[0];
         let style = world.get::<Style>(entity).unwrap();
         let text = world.get::<Text>(entity).unwrap();
-        assert_eq!(style.font_stack.primary(), &PRIMARY);
-        assert_eq!(style.font_stack.fallbacks(), &FALLBACKS);
+        let stack = style.font_stack.as_ref().unwrap();
+        assert_eq!(stack.primary(), &PRIMARY);
+        assert_eq!(stack.fallbacks(), &FALLBACKS);
         assert_eq!(text.paragraph(), &expected_paragraph);
     }
 
@@ -217,8 +218,13 @@ mod tests {
         assert_eq!(entities.len(), 1);
         let ti = world.get::<TextInput>(entities[0]).unwrap();
         assert!(matches!(
-            ti.text_color,
-            mirui::ui::ThemedColor::Token(mirui::ui::ColorToken::Primary)
+            world
+                .get::<mirui::ui::Style>(entities[0])
+                .unwrap()
+                .text_color,
+            Some(mirui::ui::ThemedColor::Token(
+                mirui::ui::ColorToken::Primary
+            ))
         ));
         assert_eq!(
             ti.placeholder_color,

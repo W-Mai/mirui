@@ -61,9 +61,9 @@ define_fields! {
     Common border_color: Option<ThemedColor> => OptionalColor, Reactive("BorderColor");
     Common border_width: Fixed => Fixed, Reactive("BorderWidth");
     Common border_radius: Fixed => Fixed, Static;
-    Common text_color: ThemedColor => Color, Both("TextColor");
-    Common font_stack: FontStack => FontStack, Static;
-    Common font_size: Option<u16> => FontSize, Both("FontSize");
+    Common text_color: Option<ThemedColor> => OptionalColor, Both("TextColor");
+    Common font_stack: Option<FontStack> => FontStack, Static;
+    Common font_size: FontSize => FontSize, Both("FontSize");
     Common clip_children: bool => Plain, Static;
     Layout direction: FlexDirection => Plain, Both("Direction");
     Layout wrap: FlexWrap => Plain, Static;
@@ -147,16 +147,26 @@ impl Field {
 
     fn preset_value(&self, name: &str, value: &Expr) -> TokenStream {
         match self.convert {
-            Convert::Color | Convert::FontStack if name != "font" => {
+            Convert::Color => {
                 quote! { ::core::convert::Into::into(#value) }
             }
-            Convert::FontStack => quote! {
-                ::mirui::render::font::FontStack::new(::core::convert::Into::into(#value))
+            Convert::FontStack if name == "font" => quote! {
+                Some(::mirui::render::font::FontStack::new(::core::convert::Into::into(#value)))
             },
+            Convert::FontStack => quote! { Some(::core::convert::Into::into(#value)) },
             Convert::OptionalColor => optional_color(value),
-            Convert::FontSize => {
-                quote! {{ let size: u16 = #value; Some(if size == 0 { 1 } else { size }) }}
+            Convert::FontSize
+                if matches!(
+                    value,
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Int(_),
+                        ..
+                    })
+                ) =>
+            {
+                quote! { ::mirui::ui::FontSize::pixels(#value) }
             }
+            Convert::FontSize => quote! { ::core::convert::Into::into(#value) },
             Convert::Fixed => fixed(value),
             _ => self.layout_value(value, true),
         }

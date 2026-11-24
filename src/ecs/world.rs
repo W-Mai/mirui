@@ -254,20 +254,29 @@ pub(crate) enum ComponentChangeKind {
     Visual,
     Transform,
     Layout,
+    InheritedStyle(u8),
 }
 
 impl ComponentChangeKind {
+    pub(crate) const LOCAL_LAYOUT: u8 = 1 << 7;
+
     fn merge(self, other: Self) -> Self {
         if matches!(self, Self::Component) || matches!(other, Self::Component) {
             return Self::Component;
         }
-        if matches!(self, Self::Layout) || matches!(other, Self::Layout) {
-            return Self::Layout;
+        match (self, other) {
+            (Self::InheritedStyle(a), Self::InheritedStyle(b)) => Self::InheritedStyle(a | b),
+            (Self::InheritedStyle(fields), Self::Layout)
+            | (Self::Layout, Self::InheritedStyle(fields)) => {
+                Self::InheritedStyle(fields | Self::LOCAL_LAYOUT)
+            }
+            (Self::InheritedStyle(fields), _) | (_, Self::InheritedStyle(fields)) => {
+                Self::InheritedStyle(fields)
+            }
+            (Self::Layout, _) | (_, Self::Layout) => Self::Layout,
+            (Self::Transform, _) | (_, Self::Transform) => Self::Transform,
+            _ => Self::Visual,
         }
-        if matches!(self, Self::Transform) || matches!(other, Self::Transform) {
-            return Self::Transform;
-        }
-        Self::Visual
     }
 }
 

@@ -130,7 +130,10 @@ fn size_events_update_all_path_ranges_while_animation_is_paused() {
         app.world.get::<Style>(controls).unwrap().layout.height,
         Dimension::px(146)
     );
-    assert_eq!(app.world.get::<Style>(primary).unwrap().font_size, Some(18));
+    assert_eq!(
+        app.world.get::<Style>(primary).unwrap().font_size,
+        crate::ui::FontSize::Pixels(18)
+    );
     for name in [
         "curve_text_primary",
         "curve_text_multiscript",
@@ -153,7 +156,10 @@ fn size_events_update_all_path_ranges_while_animation_is_paused() {
         app.world.get::<Style>(controls).unwrap().layout.height,
         Dimension::px(62)
     );
-    assert_eq!(app.world.get::<Style>(primary).unwrap().font_size, Some(30));
+    assert_eq!(
+        app.world.get::<Style>(primary).unwrap().font_size,
+        crate::ui::FontSize::Pixels(30)
+    );
     let resized = app.world.get::<crate::ui::ComputedRect>(stage).unwrap().0;
     assert_eq!(
         model.stage_size(),

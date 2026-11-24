@@ -555,7 +555,7 @@ fn scroll_notifications_update_the_model_and_header_from_real_input() {
     );
     assert_eq!(
         app.world.get::<Style>(readout).unwrap().text_color,
-        super::style::ACCENT.into()
+        Some(super::style::ACCENT.into())
     );
     crate::input::event::deliver_input(
         &mut app.world,
@@ -568,6 +568,6 @@ fn scroll_notifications_update_the_model_and_header_from_real_input() {
     assert!(!model.scrolling());
     assert_eq!(
         app.world.get::<Style>(readout).unwrap().text_color,
-        super::style::MUTED.into()
+        Some(super::style::MUTED.into())
     );
 }

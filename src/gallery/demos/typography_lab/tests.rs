@@ -458,8 +458,9 @@ fn samples_keep_their_shaping_contracts() {
     let bidi = world
         .get::<crate::ui::Style>(world.find_by_id("typography_bidi_sample").unwrap())
         .unwrap();
-    assert_eq!(bidi.font_stack.primary(), &UI);
-    assert_eq!(bidi.font_stack.fallbacks(), &FALLBACKS);
+    let fonts = bidi.font_stack.as_ref().unwrap();
+    assert_eq!(fonts.primary(), &UI);
+    assert_eq!(fonts.fallbacks(), &FALLBACKS);
 }
 
 #[test]
@@ -499,7 +500,7 @@ fn controls_publish_into_the_live_paragraph() {
     tap(&mut world, "typography_overflow");
 
     let style = world.get::<crate::ui::Style>(sample).unwrap();
-    assert_eq!(style.font_size, Some(42));
+    assert_eq!(style.font_size, crate::ui::FontSize::Pixels(42));
     assert_eq!(style.layout.width, Dimension::px(320));
     let paragraph = world.get::<Text>(sample).unwrap().paragraph();
     assert_eq!(paragraph.wrap, TextWrap::Grapheme);

@@ -13,7 +13,6 @@ use super::text_editing::{CursorBlinkPhase, TextEditing};
 #[crate::component]
 #[derive(Clone)]
 pub struct TextInput {
-    pub text_color: ThemedColor,
     pub placeholder_color: ThemedColor,
     pub cursor_color: ThemedColor,
     pub focus_border_color: ThemedColor,
@@ -26,7 +25,6 @@ pub struct TextInput {
 impl TextInput {
     pub fn new() -> Self {
         Self {
-            text_color: ThemedColor::Token(ColorToken::OnSurface),
             placeholder_color: ThemedColor::Token(ColorToken::OnSurfaceVariant),
             cursor_color: ThemedColor::Token(ColorToken::OnSurface),
             focus_border_color: ThemedColor::Token(ColorToken::Primary),
@@ -36,11 +34,6 @@ impl TextInput {
 
     pub fn with_lines(mut self, lines: u8) -> Self {
         self.lines = lines.max(1);
-        self
-    }
-
-    pub fn with_text_color(mut self, color: impl Into<ThemedColor>) -> Self {
-        self.text_color = color.into();
         self
     }
 
@@ -117,13 +110,13 @@ impl<P, B> TextInputBuilder<P, B> {
         self
     }
 
-    pub fn font_size(mut self, size: u16) -> Self {
+    pub fn font_size(mut self, size: impl Into<crate::ui::FontSize>) -> Self {
         self.style.get_or_insert_default().set_font_size(size);
         self
     }
 
     pub fn text_color(mut self, color: impl Into<ThemedColor>) -> Self {
-        self.text_input.text_color = color.into();
+        self.style.get_or_insert_default().set_text_color(color);
         self
     }
 
@@ -210,10 +203,11 @@ fn text_input_render(
         return;
     };
     let face_limit = outputs.storage().layouts.limits().fallback_faces;
+    let typography = paint.typography();
     let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
         manager.as_deref(),
-        &paint.style().font_stack,
-        paint.style().font_size,
+        typography.font_stack,
+        typography.font_size,
         face_limit,
     ) else {
         return;
@@ -225,7 +219,7 @@ fn text_input_render(
     let metrics = fonts.primary().metrics(fonts.primary().size);
     let state = paint.state();
     let rect = paint.rect();
-    let text_color = ti.text_color.resolve_in(&theme, state);
+    let text_color = typography.text_color.resolve_in(&theme, state);
     let placeholder_color = ti.placeholder_color.resolve_in(&theme, state);
     let cursor_color = ti.cursor_color.resolve_in(&theme, state);
     let focus_border_color = ti.focus_border_color.resolve_in(&theme, state);
@@ -770,7 +764,7 @@ mod tests {
         world.get_mut::<ComputedRect>(entity).unwrap().0.w = 30.into();
         assert_eq!(hit(&mut world, entity, projected), 2);
         world.get_mut::<ComputedRect>(entity).unwrap().0 = rect;
-        world.get_mut::<Style>(entity).unwrap().font_size = Some(15);
+        world.get_mut::<Style>(entity).unwrap().set_font_size(15);
         assert_eq!(hit(&mut world, entity, projected), 2);
     }
 

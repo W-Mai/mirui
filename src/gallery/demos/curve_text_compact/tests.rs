@@ -126,6 +126,8 @@ fn embedded_layout_uses_bitmap_text_and_constant_path_window() {
             .get::<crate::ui::Style>(text)
             .unwrap()
             .font_stack
+            .as_ref()
+            .unwrap()
             .primary(),
         &FontToken::Default
     );

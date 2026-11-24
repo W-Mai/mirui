@@ -100,7 +100,7 @@ fn presets_merge_through_dsl_and_builder_construction() {
     );
     assert_eq!(
         app.world.get::<Style>(built).unwrap().text_color,
-        ColorToken::OnPrimary.into()
+        Some(ColorToken::OnPrimary.into())
     );
 }
 

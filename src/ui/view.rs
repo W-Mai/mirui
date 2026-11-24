@@ -42,6 +42,7 @@ pub(crate) enum FrameRequest {
 pub struct PaintCtx<'frame> {
     renderer: &'frame mut dyn Renderer,
     style: &'frame Style,
+    parent_typography: Option<&'frame super::Typography<'frame>>,
     rect: &'frame Rect,
     clip: &'frame Rect,
     transform: Transform,
@@ -70,6 +71,7 @@ impl<'frame> PaintCtx<'frame> {
         Self {
             renderer,
             style,
+            parent_typography: None,
             rect,
             clip,
             transform,
@@ -88,6 +90,21 @@ impl<'frame> PaintCtx<'frame> {
 
     pub fn style(&self) -> &Style {
         self.style
+    }
+
+    /// Resolve the widget's text styling, including inherited declarations.
+    pub fn typography(&self) -> super::Typography<'frame> {
+        match self.parent_typography {
+            Some(parent) => super::Typography::with_parent(self.style, Some(parent)),
+            None => super::Typography::local(self.style),
+        }
+    }
+
+    pub(crate) fn set_parent_typography(
+        &mut self,
+        parent: Option<&'frame super::Typography<'frame>>,
+    ) {
+        self.parent_typography = parent;
     }
 
     pub(crate) fn set_waker(&mut self, waker: &'frame Waker) {
@@ -329,6 +346,7 @@ impl<'frame> PaintCtx<'frame> {
             let mut paint = PaintCtx {
                 renderer,
                 style: self.style,
+                parent_typography: self.parent_typography,
                 rect: self.rect,
                 clip: self.clip,
                 transform: self.transform,
@@ -1008,6 +1026,7 @@ pub struct ViewRegistry {
     paint_order: Vec<usize>,
     next_registration: u64,
     bindings: Vec<ViewBinding>,
+    typography: super::style::TypographyDeclarations,
     owner: Option<crate::ecs::world::WorldId>,
     output_registration: Option<u64>,
 }
@@ -1096,6 +1115,10 @@ impl ViewRegistry {
             return false;
         }
         super::render_system::output_plan::invalidate_measurements(world);
+        if !self.views[0].definition.component_tracking_ready {
+            world.watch_component_type(TypeId::of::<Style>());
+            world.watch_component_type(TypeId::of::<super::Parent>());
+        }
         for view in self
             .views
             .iter_mut()
@@ -1191,6 +1214,19 @@ impl ViewRegistry {
         change: crate::ecs::world::ComponentChange,
         mut relations: Option<&mut OutputRelations>,
     ) {
+        if change.type_id == TypeId::of::<Style>() {
+            use crate::ecs::world::ComponentChangeKind;
+            match change.kind {
+                ComponentChangeKind::Component | ComponentChangeKind::InheritedStyle(_) => {
+                    self.typography.update(world, change.entity, false);
+                }
+                _ => {}
+            }
+        } else if change.type_id == TypeId::of::<super::Parent>() {
+            self.typography.update(world, change.entity, true);
+        } else if change.type_id == TypeId::of::<super::Children>() {
+            self.typography.update(world, change.entity, false);
+        }
         for view in &self.views {
             if view.component_filter() != Some(change.type_id) {
                 if view.definition.query_scope.get() == QueryScope::Local
@@ -1284,6 +1320,15 @@ impl ViewRegistry {
             crate::ecs::world::ComponentChangeKind::Layout => ViewInvalidation::Layout,
             crate::ecs::world::ComponentChangeKind::Transform => ViewInvalidation::Visual,
             crate::ecs::world::ComponentChangeKind::Component => view.invalidation(),
+            crate::ecs::world::ComponentChangeKind::InheritedStyle(fields) => {
+                if super::style::metrics_changed(fields)
+                    || fields & crate::ecs::world::ComponentChangeKind::LOCAL_LAYOUT != 0
+                {
+                    ViewInvalidation::Layout
+                } else {
+                    ViewInvalidation::Visual
+                }
+            }
         }
     }
 

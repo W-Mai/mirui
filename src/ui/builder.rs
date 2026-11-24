@@ -95,26 +95,26 @@ impl<'a> WidgetBuilder<'a> {
 
     pub fn text_color(self, color: impl Into<crate::ui::theme::ThemedColor>) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
-            style.text_color = color.into();
+            style.set_text_color(color);
         }
         self
     }
 
     pub fn font(self, token: impl Into<crate::render::font::FontToken>) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
-            style.font_stack = crate::render::font::FontStack::new(token.into());
+            style.set_font_token(token);
         }
         self
     }
 
     pub fn font_stack(self, stack: impl Into<crate::render::font::FontStack>) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
-            style.font_stack = stack.into();
+            style.set_font_stack(stack);
         }
         self
     }
 
-    pub fn font_size(self, size: u16) -> Self {
+    pub fn font_size(self, size: impl Into<super::FontSize>) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
             style.set_font_size(size);
         }

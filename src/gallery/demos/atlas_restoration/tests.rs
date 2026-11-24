@@ -652,7 +652,7 @@ fn matched_lines_dim_and_a_check_frames_the_wrong_cells() {
     let color = |app: &App<_, _>, id| {
         app.world
             .get::<Style>(app.world.find_by_id(id).unwrap())
-            .map(|style| style.text_color)
+            .and_then(|style| style.text_color)
     };
     let id = [
         "pic_row_0",

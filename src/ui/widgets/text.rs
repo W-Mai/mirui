@@ -685,7 +685,7 @@ impl<P, B> TextBuilder<P, B> {
         self
     }
 
-    pub fn font_size(mut self, size: u16) -> Self {
+    pub fn font_size(mut self, size: impl Into<crate::ui::FontSize>) -> Self {
         self.style.get_or_insert_default().set_font_size(size);
         self
     }
@@ -734,9 +734,10 @@ fn text_render(
         return;
     };
     let state = paint.state();
+    let typography = paint.typography();
     let color = match button.and_then(|button| button.pressed_text_color) {
         Some(pressed) if state == crate::ui::theme::WidgetState::Pressed => pressed.resolve(&theme),
-        _ => paint.style().text_color.resolve_in(&theme, state),
+        _ => typography.text_color.resolve_in(&theme, state),
     };
     let Some(outputs) = outputs else {
         return;
@@ -745,8 +746,8 @@ fn text_render(
     let face_limit = storage.layouts.limits().fallback_faces;
     let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
         manager.as_deref(),
-        &paint.style().font_stack,
-        paint.style().font_size,
+        typography.font_stack,
+        typography.font_size,
         face_limit,
     ) else {
         return;
@@ -942,10 +943,11 @@ pub(crate) fn path_text_ink_bounds(
     let outputs = world.resource::<crate::ui::Outputs<crate::text::TextGeometry>>()?;
     let storage = outputs.storage();
     let face_limit = storage.layouts.limits().fallback_faces;
+    let typography = crate::ui::Typography::inherited(world, entity, style);
     let fonts = crate::render::font::ResolvedFontStack::resolve(
         world.resource::<crate::render::font::FontManager>(),
-        &style.font_stack,
-        style.font_size,
+        typography.font_stack,
+        typography.font_size,
         face_limit,
     )
     .ok()??;
@@ -1492,9 +1494,10 @@ fn static_glyph_run_render(
     let Some(manager) = fonts else {
         return;
     };
-    let font = manager.resolve(paint.style().font_stack.primary().cache_key());
+    let typography = paint.typography();
+    let font = manager.resolve(typography.font_stack.primary().cache_key());
     let mut font = font.as_ref().clone();
-    font.size = font.ppem_for(paint.style().font_size);
+    font.size = font.ppem_for(typography.font_size);
     let metrics = font.metrics(font.size);
     let rect = paint.rect();
     paint.draw(&DrawCommand::GlyphRun {
@@ -1505,7 +1508,7 @@ fn static_glyph_run_render(
         transform: paint.transform(),
         glyphs: run.glyphs,
         font: &font,
-        color: paint.style().text_color.resolve_in(&theme, paint.state()),
+        color: typography.text_color.resolve_in(&theme, paint.state()),
         opa: 255,
     });
 }
@@ -1726,14 +1729,24 @@ mod tests {
         }
         let render = render.unwrap();
         let mut style = Style {
-            font_stack: FontToken::Heading.into(),
+            font_stack: Some(FontToken::Heading.into()),
             ..Style::default()
         };
         let rect = Rect::new(3, 5, 20, 10);
         let clip = Rect::new(4, 6, 18, 8);
         for (family, size, theme, override_size) in [
-            ("first-static-font", 16, Theme::dark(), None),
-            ("replacement-static-font", 20, Theme::light(), Some(0)),
+            (
+                "first-static-font",
+                16,
+                Theme::dark(),
+                crate::ui::FontSize::Native,
+            ),
+            (
+                "replacement-static-font",
+                20,
+                Theme::light(),
+                crate::ui::FontSize::Pixels(0),
+            ),
         ] {
             let fonts = default_font_manager();
             fonts.add_static(
@@ -1748,14 +1761,18 @@ mod tests {
             fonts.prefetch(FontToken::Heading.cache_key());
             world.insert_resource(fonts);
             style.font_size = override_size;
-            let expected_color = style.text_color.resolve_in(&theme, WidgetState::Hovered);
+            let expected_color = crate::ui::Typography::local(&style)
+                .text_color
+                .resolve_in(&theme, WidgetState::Hovered);
             world.insert_resource(theme);
             for fail in [false, true] {
                 for _ in 0..2 {
                     let mut trace = Trace {
                         expected_color,
                         family,
-                        size: override_size.unwrap_or(size).max(1),
+                        size: crate::ui::Typography::local(&style)
+                            .font_size
+                            .unwrap_or(size),
                         fail,
                         calls: 0,
                     };

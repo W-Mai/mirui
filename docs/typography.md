@@ -4,7 +4,9 @@ mirui shapes text into positioned glyphs, then optionally places those glyphs on
 
 ## Default font and providers
 
-`Font::default()` opens the embedded ASCII MIRX face at 8 px. Its A1 atlas is borrowed from program storage. `font_size` scales both metrics and drawing; omitting it uses the selected font's size. Characters outside ASCII use the face's question-mark glyph unless a font stack supplies coverage. Applications that require more characters can register another MIRX font through `App::with_fonts`.
+`Font::default()` opens the embedded ASCII MIRX face at 8 px. Its A1 atlas is borrowed from program storage. `font_size` scales both metrics and drawing. Characters outside ASCII use the face's question-mark glyph unless a font stack supplies coverage. Applications that require more characters can register another MIRX font through `App::with_fonts`.
+
+`font`, `font_stack`, `font_size`, and `text_color` are inherited along the UI parent chain. Each field uses the nearest declaration. The root uses the default font stack, the selected font's native size, and `ColorToken::OnSurface`. Specify `font_size: FontSize::Native` to use the selected font's native size within a subtree that inherits a different size. Paragraph layout is supplied on each text widget. Custom paint callbacks read the effective values through `paint.typography()`.
 
 Every font uses `FontProvider`, including the embedded face. A custom provider is shared through the `provider: Rc<dyn FontProvider>` field of `Font`; cloning a font shares that provider. Software and accelerated renderers consume the same raster regions and coverage metadata. The software renderer reads exact-size A1 coverage directly and resamples scaled coverage.
 

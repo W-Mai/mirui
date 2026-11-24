@@ -332,7 +332,28 @@ pub mod prop {
         }
     }
 
-    style_property!(TextColor, crate::ui::theme::ThemedColor, text_color);
+    impl Property for TextColor {
+        type Value = crate::ui::theme::ThemedColor;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            if !world
+                .get::<crate::ui::Style>(entity)
+                .is_some_and(|style| style.text_color != Some(value))
+            {
+                return PropertyChange::Unchanged;
+            }
+            let Some(style) = world.get_mut_with_change::<crate::ui::Style>(
+                entity,
+                crate::ecs::world::ComponentChangeKind::InheritedStyle(
+                    crate::ui::style::TEXT_COLOR,
+                ),
+            ) else {
+                return PropertyChange::Unchanged;
+            };
+            style.text_color = Some(value);
+            PropertyChange::Visual
+        }
+    }
 
     impl Property for BorderColor {
         type Value = crate::ui::theme::ThemedColor;
@@ -468,18 +489,18 @@ pub mod prop {
     }
 
     impl Property for FontSize {
-        type Value = u16;
+        type Value = crate::ui::FontSize;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             if !world
                 .get::<crate::ui::Style>(entity)
-                .is_some_and(|style| style.font_size != Some(value))
+                .is_some_and(|style| style.font_size != value)
             {
                 return PropertyChange::Unchanged;
             }
             let Some(style) = world.get_mut_with_change::<crate::ui::Style>(
                 entity,
-                crate::ecs::world::ComponentChangeKind::Layout,
+                crate::ecs::world::ComponentChangeKind::InheritedStyle(crate::ui::style::FONT_SIZE),
             ) else {
                 return PropertyChange::Unchanged;
             };
@@ -1212,13 +1233,13 @@ mod tests {
             crate::ecs::world::ComponentChangeKind::Visual
         );
 
-        apply_to_world::<prop::FontSize>(&mut world, entity, 18);
+        apply_to_world::<prop::FontSize>(&mut world, entity, 18.into());
         changes.clear();
         world.drain_component_changes(|_, change| changes.push(change));
         assert_eq!(changes.len(), 1);
         assert_eq!(
             changes[0].kind,
-            crate::ecs::world::ComponentChangeKind::Layout
+            crate::ecs::world::ComponentChangeKind::InheritedStyle(crate::ui::style::FONT_SIZE)
         );
 
         let _ = world.get_mut::<crate::ui::Style>(entity);

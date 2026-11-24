@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Declare reusable widget styles with `style!` and apply them through `ui!` or the Button and Text builders.
+- Inherit font stacks, font sizes, and text colours through UI parents for layout and painting.
 
 ### Performance
 

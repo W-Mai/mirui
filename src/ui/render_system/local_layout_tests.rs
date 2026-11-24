@@ -784,7 +784,7 @@ fn incremental_text_inputs_reuse_arenas_and_reflow_at_changed_width() {
                 app.handle_memory_warning();
             }
             _ => {
-                app.world.get_mut::<Style>(label).unwrap().font_size = Some(12);
+                app.world.get_mut::<Style>(label).unwrap().set_font_size(12);
             }
         }
         TEXT_PREPARATIONS.with(|counts| counts.set((0, 0)));
