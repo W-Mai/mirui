@@ -238,8 +238,7 @@
   position: absolute;
   inset: 0 -8px auto;
   z-index: -1;
-  border-inline-start: 2px solid var(--site-blue);
-  border-radius: 3px 7px 7px 3px;
+  border-radius: 7px;
   background: var(--site-blue-wash);
   pointer-events: none;
   transition: transform var(--manual-motion), height var(--manual-motion);

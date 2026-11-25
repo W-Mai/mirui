@@ -14,7 +14,7 @@ export function installReadingMotion(router) {
   router.onBeforePageLoad = interrupt;
   router.onAfterPageLoad = () => {
     const content = document.getElementById('VPContent');
-    if (!content || document.hidden || reduced.matches) return;
+    if (!router.route.component || !content || document.hidden || reduced.matches) return;
     if (!document.startViewTransition) {
       const leaving = content.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, fill: 'forwards' });
       fade = leaving;
