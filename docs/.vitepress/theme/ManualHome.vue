@@ -17,7 +17,7 @@ const guides = [
 
 <template>
   <main class="manual-home">
-    <ReadingNotice hide-development />
+    <ReadingNotice />
     <section class="manual-hero">
       <div class="manual-intro">
         <span class="manual-version">{{ theme.version === 'dev' ? (zh ? '开发版' : 'Development') : theme.version }}</span>
@@ -31,7 +31,7 @@ const guides = [
       <FrameCutaway />
     </section>
     <section class="manual-guides" :aria-label="zh ? '专题指南' : 'Guides'">
-      <h2>{{ zh ? '专题指南' : 'Read a guide' }}</h2>
+      <h2 id="guides">{{ zh ? '专题指南' : 'Read a guide' }}</h2>
       <a v-for="guide in guides" :key="guide.href" :href="withBase(guide.href)">
         {{ zh ? guide.zh : guide.en }}
         <small v-if="zh">EN</small>

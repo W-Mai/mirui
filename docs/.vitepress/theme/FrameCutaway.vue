@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue';
 import { useData, withBase } from 'vitepress';
 import { loadTutorial } from './tutorial-runtime';
+import { pageMotion } from './reading-motion';
 import frameImage from './frame-section.svg?raw';
 
 const { lang } = useData();
@@ -52,9 +53,8 @@ function animate() {
   const from = shown;
   const goal = completed.value / 3;
   const start = performance.now();
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   function draw(now) {
-    const elapsed = reduced.matches ? 850 : now - start;
+    const elapsed = pageMotion.value ? now - start : 850;
     const fraction = Math.min(elapsed / 640, 1);
     const point = path.getPointAtLength(fraction * length);
     const layer = Math.min(3, Math.max(0, Math.round((point.y - 63) / 76)));

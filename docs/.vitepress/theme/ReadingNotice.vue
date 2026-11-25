@@ -4,7 +4,7 @@ import { useData, useRoute } from 'vitepress';
 
 const { lang, theme } = useData();
 const route = useRoute();
-defineProps({ hideDevelopment: Boolean });
+defineProps({ revision: Boolean });
 const reason = ref('');
 const messages = {
   page: ['The selected version has no matching chapter. The nearest section is open.', '所选版本没有对应章节，已打开最近的目录。'],
@@ -19,10 +19,10 @@ watch(() => route.path, readReason);
 </script>
 
 <template>
-  <p v-if="messages[reason]" class="manual-notice" role="status">
+  <p v-if="!revision && messages[reason]" class="manual-notice" role="status">
     {{ messages[reason][lang === 'zh-CN' ? 1 : 0] }}
   </p>
-  <p v-if="theme.version === 'dev' && !hideDevelopment" class="manual-revision">
+  <p v-if="theme.version === 'dev' && revision" class="manual-revision">
     {{ lang === 'zh-CN' ? '开发版文档' : 'Development documentation' }}
     · <a :href="`https://github.com/W-Mai/mirui/tree/${theme.source}`"><code>{{ theme.source.slice(0, 8) }}</code></a>
   </p>

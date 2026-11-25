@@ -1,0 +1,67 @@
+/* The desktop sidebar and the reading header share the same left margin. */
+#app .VPNavBar {
+  --reading-gutter: max(32px, calc((100vw - var(--vp-layout-max-width) + 64px) / 2));
+  background: var(--site-bg);
+}
+#app .VPNavBar .wrapper { padding-inline: var(--reading-gutter); }
+#app .VPNavBar .wrapper > .container {
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  align-items: center; gap: 28px; max-width: none;
+}
+#app .VPNavBar .container > .title {
+  position: static; width: auto; height: auto; padding: 0; background: transparent;
+}
+#app .VPNavBarTitle .title { border: 0; gap: 10px; }
+.manual-brand { width: 77px; height: 26px; }
+.manual-brand-section { color: var(--site-muted); font-size: 15px; font-weight: 500; }
+.VPNav .dark-only, .dark .VPNav .light-only { display: none; }
+.dark .VPNav .dark-only { display: block; }
+#app .VPNavBar .content { padding: 0; min-width: 0; }
+#app .VPNavBar .content-body { background: transparent; gap: 4px; }
+#app .VPNavBar .divider { padding: 0; }
+.VPNav .divider-line { background: var(--site-rule); }
+#app .VPNav :is(.VPNavBarAppearance, .VPNavBarExtra, .VPNavBarTranslations, .VPNavScreenTranslations, .VPNavScreenAppearance) { display: none; }
+#app .VPNavBar .menu { order: -1; margin-right: auto; gap: 2px; }
+#app .VPNavBarMenuLink {
+  height: 36px; padding-inline: 12px; border-radius: 8px; line-height: 1;
+  color: var(--site-muted); transition: color 150ms ease, background-color 150ms ease;
+}
+#app .VPNavBarMenuLink:is(:hover,:focus-visible) { color: var(--site-ink); background: var(--site-hover); }
+#app .VPNavBarMenuLink.active { color: var(--site-ink); font-weight: 650; }
+.manual-tools { display: flex; align-items: center; gap: 4px; position: relative; }
+.manual-tools .motion-toggle[aria-pressed="false"] { opacity: .6; }
+.manual-version-picker { position: relative; }
+.manual-current-version { padding-inline: 6px; color: var(--site-muted); font-size: 12px; }
+.manual-version-picker select { appearance: none; padding-right: 22px; cursor: pointer; }
+.manual-version-picker > span { position: absolute; right: 7px; top: 50%; transform: translateY(-60%); color: var(--site-muted); pointer-events: none; }
+.manual-nav-error { position: absolute; right: 0; top: 100%; padding: 8px 12px; border-radius: 8px; background: var(--site-panel); box-shadow: var(--site-shadow); }
+#app .VPNavBarSearch { flex: none; padding: 0; }
+#app .VPNavBar .DocSearch-Button { justify-content: center; width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 9px; background: transparent; }
+#app .VPNavBar .DocSearch-Button:is(:hover,:focus-visible) { background: var(--site-hover); }
+#app .VPNavBar .DocSearch-Button :is(.DocSearch-Button-Placeholder, .DocSearch-Button-Keys) { display: none; }
+#app .DocSearch-Button .DocSearch-Search-Icon { color: var(--site-muted); }
+#app .DocSearch-Button:focus-visible { outline: 1px solid var(--site-blue); }
+@media (min-width: 1100px) {
+  #app .VPNavBar .DocSearch-Button { width: auto; gap: 8px; padding-inline: 10px; }
+  #app .VPNavBar .DocSearch-Button .DocSearch-Button-Placeholder { display: block; font: 500 13px var(--font-ui); color: var(--site-muted); }
+  #app .VPNavBar .DocSearch-Button .DocSearch-Button-Keys { display: flex; }
+}
+#app .VPNavBarSocialLinks { order: 1; margin: 0; padding: 0; }
+#app .VPNavBarSocialLinks::before { display: none; }
+#app .VPNavBarSocialLinks .VPSocialLink:hover { background: var(--site-hover); border-radius: 9px; }
+.site-motion-off { --manual-duration: 0s !important; }
+.site-motion-off :is(.VPNavScreen, .VPNavScreen .container, .VPSidebar, .outline-marker, .site-cta, .frame-links a, .device-grip, .frame-dimensions) { transition: none; }
+@media (max-width: 767px) {
+  #app .VPNavBar { --reading-gutter: 16px; }
+  #app .VPNavBar .wrapper > .container { gap: 8px; }
+  #app .VPNavBarHamburger { width: 36px; }
+}
+@media (max-width: 420px) {
+  #app .VPNavBar { --reading-gutter: 12px; }
+  .manual-brand-section { display: none; }
+  .manual-tools, #app .VPNavBar .content-body { gap: 0; }
+  .manual-tools .site-action { padding-inline: 5px; min-width: 30px; }
+  .manual-version-picker select.site-action { padding-right: 17px; }
+  .manual-version-picker select { max-width: 66px; text-overflow: ellipsis; }
+  .manual-current-version { max-width: 58px; overflow: hidden; text-overflow: ellipsis; }
+}

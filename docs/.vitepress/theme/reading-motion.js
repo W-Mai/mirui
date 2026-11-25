@@ -1,4 +1,11 @@
-import { nextTick } from 'vue';
+import { nextTick, ref, watch } from 'vue';
+
+export const pageMotion = ref(true);
+
+export function togglePageMotion() {
+  pageMotion.value = !pageMotion.value;
+  try { localStorage.setItem('mirui-motion', pageMotion.value ? 'on' : 'off'); } catch {}
+}
 
 // The router owns history, scrolling and page lifetimes. Capture the old
 // article only once the incoming module is loaded, just before Vue commits it.
@@ -11,10 +18,22 @@ export function installReadingMotion(router) {
     turn?.skipTransition();
     fade?.cancel();
   }
+  function syncMotion() {
+    let choice;
+    try { choice = localStorage.getItem('mirui-motion'); } catch {}
+    pageMotion.value = choice === 'on' || (choice !== 'off' && !reduced.matches);
+  }
+  syncMotion();
+  watch(pageMotion, enabled => {
+    document.documentElement.classList.toggle('site-motion-off', !enabled);
+    if (!enabled) interrupt();
+  }, { immediate: true, flush: 'sync' });
+  reduced.addEventListener('change', syncMotion);
+  window.addEventListener('storage', event => { if (!event.key || event.key === 'mirui-motion') syncMotion(); });
   router.onBeforePageLoad = interrupt;
   router.onAfterPageLoad = () => {
     const content = document.getElementById('VPContent');
-    if (!router.route.component || !content || document.hidden || reduced.matches) return;
+    if (!router.route.component || !content || document.hidden || !pageMotion.value) return;
     if (!document.startViewTransition) {
       const leaving = content.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, fill: 'forwards' });
       fade = leaving;
@@ -46,5 +65,4 @@ export function installReadingMotion(router) {
       });
     });
   };
-  reduced.addEventListener('change', () => { if (reduced.matches) interrupt(); });
 }

@@ -17,6 +17,13 @@ if (!crateVersion || (version !== 'dev' && version !== crateVersion)) {
   throw new Error(`Documentation version ${version} does not match the crate version (${crateVersion}).`);
 }
 const api = version === 'dev' ? 'https://docs.rs/mirui' : `https://docs.rs/mirui/${version}/mirui/`;
+function navigation(zh: boolean) {
+  return [
+    { text: zh ? '教程' : 'Tutorial', link: zh ? '/zh/learn/' : '/learn/', activeMatch: '/learn/' },
+    { text: zh ? '指南' : 'Guides', link: zh ? '/zh/#guides' : '/#guides' },
+    { text: 'API', link: api },
+  ];
+}
 const sidebar = [
   {
     text: 'Start',
@@ -69,6 +76,7 @@ const sidebar = [
 export default defineConfig({
   base,
   title: 'Mirui',
+  appearance: { storageKey: 'mirui-theme' },
   description: 'Build responsive Rust interfaces for small screens, desktop, and the web.',
   srcExclude: ['**/node_modules/**'],
   outDir: process.env.MIRUI_DOCS_OUT_DIR || '.vitepress/dist',
@@ -86,7 +94,7 @@ export default defineConfig({
       label: '简体中文',
       lang: 'zh-CN',
       themeConfig: {
-        nav: [{ text: 'Gallery', link: 'https://mirui.rs/#demos' }, { text: 'API 参考', link: api }],
+        nav: navigation(true),
         sidebar: [
           {
             text: '动手做一个任务清单',
@@ -105,15 +113,17 @@ export default defineConfig({
         ],
         outline: { label: '本节内容' },
         docFooter: { prev: '上一节', next: '下一节' },
+        editLink: { pattern: `${repository}/blob/${source}/docs/:path`, text: '查看本页源码' },
+        skipToContentLabel: '跳到正文',
         returnToTopLabel: '返回顶部',
         sidebarMenuLabel: '文档目录',
       },
     },
   },
   themeConfig: {
-    siteTitle: 'Mirui Docs',
+    siteTitle: false,
     i18nRouting: false,
-    nav: [{ text: 'Gallery', link: 'https://mirui.rs/#demos' }, { text: 'API Reference', link: api }],
+    nav: navigation(false),
     socialLinks: [{ icon: 'github', link: repository }],
     sidebar,
     search: {
@@ -123,7 +133,11 @@ export default defineConfig({
           zh: {
             translations: {
               button: { buttonText: '搜索文档', buttonAriaLabel: '搜索文档' },
-              modal: { noResultsText: '没有找到相关章节' },
+              modal: {
+                noResultsText: '没有找到相关章节',
+                displayDetails: '显示匹配段落', resetButtonTitle: '清空搜索', backButtonTitle: '返回',
+                footer: { selectText: '打开', navigateText: '选择', closeText: '关闭', selectKeyAriaLabel: '回车', navigateUpKeyAriaLabel: '上方向键', navigateDownKeyAriaLabel: '下方向键', closeKeyAriaLabel: '退出键' },
+              },
             },
           },
         },

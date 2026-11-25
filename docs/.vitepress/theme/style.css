@@ -23,40 +23,6 @@
   --vp-sidebar-bg-color: var(--site-panel-2);
 }
 
-.VPNav .VPNavBarTranslations,
-.VPNav .VPNavScreenTranslations {
-  display: none;
-}
-
-.manual-selectors {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: .5rem;
-  margin-block: .6rem;
-}
-
-.manual-selectors-desktop {
-  display: none;
-  margin: 0 0 0 1rem;
-}
-
-@media (min-width: 768px) {
-  .manual-selectors-desktop {
-    display: flex;
-  }
-}
-
-.manual-selectors select {
-  appearance: auto;
-  color: var(--site-ink);
-  padding: .3rem .45rem;
-  border: 1px solid var(--site-rule-strong);
-  border-radius: .4rem;
-  font-size: .875rem;
-  background: var(--site-panel-2);
-}
-
 .manual-notice {
   margin: 0 0 1rem;
   padding: .55rem .8rem;
@@ -65,7 +31,6 @@
   font-size: .875rem;
 }
 
-.manual-mark { margin-inline-end: 9px; border-radius: 6px; }
 .manual-revision {
   margin: 0 0 14px;
   color: var(--site-muted);
