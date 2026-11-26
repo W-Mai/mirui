@@ -110,6 +110,16 @@ assert!(path.is_empty());
 
 `NavigationStack` binds a path to a page factory. Its ordinary children are the root page; the factory handles every pushed destination. Register `navigation::view::<Route>()` once per route type, not once per page. Multiple independent navigation areas use separate path instances.
 
+<MiruiSnippet recipe="nav-stack" label="NavigationStack" file="recipes.rs" height="220px">
+
+<template #exercise>
+
+Click `Push Devices →`, then `Inspect #7 →` to push two routes onto `NavigationPath`, and use `← Pop one` or `Clear root` to slide back while retaining the root page's state.
+
+</template>
+
+</MiruiSnippet>
+
 ```rust
 use mirui::prelude::*;
 use mirui::ui::widgets::{Button, Text};
@@ -203,6 +213,16 @@ Page creation may allocate, including cloning an owned route payload. Path mutat
 ## Pages selected by application state
 
 `PageView` follows an application value without keeping a history. Register its View once for each route type, then provide a `CreatePage` callback. The callback returns one newly constructed page root. Equal page values retain the existing subtree; a different value constructs its replacement before retiring the old subtree. Failed construction leaves the displayed page intact and is not retried until the selection or factory changes.
+
+<MiruiSnippet recipe="nav-pageview" label="PageView" file="recipes.rs" height="210px">
+
+<template #exercise>
+
+Click `Overview`, `Metrics`, or `Logs` to switch `session.page()` and drive `PageView` with a `SNAPPY` slide transition.
+
+</template>
+
+</MiruiSnippet>
 
 ```rust
 use mirui::prelude::*;

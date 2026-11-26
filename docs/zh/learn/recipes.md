@@ -6,9 +6,7 @@ title: 常用界面写法
 
 # 常用界面写法
 
-写界面时最常遇到的四类场景：状态联动与阈值变色、弹性伸缩布局、带阻尼弹簧的选中框跟随，以及自定义矢量绘制控件。
-
-每一段代码都可以在右侧画布里直接点击互动，或拖动右下角手柄检验不同尺寸下的表现。
+覆盖状态绑定与阈值变色、弹性伸缩布局、弹簧跟随框、自定义矢量控件、曲线排字与滚动视口。
 
 ---
 
@@ -114,7 +112,7 @@ title: 常用界面写法
 
 ## 滚动视口与平滑定位 (`ScrollOffset`) {#scroll}
 
-给裁剪容器挂上滚动能力，既支持手指拖拽与滚轮，也能从状态绑定平滑滑向指定偏移。
+给裁剪容器挂上滚动能力，既支持手指拖拽与滚轮，也能通过 `commands.scroll_to` 配合 `ScrollConfig::with_transition` 平滑滑向指定位置。
 
 <MiruiSnippet recipe="scroll" label="ScrollOffset" file="recipes.rs" height="240px">
 
@@ -122,10 +120,10 @@ title: 常用界面写法
 
 <template #exercise>
 
-点击顶部的 `Top (#1)`、`Middle (#4)` 或 `Bottom (#7)`，观察列表如何带着阻尼过渡滑向目标位置。
+点击顶部的 `Top (#1)`、`Middle (#4)` 或 `Bottom (#7)`，观察列表如何带着阻尼过渡滑向目标位置；中途连点其他按钮会从当前位置平滑折返。
 
 </template>
 
 </MiruiSnippet>
 
-在 `Column(clip_children: true)` 上挂载 `ScrollOffset::default()` 与 `ScrollConfig::default().with_transition(...)` 即可启用滚动视口；通过 `scroll_offset: ${ ... }` 即可响应式地驱动滚动位置。
+在 `Column(clip_children: true)` 上挂载 `ScrollOffset::default()` 与 `ScrollConfig::default().with_transition(...)` 即可启用滚动视口；直接赋值 `scroll_offset:` 属性是立即定位，而调用 `commands.scroll_to(list, offset)`（或 `scroll_into`）则会沿着 `ScrollConfig` 配置的过渡曲线平滑滚动。

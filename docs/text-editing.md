@@ -49,99 +49,15 @@ Use `commands.selection().select_all(editor)` to select an editor's complete doc
 
 This example owns the query in an application Model. `SearchEditor()` attaches the editing capability and standard appearance; a second `TextInput()` shares the query while keeping its own selection. Return invokes the application's submit method through the existing notification API.
 
-```rust
-use mirui::prelude::*;
-use mirui::ui::widgets::{
-    Placeholder, TextDocument, TextEditing, TextEditError, TextInput,
-    text_editing, text_input,
-};
+<MiruiSnippet recipe="editor-shared" label="TextDocument & SearchEditor" file="recipes.rs" height="210px">
 
-#[model]
-struct SearchForm {
-    query: model!(owned TextDocument),
-    #[observe]
-    submissions: u32,
-}
+<template #exercise>
 
-impl Default for SearchForm {
-    fn default() -> Self {
-        Self {
-            query: TextDocument::new().into(),
-            submissions: 0,
-        }
-    }
-}
+Type into either editor (or click `Set 'SPI'`): both editors share the same `TextDocument` while keeping independent carets and selections. Press Return or click `Submit` to increment the submission counter.
 
-#[model]
-impl SearchForm {
-    fn submit(&mut self) {
-        self.submissions += 1;
-    }
-}
+</template>
 
-#[component]
-#[derive(Default)]
-struct SearchEditor {
-    document: model!(optional TextDocument),
-}
-
-#[event]
-fn attach_search(
-    node: entity!(),
-    search: query!(SearchEditor),
-    editing: query!(TextEditing),
-    appearance: query!(TextInput),
-    commands: commands!(),
-) {
-    let Some(search) = search.get(node) else {
-        return;
-    };
-    if editing.get(node).is_none() {
-        let editor = search.document.clone()
-            .map(TextEditing::new)
-            .unwrap_or_default();
-        commands.insert(node, editor);
-    }
-    if appearance.get(node).is_none() {
-        commands.insert(node, TextInput::new());
-    }
-}
-
-#[view(component = SearchEditor, attach = attach_search::callback())]
-fn search_view() {}
-
-#[compose]
-fn panel(form: model!(SearchForm)) {
-    ui! {
-        Column(row_gap: 12) {
-            SearchEditor(document: Some(form.query()), width: 240, height: 36) [
-                Placeholder("Search"),
-            ] on TextEditing::Submitted {
-                form.submit();
-            }
-            TextInput(width: 240, height: 36) [
-                TextEditing::new(form.query()),
-            ]
-        }
-    };
-}
-
-# fn main() -> Result<(), TextEditError> {
-let mut app = App::headless(320, 160);
-app.with_widget(search_view::view())
-    .with_widget(text_input::view())
-    .with_widget(text_editing::view());
-let root = app.spawn_root().id();
-let form = app.add_model(SearchForm::default()).finish();
-form.query().set_capacity(256)?;
-form.query().set_text("Canvas")?;
-app.compose(root, panel(form.clone()));
-
-form.query().replace(0..6, "Components")?;
-form.query().read(|text| assert_eq!(text, "Components"));
-# Ok(())
-# }
-```
+</MiruiSnippet>
 
 Registering a View installs its behavior; inserting a Component supplies per-node state. These are separate operations. `App::with_default_widgets()` already registers TextInput and TextEditing, so an application using that preset only adds its custom View. The empty `search_view` body declares no paint hook. Its attachment preserves explicitly supplied editing and appearance components instead of overwriting them.
 

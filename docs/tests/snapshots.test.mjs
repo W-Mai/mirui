@@ -60,7 +60,9 @@ test('assembly preserves prior releases and ignores an unpromoted candidate', as
     await packageSnapshot(await fixture(root, old), oldArchive, old);
     await packageSnapshot(await fixture(root, next), nextArchive, next);
     expect((await assembleSite(site, dev, [])).latest).toBeNull();
-    expect(await readFile(join(site, 'docs/index.html'), 'utf8')).toContain('href="/docs/dev/"');
+    const devLanding = await readFile(join(site, 'docs/index.html'), 'utf8');
+    expect(devLanding).toContain('href="/docs/dev/"');
+    expect(devLanding).toContain('url=/docs/dev/');
 
     const oldSite = await gallery(root, 'old-site');
     expect((await assembleSite(oldSite, dev, [{ version: old, directory: oldArchive }])).latest).toBe(old);

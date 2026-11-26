@@ -3,9 +3,9 @@ pageClass: tutorial-page
 aside: false
 ---
 
-# 提炼组件与样式表
+# 复用组件与样式
 
-界面长大了以后，如果每个按钮都手写一遍宽高、圆角和字号，代码很快就会变得臃肿。`mirui` 用两个机制解决复用：**`#[compose]` 组件函数**与 **`StyleSheetPlugin` 样式表**。
+当同一种按钮或列表行重复出现时，把宽高、圆角和颜色写在每一处会很难维护。`mirui` 用两个机制做复用：**`#[compose]` 组件函数**与 **`StyleSheetPlugin` 样式表**。
 
 ## 1. 最小演示：`prop!(T)` 与动态 `class` {#concept}
 

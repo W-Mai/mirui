@@ -76,10 +76,40 @@ export async function unpackSnapshot(input, directory, version, source) {
 
 function indexHtml(latest) {
   const target = versionBase(latest ?? 'dev');
-  const refresh = latest ? `<meta http-equiv="refresh" content="0; url=${target}">` : '';
   const title = latest ? 'Mirui documentation' : 'Mirui development documentation';
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${refresh}<title>${title}</title><link rel="canonical" href="${origin}${target}"></head>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="0; url=${target}">
+<title>${title}</title>
+<link rel="canonical" href="${origin}${target}">
+<script>
+(() => {
+  const base = ${JSON.stringify(target)};
+  const zh = typeof navigator !== 'undefined' && /^zh\\b/i.test(navigator.language || '');
+  location.replace(zh ? base + 'zh/' : base);
+})();
+</script>
+<style>
+  :root { color-scheme: dark light; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #0d1016; color: #eceff5;
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  main {
+    padding: 28px 32px; border: 1px solid rgba(255,255,255,0.12); border-radius: 14px;
+    background: #131720; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 42px rgba(0,0,0,0.42);
+    text-align: center;
+  }
+  h1 { margin: 0 0 12px; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+  p { margin: 6px 0; }
+  a { color: #8c9aff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
 <body><main><h1>${title}</h1><p><a href="${target}">Open the manual</a></p><p><a href="${target}zh/">简体中文</a></p>${latest ? '<p><a href="/docs/dev/">Development documentation</a></p>' : ''}<p><a href="https://docs.rs/mirui">Published API reference</a></p></main></body></html>\n`;
 }
 

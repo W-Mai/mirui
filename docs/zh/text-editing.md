@@ -49,99 +49,15 @@
 
 下面的示例将查询文本保存在应用层的 `Model` 中。`SearchEditor()` 在挂载时自动补齐编辑能力与标准输入框外观；第二个 `TextInput()` 共享同一份查询文档，同时拥有各自独立的选区。按下回车键时，通过现有的通知 API 调用模型的提交方法。
 
-```rust
-use mirui::prelude::*;
-use mirui::ui::widgets::{
-    Placeholder, TextDocument, TextEditing, TextEditError, TextInput,
-    text_editing, text_input,
-};
+<MiruiSnippet recipe="editor-shared" label="TextDocument & SearchEditor" file="recipes.rs" height="210px">
 
-#[model]
-struct SearchForm {
-    query: model!(owned TextDocument),
-    #[observe]
-    submissions: u32,
-}
+<template #exercise>
 
-impl Default for SearchForm {
-    fn default() -> Self {
-        Self {
-            query: TextDocument::new().into(),
-            submissions: 0,
-        }
-    }
-}
+在任意一个输入框中键入文字（或点击 `Set 'SPI'`）：上下两个输入框共享同一个 `TextDocument`，但各自保留独立的光标与选区。按回车或点击 `Submit` 递增提交计数。
 
-#[model]
-impl SearchForm {
-    fn submit(&mut self) {
-        self.submissions += 1;
-    }
-}
+</template>
 
-#[component]
-#[derive(Default)]
-struct SearchEditor {
-    document: model!(optional TextDocument),
-}
-
-#[event]
-fn attach_search(
-    node: entity!(),
-    search: query!(SearchEditor),
-    editing: query!(TextEditing),
-    appearance: query!(TextInput),
-    commands: commands!(),
-) {
-    let Some(search) = search.get(node) else {
-        return;
-    };
-    if editing.get(node).is_none() {
-        let editor = search.document.clone()
-            .map(TextEditing::new)
-            .unwrap_or_default();
-        commands.insert(node, editor);
-    }
-    if appearance.get(node).is_none() {
-        commands.insert(node, TextInput::new());
-    }
-}
-
-#[view(component = SearchEditor, attach = attach_search::callback())]
-fn search_view() {}
-
-#[compose]
-fn panel(form: model!(SearchForm)) {
-    ui! {
-        Column(row_gap: 12) {
-            SearchEditor(document: Some(form.query()), width: 240, height: 36) [
-                Placeholder("Search"),
-            ] on TextEditing::Submitted {
-                form.submit();
-            }
-            TextInput(width: 240, height: 36) [
-                TextEditing::new(form.query()),
-            ]
-        }
-    };
-}
-
-# fn main() -> Result<(), TextEditError> {
-let mut app = App::headless(320, 160);
-app.with_widget(search_view::view())
-    .with_widget(text_input::view())
-    .with_widget(text_editing::view());
-let root = app.spawn_root().id();
-let form = app.add_model(SearchForm::default()).finish();
-form.query().set_capacity(256)?;
-form.query().set_text("Canvas")?;
-app.compose(root, panel(form.clone()));
-
-form.query().replace(0..6, "Components")?;
-form.query().read(|text| assert_eq!(text, "Components"));
-# Ok(())
-# }
-```
+</MiruiSnippet>
 
 注册 `View` 用于安装一类控件的行为逻辑，而在节点上插入 `Component` 则是提供单节点的实例状态——这两者是彼此独立的操作。`App::with_default_widgets()` 已经预先注册了 `TextInput` 与 `TextEditing`，因此使用默认预设的应用只需额外注册自定义的 `search_view::view()`。上面空的 `search_view` 函数体表示该视图自身不执行绘制；它的 `attach` 钩子在插入默认组件前会先检查节点是否已经显式携带了 `TextEditing` 或 `TextInput`，避免覆盖调用方传入的定制配置。
 

@@ -5,13 +5,11 @@ aside: false
 
 # Run and verify it in the browser
 
-None of the code we wrote in `model.rs`, `interface.rs`, or `motion.rs` needs to change for the browser—only a 20-line host entry point swaps `SdlSurface` for `WebCanvasSurface`.
+None of the code in `model.rs`, `interface.rs`, or `motion.rs` needs to change for the browser—only the host entry point swaps `SdlSurface` for `WebCanvasSurface`.
 
 ## Compare the Web and desktop entry points {#app}
 
-In the workspace below, the focused view shows `web.rs`. Click the **`desktop.rs`** tab in the top bar to compare the two hosts side by side: both prepare their surface and storage backend, then call the exact same `install(&mut app, chapter, reduced, storage)`.
-
-You can also click the **eye button (`Focus` → `Full`)** at any time to browse every line of all six source files in the crate:
+Click the **`desktop.rs`** tab in the top bar to compare `web.rs` and `desktop.rs`: both prepare their surface and storage backend, then call the same `install(&mut app, chapter, reduced, storage)`:
 
 <TutorialWorkspace :chapter="7" file="web.rs">
 

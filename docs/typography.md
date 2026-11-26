@@ -65,20 +65,15 @@ LF, CR and CRLF separate paragraph lines without requesting font coverage or gly
 
 Assign a finite width when text should wrap or show an ellipsis. `Ellipsis` also requires a font in the stack that maps U+2026. Explicitly sized axes clip ordinary `Text` to the transformed text box for both overflow policies; `Auto` and `Content` preserve glyph ink overhang within the ancestor clip. Path text uses its placed glyph geometry and ancestor clip because its ink can extend beyond the layout box.
 
-```rust
-ui! {
-    Text(
-        "A long status label",
-        width: Dimension::percent(100),
-        paragraph: ParagraphStyle {
-            wrap: TextWrap::NoWrap,
-            max_lines: Some(1),
-            overflow: TextOverflow::Ellipsis,
-            ..ParagraphStyle::default()
-        }
-    )
-};
-```
+<MiruiSnippet recipe="typo-ellipsis" label="TextOverflow::Ellipsis" file="recipes.rs" height="190px">
+
+<template #exercise>
+
+Click `Toggle wrap` to switch between single-line `NoWrap` with `TextOverflow::Ellipsis` and two-line `TextWrap::Word`.
+
+</template>
+
+</MiruiSnippet>
 
 ## Layout failure reporting
 
@@ -158,24 +153,15 @@ An explicit memory warning retains the bounded text-layout cache and its live ha
 
 `path!` stores its commands in the program image. Registering those commands with `insert_static` keeps the path borrowed and gives it a stable `PathId`.
 
-```rust
-use mirui::prelude::*;
+<MiruiSnippet recipe="typo-static" label="Static Path" file="recipes.rs" height="180px">
 
-static ARC: Path = path!(M 16 72 Q 96 8 176 72);
+<template #exercise>
 
-fn register_arc(app: &mut App<impl Surface>) -> PathId {
-    app.paths()
-        .insert_static(ARC.commands())
-        .expect("path capacity")
-}
+`insert_static` borrows the compile-time `ARC` commands in ROM/flash and returns a `PathId` that `Text(path: arc)` follows from distance `0`.
 
-#[compose]
-fn curved_title(arc: PathId) {
-    ui! {
-        Text("Status", path: arc, font_size: 24)
-    };
-}
-```
+</template>
+
+</MiruiSnippet>
 
 Passing a `PathId` uses subpath `0`, starts at distance `0`, follows the path forward, and uses the full available length.
 
@@ -183,35 +169,15 @@ Passing a `PathId` uses subpath `0`, starts at distance `0`, follows the path fo
 
 Each paragraph line uses one consecutive subpath, beginning at `TextPath::subpath()`. The usable length of each subpath constrains wrapping, alignment, justification, and ellipsis before glyph placement.
 
-```rust
-use mirui::prelude::*;
+<MiruiSnippet recipe="typo-multiline" label="Multi-Subpath" file="recipes.rs" height="190px">
 
-static LINES: Path = path!(
-    M 12 36 L 172 36
-    M 24 68 Q 92 104 160 68
-);
+<template #exercise>
 
-fn register_lines(app: &mut App<impl Surface>) -> PathId {
-    app.paths()
-        .insert_static(LINES.commands())
-        .expect("path capacity")
-}
+`LINES` defines two subpaths (`M ... L ...` and `M ... Q ...`). Line 1 lays out along the straight segment and line 2 wraps onto the quadratic curve.
 
-#[compose]
-fn multiline_label(lines: PathId) {
-    ui! {
-        Text(
-            "The first line stays straight and the next follows the curve.",
-            path: lines,
-            paragraph: ParagraphStyle {
-                wrap: TextWrap::Word,
-                max_lines: Some(2),
-                ..ParagraphStyle::default()
-            },
-        )
-    };
-}
-```
+</template>
+
+</MiruiSnippet>
 
 No baseline array or copied command buffer is created. Line-only subpaths are sampled directly from `Path`; curved subpaths reuse the bounded measurement cache. A missing or invalid subpath rejects the path layout before placed glyph or caret frames are published.
 
@@ -219,20 +185,15 @@ No baseline array or copied command buffer is created. Line-only subpaths are sa
 
 `TextPath` describes how text consumes a registered path without copying its commands.
 
-```rust
-use mirui::prelude::*;
+<MiruiSnippet recipe="typo-range" label="Range & Direction" file="recipes.rs" height="200px">
 
-let placement = TextPath::new(path)
-    .with_subpath(1)
-    .with_range(Fixed::from_int(12)..Fixed::from_int(180))
-    .with_offset(Fixed::from_int(8))
-    .with_direction(PathDirection::Reverse)
-    .with_seam(Fixed::from_int(36));
+<template #exercise>
 
-ui! {
-    Text("Reverse around the ring", path: placement)
-};
-```
+Click `Offset +16` to advance the leading inset along subpath `1`, or click `Reverse` to flip `PathDirection::Forward` and `PathDirection::Reverse`.
+
+</template>
+
+</MiruiSnippet>
 
 `with_seam` chooses the distance treated as the start of a closed subpath. The selected range remains measured in path-length units after the seam is applied.
 
@@ -256,55 +217,29 @@ fn status_label(placement: TextPath) {
 
 The DSL accepts a `Signal<PathId>` as a reactive `path` attribute. Replacing the signal value moves the existing text entity to the new path and transfers its path-change subscription.
 
-```rust
-#[compose]
-fn selectable_path(first: PathId, second: PathId) {
-    let selected = Signal::new(first);
-    let selection = selected.clone();
+<MiruiSnippet recipe="typo-signal" label="Signal<PathId>" file="recipes.rs" height="200px">
 
-    ui! {
-        Column () {
-            Text("Live route", path: $selection)
-            Button ("Switch", width: 80, height: 36) on Tap {
-                selected.update(|path| {
-                    *path = if *path == first { second } else { first };
-                });
-            }
-        }
-    };
-}
-```
+<template #exercise>
+
+Click `Switch path` to update `selected: Signal<PathId>`—the existing `Text` entity moves between the two registered paths without rebuilding the widget.
+
+</template>
+
+</MiruiSnippet>
 
 ## Derive path geometry from signals
 
 Create one mutable path, reserve its command storage once, and bind its geometry to signals. `bind_path` installs an owner-bound effect: signal changes edit the existing path, advance its revision, and dirty every subscribed text or drawing entity.
 
-```rust
-#[compose]
-fn elastic_baseline(amplitude: Signal<Fixed>) {
-    let mut geometry = Path::try_with_capacity(2).expect("path storage");
-    geometry
-        .move_to(Point::new(0, 48))
-        .quad_to(Point::new(80, 48), Point::new(160, 48));
-    let path = cx.paths().insert(geometry).expect("path capacity");
-    let live_amplitude = amplitude.clone();
+<MiruiSnippet recipe="typo-elastic" label="bind_path" file="recipes.rs" height="200px">
 
-    cx.bind_path(path, move |geometry| {
-        let y = Fixed::from_int(48) - live_amplitude.get();
-        geometry
-            .set_command(1, mirui::render::path::PathCmd::QuadTo {
-                ctrl: Point::new(80, y),
-                end: Point::new(160, 48),
-            })
-            .expect("stable command shape");
-    })
-    .expect("mutable path");
+<template #exercise>
 
-    ui! {
-        Text("Signal-driven curve", path: path)
-    };
-}
-```
+Click `Invert amplitude` to flip `amplitude: Signal<Fixed>`—`cx.bind_path` updates the quadratic control point in place and re-lays out the text.
+
+</template>
+
+</MiruiSnippet>
 
 The effect retains the path allocation and command capacity. Prefer `set_command` when the command topology is stable; use `clear` plus path-building methods when the topology itself changes.
 
@@ -312,66 +247,29 @@ The effect retains the path allocation and command capacity. Prefer `set_command
 
 Event callbacks borrow the path store through `res!(mut PathStore)`. Editing by `PathId` preserves entity identity and updates all consumers of the path.
 
-```rust
-use mirui::prelude::*;
-use mirui::render::path::PathStore;
-use mirui::ui::widgets::Text;
+<MiruiSnippet recipe="typo-bend" label="res!(mut PathStore)" file="recipes.rs" height="190px">
 
-#[compose]
-fn bendable_label(path: PathId) {
-    ui! {
-        Text("Tap to bend", path: path, height: 72) on Tap(|paths: res!(mut PathStore)| {
-            paths.edit(path, |geometry| {
-                geometry
-                    .set_command(1, mirui::render::path::PathCmd::QuadTo {
-                        ctrl: Point::new(80, 4),
-                        end: Point::new(160, 48),
-                    })
-                    .expect("stable command shape");
-            }).expect("mutable path");
-        })
-    };
-}
-```
+<template #exercise>
+
+Click directly on the curved text to run its `on Tap` handler, mutating the path in `res!(mut PathStore)` with `set_command`.
+
+</template>
+
+</MiruiSnippet>
 
 ## Query caret and selection geometry
 
 `Outputs<TextGeometry>` borrows completed geometry for entities with a `Text` component. A component's `#[depends_on(TextGeometry)]` declaration requests the result when its View is registered. Layout, glyph placement, and caret placement share retained storage with text painting; reads do not produce or copy geometry.
 
-```rust
-use mirui::prelude::*;
+<MiruiSnippet recipe="typo-carets" label="Outputs<TextGeometry>" file="recipes.rs" height="190px">
 
-#[component]
-#[depends_on(TextGeometry)]
-struct CaretOverlay;
+<template #exercise>
 
-#[view(component = CaretOverlay)]
-fn caret_overlay(
-    entity: entity!(),
-    geometries: res!(Outputs<TextGeometry>),
-    paint: paint!(),
-) {
-    let Some(geometry) = geometries.get(entity) else {
-        return;
-    };
-    let mut storage = [mirui::text::PathCaretGeometry::default(); 64];
-    let Ok(carets) = geometry.carets_into(&mut storage) else {
-        return;
-    };
-    let rect = paint.rect();
-    for caret in carets {
-        let [start, end] = caret.segment();
-        paint.draw(&mirui::render::DrawCommand::Line {
-            p1: Point::new(rect.x + start.x, rect.y + start.y),
-            p2: Point::new(rect.x + end.x, rect.y + end.y),
-            transform: paint.transform(),
-            color: Color::rgb(70, 160, 255),
-            width: Fixed::ONE,
-            opa: 255,
-        });
-    }
-}
-```
+`CaretOverlay` declares `#[depends_on(TextGeometry)]` and draws each character's oriented normal caret segment along the curve.
+
+</template>
+
+</MiruiSnippet>
 
 Register `caret_overlay::view()` and attach `CaretOverlay` to the path-text node. `carets_into` and `selection_into` return source-local geometry into caller-provided buffers. The example adds the current paint origin and applies its transform once. `hit_test` accepts screen coordinates; `transform()` provides the prepared source-local-to-screen mapping, including ancestor transforms and scrolling. Linear text exposes its retained layout, font metrics, and local content rectangle through `layout()`, `metrics()`, and `content_rect()`.
 

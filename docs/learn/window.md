@@ -5,19 +5,17 @@ aside: false
 
 # Open a window
 
-Start with a self-contained 30-line demo to see how `mirui` arranges boxes and text inside a window, then bring that structure into our task list app.
+Start with a self-contained example to see how `mirui` arranges containers and text inside a window, then bring that structure into the task list.
 
 ## 1. Minimal demo: `Column`, `Row`, and `Text` {#concept}
 
-In `mirui`, a screen is a `ui!` tree returned by a `#[compose]` function. `Column` stacks children vertically, `Row` places them side by side, and `grow: 1.0` shares the remaining space evenly.
-
-The source on the left matches the canvas on the right **1 : 1** (click the **eye button** in the top bar to expand the full `recipes.rs` file):
+In `mirui`, a screen is a `ui!` tree returned by a `#[compose]` function. `Column` stacks children vertically, `Row` places them side by side, and `grow: 1.0` shares the remaining space evenly:
 
 <MiruiSnippet recipe="mini-window" label="CONCEPT" file="recipes.rs" height="210px">
 
 <template #exercise>
 
-A dark banner and two equal-width cards sit inside the outer column. Drag the circular grip at the bottom-right corner to resize the viewport.
+Drag the grip at the bottom-right corner to resize the viewport and see the two `grow: 1.0` cards split the row width.
 
 </template>
 
@@ -25,17 +23,15 @@ A dark banner and two equal-width cards sit inside the outer column. Drag the ci
 
 ---
 
-## 2. In the task list: lighting up the first screen {#app}
+## 2. In the task list: the first screen {#app}
 
-With basic box layout in hand, let's open the task list crate. In chapter 1 we mount a dark `Task list` header block with two static rows underneath.
-
-Lines marked with **`+` and a soft blue wash** are added in this step. Click the **`desktop.rs`** file tab or toggle the **eye button** to see how `SdlSurface` creates the native window and calls `install`:
+In chapter 1 we mount a dark `Task list` header block with two static rows underneath. Click the **`desktop.rs`** tab or toggle the **eye button** to see how `SdlSurface` creates the native window and calls `install`:
 
 <TutorialWorkspace :chapter="1" file="lib.rs">
 
 <template #exercise>
 
-The canvas opens the first screen of our task list. Click the `desktop.rs` tab at the top of the source pane to inspect the 24-line native launcher.
+Switch to the `desktop.rs` tab at the top of the source pane to inspect how the native launcher passes `SdlSurface` into `install`.
 
 </template>
 

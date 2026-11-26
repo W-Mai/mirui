@@ -314,23 +314,12 @@ app.with_widget(paint_counter::view());
 
 `ui!(compose Name { ... })` declares a Niche with tree and slot attachment (`@@slot_name` / `@slot_name { ... }`) but no paint hook. Register its descriptor with `app.with_widget(ui!(compose Name))`:
 
-```rust
-use mirui::prelude::*;
-use mirui::ui::widgets::Text;
+<MiruiSnippet recipe="compose-niche" label="ui!(compose Name)" file="recipes.rs" height="190px">
 
-ui!(compose StatusCard(text: prop!(String)) {
-    Column() {
-        Text(text: ${text})
-        @@body
-    }
-});
+<template #exercise>
 
-#[compose]
-fn status_card(status: model!(Signal<String>)) -> Entity {
-    ui! {
-        StatusCard(text: ${status.get()}) {
-            @body { Text("Details") }
-        }
-    }
-}
-```
+Click `Toggle` inside the injected `@body` slot—`StatusCard` updates its reactive `title: prop!(String)` while hosting the caller's slot children at `@@body`.
+
+</template>
+
+</MiruiSnippet>

@@ -314,23 +314,12 @@ app.with_widget(paint_counter::view());
 
 `ui!(compose Name { ... })` 声明一个带子树结构与具名插槽（`@@slot_name` 声明槽位 / `@slot_name { ... }` 填充槽位）但无需自定义绘制钩子的插槽组件（Niche）。通过 `app.with_widget(ui!(compose Name))` 注册后即可在 `ui!` 中像原生控件一样使用：
 
-```rust
-use mirui::prelude::*;
-use mirui::ui::widgets::Text;
+<MiruiSnippet recipe="compose-niche" label="ui!(compose Name)" file="recipes.rs" height="190px">
 
-ui!(compose StatusCard(text: prop!(String)) {
-    Column() {
-        Text(text: ${text})
-        @@body
-    }
-});
+<template #exercise>
 
-#[compose]
-fn status_card(status: model!(Signal<String>)) -> Entity {
-    ui! {
-        StatusCard(text: ${status.get()}) {
-            @body { Text("Details") }
-        }
-    }
-}
-```
+点击 `@body` 插槽内的 `Toggle` 按钮——`StatusCard` 更新顶部的 `title: prop!(String)`，同时在 `@@body` 位置承载调用方传入的插槽子树。
+
+</template>
+
+</MiruiSnippet>

@@ -35,7 +35,7 @@ aside: false
 
 <template #exercise>
 
-在底部输入框添加一条任务，来回切换 `Open` 与 `Done`，再点 `Remove` 删掉某一行——其余行的勾选状态稳如磐石。
+在底部输入框添加一条任务，来回切换 `Open` 与 `Done`，再点 `Remove` 删掉某一行，观察其余行的勾选状态是否保持不变。
 
 </template>
 

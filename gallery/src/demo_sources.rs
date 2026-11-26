@@ -510,12 +510,12 @@ split_demo_sources! {
     },
     LAZY_LIST => {
         demo: "lazy_list",
-        marker: "fn create_row",
+        marker: "create_numbered_row",
         parts: ["composition.rs", "tests.rs"]
     },
     WIDGETS => {
         demo: "widgets",
-        marker: "fn create_row",
+        marker: "create_numbered_row",
         parts: [
             "state.rs",
             "binding.rs",

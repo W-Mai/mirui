@@ -7,12 +7,12 @@
 ## 目录 {#contents}
 
 1. [工具链准备](#toolchain-prerequisites)
-2. [桌面端 SDL —— 五分钟从零跑通](#desktop-sdl)
-3. [ESP32-C3 嵌入式 —— 十五分钟点亮小屏](#esp32-c3-embedded)
-4. [Cargo 多端工作区 —— 共享同一套 UI 库](#cargo-workspace)
+2. [桌面端 SDL](#desktop-sdl)
+3. [ESP32-C3 嵌入式](#esp32-c3-embedded)
+4. [Cargo 多端工作区](#cargo-workspace)
 5. [WGPU 渲染配置](#wgpu-configuration)
 6. [Android 与 iOS 移动端工程](#android-and-ios)
-7. [使用 `cargo-generate` 一键生成脚手架](#skip-the-boilerplate)
+7. [使用 `cargo-generate` 生成脚手架](#skip-the-boilerplate)
 8. [下一步去哪](#where-to-go-next)
 
 ## 工具链准备 {#toolchain-prerequisites}
@@ -344,8 +344,8 @@ cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/ios 
 
 ## 下一步去哪 {#where-to-go-next}
 
-- **亲手做完一个完整应用**：跟着[七章互动教程](learn/index.md)从空窗口写到带持久化与弹簧动效的任务清单；
-- **速查常见 UI 模式**：打开[常用界面写法](learn/recipes.md)在线把玩状态换色、弹性布局、弹簧跟随框、自定义矢量控件、曲线排字与平滑滚动；
+- **写一个完整应用**：跟着[动手教程](learn/index.md)从空窗口写到带持久化与弹簧过渡的任务清单；
+- **速查常见 UI 模式**：查看[常用界面写法](learn/recipes.md)里的状态换色、弹性布局、弹簧跟随框、自定义矢量控件、曲线排字与平滑滚动示例；
 - **深入声明式状态与组合**：阅读[响应式状态与样式](state-management.md)与[组合、角色与自定义视图](composition.md)；
 - **处理手势、按键与自定义控件**：阅读[手势识别与事件回调](events.md)、[自定义控件与绘制](widget-events.md)与[文本编辑与输入法](text-editing.md)。
 - **翻阅完整可运行示例**：参考仓库内的 [`gallery/examples/`](../../gallery/examples/) 与 [`mirui-examples`](https://github.com/W-Mai/mirui-examples)。

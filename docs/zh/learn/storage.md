@@ -3,15 +3,15 @@ pageClass: tutorial-page
 aside: false
 ---
 
-# 断电与重开之后
+# 保存与恢复列表
 
-任务清单不能一关窗口就失忆。`mirui` 的持久化机制直接长在 `#[model]` 上：标出哪些字段需要落盘，挂上 `PersistencePlugin`，模型在注册的那一刻就会自动找回上次离开时的快照。
+给模型字段标上 `#[persist]` 并安装 `PersistencePlugin` 后，模型在注册时会自动从存储后端读取上次保存的记录，并在字段修改后按间隔自动写入。
 
 ## 1. 最小演示：`#[persist]` 与模拟重开 {#concept}
 
 先看一个只有十几行的持久化计数器：`SavedCount` 标上 `#[model(persistence(key = "..."))]`，`value` 字段标上 `#[persist]`。
 
-试着点几下 `+ 1 (Autosaves)`，然后点击工作台右下角的 **`模拟重开 ↻`** 按钮（它会彻底销毁当前 `App` 实例并重新挂载）——看数字是不是完好无损地回来了：
+点几下 `+ 1 (Autosaves)`，然后点击工作台右下角的 **`模拟重开 ↻`** 按钮（它会销毁当前 `App` 实例并重新创建），可以看到计数值从存储快照里恢复了：
 
 <MiruiSnippet recipe="mini-storage" label="最小演示" file="recipes.rs" height="200px">
 
@@ -25,7 +25,7 @@ aside: false
 
 ---
 
-## 2. 带入任务清单：自动落盘与启动恢复 {#app}
+## 2. 带入任务清单：自动保存与启动恢复 {#app}
 
 现在把持久化加进任务清单。在 `model.rs` 里给 `Task` 和 `Tasks` 的业务字段标上 `#[persist]`，并在 `lib.rs` 里确保 **`PersistencePlugin` 在 `app.add_model(...)` 之前安装**：
 
@@ -33,7 +33,7 @@ aside: false
 
 <template #exercise>
 
-新增或勾选一条任务，等半秒自动落盘，然后点击右下角的 **`模拟重开 ↻`**（或刷新浏览器页面），看看刚才的改动是不是分毫未动。
+新增或勾选一条任务，等半秒自动保存，然后点击右下角的 **`模拟重开 ↻`**（或刷新浏览器页面），确认修改后的列表能够原样恢复。
 
 </template>
 

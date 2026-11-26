@@ -283,6 +283,16 @@ Programmatic updates to `Slider.value`, `Switch.on`, or `Checkbox.checked` throu
 
 `$` reacts to application state. `@` reacts to computed layout geometry and lists every dependency in its head:
 
+<MiruiSnippet recipe="state-at" label="@width & @id(stage)" file="recipes.rs" height="200px">
+
+<template #exercise>
+
+Drag the bottom-right resize grip so the container width crosses `320 px`—the top label switches font size via `@width`, while the bottom bar tracks `@id(stage).width / 2`.
+
+</template>
+
+</MiruiSnippet>
+
 ```rust,ignore
 ui! {
     Column (container: true) {

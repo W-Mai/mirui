@@ -17,6 +17,19 @@ fn every_recipe_mounts_and_draws() {
         "mini-style",
         "mini-motion",
         "mini-storage",
+        "typo-ellipsis",
+        "typo-static",
+        "typo-multiline",
+        "typo-range",
+        "typo-signal",
+        "typo-elastic",
+        "typo-bend",
+        "typo-carets",
+        "editor-shared",
+        "nav-stack",
+        "nav-pageview",
+        "compose-niche",
+        "state-at",
     ] {
         let mut app = App::headless(420, 260);
         install_named_recipe(&mut app, Recipe::parse(name).unwrap(), false, None);

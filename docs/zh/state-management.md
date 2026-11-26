@@ -283,6 +283,16 @@ fn counter_label(label: Signal<i32>) {
 
 `$` 响应应用业务状态，而 `@` 则响应布局阶段算出的几何尺寸，并在头部显式列出所依赖的几何源：
 
+<MiruiSnippet recipe="state-at" label="@width & @id(stage)" file="recipes.rs" height="200px">
+
+<template #exercise>
+
+拖动预览框右下角的圆形手柄改变视口宽度，当容器宽度跨过 `320 px` 时，顶部标题通过 `@width` 自动切换字号，底部卡片则通过 `@id(stage).width / 2` 始终保持 `#stage` 一半的宽度。
+
+</template>
+
+</MiruiSnippet>
+
 ```rust,ignore
 ui! {
     Column (container: true) {

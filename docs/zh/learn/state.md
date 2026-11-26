@@ -3,9 +3,9 @@ pageClass: tutorial-page
 aside: false
 ---
 
-# 点亮第一枚勾选框
+# 勾选任务
 
-上一章的任务行还只是静态文字。这一章我们引入响应式状态（`#[model]`），让点击动作、勾选图标和顶部的完成计数在同一帧里联动。
+上一章的任务行还只是静态文字。这一章引入响应式状态（`#[model]`），让点击行、切换勾选图标与更新顶部完成数在同一帧完成。
 
 ## 1. 最小演示：`#[model]` 与 `${...}` 绑定 {#concept}
 
@@ -27,9 +27,7 @@ aside: false
 
 ## 2. 带入任务清单：行勾选与顶部统计同步 {#app}
 
-现在把同样的机制放进任务清单里。我们在 `model.rs` 里给 `Task` 加上 `#[observe] pub done: bool`，并在 `Tasks` 上提供派生查询 `completed()`；然后在 `interface.rs` 里把每一行包进 `Button ... on Tap { task.toggle(); }`。
-
-此时代码栏默认聚焦跨越了 **`model.rs` · `interface.rs` · `lib.rs`** 三个文件的核心改动（标 **`+`** 的行即为本章新增）。你可以随时点击上方的文件名标签或 **眼睛按钮** 查看完整上下文：
+现在把同样的机制放进任务清单里。在 `model.rs` 里给 `Task` 加上 `#[observe] pub done: bool`，并在 `Tasks` 上提供派生查询 `completed()`；然后在 `interface.rs` 里把每一行包进 `Button ... on Tap { task.toggle(); }`：
 
 <TutorialWorkspace :chapter="2" file="model.rs">
 

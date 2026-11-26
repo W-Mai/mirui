@@ -8,7 +8,7 @@
 
 <template #exercise>
 
-点击 `Top (#1)`、`Middle (#4)` 或 `Bottom (#7)` 通过弹簧过渡驱动 `scroll_offset`，或直接在列表中拖拽 / 滚动滚轮。
+点击 `Top (#1)`、`Middle (#4)` 或 `Bottom (#7)` 调用 `commands.scroll_to` 触发平滑过渡，或直接在列表中拖拽 / 滚动滚轮。
 
 </template>
 

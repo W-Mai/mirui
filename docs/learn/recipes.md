@@ -6,7 +6,7 @@ title: Common patterns
 
 # Common patterns
 
-Four everyday UI building blocks—reactive thresholds, flex sizing, spring-driven selection rings, and custom vector views—each running live beside its source.
+Self-contained examples covering reactive thresholds, flex sizing, spring-driven selection rings, custom vector views, curve text, and scrollable viewports.
 
 ---
 
@@ -112,7 +112,7 @@ Tap `Slide +18` to advance the text along the wave, or tap `Flip wave` to switch
 
 ## Animated scroll containers (`ScrollOffset`) {#scroll}
 
-Drive a clipped scroll container from model state with a spring transition while keeping direct pointer and wheel scrolling active.
+Drive a clipped scroll container with `commands.scroll_to` and `ScrollConfig::with_transition` while keeping direct pointer and wheel scrolling active.
 
 <MiruiSnippet recipe="scroll" label="ScrollOffset" file="recipes.rs" height="240px">
 
@@ -120,10 +120,10 @@ Drive a clipped scroll container from model state with a spring transition while
 
 <template #exercise>
 
-Tap `Top (#1)`, `Middle (#4)`, or `Bottom (#7)` to glide the scroll container to that offset.
+Tap `Top (#1)`, `Middle (#4)`, or `Bottom (#7)` to smoothly scroll the container to that offset, or drag/wheel inside the list directly.
 
 </template>
 
 </MiruiSnippet>
 
-Attaching `ScrollOffset::default()` and `ScrollConfig::default().with_transition(...)` turns a `Column(clip_children: true)` into a scrollable viewport; `scroll_offset: ${ ... }` smoothly redirects the container whenever the target offset changes.
+Attaching `ScrollOffset::default()` and `ScrollConfig::default().with_transition(...)` turns a `Column(clip_children: true)` into a scrollable viewport; `commands.scroll_to(list, offset)` animates the container along that transition and redirects mid-flight if tapped again.

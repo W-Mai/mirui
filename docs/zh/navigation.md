@@ -100,6 +100,16 @@ assert!(path.is_empty());
 
 `NavigationStack` 将 `NavigationPath<R>` 绑定到页面生成回调 `on CreatePage`。它的直接子节点就是根页面（Root Page），而每当路径压入新路由时則调用 `CreatePage` 构造子页面。每种路由枚举类型 `R` 只需调用一次 `app.with_widget(navigation::view::<Route>())` 注册视图：
 
+<MiruiSnippet recipe="nav-stack" label="NavigationStack" file="recipes.rs" height="220px">
+
+<template #exercise>
+
+点击 `Push Devices →` 与 `Inspect #7 →` 连续压入两层路由，再点 `← Pop one` 或 `Clear root` 滑回上一层。
+
+</template>
+
+</MiruiSnippet>
+
 ```rust
 use mirui::prelude::*;
 use mirui::ui::widgets::{Button, Text};
@@ -140,6 +150,16 @@ fn create_page(event: event!(CreatePage<Route>), path: model!(NavigationPath<Rou
 ## 受应用状态直接驱动的单页视图 (`PageView`) {#pages-selected-by-application-state}
 
 如果不需要维护前进/后退历史栈，而是希望直接根据某个模型字段切换当前展示的页面，请使用 `PageView`：
+
+<MiruiSnippet recipe="nav-pageview" label="PageView" file="recipes.rs" height="210px">
+
+<template #exercise>
+
+点击 `Overview`、`Metrics` 或 `Logs` 修改 `session.page()`，驱动 `PageView` 切换当前子页面。
+
+</template>
+
+</MiruiSnippet>
 
 ```rust
 use mirui::prelude::*;

@@ -3,15 +3,13 @@ pageClass: tutorial-page
 aside: false
 ---
 
-# 编译进浏览器画布
+# 在浏览器中运行
 
-前六章我们写的 `model.rs`、`interface.rs`、`motion.rs` 一行都不用改——只需要换一个 20 行的宿主入口，同一个任务清单就能从桌面原生窗口跑进浏览器的 `<canvas>`。
+前面写的 `model.rs`、`interface.rs`、`motion.rs` 不需要做任何修改——换一个浏览器宿主入口，同一个任务清单就能从桌面窗口编译进 `<canvas>`。
 
-## Web 宿主与桌面宿主并排对照 {#app}
+## Web 宿主与桌面宿主对比 {#app}
 
-在下面的工作台中，默认聚焦的是 `web.rs` 里的浏览器入口。点一下顶部文件栏里的 **`desktop.rs`** 标签，对比两者的代码：除了把 `SdlSurface` 换成 `WebCanvasSurface`、把 `FileStorage` 换成 `LocalStorageStorage`，中间调用的都是同一个 `install(&mut app, chapter, reduced, storage)`。
-
-你也可以点击右上角的 **眼睛按钮（切换为「全部」）**，随时翻阅这个七章工程全部 6 个源文件的每一行完整代码：
+点一下顶部文件栏里的 **`desktop.rs`** 标签，对比 `web.rs` 与 `desktop.rs`：除了把 `SdlSurface` 换成 `WebCanvasSurface`、把 `FileStorage` 换成 `LocalStorageStorage`，中间调用的都是同一个 `install(&mut app, chapter, reduced, storage)`：
 
 <TutorialWorkspace :chapter="7" file="web.rs">
 

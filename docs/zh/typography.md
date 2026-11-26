@@ -65,20 +65,15 @@ mirui 先将文本整形（shaping）为带位置的字形（glyph），随后�
 
 当文本需要自动换行或显示省略号时，请为控件指定有限宽度。使用 `Ellipsis` 还要求字体栈中至少有一款字体映射了 `U+2026`（`…`）。在显式指定尺寸的轴向上，普通 `Text` 在两种溢出策略下都会裁剪到变换后的文本框内；而 `Auto` 与 `Content` 尺寸则会在祖先裁剪区域内保留字形墨迹外延（ink overhang）。路径文本因为字形墨迹可能延伸出布局框之外，始终使用其排布后的字形几何与祖先裁剪区域。
 
-```rust
-ui! {
-    Text(
-        "A long status label",
-        width: Dimension::percent(100),
-        paragraph: ParagraphStyle {
-            wrap: TextWrap::NoWrap,
-            max_lines: Some(1),
-            overflow: TextOverflow::Ellipsis,
-            ..ParagraphStyle::default()
-        }
-    )
-};
-```
+<MiruiSnippet recipe="typo-ellipsis" label="TextOverflow::Ellipsis" file="recipes.rs" height="190px">
+
+<template #exercise>
+
+点击 `Toggle wrap` 在单行省略号截断（`NoWrap` + `TextOverflow::Ellipsis`）与双行自动换行（`TextWrap::Word`）之间切换。
+
+</template>
+
+</MiruiSnippet>
 
 ## 布局失败报告 {#layout-failure-reporting}
 
@@ -158,24 +153,15 @@ app.prefer_text_raster_scratch(256, 8)?;
 
 `path!` 宏将路径命令直接存放在程序镜像中。使用 `insert_static` 注册这些命令可保持零拷贝借用，并分配一个稳定的 `PathId`。
 
-```rust
-use mirui::prelude::*;
+<MiruiSnippet recipe="typo-static" label="Static Path" file="recipes.rs" height="180px">
 
-static ARC: Path = path!(M 16 72 Q 96 8 176 72);
+<template #exercise>
 
-fn register_arc(app: &mut App<impl Surface>) -> PathId {
-    app.paths()
-        .insert_static(ARC.commands())
-        .expect("path capacity")
-}
+`insert_static` 直接借用编译期 `ARC` 路径命令并返回 `PathId`，`Text(path: arc)` 从距离 `0` 处开始沿弧线排布字形。
 
-#[compose]
-fn curved_title(arc: PathId) {
-    ui! {
-        Text("Status", path: arc, font_size: 24)
-    };
-}
-```
+</template>
+
+</MiruiSnippet>
 
 直接传入 `PathId` 时，默认使用子路径 `0`、从弧长距离 `0` 处开始、沿路径正向排布，并使用整条可用路径长度。
 
@@ -183,35 +169,15 @@ fn curved_title(arc: PathId) {
 
 段落中的每一行依次消费一条连续的子路径（从 `TextPath::subpath()` 开始）。每条子路径的可用长度会在放置字形前先行约束自动换行、对齐、两端对齐（justification）以及省略号截断。
 
-```rust
-use mirui::prelude::*;
+<MiruiSnippet recipe="typo-multiline" label="Multi-Subpath" file="recipes.rs" height="190px">
 
-static LINES: Path = path!(
-    M 12 36 L 172 36
-    M 24 68 Q 92 104 160 68
-);
+<template #exercise>
 
-fn register_lines(app: &mut App<impl Surface>) -> PathId {
-    app.paths()
-        .insert_static(LINES.commands())
-        .expect("path capacity")
-}
+`LINES` 包含两条连续子路径（直线 `M 18 32 L 254 32` 与二次曲线 `M 24 68 Q 138 106 252 68`）：第一行沿直线排布，第二行自动折行到下方的弧线上。
 
-#[compose]
-fn multiline_label(lines: PathId) {
-    ui! {
-        Text(
-            "The first line stays straight and the next follows the curve.",
-            path: lines,
-            paragraph: ParagraphStyle {
-                wrap: TextWrap::Word,
-                max_lines: Some(2),
-                ..ParagraphStyle::default()
-            },
-        )
-    };
-}
-```
+</template>
+
+</MiruiSnippet>
 
 这一过程不会分配额外的基线数组，也不会复制路径命令缓冲区。纯直线子路径直接从 `Path` 采样；包含曲线的子路径则复用有界测量缓存。若所需的子路径缺失或非法，路径排版会在发布任何字形或光标几何前直接拒绝本次布局。
 
@@ -219,20 +185,15 @@ fn multiline_label(lines: PathId) {
 
 `TextPath` 描述文本如何消费一条已注册路径，而无需拷贝底层路径命令。
 
-```rust
-use mirui::prelude::*;
+<MiruiSnippet recipe="typo-range" label="Range & Direction" file="recipes.rs" height="200px">
 
-let placement = TextPath::new(path)
-    .with_subpath(1)
-    .with_range(Fixed::from_int(12)..Fixed::from_int(180))
-    .with_offset(Fixed::from_int(8))
-    .with_direction(PathDirection::Reverse)
-    .with_seam(Fixed::from_int(36));
+<template #exercise>
 
-ui! {
-    Text("Reverse around the ring", path: placement)
-};
-```
+点击 `Offset +16` 沿子路径 `1` 推进起始偏移，或点击 `Reverse` 在正向（`Forward`）与反向（`Reverse`）排布之间切换。
+
+</template>
+
+</MiruiSnippet>
 
 `with_seam` 用于指定闭合子路径上作为起点的弧长位置。应用接缝（seam）偏移后，所选区间仍按路径弧长单位度量。
 
@@ -256,55 +217,29 @@ fn status_label(placement: TextPath) {
 
 DSL 支持将 `Signal<PathId>` 作为响应式 `path` 属性传入。更新信号值会将现有文本实体平滑切换到新路径，并自动迁移其路径变更订阅。
 
-```rust
-#[compose]
-fn selectable_path(first: PathId, second: PathId) {
-    let selected = Signal::new(first);
-    let selection = selected.clone();
+<MiruiSnippet recipe="typo-signal" label="Signal<PathId>" file="recipes.rs" height="200px">
 
-    ui! {
-        Column () {
-            Text("Live route", path: $selection)
-            Button ("Switch", width: 80, height: 36) on Tap {
-                selected.update(|path| {
-                    *path = if *path == first { second } else { first };
-                });
-            }
-        }
-    };
-}
-```
+<template #exercise>
+
+点击 `Switch path` 更新 `selected: Signal<PathId>`——同一个 `Text` 实体在两条已注册路径之间直接切换，无需销毁重建控件。
+
+</template>
+
+</MiruiSnippet>
 
 ## 从信号派生路径几何 {#derive-path-geometry-from-signals}
 
 创建一条可变路径，一次性预留好命令容量，再将其几何坐标绑定到信号上。`bind_path` 会安装一个跟随所有者生命周期的响应式副作用：每当信号变化时，直接原地修改现有路径、推进其修订号，并将所有订阅了该路径的文本或绘图实体标脏。
 
-```rust
-#[compose]
-fn elastic_baseline(amplitude: Signal<Fixed>) {
-    let mut geometry = Path::try_with_capacity(2).expect("path storage");
-    geometry
-        .move_to(Point::new(0, 48))
-        .quad_to(Point::new(80, 48), Point::new(160, 48));
-    let path = cx.paths().insert(geometry).expect("path capacity");
-    let live_amplitude = amplitude.clone();
+<MiruiSnippet recipe="typo-elastic" label="bind_path" file="recipes.rs" height="200px">
 
-    cx.bind_path(path, move |geometry| {
-        let y = Fixed::from_int(48) - live_amplitude.get();
-        geometry
-            .set_command(1, mirui::render::path::PathCmd::QuadTo {
-                ctrl: Point::new(80, y),
-                end: Point::new(160, 48),
-            })
-            .expect("stable command shape");
-    })
-    .expect("mutable path");
+<template #exercise>
 
-    ui! {
-        Text("Signal-driven curve", path: path)
-    };
-}
-```
+点击 `Invert amplitude` 翻转 `amplitude: Signal<Fixed>`——`cx.bind_path` 原地修改二次贝塞尔控制点并触发路径文本重排。
+
+</template>
+
+</MiruiSnippet>
 
 该副作用始终复用最初分配的路径存储与命令容量。当路径的命令拓扑结构固定不变时，优先使用 `set_command` 原地更新控制点；只有当命令数量或类型本身发生变化时，才使用 `clear` 配合路径构建方法重写。
 
@@ -312,66 +247,29 @@ fn elastic_baseline(amplitude: Signal<Fixed>) {
 
 事件回调可通过 `res!(mut PathStore)` 可变借用路径仓库。按 `PathId` 原地编辑路径能够保持实体身份不变，并自动更新该路径的所有消费方。
 
-```rust
-use mirui::prelude::*;
-use mirui::render::path::PathStore;
-use mirui::ui::widgets::Text;
+<MiruiSnippet recipe="typo-bend" label="res!(mut PathStore)" file="recipes.rs" height="190px">
 
-#[compose]
-fn bendable_label(path: PathId) {
-    ui! {
-        Text("Tap to bend", path: path, height: 72) on Tap(|paths: res!(mut PathStore)| {
-            paths.edit(path, |geometry| {
-                geometry
-                    .set_command(1, mirui::render::path::PathCmd::QuadTo {
-                        ctrl: Point::new(80, 4),
-                        end: Point::new(160, 48),
-                    })
-                    .expect("stable command shape");
-            }).expect("mutable path");
-        })
-    };
-}
-```
+<template #exercise>
+
+直接点击右侧画布中的弧形文字触发 `on Tap` 回调，通过 `res!(mut PathStore)` 原地修改该 `PathId` 的控制点高度。
+
+</template>
+
+</MiruiSnippet>
 
 ## 查询光标与选区几何 {#query-caret-and-selection-geometry}
 
 `Outputs<TextGeometry>` 允许借用带有 `Text` 组件实体的已完成排版几何。在组件上声明 `#[depends_on(TextGeometry)]` 后，注册其 `View` 时即会请求保留该几何产物。排版、字形放置与光标放置与文本绘制共享同一份常驻存储；读取几何不会触发额外计算或内存拷贝。
 
-```rust
-use mirui::prelude::*;
+<MiruiSnippet recipe="typo-carets" label="Outputs<TextGeometry>" file="recipes.rs" height="190px">
 
-#[component]
-#[depends_on(TextGeometry)]
-struct CaretOverlay;
+<template #exercise>
 
-#[view(component = CaretOverlay)]
-fn caret_overlay(
-    entity: entity!(),
-    geometries: res!(Outputs<TextGeometry>),
-    paint: paint!(),
-) {
-    let Some(geometry) = geometries.get(entity) else {
-        return;
-    };
-    let mut storage = [mirui::text::PathCaretGeometry::default(); 64];
-    let Ok(carets) = geometry.carets_into(&mut storage) else {
-        return;
-    };
-    let rect = paint.rect();
-    for caret in carets {
-        let [start, end] = caret.segment();
-        paint.draw(&mirui::render::DrawCommand::Line {
-            p1: Point::new(rect.x + start.x, rect.y + start.y),
-            p2: Point::new(rect.x + end.x, rect.y + end.y),
-            transform: paint.transform(),
-            color: Color::rgb(70, 160, 255),
-            width: Fixed::ONE,
-            opa: 255,
-        });
-    }
-}
-```
+`CaretOverlay` 声明 `#[depends_on(TextGeometry)]`，在自定义 `#[view]` 中读取每个字符沿曲线法线方向排列的光标线段并绘制出来。
+
+</template>
+
+</MiruiSnippet>
 
 注册 `caret_overlay::view()` 并将 `CaretOverlay` 挂载到路径文本节点上即可生效。`carets_into` 与 `selection_into` 会把源节点局部坐标系下的几何写入调用方提供的栈缓冲区。上例在此基础上加上当前绘制原点并统一应用一次绘制变换。`hit_test` 接收屏幕坐标；`transform()` 返回已准备好的源局部坐标到屏幕坐标的变换矩阵（已合并祖先变换与滚动偏移）。对于普通线性文本，还可通过 `layout()`、`metrics()` 与 `content_rect()` 访问其保留的排版结构、字体度量及局部内容矩形。
 

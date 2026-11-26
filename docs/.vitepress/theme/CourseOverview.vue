@@ -10,7 +10,7 @@ const zh = computed(() => lang.value === 'zh-CN');
   <div class="course">
     <header class="course-cover">
       <div class="course-intro">
-        <span class="course-kicker">{{ zh ? '7 章互动课程 · Rust + WebAssembly' : '7 interactive chapters · Rust + WebAssembly' }}</span>
+        <span class="course-kicker">{{ zh ? '动手教程 · Rust + WebAssembly' : 'Tutorial · Rust + WebAssembly' }}</span>
         <h1>{{ frontmatter.title }}</h1>
         <p>{{ frontmatter.description }}</p>
         <div class="course-actions">

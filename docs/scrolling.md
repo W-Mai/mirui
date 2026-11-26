@@ -8,7 +8,7 @@ Framebuffer transfers use the difference between the current scroll offset and t
 
 <template #exercise>
 
-Tap `Top (#1)`, `Middle (#4)`, or `Bottom (#7)` to drive `scroll_offset` with a spring transition, or drag/wheel inside the list directly.
+Tap `Top (#1)`, `Middle (#4)`, or `Bottom (#7)` to call `commands.scroll_to` with `ScrollConfig::with_transition`, or drag/wheel inside the list directly.
 
 </template>
 

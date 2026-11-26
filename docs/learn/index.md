@@ -1,6 +1,6 @@
 ---
 title: Build a task list
-description: Start with a bare window and grow it into a persistent, spring-animated task list. All seven chapters share one Rust crate, and every step runs live beside its code.
+description: Start with a bare window and add state bindings, list editing, stylesheets, spring transitions, and local storage, then compile the same crate to the browser.
 pageClass: course-page
 aside: false
 ---

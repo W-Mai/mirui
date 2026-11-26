@@ -1,16 +1,23 @@
 use super::motion::indicator_transition;
 use mirui::core::model::{ModelHandle, ModelItemId, ModelList};
 use mirui::core::persistence::PersistencePlugin;
+use mirui::core::reactive::Signal;
 use mirui::core::storage::StorageHandle;
 use mirui::input::event::scroll::{ScrollConfig, ScrollOffset};
 use mirui::prelude::draw::*;
 use mirui::prelude::*;
+use mirui::render::path::{PathCmd, PathStore};
 use mirui::render::scene::{LineCap, LineJoin, Paint};
-use mirui::text::TextPath;
+use mirui::text::{PathCaretGeometry, PathDirection, TextGeometry, TextPath};
 use mirui::types::Transform;
+use mirui::ui::Outputs;
+use mirui::ui::widgets::navigation::{
+    self, CreatePage as StackCreatePage, NavigationPath, NavigationStack, PageTransition,
+};
+use mirui::ui::widgets::page_view::{self, CreatePage as ViewCreatePage, PageView};
 use mirui::ui::widgets::{
     Button, FollowBounds, ParagraphStyle, Placeholder, Text, TextAlign, TextDocument, TextEditing,
-    TextInput,
+    TextInput, TextOverflow, TextWrap,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -27,6 +34,19 @@ pub enum Recipe {
     MiniStyle,
     MiniMotion,
     MiniStorage,
+    TypoEllipsis,
+    TypoStaticPath,
+    TypoMultiline,
+    TypoRange,
+    TypoSignalPath,
+    TypoElastic,
+    TypoBend,
+    TypoCarets,
+    EditorShared,
+    NavStack,
+    NavPageView,
+    ComposeNiche,
+    StateAt,
 }
 
 impl Recipe {
@@ -44,6 +64,19 @@ impl Recipe {
             "mini-style" => Some(Self::MiniStyle),
             "mini-motion" => Some(Self::MiniMotion),
             "mini-storage" => Some(Self::MiniStorage),
+            "typo-ellipsis" => Some(Self::TypoEllipsis),
+            "typo-static" => Some(Self::TypoStaticPath),
+            "typo-multiline" => Some(Self::TypoMultiline),
+            "typo-range" => Some(Self::TypoRange),
+            "typo-signal" => Some(Self::TypoSignalPath),
+            "typo-elastic" => Some(Self::TypoElastic),
+            "typo-bend" => Some(Self::TypoBend),
+            "typo-carets" => Some(Self::TypoCarets),
+            "editor-shared" => Some(Self::EditorShared),
+            "nav-stack" => Some(Self::NavStack),
+            "nav-pageview" => Some(Self::NavPageView),
+            "compose-niche" => Some(Self::ComposeNiche),
+            "state-at" => Some(Self::StateAt),
             _ => None,
         }
     }
@@ -105,8 +138,7 @@ pub fn install_recipe<B: Surface, F: RendererFactory<B>>(
             app.compose(root, curve_scene(route));
         }
         Recipe::Scroll => {
-            let scroller = app.add_model(ScrollTarget::default()).finish();
-            app.compose(root, scroll_scene(scroller, reduced));
+            app.compose(root, scroll_scene(reduced));
         }
         Recipe::MiniWindow => {
             app.compose(root, mini_window_scene());
@@ -131,6 +163,81 @@ pub fn install_recipe<B: Surface, F: RendererFactory<B>>(
         Recipe::MiniStorage => {
             let counter = app.add_model(SavedCount::default()).finish();
             app.compose(root, mini_storage_scene(counter));
+        }
+        Recipe::TypoEllipsis => {
+            let mode = app.add_model(OverflowDemo::default()).finish();
+            app.compose(root, typo_ellipsis_scene(mode));
+        }
+        Recipe::TypoStaticPath => {
+            let arc = register_arc(app);
+            app.compose(root, curved_title(arc));
+        }
+        Recipe::TypoMultiline => {
+            let lines = register_lines(app);
+            app.compose(root, multiline_label(lines));
+        }
+        Recipe::TypoRange => {
+            let ring = app
+                .paths()
+                .insert_static(RING_PATH.commands())
+                .expect("ring path");
+            let state = app.add_model(RangeControl::new(ring)).finish();
+            app.compose(root, typo_range_scene(state));
+        }
+        Recipe::TypoSignalPath => {
+            let first = app
+                .paths()
+                .insert_static(WAVE_CREST.commands())
+                .expect("first path");
+            let second = app
+                .paths()
+                .insert_static(WAVE_VALLEY.commands())
+                .expect("second path");
+            app.compose(root, selectable_path(first, second));
+        }
+        Recipe::TypoElastic => {
+            let amp = Signal::new(Fixed::from_int(28));
+            app.compose(root, elastic_baseline(amp));
+        }
+        Recipe::TypoBend => {
+            let mut geometry = Path::try_with_capacity(2).expect("path storage");
+            geometry
+                .move_to(Point::new(16, 62))
+                .quad_to(Point::new(136, 98), Point::new(256, 62));
+            let path = app.paths().insert(geometry).expect("path capacity");
+            app.compose(root, bendable_label(path));
+        }
+        Recipe::TypoCarets => {
+            app.with_widget(caret_overlay::view());
+            let arc = register_arc(app);
+            app.compose(root, typo_carets_scene(arc));
+        }
+        Recipe::EditorShared => {
+            app.with_widget(search_view::view());
+            let form = app.add_model(SearchForm::default()).finish();
+            let _ = form.query().set_capacity(128);
+            let _ = form.query().set_text("Mirui Canvas");
+            app.compose(root, editor_shared_scene(form));
+        }
+        Recipe::NavStack => {
+            app.with_widget(navigation::view::<StackRoute>());
+            let path = app
+                .add_model(NavigationPath::<StackRoute>::with_capacity(6))
+                .finish();
+            app.compose(root, nav_stack_scene(path, reduced));
+        }
+        Recipe::NavPageView => {
+            app.with_widget(page_view::view::<ViewPage>());
+            let session = app.add_model(ViewSession::default()).finish();
+            app.compose(root, nav_pageview_scene(session, reduced));
+        }
+        Recipe::ComposeNiche => {
+            app.with_widget(ui!(compose StatusCard));
+            let state = app.add_model(NicheState::default()).finish();
+            app.compose(root, compose_niche_scene(state));
+        }
+        Recipe::StateAt => {
+            app.compose(root, state_at_scene());
         }
     }
 }
@@ -247,9 +354,16 @@ pub struct MiniNotes {
 impl Default for MiniNotes {
     fn default() -> Self {
         let mut items = ModelList::bounded(6);
-        let _ = items.try_push(NoteItem { label: "Wire SPI display".into() });
-        let _ = items.try_push(NoteItem { label: "Mount root view".into() });
-        Self { items: items.into(), seq: 3 }
+        let _ = items.try_push(NoteItem {
+            label: "Wire SPI display".into(),
+        });
+        let _ = items.try_push(NoteItem {
+            label: "Mount root view".into(),
+        });
+        Self {
+            items: items.into(),
+            seq: 3,
+        }
     }
 }
 
@@ -937,7 +1051,11 @@ impl CurveRoute {
 impl CurveRoute {
     #[observe]
     pub fn placement(&self) -> TextPath {
-        let path = if self.inverted { self.valley } else { self.crest };
+        let path = if self.inverted {
+            self.valley
+        } else {
+            self.crest
+        };
         TextPath::new(path).with_offset(Fixed::from_int(self.offset))
     }
 
@@ -1017,20 +1135,6 @@ fn curve_scene(route: model!(CurveRoute)) {
 
 // #region recipe-scroll
 //~focus-start:scroll
-#[model]
-#[derive(Default)]
-pub struct ScrollTarget {
-    #[observe]
-    pub offset_y: i32,
-}
-
-#[model]
-impl ScrollTarget {
-    pub fn jump(&mut self, y: i32) {
-        self.offset_y = y;
-    }
-}
-
 #[compose]
 fn scroll_item(title: &'static str) -> Entity {
     ui! {
@@ -1048,7 +1152,31 @@ fn scroll_item(title: &'static str) -> Entity {
 }
 
 #[compose]
-fn scroll_scene(scroller: model!(ScrollTarget), reduced: bool) {
+fn scroll_button(label: &'static str, list: Entity, y: i32, primary: bool) -> Entity {
+    ui! {
+        Button (
+            label,
+            grow: 1.0,
+            height: 30,
+            font_size: 12,
+            border_radius: 7,
+            normal_color: if primary { ColorToken::Primary } else { ColorToken::SurfaceVariant },
+            pressed_color: if primary { ColorToken::Secondary } else { ColorToken::Outline },
+            text_color: if primary { ColorToken::OnPrimary } else { ColorToken::OnSurface }
+        ) on Tap {
+            commands!().scroll_to(
+                list,
+                ScrollOffset {
+                    x: Fixed::ZERO,
+                    y: Fixed::from_int(y),
+                },
+            );
+        }
+    }
+}
+
+#[compose]
+fn scroll_scene(reduced: bool) {
     ui! {
         Column (
             grow: 1.0,
@@ -1057,51 +1185,19 @@ fn scroll_scene(scroller: model!(ScrollTarget), reduced: bool) {
             text_color: ColorToken::OnSurface
         ) {
             Row (height: 32, column_gap: 6, align: AlignItems::Center) {
-                Button (
-                    "Top (#1)",
-                    grow: 1.0,
-                    height: 30,
-                    font_size: 12,
-                    border_radius: 7,
-                    normal_color: ColorToken::SurfaceVariant,
-                    pressed_color: ColorToken::Outline,
-                    text_color: ColorToken::OnSurface
-                ) on Tap { scroller.jump(0); }
-                Button (
-                    "Middle (#4)",
-                    grow: 1.0,
-                    height: 30,
-                    font_size: 12,
-                    border_radius: 7,
-                    normal_color: ColorToken::SurfaceVariant,
-                    pressed_color: ColorToken::Outline,
-                    text_color: ColorToken::OnSurface
-                ) on Tap { scroller.jump(96); }
-                Button (
-                    "Bottom (#7)",
-                    grow: 1.0,
-                    height: 30,
-                    font_size: 12,
-                    border_radius: 7,
-                    normal_color: ColorToken::Primary,
-                    pressed_color: ColorToken::Secondary,
-                    text_color: ColorToken::OnPrimary
-                ) on Tap { scroller.jump(180); }
+                scroll_button ("Top (#1)", id("scroll_list"), 0, false)
+                scroll_button ("Middle (#4)", id("scroll_list"), 132, false)
+                scroll_button ("Bottom (#7)", id("scroll_list"), 264, true)
             }
             Column (
+                id: "scroll_list",
                 grow: 1.0,
                 min_height: 0,
                 padding: Padding::all(8),
                 row_gap: 6,
                 bg_color: ColorToken::SurfaceVariant,
                 border_radius: 10,
-                clip_children: true,
-                scroll_offset: ${
-                    ScrollOffset {
-                        x: Fixed::ZERO,
-                        y: Fixed::from_int(scroller.offset_y()),
-                    }
-                }
+                clip_children: true
             ) [
                 ScrollOffset::default(),
                 ScrollConfig::default().with_transition(indicator_transition(reduced)),
@@ -1119,3 +1215,1023 @@ fn scroll_scene(scroller: model!(ScrollTarget), reduced: bool) {
 }
 //~focus-end:scroll
 // #endregion recipe-scroll
+
+//~focus-start:typo-ellipsis
+#[model]
+#[derive(Default)]
+pub struct OverflowDemo {
+    #[observe]
+    pub wrap: bool,
+}
+
+#[model]
+impl OverflowDemo {
+    pub fn toggle(&mut self) {
+        self.wrap = !self.wrap;
+    }
+}
+
+#[compose]
+fn typo_ellipsis_scene(mode: model!(OverflowDemo)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 32, align: AlignItems::Center) {
+                Text (
+                    text: ${ if mode.wrap() { "Wrap · max_lines: 2" } else { "NoWrap · Ellipsis (1 line)" } },
+                    grow: 1.0,
+                    height: 20,
+                    font_size: 12,
+                    text_color: ColorToken::OnSurfaceVariant
+                )
+                Button (
+                    "Toggle wrap",
+                    width: 96,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap { mode.toggle(); }
+            }
+            View (
+                height: 68,
+                padding: Padding::all(14),
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 10
+            ) {
+                Text (
+                    "A long status label that clips with an ellipsis or wraps across two lines when toggled.",
+                    width: Dimension::percent(100),
+                    height: 40,
+                    font_size: 14,
+                    paragraph: ${
+                        ParagraphStyle {
+                            wrap: if mode.wrap() { TextWrap::Word } else { TextWrap::NoWrap },
+                            max_lines: Some(if mode.wrap() { 2 } else { 1 }),
+                            overflow: TextOverflow::Ellipsis,
+                            ..ParagraphStyle::default()
+                        }
+                    }
+                )
+            }
+        }
+    };
+}
+//~focus-end:typo-ellipsis
+
+//~focus-start:typo-static
+static ARC: Path = path!(M 18 76 Q 136 8 254 76);
+
+fn register_arc<B: Surface, F: RendererFactory<B>>(app: &mut App<B, F>) -> PathId {
+    app.paths()
+        .insert_static(ARC.commands())
+        .expect("path capacity")
+}
+
+#[compose]
+fn curved_title(arc: PathId) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::Center
+        ) {
+            View (
+                height: 104,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 12
+            ) {
+                Text (
+                    "Status · Ready on static arc",
+                    path: arc,
+                    position: Position::Absolute,
+                    left: 8,
+                    top: 10,
+                    width: Dimension::percent(94),
+                    height: 86,
+                    font_size: 16,
+                    text_color: ColorToken::Primary
+                )
+            }
+        }
+    };
+}
+//~focus-end:typo-static
+
+//~focus-start:typo-multiline
+static LINES: Path = path!(
+    M 18 32 L 254 32
+    M 24 68 Q 138 106 252 68
+);
+
+fn register_lines<B: Surface, F: RendererFactory<B>>(app: &mut App<B, F>) -> PathId {
+    app.paths()
+        .insert_static(LINES.commands())
+        .expect("path capacity")
+}
+
+#[compose]
+fn multiline_label(lines: PathId) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::Center
+        ) {
+            View (
+                height: 112,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 12
+            ) {
+                Text (
+                    "The first line stays straight\nand the next follows the curve.",
+                    path: lines,
+                    position: Position::Absolute,
+                    left: 8,
+                    top: 8,
+                    width: Dimension::percent(94),
+                    height: 96,
+                    font_size: 14,
+                    text_color: ColorToken::OnSurface,
+                    paragraph: ParagraphStyle {
+                        wrap: TextWrap::Word,
+                        max_lines: Some(2),
+                        ..ParagraphStyle::default()
+                    }
+                )
+            }
+        }
+    };
+}
+//~focus-end:typo-multiline
+
+//~focus-start:typo-range
+static RING_PATH: Path = path!(
+    M 14 26 L 254 26
+    M 22 68 Q 138 22 254 68
+);
+
+#[model]
+pub struct RangeControl {
+    path: PathId,
+    #[observe]
+    pub reversed: bool,
+    #[observe]
+    pub offset: i32,
+}
+
+#[model]
+impl RangeControl {
+    pub fn new(path: PathId) -> Self {
+        Self {
+            path,
+            reversed: false,
+            offset: 8,
+        }
+    }
+
+    #[observe]
+    pub fn placement(&self) -> TextPath {
+        let dir = if self.reversed {
+            PathDirection::Reverse
+        } else {
+            PathDirection::Forward
+        };
+        TextPath::new(self.path)
+            .with_subpath(1)
+            .with_range(Fixed::from_int(12)..Fixed::from_int(230))
+            .with_offset(Fixed::from_int(self.offset))
+            .with_direction(dir)
+    }
+
+    pub fn flip_dir(&mut self) {
+        self.reversed = !self.reversed;
+    }
+
+    pub fn step_offset(&mut self) {
+        self.offset = (self.offset + 16) % 64;
+    }
+}
+
+#[compose]
+fn typo_range_scene(state: model!(RangeControl)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 32, column_gap: 6, align: AlignItems::Center) {
+                Text (
+                    text: ${
+                        format_args!(
+                            "{} · +{} px",
+                            if state.reversed() { "Reverse" } else { "Forward" },
+                            state.offset()
+                        )
+                    },
+                    capacity: 28,
+                    grow: 1.0,
+                    height: 20,
+                    font_size: 12,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Button (
+                    "Offset +16",
+                    width: 80,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { state.step_offset(); }
+                Button (
+                    "Reverse",
+                    width: 72,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap { state.flip_dir(); }
+            }
+            View (
+                height: 92,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 12
+            ) {
+                Text (
+                    "Range & direction on subpath 1",
+                    path: ${ state.placement() },
+                    position: Position::Absolute,
+                    left: 6,
+                    top: 8,
+                    width: Dimension::percent(95),
+                    height: 76,
+                    font_size: 14,
+                    text_color: ColorToken::Primary
+                )
+            }
+        }
+    };
+}
+//~focus-end:typo-range
+
+//~focus-start:typo-signal
+#[compose]
+fn selectable_path(first: PathId, second: PathId) {
+    let selected = Signal::new(first);
+    let selection = selected.clone();
+
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 32, align: AlignItems::Center) {
+                Text (
+                    "Signal<PathId> binding",
+                    grow: 1.0,
+                    height: 20,
+                    font_size: 12,
+                    text_color: ColorToken::OnSurfaceVariant
+                )
+                Button (
+                    "Switch path",
+                    width: 92,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap {
+                    selected.update(|path| {
+                        *path = if *path == first { second } else { first };
+                    });
+                }
+            }
+            View (
+                height: 92,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 12
+            ) {
+                Text (
+                    "Live route swaps PathId",
+                    path: $selection,
+                    position: Position::Absolute,
+                    left: 6,
+                    top: 10,
+                    width: Dimension::percent(95),
+                    height: 74,
+                    font_size: 15,
+                    text_color: ColorToken::Primary
+                )
+            }
+        }
+    };
+}
+//~focus-end:typo-signal
+
+//~focus-start:typo-elastic
+#[compose]
+fn elastic_baseline(amplitude: Signal<Fixed>) {
+    let mut geometry = Path::try_with_capacity(2).expect("path storage");
+    geometry
+        .move_to(Point::new(16, 54))
+        .quad_to(Point::new(136, 54), Point::new(256, 54));
+    let path = cx.paths().insert(geometry).expect("path capacity");
+    let live_amplitude = amplitude.clone();
+    let toggle_amp = amplitude.clone();
+
+    cx.bind_path(path, move |geometry| {
+        let y = Fixed::from_int(54) - live_amplitude.get();
+        geometry
+            .set_command(
+                1,
+                PathCmd::QuadTo {
+                    ctrl: Point::new(Fixed::from_int(136), y),
+                    end: Point::new(256, 54),
+                },
+            )
+            .expect("stable command shape");
+    })
+    .expect("mutable path");
+
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 32, align: AlignItems::Center) {
+                Text (
+                    "cx.bind_path(path, ...)",
+                    grow: 1.0,
+                    height: 20,
+                    font_size: 12,
+                    text_color: ColorToken::OnSurfaceVariant
+                )
+                Button (
+                    "Invert amplitude",
+                    width: 112,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap {
+                    toggle_amp.update(|a| *a = -*a);
+                }
+            }
+            View (
+                height: 92,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 12
+            ) {
+                Text (
+                    "Signal-driven curve",
+                    path: path,
+                    position: Position::Absolute,
+                    left: 8,
+                    top: 8,
+                    width: Dimension::percent(94),
+                    height: 76,
+                    font_size: 15,
+                    text_color: ColorToken::Primary
+                )
+            }
+        }
+    };
+}
+//~focus-end:typo-elastic
+
+//~focus-start:typo-bend
+#[compose]
+fn bendable_label(path: PathId) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::Center
+        ) {
+            View (
+                height: 108,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 12
+            ) {
+                Text (
+                    "Tap this text to bend its curve",
+                    path: path,
+                    position: Position::Absolute,
+                    left: 8,
+                    top: 10,
+                    width: Dimension::percent(94),
+                    height: 88,
+                    font_size: 15,
+                    text_color: ColorToken::Primary
+                ) on Tap(|paths: res!(mut PathStore)| {
+                    paths
+                        .edit(path, |geometry| {
+                            let next_y = match geometry.commands().get(1) {
+                                Some(PathCmd::QuadTo { ctrl, .. }) if ctrl.y < Fixed::from_int(40) => 98,
+                                _ => 12,
+                            };
+                            geometry
+                                .set_command(
+                                    1,
+                                    PathCmd::QuadTo {
+                                        ctrl: Point::new(136, next_y),
+                                        end: Point::new(256, 62),
+                                    },
+                                )
+                                .expect("stable command shape");
+                        })
+                        .expect("mutable path");
+                })
+            }
+        }
+    };
+}
+//~focus-end:typo-bend
+
+//~focus-start:typo-carets
+#[component]
+#[depends_on(TextGeometry)]
+struct CaretOverlay;
+
+#[view(component = CaretOverlay)]
+fn caret_overlay(entity: entity!(), geometries: res!(Outputs<TextGeometry>), paint: paint!()) {
+    let Some(geometry) = geometries.get(entity) else {
+        return;
+    };
+    let mut storage = [PathCaretGeometry::default(); 64];
+    let Ok(carets) = geometry.carets_into(&mut storage) else {
+        return;
+    };
+    let rect = paint.rect();
+    for caret in carets {
+        let [start, end] = caret.segment();
+        paint.draw(&DrawCommand::Line {
+            p1: Point::new(rect.x + start.x, rect.y + start.y),
+            p2: Point::new(rect.x + end.x, rect.y + end.y),
+            transform: paint.transform(),
+            color: Color::rgb(70, 160, 255),
+            width: Fixed::ONE,
+            opa: 255,
+        });
+    }
+}
+
+#[compose]
+fn typo_carets_scene(arc: PathId) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::Center
+        ) {
+            View (
+                height: 108,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 12
+            ) {
+                Text (
+                    "Oriented carets along arc",
+                    path: arc,
+                    position: Position::Absolute,
+                    left: 8,
+                    top: 14,
+                    width: Dimension::percent(94),
+                    height: 84,
+                    font_size: 16,
+                    text_color: ColorToken::OnSurface
+                ) [CaretOverlay]
+            }
+        }
+    };
+}
+//~focus-end:typo-carets
+
+//~focus-start:editor-shared
+#[model]
+pub struct SearchForm {
+    query: model!(owned TextDocument),
+    #[observe]
+    pub submissions: u32,
+}
+
+impl Default for SearchForm {
+    fn default() -> Self {
+        Self {
+            query: TextDocument::new().into(),
+            submissions: 0,
+        }
+    }
+}
+
+#[model]
+impl SearchForm {
+    pub fn submit(&mut self) {
+        self.submissions += 1;
+    }
+
+    pub fn preset(&mut self, value: &str) {
+        let _ = self.query.set_text(value);
+    }
+}
+
+#[component]
+#[derive(Default)]
+struct SearchEditor {
+    document: model!(optional TextDocument),
+}
+
+#[event]
+fn attach_search(
+    node: entity!(),
+    search: query!(SearchEditor),
+    editing: query!(TextEditing),
+    appearance: query!(TextInput),
+    commands: commands!(),
+) {
+    let Some(search) = search.get(node) else {
+        return;
+    };
+    if editing.get(node).is_none() {
+        let editor = search
+            .document
+            .clone()
+            .map(TextEditing::new)
+            .unwrap_or_default();
+        commands.insert(node, editor);
+    }
+    if appearance.get(node).is_none() {
+        commands.insert(node, TextInput::new());
+    }
+}
+
+#[view(component = SearchEditor, attach = attach_search::callback())]
+fn search_view() {}
+
+#[compose]
+fn editor_shared_scene(form: model!(SearchForm)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 32, column_gap: 6, align: AlignItems::Center) {
+                Text (
+                    text: ${ format_args!("Submitted: {}", form.submissions()) },
+                    capacity: 24,
+                    grow: 1.0,
+                    height: 20,
+                    font_size: 12,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Button (
+                    "Set 'SPI'",
+                    width: 72,
+                    height: 28,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { form.preset("SPI 128x160"); }
+                Button (
+                    "Submit",
+                    width: 68,
+                    height: 28,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap { form.submit(); }
+            }
+            Column (row_gap: 10) {
+                SearchEditor (
+                    document: Some(form.query()),
+                    width: Dimension::percent(100),
+                    height: 38,
+                    padding: Padding::all(9),
+                    font_size: 14,
+                    bg_color: ColorToken::SurfaceVariant,
+                    border_radius: 8,
+                    border_width: 1,
+                    border_color: ColorToken::Outline
+                ) [Placeholder("Primary SearchEditor")] on TextEditing::Submitted {
+                    form.submit();
+                }
+                TextInput (
+                    width: Dimension::percent(100),
+                    height: 38,
+                    padding: Padding::all(9),
+                    font_size: 14,
+                    bg_color: ColorToken::SurfaceVariant,
+                    border_radius: 8,
+                    border_width: 1,
+                    border_color: ColorToken::Outline
+                ) [
+                    TextEditing::new(form.query()),
+                    Placeholder("Mirror TextInput (independent caret)"),
+                ]
+            }
+        }
+    };
+}
+//~focus-end:editor-shared
+
+//~focus-start:nav-stack
+#[derive(Clone, Copy)]
+enum StackRoute {
+    Devices,
+    Detail(u32),
+}
+
+#[compose]
+fn stack_devices_page(path: model!(NavigationPath<StackRoute>)) -> Entity {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(14),
+            row_gap: 8,
+            bg_color: ColorToken::SurfaceVariant,
+            border_radius: 10
+        ) {
+            Text ("Pushed · Devices", height: 22, font_size: 15, text_color: ColorToken::Primary)
+            Row (height: 34, column_gap: 8) {
+                Button (
+                    "Inspect #7 →",
+                    grow: 1.0,
+                    height: 32,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap { let _ = path.push(StackRoute::Detail(7)); }
+                Button (
+                    "← Back",
+                    width: 76,
+                    height: 32,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Surface,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { let _ = path.pop(); }
+            }
+        }
+    }
+}
+
+#[compose]
+fn stack_detail_page(path: model!(NavigationPath<StackRoute>), id: u32) -> Entity {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(14),
+            row_gap: 8,
+            bg_color: ColorToken::Secondary,
+            border_radius: 10
+        ) {
+            Text (
+                text: ${ format_args!("Device #{id} · ESP32-C3") },
+                capacity: 28,
+                height: 22,
+                font_size: 15,
+                text_color: ColorToken::OnSecondary
+            )
+            Row (height: 34, column_gap: 8) {
+                Button (
+                    "← Pop one",
+                    grow: 1.0,
+                    height: 32,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Surface,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { let _ = path.pop(); }
+                Button (
+                    "Clear root",
+                    width: 88,
+                    height: 32,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap { let _ = path.clear(); }
+            }
+        }
+    }
+}
+
+#[event]
+fn build_stack_page(
+    event: event!(StackCreatePage<StackRoute>),
+    path: model!(NavigationPath<StackRoute>),
+) -> Entity {
+    match *event.route() {
+        StackRoute::Devices => ui! { stack_devices_page(path) },
+        StackRoute::Detail(id) => ui! { stack_detail_page(path, id) },
+    }
+}
+
+#[compose]
+fn nav_stack_scene(path: model!(NavigationPath<StackRoute>), reduced: bool) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            row_gap: 10,
+            text_color: ColorToken::OnSurface
+        ) {
+            Text (
+                text: ${ format_args!("Stack depth: {}", path.len()) },
+                capacity: 24,
+                height: 20,
+                font_size: 12,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            NavigationStack (
+                path: path.clone(),
+                grow: 1.0,
+                transition: if reduced {
+                    PageTransition::None
+                } else {
+                    PageTransition::slide(mirui::anim::SMOOTH)
+                }
+            ) {
+                Column (
+                    grow: 1.0,
+                    padding: Padding::all(14),
+                    justify: JustifyContent::SpaceBetween,
+                    bg_color: ColorToken::SurfaceVariant,
+                    border_radius: 10
+                ) {
+                    Text ("Root · Home page", height: 22, font_size: 15)
+                    Button (
+                        "Push Devices →",
+                        width: Dimension::percent(100),
+                        height: 34,
+                        font_size: 13,
+                        border_radius: 8,
+                        normal_color: ColorToken::Primary,
+                        pressed_color: ColorToken::Secondary,
+                        text_color: ColorToken::OnPrimary
+                    ) on Tap { let _ = path.push(StackRoute::Devices); }
+                }
+            } on CreatePage(build_stack_page::callback(path))
+        }
+    };
+}
+//~focus-end:nav-stack
+
+//~focus-start:nav-pageview
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum ViewPage {
+    #[default]
+    Overview,
+    Metrics,
+    Logs,
+}
+
+#[model]
+#[derive(Default)]
+pub struct ViewSession {
+    #[observe]
+    pub page: ViewPage,
+}
+
+#[model]
+impl ViewSession {
+    pub fn select(&mut self, page: ViewPage) {
+        self.page = page;
+    }
+}
+
+#[event]
+fn create_view_page(event: event!(ViewCreatePage<ViewPage>)) -> Entity {
+    match event.route() {
+        ViewPage::Overview => ui! {
+            Column (
+                grow: 1.0,
+                padding: Padding::all(16),
+                justify: JustifyContent::Center,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 10
+            ) {
+                Text ("Overview · 160 MHz RISC-V", height: 24, font_size: 15, text_color: ColorToken::Primary)
+            }
+        },
+        ViewPage::Metrics => ui! {
+            Column (
+                grow: 1.0,
+                padding: Padding::all(16),
+                justify: JustifyContent::Center,
+                bg_color: ColorToken::Secondary,
+                border_radius: 10
+            ) {
+                Text ("Metrics · Dirty flush 0.4 ms", height: 24, font_size: 15, text_color: ColorToken::OnSecondary)
+            }
+        },
+        ViewPage::Logs => ui! {
+            Column (
+                grow: 1.0,
+                padding: Padding::all(16),
+                justify: JustifyContent::Center,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 10
+            ) {
+                Text ("Logs · 0 allocations in frame", height: 24, font_size: 15, text_color: ColorToken::OnSurface)
+            }
+        },
+    }
+}
+
+#[compose]
+fn nav_pageview_scene(session: model!(ViewSession), reduced: bool) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            row_gap: 10,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 32, column_gap: 6) {
+                Button (
+                    "Overview",
+                    grow: 1.0,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { session.select(ViewPage::Overview); }
+                Button (
+                    "Metrics",
+                    grow: 1.0,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { session.select(ViewPage::Metrics); }
+                Button (
+                    "Logs",
+                    grow: 1.0,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap { session.select(ViewPage::Logs); }
+            }
+            PageView (
+                page: ${ session.page() },
+                grow: 1.0,
+                transition: if reduced {
+                    PageTransition::None
+                } else {
+                    PageTransition::slide(mirui::anim::SNAPPY)
+                }
+            ) on CreatePage(create_view_page::callback())
+        }
+    };
+}
+//~focus-end:nav-pageview
+
+//~focus-start:compose-niche
+ui!(compose StatusCard(title: prop!(String)) {
+    Column (
+        padding: Padding::all(14),
+        row_gap: 8,
+        bg_color: ColorToken::SurfaceVariant,
+        border_radius: 10
+    ) {
+        Text (text: ${ title }, height: 22, font_size: 15, text_color: ColorToken::Primary)
+        @@body
+    }
+});
+
+#[model]
+#[derive(Default)]
+pub struct NicheState {
+    #[observe]
+    pub online: bool,
+}
+
+#[model]
+impl NicheState {
+    pub fn toggle(&mut self) {
+        self.online = !self.online;
+    }
+}
+
+#[compose]
+fn compose_niche_scene(state: model!(NicheState)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            StatusCard (
+                title: ${ if state.online() { "StatusCard · Online" } else { "StatusCard · Standby" } }
+            ) {
+                @body {
+                    Row (height: 32, align: AlignItems::Center) {
+                        Text (
+                            "Slot @body injected by caller",
+                            grow: 1.0,
+                            height: 20,
+                            font_size: 12,
+                            text_color: ColorToken::OnSurfaceVariant
+                        )
+                        Button (
+                            "Toggle",
+                            width: 72,
+                            height: 28,
+                            font_size: 12,
+                            border_radius: 7,
+                            normal_color: ColorToken::Primary,
+                            pressed_color: ColorToken::Secondary,
+                            text_color: ColorToken::OnPrimary
+                        ) on Tap { state.toggle(); }
+                    }
+                }
+            }
+        }
+    };
+}
+//~focus-end:compose-niche
+
+//~focus-start:state-at
+#[compose]
+fn state_at_scene() {
+    ui! {
+        Column (
+            container: true,
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Text (
+                "Drag the bottom-right grip to cross 320 px",
+                height: 28,
+                font_size: @width {
+                    if width < Fixed::from_int(320) { 13_u16 } else { 18_u16 }
+                },
+                text_color: ColorToken::Primary
+            )
+            View (
+                id: "stage",
+                width: Dimension::percent(100),
+                height: 44,
+                padding: Padding::all(12),
+                bg_color: ColorToken::Secondary,
+                border_radius: 8
+            ) {
+                Text ("#stage (100% width)", height: 20, font_size: 13, text_color: ColorToken::OnSecondary)
+            }
+            View (
+                width: @id(stage).width { stage.width / 2 },
+                height: 36,
+                padding: Padding::all(8),
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 8
+            ) {
+                Text ("@id(stage).width / 2", height: 20, font_size: 12)
+            }
+        }
+    };
+}
+//~focus-end:state-at

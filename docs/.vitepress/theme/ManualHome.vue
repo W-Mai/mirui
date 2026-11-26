@@ -106,11 +106,11 @@ const catalog = computed(() => [
           <span>{{ zh ? '这可能是最优雅的声明式嵌入式图形库' : 'Possibly the most elegant declarative embedded graphics library' }}</span>
         </p>
         <h1>
-          {{ zh ? '一帧之内，见微知著' : 'See what one frame does' }}<span class="dot-see">.</span>
+          {{ zh ? '一帧之内发生了什么' : 'See what one frame does' }}<span class="dot-see">.</span>
         </h1>
         <p class="manual-lead">
           {{ zh
-            ? '手指落下，Model 翻新，布局算出几行发生变化的矩形，光栅化器或 GPU 只把那几块像素画上屏幕。跟着动手教程从空窗口写到完整的任务清单，或者直接翻阅常用写法与底层模块。'
+            ? '点击落下，Model 字段更新，布局算出发生变化的几行矩形，渲染器只重绘那几块脏区。你可以跟着教程从空窗口写出完整的任务清单，也可以直接查阅常用写法与底层模块。'
             : 'A tap lands, a Model flips, layout measures the damaged rows, and the renderer repaints only what moved. Build a complete task list from an empty window, or jump straight to common patterns and engine internals.' }}
         </p>
         <div class="manual-actions">
