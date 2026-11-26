@@ -16,11 +16,15 @@ Pending sources with a CPU consumer prefer CPU production, including sources sha
 
 Shared storage requires `BackendTarget::retain_storage(TargetStorage)`. The producer attaches one receipt after allocation and before publication; a wrapper forwards it to the actual resource owner. The receipt retains both the existing storage charge and readback allowance. Clones retain those same charges without reserving them again. Release the receipt after the associated resources and staging, including any deferred owner-thread destruction. Repeated attachment is an error. Native plans include their receipt-retention fields, and the output budget also accounts for shared receipt ownership.
 
+### Thread-bound resources
+
 With shared storage and `std`, thread-bound backends can use `render::target::ThreadOwner` and `ThreadResource<T>`. The token is transferable even when `T` is local. `with` resolves the native resource only on its creating thread; another thread receives `WrongThread`, a closed owner receives `InvalidTexture`, and recursive access receives `InvalidScope`. Returned values cannot borrow the native resource. No remote device calls are queued.
 
 Include `owner.metadata_bytes::<T>()?` in planning and recheck `token.metadata_bytes()?` for actual allocation. `retain_storage` partitions the already admitted charge between the native storage, token control and owner metadata. `collect` destroys retired values outside registry borrows, without allocating; an idle owner with no retirements returns immediately. Call it at existing safe maintenance boundaries. `close` invalidates all tokens before destroying idle values; an active callback releases its value on return. Closed tokens retain their metadata charges until released. Unpublished resources released on their owner thread are destroyed before the creation reservation is returned; admitted resources retain the normal deferred retirement path. The default local storage path does not compile this helper.
 
 A target owns the device resources required to sample, read and release its storage. It must not borrow a temporary renderer or require a window frame to remain alive. Validate native handles against device identity and resource generation before using them; matching concrete payload types alone is insufficient.
+
+### SDL-GPU targets
 
 SDL-GPU surfaces and upload caches share one renderer/window owner and resource generation. Temporary renderers borrow driver state only during upload, drawing or readback. Source pixel preparation, CPU glyph rasterization, software fallback and region-edit callbacks run outside that borrow. A conflicting driver borrow returns `RenderError::InvalidScope`; retained caches keep the underlying renderer alive until their textures are released.
 
@@ -29,6 +33,8 @@ SDL-GPU native targets use single-sample, packed RGBA8 storage with premultiplie
 SDL source reads and region-edit callbacks expose straight-alpha pixels. Software fallback converts the affected region before drawing and converts it back before replacement, reusing its existing workspace. Non-source-over composites on transparent native targets use this path. Source readback accepts padded destinations, including buffers without trailing padding after the final row. Prepared nested binding and source readback allocate no additional Rust storage; target creation and explicit snapshots allocate storage.
 
 SDL consumers sample completed same-device native textures directly for source-over when the driver supports premultiplied blending. Rectangle and affine-quad sampling apply opacity to both premultiplied color and alpha. Other devices, unsupported blending and other composite modes use source-owned pixels and the existing upload cache. Active or unfinished sources are rejected before cache lookup. Sampling runs inside a callback with a short texture borrow; raw texture references cannot escape that callback. The device borrow covers only drawing, and source readback occurs outside it.
+
+### WGPU targets
 
 WGPU frame attachments determine pipeline format, sample count, clipping bounds and readback format. The resolved view retains its backing texture; a multisample view retains the attachment loaded by subsequent passes. Command encoding, uniform storage and pipeline caching remain shared by the renderer.
 
@@ -75,6 +81,8 @@ fn poll_draw(
 }
 ```
 
+### Region readback and CPU cache
+
 `PreparedDraw::poll_cpu(request, route, output_scale, cx)` retains the source pixels needed by a draw. Direct CPU storage, including mapped RAW images, remains a complete borrowed view without computing a regional footprint. Sources requiring preparation use the software rasterizer's integer and fractional sampling calculations for axis-aligned draws; arbitrary transforms conservatively retain the complete source. This does not trigger full-image decoding or readback for directly borrowed storage. `texture_region()` exposes the ready lease without performing another read. `PreparedDraw::native` retains command and source identity without CPU readback, leaving device compatibility and feedback checks to the backend. The token copies the existing command description, borrows its resources and does not borrow the destination renderer. `request()` returns the retained original geometry, not the cropped region's dimensions.
 
 `Texture::backend_target()` gives backend implementations a checked, read-only native payload without submitting work or reading pixels. `Some` permits inspection with `as_any`; consumers must still check destination device identity and reject active-target feedback. CPU textures and unavailable native storage return `None`; preparation then checks and pins the requested CPU region, including cached regions that outlive their source device. Missing regions retain the source error. Unfinished contents and access conflicts return errors; the method cannot be used to acquire a writable target.
@@ -90,6 +98,8 @@ Cached pixel views retain immutable storage through cache handles rather than ho
 `Texture::pixels_in(Region)` borrows a resident source region without allocation, copying or device work. `Region` and `TextureRegion::get_pixel` use absolute source pixel coordinates; `TexturePixels` returned by `pixels()` or `tiles()` uses coordinates local to its view. A subview retains the source stride and includes only the bytes needed through its final pixel, not trailing row padding. Invalid ranges return an error. An in-bounds empty region is ready with no tiles; `Ok(None)` denotes missing resident data, not an empty region. Keep the region alive while using its borrowed views.
 
 `poll_pixels_in(region, cx)` prepares the requested source region, while `poll_read_pixels(cx)` prepares a complete contiguous view. Resident views complete immediately without allocating. Native device readback remains synchronous and may wait for the device; polling does not turn driver calls into asynchronous work. Native region reads use region-sized destinations rather than reading the complete source.
+
+### Output admission and publication
 
 Native CPU cache admission reserves one full pixel plane and its cache-owner metadata. Regional allocations, including independently pinned owners, draw from that same reservation; unused bytes remain committed to the source. Insufficient capacity returns `ResourceLimit(Texture)` without changing live views. Unpinned buffers are reused, and a resident complete image supplies regional subviews without another allocation or readback. A partial cached region remains readable after device loss but cannot stand in for a complete image. Default budget limits are unchanged.
 
@@ -136,6 +146,8 @@ The default `with_target` implementation flushes parent work, validates and bind
 The backend checks content validity when binding and invalidates partially modified contents on failure. A failed write is not a rollback; the affected target must be rebuilt before incremental drawing or source reads. Preserving multisampled contents requires retaining the attachments actually loaded by subsequent drawing, not only their resolved image; include those attachments in the storage plan. Shared output textures and retained history are not writable target handles.
 
 `restore_target(state, completed)` receives `true` only when the callback and child flush succeeded. Accept child contents only if restoration also succeeds; otherwise invalidate them. It does not signal publication or window presentation. On failure, pending child commands must be discarded or safely completed on their original target before restoring the parent. Failed binding must restore its partial state or invalidate the device; failed restoration must prevent later submission. Restoring a parent must not initialize it again.
+
+### Conformance
 
 `compose_backend!` forwards target planning, reuse checks, creation, binding and restoration to its `default` field. It uses the default scope executor, preserving every original engine and concrete renderer type, including nested compositions and borrowed engines. No additional DSL, projection type or callback adapter is required from the backend author.
 

@@ -41,29 +41,29 @@ function buildLlmsTxt(base, context) {
 
 ## Common Patterns & Interface Guides
 
-- [Common Patterns (EN)](${origin}learn/recipes.html) / [常用界面写法 (ZH)](${origin}zh/learn/recipes.html): Live examples for reactive thresholds, flex sizing, spring FollowBounds, and custom vector views.
-- [Quickstart & Targets](${origin}quickstart.html): Toolchain setup for desktop SDL, ESP32-C3, Android, iOS, and multi-target workspaces.
-- [Reactive State & Styles](${origin}state-management.html): Models, \`Signal<T>\`, \`Computed<T>\`, \`StyleSheetPlugin\`, and flush boundaries.
-- [Composition, Roles & Views](${origin}composition.html): \`#[compose]\`, \`prop!(T)\`, \`res!(T)\`, \`#[system]\`, \`#[view]\`, and \`ui!(compose Name)\` niches.
-- [Model Collections](${origin}model-collections.html): Bounded \`ModelList\`, \`ModelMap\`, \`ModelSet\`, and stable \`ModelItemId\` keys.
-- [Events & Callbacks](${origin}events.html): Gesture recognition, bubbling, and \`#[event]\` handlers.
-- [Navigation & Motion](${origin}navigation.html): \`FollowBounds\`, \`NavigationStack\`, \`PageView\`, springs, and tweens.
-- [Scrolling](${origin}scrolling.html): \`ScrollOffset\`, \`ScrollConfig\`, momentum, and nested scrollers.
+- [Common Patterns (EN)](${origin}learn/recipes.html) / [常用界面写法 (ZH)](${origin}zh/learn/recipes.html): Live examples for reactive thresholds, flex sizing, spring FollowBounds, custom vector views, curve text, and scrolling.
+- [Quickstart & Targets](${origin}quickstart.html) / [环境搭建与多端工程](${origin}zh/quickstart.html): Toolchain setup for desktop SDL, ESP32-C3, Android, iOS, and multi-target workspaces.
+- [Reactive State & Styles](${origin}state-management.html) / [响应式状态与样式](${origin}zh/state-management.html): Models, \`Signal<T>\`, \`Computed<T>\`, \`StyleSheetPlugin\`, and flush boundaries.
+- [Composition, Roles & Views](${origin}composition.html) / [组合、角色与自定义视图](${origin}zh/composition.html): \`#[compose]\`, \`prop!(T)\`, \`res!(T)\`, \`#[system]\`, \`#[view]\`, and \`ui!(compose Name)\` niches.
+- [Model Collections](${origin}model-collections.html) / [有界列表与键值复用](${origin}zh/model-collections.html): Bounded \`ModelList\`, \`ModelMap\`, \`ModelSet\`, and stable \`ModelItemId\` keys.
+- [Events & Callbacks](${origin}events.html) / [手势识别与事件回调](${origin}zh/events.html): Gesture recognition, bubbling, and \`#[event]\` handlers.
+- [Navigation & Motion](${origin}navigation.html) / [页面导航与物理动效](${origin}zh/navigation.html): \`FollowBounds\`, \`NavigationStack\`, \`PageView\`, springs, and tweens.
+- [Scrolling](${origin}scrolling.html) / [滚动容器与惯性控制](${origin}zh/scrolling.html): \`ScrollOffset\`, \`ScrollConfig\`, momentum, and nested scrollers.
 
 ## Views, Typography, Assets & Backends
 
-- [Building Custom Widgets](${origin}widget-events.html): Custom \`#[view]\` descriptors, input delivery, and \`TextDocument\` / \`TextEditing\` internals.
-- [Typography](${origin}typography.html): Shaped text, \`FontToken::FALLBACK\`, bidirectional scripts, and text along Bézier paths (\`TextPath\`).
-- [Text Editing](${origin}text-editing.html): Custom text editors, selection geometry, and IME commit handling.
-- [Clipboard](${origin}clipboard.html): Cross-platform clipboard integration.
-- [Resources](${origin}resources.html): \`ResourceManager\`, static/factory entries, and bounded caches.
-- [Shared Textures](${origin}shared-textures.html): Cross-thread \`sync\` textures and device upload lifetimes.
-- [Persistence](${origin}persistence.html): \`PersistencePlugin\`, \`#[persist]\`, and storage backends.
-- [Surface Sizing](${origin}surface-sizing.html): Logical viewports, HiDPI scale factors, and dynamic resizing.
-- [Backend Targets](${origin}backend-targets.html): Software rasterizer, SDL2, SDL-GPU, WGPU, Web Canvas, Linux DRM/fbdev, and NuttX.
-- [Backend Fallback](${origin}backend-fallback.html): \`compose_backend!\`, partial damage redraws, and offscreen composition.
-- [Timing Diagnostics](${origin}timing-diagnostics.html): Frame-phase profiling with the \`perf\` feature.
-- [CI Checks](${origin}ci.html): Compile-fail and architectural contract tests.
+- [Building Custom Widgets](${origin}widget-events.html) / [自定义控件与绘制](${origin}zh/widget-events.html): Custom \`#[view]\` descriptors, input delivery, and \`TextDocument\` / \`TextEditing\` internals.
+- [Typography](${origin}typography.html) / [字体栈与曲线排字](${origin}zh/typography.html): Shaped text, \`FontToken::FALLBACK\`, bidirectional scripts, and text along Bézier paths (\`TextPath\`).
+- [Text Editing](${origin}text-editing.html) / [文本编辑与输入法](${origin}zh/text-editing.html): Custom text editors, selection geometry, and IME commit handling.
+- [Clipboard](${origin}clipboard.html) / [跨平台剪贴板](${origin}zh/clipboard.html): Cross-platform clipboard integration.
+- [Resources](${origin}resources.html) / [静态与托管资源池](${origin}zh/resources.html): \`ResourceManager\`, static/factory entries, and bounded caches.
+- [Shared Textures](${origin}shared-textures.html) / [跨线程纹理移交](${origin}zh/shared-textures.html): Cross-thread \`sync\` textures and device upload lifetimes.
+- [Persistence](${origin}persistence.html) / [状态快照与自动落盘](${origin}zh/persistence.html): \`PersistencePlugin\`, \`#[persist]\`, and storage backends.
+- [Surface Sizing](${origin}surface-sizing.html) / [逻辑视口与缩放比](${origin}zh/surface-sizing.html): Logical viewports, HiDPI scale factors, and dynamic resizing.
+- [Backend Targets](${origin}backend-targets.html) / [各平台后端实现](${origin}zh/backend-targets.html): Software rasterizer, SDL2, SDL-GPU, WGPU, Web Canvas, Linux DRM/fbdev, and NuttX.
+- [Backend Fallback](${origin}backend-fallback.html) / [混合后端与软件回退](${origin}zh/backend-fallback.html): \`compose_backend!\`, partial damage redraws, and offscreen composition.
+- [Timing Diagnostics](${origin}timing-diagnostics.html) / [帧耗时剖析与追踪](${origin}zh/timing-diagnostics.html): Frame-phase profiling with the \`perf\` feature.
+- [CI Checks](${origin}ci.html) / [编译期契约与门禁](${origin}zh/ci.html): Compile-fail and architectural contract tests.
 `;
 }
 

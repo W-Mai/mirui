@@ -12,9 +12,10 @@ basic Rust, plus an SPI datasheet reading habit if you target an MCU.
 2. [Desktop SDL — five minutes from zero](#desktop-sdl)
 3. [ESP32-C3 embedded — fifteen minutes from zero](#esp32-c3-embedded)
 4. [Cargo workspace — share UI code across multiple targets](#cargo-workspace)
-5. [Android and iOS](#android-and-ios)
-6. [Skip the boilerplate with `cargo-generate`](#skip-the-boilerplate)
-7. [Where to go next](#where-to-go-next)
+5. [WGPU configuration](#wgpu-configuration)
+6. [Android and iOS](#android-and-ios)
+7. [Skip the boilerplate with `cargo-generate`](#skip-the-boilerplate)
+8. [Where to go next](#where-to-go-next)
 
 ## Toolchain prerequisites
 

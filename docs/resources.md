@@ -2,6 +2,43 @@
 
 `ResourceManager<T>` resolves tokens into shared values under its existing cache budget. `ResourceHandle::get()` and `ResourceManager::resolve()` return `cache::Handle<T>` for the completed value or the manager's fallback, retaining the same cache entry without copying its contents. A retained value remains readable after replacement, eviction or manager destruction; a subsequent demand-handle read follows the manager's current value. Static registrations and completed handle reads do not run loaders.
 
+<div class="arch-diagram" role="img" aria-label="Resource pipeline from ImageSource and ResourceManager through ProbeLoader and AssetProvider to budgeted pixel residency">
+  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="res-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · SOURCE BINDING</text>
+    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Token, Path or Texture</text>
+    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Image(src: ...) · prop!</text>
+    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ImageSource::from</text>
+    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Demand handle &amp; subscription</text>
+    <path d="M210 84H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#res-arrow)" />
+    <rect x="256" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · MANAGER &amp; PROBE</text>
+    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Cache &amp; Cooperative Poll</text>
+    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ResourceManager&lt;T&gt;</text>
+    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Loader · ProbeLoader</text>
+    <text x="272" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">4 invocation slots per loader</text>
+    <path d="M450 84H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#res-arrow)" />
+    <rect x="496" y="20" width="186" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · BYTE PROVIDER</text>
+    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Mapped or Block I/O</text>
+    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">AssetProvider · AssetSource</text>
+    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">AssetCacheConfig</text>
+    <text x="512" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Bounded blocks &amp; in-flight I/O</text>
+    <path d="M682 84H720" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#res-arrow)" />
+    <rect x="728" y="20" width="136" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="744" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · RESIDENCY</text>
+    <text x="744" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Pixels &amp; Handles</text>
+    <text x="744" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">cache::Handle&lt;T&gt;</text>
+    <text x="744" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">poll_pixels_in</text>
+    <text x="744" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Decode budget &amp; fallback</text>
+  </svg>
+</div>
+
 `Image(src: ${expression})` binds a resource token, vector path or retained texture through the existing reactive property mechanism. A `prop!(ImageSource)` input can forward the source across compositions. Source changes preserve the image's paint configuration, release the previous resource demand and subscribe to the current resource; equal values leave the component unchanged. Typed builders use `bind_property::<prop::ImageSource>(getter)`, and callbacks can use `commands.set::<prop::ImageSource>(entity, source.into())`.
 
 `Image::new(texture)` and `Image::new(handle)` accept an owned `Texture<'static>` or an existing `cache::Handle<Texture<'static>>`. `ImageSource::from` accepts the same values for reactive inputs. An owned texture receives one shared handle allocation; moving an existing handle and cloning a source retain the same pixels. Direct handles display the retained value independently of cache-index eviction or replacement. Replacing the source publishes a new value through the existing property mechanism. Direct inputs use normal image preparation, transforms and composition, preserving native backend lifetime and thread checks. Their original memory-budget receipts remain attached to the texture. They require no resource manager or generated token. Without `sync`, the complete `ImageSource` type has local ownership; enabling `sync` allows `Send + Sync` under the existing texture source constraints.

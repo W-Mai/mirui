@@ -113,40 +113,40 @@ export default defineConfig({
               { text: '断电与重开之后', link: '/zh/learn/storage' },
               { text: '编译进浏览器画布', link: '/zh/learn/web' },
               { text: '常用界面写法', link: '/zh/learn/recipes' },
-              { text: '环境搭建与多端工程', link: '/quickstart' },
+              { text: '环境搭建与多端工程', link: '/zh/quickstart' },
             ],
           },
           {
             text: '构建界面',
             items: [
-              { text: '响应式状态与样式', link: '/state-management' },
-              { text: '组合、角色与自定义视图', link: '/composition' },
-              { text: '有界列表与键值复用', link: '/model-collections' },
-              { text: '手势识别与事件回调', link: '/events' },
-              { text: '自定义控件与绘制', link: '/widget-events' },
-              { text: '页面导航与物理动效', link: '/navigation' },
-              { text: '滚动容器与惯性控制', link: '/scrolling' },
+              { text: '响应式状态与样式', link: '/zh/state-management' },
+              { text: '组合、角色与自定义视图', link: '/zh/composition' },
+              { text: '有界列表与键值复用', link: '/zh/model-collections' },
+              { text: '手势识别与事件回调', link: '/zh/events' },
+              { text: '自定义控件与绘制', link: '/zh/widget-events' },
+              { text: '页面导航与物理动效', link: '/zh/navigation' },
+              { text: '滚动容器与惯性控制', link: '/zh/scrolling' },
             ],
           },
           {
             text: '排版、资产与存储',
             items: [
-              { text: '字体栈与曲线排字', link: '/typography' },
-              { text: '文本编辑与输入法', link: '/text-editing' },
-              { text: '跨平台剪贴板', link: '/clipboard' },
-              { text: '静态与托管资源池', link: '/resources' },
-              { text: '跨线程纹理移交', link: '/shared-textures' },
-              { text: '状态快照与自动落盘', link: '/persistence' },
+              { text: '字体栈与曲线排字', link: '/zh/typography' },
+              { text: '文本编辑与输入法', link: '/zh/text-editing' },
+              { text: '跨平台剪贴板', link: '/zh/clipboard' },
+              { text: '静态与托管资源池', link: '/zh/resources' },
+              { text: '跨线程纹理移交', link: '/zh/shared-textures' },
+              { text: '状态快照与自动落盘', link: '/zh/persistence' },
             ],
           },
           {
             text: '渲染后端与帧诊断',
             items: [
-              { text: '逻辑视口与缩放比', link: '/surface-sizing' },
-              { text: '各平台后端实现', link: '/backend-targets' },
-              { text: '混合后端与软件回退', link: '/backend-fallback' },
-              { text: '帧耗时剖析与追踪', link: '/timing-diagnostics' },
-              { text: '编译期契约与门禁', link: '/ci' },
+              { text: '逻辑视口与缩放比', link: '/zh/surface-sizing' },
+              { text: '各平台后端实现', link: '/zh/backend-targets' },
+              { text: '混合后端与软件回退', link: '/zh/backend-fallback' },
+              { text: '帧耗时剖析与追踪', link: '/zh/timing-diagnostics' },
+              { text: '编译期契约与门禁', link: '/zh/ci' },
             ],
           },
         ],
@@ -228,7 +228,11 @@ export default defineConfig({
         const href = token.attrGet('href');
         if (href?.startsWith('../') && env.path) {
           const [path, hash] = href.split('#', 2);
-          const target = resolve(dirname(env.path), decodeURI(path));
+          const decoded = decodeURI(path);
+          let target = resolve(dirname(env.path), decoded);
+          if (!existsSync(target)) {
+            target = resolve(docs, decoded);
+          }
           const entry = relative(root, target);
           const withinRepo = entry && !entry.startsWith('..') && !isAbsolute(entry);
           const outsideDocs = !entry.startsWith('docs/');

@@ -117,11 +117,52 @@ not inspect or carry this storage.
 
 ## Backend behavior
 
+### Backend fallback and dirty-region rendering
+
+<div class="arch-diagram" role="img" aria-label="Dirty-region planning, redraw strategies, flush lifecycle, and multi-buffer mirroring">
+  <svg viewBox="0 0 880 176" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="bf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="20" width="194" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · DAMAGE QUERY</text>
+    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Invalidation &amp; Shifts</text>
+    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">app.dirty_regions()?</text>
+    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Surface::persistence()</text>
+    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Logical rects + scroll shifts</text>
+    <path d="M210 88H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
+    <rect x="256" y="20" width="194" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · REDRAW PLAN</text>
+    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Physical Strategy</text>
+    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Adaptive (sparse / coalesce)</text>
+    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">BoundingBox (single rect)</text>
+    <text x="272" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Clipped PhysicalRect&lt;u16&gt;</text>
+    <path d="M450 88H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
+    <rect x="496" y="20" width="194" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · FLUSH LIFECYCLE</text>
+    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Scoped Surface Transfer</text>
+    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">begin_flush() → flush(area)</text>
+    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">end_flush() / abort_flush()</text>
+    <text x="512" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Renderer::flush() precedes end</text>
+    <path d="M690 88H728" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
+    <rect x="736" y="20" width="128" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="752" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · MIRROR</text>
+    <text x="752" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Buffer Sync</text>
+    <text x="752" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">mirror_buffers</text>
+    <text x="752" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">shifts + redraw</text>
+    <text x="752" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Rotating scanout</text>
+  </svg>
+</div>
+
 `Canvas::clear(&PhysicalRect, &Color)` replaces target pixels without blending, antialiasing, or logical scaling. The region is clipped to the current target; pixels outside it remain unchanged. Colors use straight RGBA at the API boundary and are encoded according to the target's alpha representation. Call it outside balanced `push_clip`/`pop_clip` scopes. Drawing state is preserved, and backend errors are reported by `flush()`. `Painter::clear` and composed backends use the same physical-coordinate contract.
 
 `DrawRequest::with_physical_clip(area)` restricts writes to integer pixels of the current target without moving geometry or changing texture coordinates. Backends intersect this boundary with the command's effective clip. Composed engines forward the complete request; region rendering translates the boundary using the region's physical origin. Independent target production does not inherit the parent boundary. In-place blur requires its complete sampling region inside the boundary; unsupported partial filtering returns `RenderError::Unsupported(RenderFeature::Blur)` before modifying pixels. Produce a filtered offscreen output before drawing a clipped portion of it.
 
 Frame write scopes preserve target readback and background sampling. A write boundary does not shrink a sampling request; sampled results are clipped when drawn back to the frame.
+
+### Dirty regions and partial flush
 
 App owns the frame pixels it reconstructs. Redraw regions start from transparent zero on alpha targets and black on targets without alpha; the root's background is then drawn normally. Scroll transfers run first, and reusable transferred pixels are not cleared. Host backgrounds must be composed with the App output rather than retained implicitly in its writable target. Explicit `TargetUpdate::Incremental` offscreen edits retain their contents.
 
@@ -130,6 +171,8 @@ App owns the frame pixels it reconstructs. Redraw regions start from transparent
 `Surface::persistence()` describes whether partial drawing can reuse pixels; it does not request continuous drawing. `Surface::needs_redraw()` reports content loss without consuming the request. App redraws on damage or invalidation, expands a needed transient frame to full coverage, and acknowledges the request only after successful submission. Window exposure can re-present retained software-upload textures without rasterizing the scene again.
 
 `Surface::redraw_strategy()` selects physical damage grouping without consuming or modifying the logical damage query. The default `Adaptive` strategy preserves sparse regions and coalesces dense coverage. `BoundingBox` draws the bounding rectangle of nonempty damage to reduce repeated traversal; it does not promote idle frames to drawing. Surface wrappers forward this choice with the frame lifecycle.
+
+### Backend capabilities
 
 Single-sample SDL GPU windows with target-texture support keep one physical-size RGBA target and use `BoundingBox`. Its pixel storage costs four bytes per physical pixel, plus driver overhead; initialization, resize and renderer reset recreate it. Stable frames reuse storage, and successful submission copies it to the window once before presentation. This is surface storage, separate from image-upload caches and the Outputs budget. No CPU framebuffer is allocated. Multisampled windows, including the default OpenGL 4× configuration, use their original window target and full redraws when damaged because SDL texture targets do not retain window MSAA. Unsupported or unqueryable target capabilities also keep the direct window path; target-allocation failures are returned rather than accepted as a frame.
 
@@ -144,6 +187,8 @@ SDL and WGPU device, presentation, multisampling, and upload-cache options are d
 Linux DRM uses `LinuxDrmConfig::mode` to select a connector mode and `buffer_count` to allocate scanout buffers; the default is 2 buffers. A single buffer writes into the scanned framebuffer and can tear. Additional buffers consume pixel storage and do not raise the panel refresh rate. Gallery exposes the existing configuration through `MIRUI_DRM_MODE=640x480` and `MIRUI_DRM_BUFFERS=2`. Framebuffer and embedded surfaces retain their platform transfer and synchronization behavior; a logical tick cap does not change a display bus clock.
 
 Compare processing times using the same scene, physical dimensions, build profile, presentation settings, and cache warm-up. Report average and tail frame times separately from presentation cadence. Readback, tracing, and synchronous logging add work to the measured path; exclude diagnostic captures when measuring ordinary interaction.
+
+### Region edits and flush lifecycle
 
 An `App` draw or submission failure leaves the last accepted widget bounds unchanged and requires a full redraw before framebuffer scroll transfers resume. Layout or surface acquisition failures before drawing preserve the existing framebuffer. Full and partial frames both use `RendererFactory::mirror_buffers` to synchronize writable rotating buffers after `Surface::end_flush` succeeds.
 
@@ -197,6 +242,8 @@ Use `texture.width()`, `height()`, and `format()` for resource metadata. `textur
 Software rasterization acquires a writable borrow before each raster batch, not for each pixel. The blur helper takes the same borrow: `iir_blur_inplace(&mut pixels, alpha, region)`. Direct `Canvas` calls report failed writes through `flush()`; `Renderer::submit` returns them immediately.
 
 `mix_inplace(&mut destination, &source, amount)` also takes pixel borrows. Prepare source reads before borrowing the destination for writing. Target readback copies advance the destination revision, and software scopes validate writable storage before invoking their body and flush before returning success.
+
+### Upload and geometry caches
 
 SDL, WGPU and Web Canvas uploads read through validated pixel borrows on cache misses. Packed RGBA uploads borrow the existing bytes; other formats and padded rows use the shared conversion. Upload failures remain available through submission and flush instead of being cleared by another draw. Web Canvas shares the texture identity and revision key used by the other GPU upload caches.
 

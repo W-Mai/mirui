@@ -8,6 +8,7 @@ const { lang, theme } = useData();
 const zh = computed(() => lang.value === 'zh-CN');
 const course = computed(() => withBase(zh.value ? '/zh/learn/window.html' : '/learn/window.html'));
 const patterns = computed(() => withBase(zh.value ? '/zh/learn/recipes.html' : '/learn/recipes.html'));
+const guideHref = path => withBase(path === '/llms.txt' ? path : (zh.value ? `/zh${path}` : path));
 
 const featured = [
   {
@@ -118,7 +119,7 @@ const catalog = computed(() => [
             <span aria-hidden="true">→</span>
           </a>
           <a class="site-cta" :href="patterns">{{ zh ? '常用写法' : 'Common patterns' }}</a>
-          <a class="site-cta subtle" :href="withBase('/quickstart.html')">{{ zh ? '环境与开发板' : 'Setup & boards' }}</a>
+          <a class="site-cta subtle" :href="guideHref('/quickstart.html')">{{ zh ? '环境与开发板' : 'Setup & boards' }}</a>
         </div>
       </div>
       <FrameCutaway />
@@ -136,7 +137,7 @@ const catalog = computed(() => [
       </header>
 
       <div class="manual-featured-grid">
-        <a v-for="guide in featured" :key="guide.href" class="manual-featured-card" :href="withBase(guide.href)">
+        <a v-for="guide in featured" :key="guide.href" class="manual-featured-card" :href="guideHref(guide.href)">
           <div class="manual-card-top">
             <span class="manual-card-step">{{ guide.step }}</span>
             <code>{{ guide.tag }}</code>
@@ -151,7 +152,7 @@ const catalog = computed(() => [
           <h3><span>{{ group.idx }}</span> {{ zh ? group.titleZh : group.titleEn }}</h3>
           <ul>
             <li v-for="item in group.items" :key="item.href">
-              <a :href="withBase(item.href)">
+              <a :href="item.href.includes('/learn/') ? withBase(item.href) : guideHref(item.href)">
                 <span>{{ zh ? item.zh : item.en }}</span>
                 <code>{{ item.code }}</code>
               </a>

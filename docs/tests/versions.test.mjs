@@ -32,3 +32,29 @@ test('version and language fallbacks stay within the requested version', () => {
   expect(chapterTarget(index, 'learn/missing.html', 'en')).toBe('/docs/0.57.0/learn/?reading=page');
   expect(chapterTarget(index, 'zh/', 'en')).toBe('/docs/0.57.0/');
 });
+
+test('all 19 reference guides have Chinese counterparts with 1:1 anchor parity', async () => {
+  const { existsSync, readFileSync } = await import('node:fs');
+  const { resolve } = await import('node:path');
+  const distIndex = resolve(import.meta.dir, '../.vitepress/dist/page-index.json');
+  if (!existsSync(distIndex)) return;
+  const built = JSON.parse(readFileSync(distIndex, 'utf8'));
+  const guides = [
+    'quickstart', 'state-management', 'composition', 'model-collections',
+    'events', 'widget-events', 'navigation', 'scrolling',
+    'typography', 'text-editing', 'clipboard', 'resources',
+    'shared-textures', 'persistence', 'surface-sizing', 'backend-targets',
+    'backend-fallback', 'timing-diagnostics', 'ci',
+  ];
+  for (const guide of guides) {
+    const enIds = built.pages[`${guide}.html`];
+    const zhIds = built.pages[`zh/${guide}.html`];
+    expect(Array.isArray(enIds)).toBe(true);
+    expect(Array.isArray(zhIds)).toBe(true);
+    for (const id of enIds) {
+      expect(zhIds).toContain(id);
+      expect(chapterTarget(built, `${guide}.html`, 'zh', `#${id}`)).toBe(`/docs/${built.version}/zh/${guide}.html#${id}`);
+      expect(chapterTarget(built, `zh/${guide}.html`, 'en', `#${id}`)).toBe(`/docs/${built.version}/${guide}.html#${id}`);
+    }
+  }
+});
