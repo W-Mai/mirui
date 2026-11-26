@@ -5,7 +5,7 @@ aside: false
 
 # Run and verify it in the browser
 
-Use the same interface and Model from a Web Canvas host, then verify the tutorial checkpoints.
+Hand the same `install` function to `WebCanvasSurface`, then resize the live viewport down to phone width.
 
 <TutorialWorkspace :chapter="7" file="web.rs">
 
@@ -13,24 +13,24 @@ Use the same interface and Model from a Web Canvas host, then verify the tutoria
 
 <template #exercise>
 
-Drag the bottom-right corner to narrow the list to phone width, then add a task and switch filters. Click the dimensions to restore the responsive size.
+Drag the circular grip at the bottom-right corner of the preview to narrow the app to a phone screen, add a task, and click the dimension readout to restore the default size.
 
 </template>
 
 </TutorialWorkspace>
 
-## Work through the code {#source}
+## Inside this frame {#source}
 
-1. The desktop and Web entry points call the same `install` function. Web constructs `WebCanvasSurface` and supplies `WebCanvasRendererFactory`. The host drives `App::tick()` on animation frames and releases it when a lesson preview closes.
-2. Run the two checks below. The integration tests mount the chapter views, exercise Model updates, and reopen a saved task list. The playground build generates the wasm package used by the tutorial.
+1. Desktop and Web entry points call the exact same `install(&mut app, chapter, reduced, storage)`. The Web host binds a `<canvas>` via `WebCanvasSurface` and `WebCanvasRendererFactory`, drives `app.tick()` on `requestAnimationFrame`, and frees the instance when the preview unmounts.
+2. Run the two commands below: the integration suite mounts every chapter headlessly, exercises model mutations, and verifies persistence round-trips; the `playground` build compiles the WebAssembly bundle running inside this page.
 
-## Run locally {#run}
+## Run on your machine {#run}
 
-Run this in the repository checkout for the current documentation version.
+From the repository root for this manual version:
 
 ```sh
 cargo test -p mirui-first-app
 bun run --cwd docs playground
 ```
 
-If a compiled preview is unavailable locally, build it from the repository checkout before running the documentation server.
+If you start the docs server in a fresh checkout, run `bun run --cwd docs playground` first so the live canvas has its compiled Wasm bundle.

@@ -17,8 +17,8 @@ function align() {
   const row = active.getBoundingClientRect();
   const box = nav.getBoundingClientRect();
   if (appearing) el.style.transition = 'none';
-  el.style.transform = 'translateY(' + (row.top - box.top + 2) + 'px)';
-  el.style.height = Math.max(0, row.height - 4) + 'px';
+  el.style.transform = 'translateY(' + (row.top - box.top + 1) + 'px)';
+  el.style.height = Math.max(0, row.height - 2) + 'px';
   if (appearing) {
     el.getBoundingClientRect();
     el.style.removeProperty('transition');
@@ -35,5 +35,7 @@ onBeforeUnmount(() => observer?.disconnect());
 </script>
 
 <template>
-  <span ref="cursor" class="reading-selection" hidden aria-hidden="true"></span>
+  <span ref="cursor" class="reading-selection" hidden aria-hidden="true">
+    <i class="reading-iris"></i>
+  </span>
 </template>

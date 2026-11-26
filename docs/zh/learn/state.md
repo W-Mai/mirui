@@ -3,9 +3,9 @@ pageClass: tutorial-page
 aside: false
 ---
 
-# 完成一条任务
+# 点亮第一枚勾选框
 
-让任务记住完成状态，并让行状态和完成数同步。
+让每一行记住自己是否完成，并让顶部的完成计数在同一帧内应声而变。
 
 <TutorialWorkspace :chapter="2" file="model.rs">
 
@@ -13,23 +13,23 @@ aside: false
 
 <template #exercise>
 
-点第一行后，勾选标记出现，完成数从 1 变成 2。再点一次恢复。
+点一下第一行 `Connect the display`：勾选框亮起，顶部的计数立刻从 `1 of 3` 跳到 `2 of 3`；再点一下，状态原路退回。
 
 </template>
 
 </TutorialWorkspace>
 
-## 顺着代码做 {#source}
+## 拆解这一帧 {#source}
 
-1. 在 compose 前用 `app.add_model(Tasks::default()).finish()` 注册任务清单。每行拿到任务自己的 Model handle，勾选标记和完成数都可以读取 `done`。
-2. 行的 `on Tap` 调用 `task.toggle()`，绑定随即更新勾选标记。连续点同一行两次，观察两次反向变化。完成数从任务列表推导出来。
+1. 在 `compose` 之前调用 `app.add_model(Tasks::default()).finish()`。每一行只拿自己那条 `Task` 的句柄；当 `done` 字段打上 `#[observe]`，谁在 `${...}` 里读了 `task.done()`，谁就自动记入这张订阅表。
+2. 行的 `on Tap` 只做一件事——调用 `task.toggle()`。勾选图标的显隐与顶部标题栏里的 `tasks.completed()` 都是从同一份数据源现算出来的，不需要手写回调去两边同步数字，因此永远不会出现“勾上了但计数没变”的错位。
 
 ## 在本机运行 {#run}
 
-在当前文档版本对应的仓库根目录执行。
+在当前文档版本对应的仓库根目录下执行：
 
 ```sh
 cargo run -p mirui-first-app --features desktop --example desktop -- 2
 ```
 
-在响应式表达式里读生成的 `done()`，让绑定订阅任务字段。
+注意在 `${...}` 响应式表达式里调用宏生成的 `task.done()` 读取器，而不是直接访问裸字段，这样框架才能精确记录依赖。

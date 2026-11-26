@@ -20,7 +20,8 @@ const api = version === 'dev' ? 'https://docs.rs/mirui' : `https://docs.rs/mirui
 function navigation(zh: boolean) {
   return [
     { text: zh ? '教程' : 'Tutorial', link: zh ? '/zh/learn/' : '/learn/', activeMatch: '/learn/' },
-    { text: zh ? '指南' : 'Guides', link: zh ? '/zh/#guides' : '/#guides' },
+    { text: zh ? '指南' : 'Guides', link: zh ? '/zh/#guides' : '/#guides', activeMatch: '^/(?!.*learn/)(?:quickstart|state-management|model-collections|events|widget-events|navigation|scrolling|typography|text-editing|clipboard|resources|shared-textures|persistence|surface-sizing|backend-targets|backend-fallback|timing-diagnostics|ci)\\b' },
+    { text: 'Gallery', link: 'https://mirui.rs/' },
     { text: 'API', link: api },
   ];
 }
@@ -86,6 +87,7 @@ export default defineConfig({
     server: { fs: { allow: [docs, resolve(root, 'gallery/web')] } },
   },
   head: [
+    ['link', { rel: 'icon', href: `${base}play/favicon.svg`, type: 'image/svg+xml' }],
     ['script', {}, 'const syncMiruiTheme=()=>{document.documentElement.dataset.theme=document.documentElement.classList.contains("dark")?"dark":"light"};syncMiruiTheme();new MutationObserver(syncMiruiTheme).observe(document.documentElement,{attributes:true,attributeFilter:["class"]});'],
   ],
   locales: {
@@ -97,19 +99,41 @@ export default defineConfig({
         nav: navigation(true),
         sidebar: [
           {
-            text: '动手做一个任务清单',
+            text: '亲手写一个任务清单',
             items: [
               { text: '教程总览', link: '/zh/learn/' },
               { text: '打开窗口', link: '/zh/learn/window' },
-              { text: '完成一条任务', link: '/zh/learn/state' },
-              { text: '增删和筛选任务', link: '/zh/learn/collections' },
-              { text: '复用组件和样式', link: '/zh/learn/components' },
-              { text: '给应用加动效', link: '/zh/learn/motion' },
-              { text: '保存和恢复任务', link: '/zh/learn/storage' },
-              { text: '在浏览器运行并验证', link: '/zh/learn/web' },
+              { text: '点亮第一枚勾选框', link: '/zh/learn/state' },
+              { text: '增删与筛选列表', link: '/zh/learn/collections' },
+              { text: '提炼组件与样式表', link: '/zh/learn/components' },
+              { text: '注入物理动效', link: '/zh/learn/motion' },
+              { text: '断电与重开之后', link: '/zh/learn/storage' },
+              { text: '编译进浏览器画布', link: '/zh/learn/web' },
             ],
           },
-          { text: '指南', items: [{ text: '英文快速开始', link: '/quickstart' }] },
+          {
+            text: '按模块深读（EN）',
+            items: [
+              { text: '环境搭建与多端工程', link: '/quickstart' },
+              { text: '响应式状态与样式', link: '/state-management' },
+              { text: '有界列表与键值复用', link: '/model-collections' },
+              { text: '手势识别与事件回调', link: '/events' },
+              { text: '自定义控件与绘制', link: '/widget-events' },
+              { text: '页面导航与物理动效', link: '/navigation' },
+              { text: '滚动容器与惯性控制', link: '/scrolling' },
+              { text: '字体栈与曲线排字', link: '/typography' },
+              { text: '文本编辑与输入法', link: '/text-editing' },
+              { text: '跨平台剪贴板', link: '/clipboard' },
+              { text: '静态与托管资源池', link: '/resources' },
+              { text: '跨线程纹理移交', link: '/shared-textures' },
+              { text: '状态快照与自动落盘', link: '/persistence' },
+              { text: '逻辑视口与缩放比', link: '/surface-sizing' },
+              { text: '各平台后端实现', link: '/backend-targets' },
+              { text: '混合后端与软件回退', link: '/backend-fallback' },
+              { text: '帧耗时剖析与追踪', link: '/timing-diagnostics' },
+              { text: '编译期契约与门禁', link: '/ci' },
+            ],
+          },
         ],
         outline: { label: '本节内容' },
         docFooter: { prev: '上一节', next: '下一节' },
@@ -129,6 +153,30 @@ export default defineConfig({
     search: {
       provider: 'local',
       options: {
+        miniSearch: {
+          options: {
+            tokenize(text: string) {
+              const tokens: string[] = [];
+              const cjk = /[\u3400-\u9fff\uf900-\ufaff]/;
+              if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+                for (const { segment, isWordLike } of new Intl.Segmenter('zh', { granularity: 'word' }).segment(text)) {
+                  if (!isWordLike) continue;
+                  tokens.push(segment);
+                  if (cjk.test(segment) && segment.length > 1) {
+                    for (const ch of segment) if (cjk.test(ch)) tokens.push(ch);
+                  }
+                }
+                return tokens;
+              }
+              return text.toLowerCase().match(/[a-z0-9_]+|[\u3400-\u9fff\uf900-\ufaff]/g) ?? [];
+            },
+          },
+          searchOptions: {
+            combineWith: 'AND',
+            fuzzy: 0.2,
+            prefix: true,
+          },
+        },
         locales: {
           zh: {
             translations: {

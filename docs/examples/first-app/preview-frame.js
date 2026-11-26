@@ -3,13 +3,17 @@ export function mountPreviewFrame(frame, zh = false) {
   const grip = document.createElement('button');
   grip.type = 'button';
   grip.className = 'device-grip';
-  grip.title = zh ? '拖动调整尺寸，方向键微调，Home 复位' : 'Drag to resize. Arrow keys adjust, Home resets.';
-  grip.setAttribute('aria-label', grip.title);
   grip.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M4.5 10.5h6v-6M10 10 2 2M1.5 7.5v-6h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const reset = document.createElement('button');
   reset.type = 'button';
   reset.className = 'frame-dimensions';
-  reset.title = zh ? '恢复自适应尺寸' : 'Restore responsive size';
+  function setLocale(isZh) {
+    grip.title = isZh ? '拖动调整尺寸，方向键微调，Home 复位' : 'Drag to resize. Arrow keys adjust, Home resets.';
+    grip.setAttribute('aria-label', grip.title);
+    reset.title = isZh ? '恢复自适应尺寸' : 'Restore responsive size';
+    reset.setAttribute('aria-label', reset.title);
+  }
+  setLocale(zh);
   frame.append(reset, grip);
   const bounds = frame.parentElement;
   const observer = new ResizeObserver(([entry]) => {
@@ -62,10 +66,12 @@ export function mountPreviewFrame(frame, zh = false) {
     frame.classList.remove('restoring');
     resize(frame.clientWidth + delta[0], frame.clientHeight + delta[1]);
   };
-  return () => {
+  const cleanup = () => {
     observer.disconnect();
     scope.classList.remove('resizing');
     grip.remove();
     reset.remove();
   };
+  cleanup.setLocale = setLocale;
+  return cleanup;
 }

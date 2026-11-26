@@ -3,35 +3,194 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Mirui task list</title>
+    <title>Mirui · Task list playground</title>
+    <link data-trunk rel="copy-file" href="../../../gallery/web/favicon.svg">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link data-trunk rel="copy-dir" href="../../../gallery/web/fonts">
     <link data-trunk rel="rust" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int">
     <link data-trunk rel="copy-file" href="preview-frame.js">
+    <link data-trunk rel="css" href="../../../gallery/web/site-chrome.css">
     <link data-trunk rel="css" href="../../../gallery/web/device-frame.css">
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("mirui-theme");
+          var dark = stored === "dark" || (stored !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (_) {}
+        try {
+          var lang = localStorage.getItem("mirui-language");
+          var zh = lang ? lang === "zh" : (navigator.language || "").toLowerCase().startsWith("zh");
+          document.documentElement.lang = zh ? "zh-CN" : "en";
+        } catch (_) {}
+      })();
+    </script>
     <style>
-      html { color-scheme: light dark; }
-      body { --site-panel: Canvas; --site-rule-strong: #8886; --site-blue: #536eff; --site-muted: CanvasText; --rim-top: #8882; margin: 0; padding: 24px; background: Canvas; }
-      main { max-width: 1120px; margin: auto; --preview-width: min(100%, 640px); --preview-height: clamp(340px, 70vh, 700px); }
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        min-height: 100dvh;
+        background: var(--site-bg);
+        color: var(--site-ink);
+        font: 400 14px/1.5 var(--font-ui);
+        -webkit-font-smoothing: antialiased;
+      }
+      body {
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+      .play-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        height: 54px;
+        padding-inline: clamp(16px, 4vw, 40px);
+        border-bottom: 1px solid var(--site-rule);
+        background: color-mix(in srgb, var(--site-panel) 84%, transparent);
+        backdrop-filter: saturate(1.3) blur(14px);
+      }
+      .play-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .play-back {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 32px;
+        padding-inline: 10px;
+        border: 1px solid var(--site-rule-strong);
+        border-radius: 8px;
+        background: var(--site-panel);
+        box-shadow: inset 0 1px 0 var(--rim-top);
+        color: var(--site-ink);
+        font: 500 13px/1 var(--font-ui);
+        text-decoration: none;
+        transition: background-color 150ms ease, border-color 150ms ease;
+      }
+      .play-back:hover { background: var(--site-hover); }
+      .play-chapter {
+        color: var(--site-muted);
+        font: 500 12px/1.4 var(--font-mono);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .play-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .play-stage {
+        display: grid;
+        place-items: center;
+        padding: clamp(20px, 3.5vw, 40px);
+        background:
+          radial-gradient(circle, var(--dot) 1px, transparent 1px) 0 0 / 12px 12px,
+          var(--site-bg);
+      }
+      main {
+        width: 100%;
+        max-width: 1120px;
+        margin: auto;
+        --preview-width: min(100%, 640px);
+        --preview-height: clamp(360px, 72vh, 700px);
+      }
     </style>
   </head>
   <body>
-    <main><div class="preview-frame"><canvas id="tutorial" tabindex="0" aria-label="Task list"></canvas></div></main>
+    <header class="play-bar">
+      <div class="play-title">
+        <a id="back-link" class="play-back" href="../learn/">← <span id="back-text">Tutorial</span></a>
+        <span id="chapter-label" class="play-chapter">Chapter 7</span>
+      </div>
+      <div class="play-actions">
+        <button id="lang-btn" class="site-action" type="button">中</button>
+        <button id="theme-btn" class="site-action" type="button" aria-label="Toggle color theme">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="3.4" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="play-stage">
+      <main><div class="preview-frame"><canvas id="tutorial" tabindex="0" aria-label="Task list"></canvas></div></main>
+    </div>
     <script type="module">
       import { mountPreviewFrame } from "./preview-frame.js";
-      mountPreviewFrame(document.querySelector(".preview-frame"));
+      const slugs = ["window", "state", "collections", "components", "motion", "storage", "web"];
+      const rawChapter = Number(new URLSearchParams(location.search).get("chapter")) || 7;
+      const chapter = Math.max(1, Math.min(7, rawChapter));
+      const frame = document.querySelector(".preview-frame");
+      const mediaDark = matchMedia("(prefers-color-scheme: dark)");
+      let app;
+
+      function isDark() {
+        try {
+          const stored = localStorage.getItem("mirui-theme");
+          if (stored === "dark" || stored === "light") return stored === "dark";
+        } catch (_) {}
+        return mediaDark.matches;
+      }
+
+      function isZh() {
+        return document.documentElement.lang === "zh-CN";
+      }
+
+      const handle = mountPreviewFrame(frame, isZh());
+
+      function syncChrome() {
+        const dark = isDark();
+        const zh = isZh();
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document.documentElement.classList.toggle("dark", dark);
+        app?.set_dark(dark);
+        handle.setLocale?.(zh);
+        const slug = slugs[chapter - 1] || "web";
+        document.getElementById("back-link").href = (zh ? "../zh/learn/" : "../learn/") + slug + ".html";
+        document.getElementById("back-text").textContent = zh ? "返回章节" : "Back to lesson";
+        document.getElementById("chapter-label").textContent = zh ? `第 ${chapter} / 7 章 · 任务清单` : `Chapter ${chapter} / 7 · Task list`;
+        const langBtn = document.getElementById("lang-btn");
+        langBtn.textContent = zh ? "EN" : "中";
+        langBtn.title = zh ? "Switch to English" : "切换到中文";
+        langBtn.setAttribute("aria-label", langBtn.title);
+        const themeBtn = document.getElementById("theme-btn");
+        themeBtn.title = zh ? "切换明暗主题" : "Toggle color theme";
+        themeBtn.setAttribute("aria-label", themeBtn.title);
+        document.getElementById("tutorial").setAttribute("aria-label", zh ? "任务清单" : "Task list");
+      }
+
+      syncChrome();
+
+      document.getElementById("theme-btn").onclick = () => {
+        const next = isDark() ? "light" : "dark";
+        try { localStorage.setItem("mirui-theme", next); } catch (_) {}
+        syncChrome();
+      };
+
+      document.getElementById("lang-btn").onclick = () => {
+        const nextZh = !isZh();
+        document.documentElement.lang = nextZh ? "zh-CN" : "en";
+        try { localStorage.setItem("mirui-language", nextZh ? "zh" : "en"); } catch (_) {}
+        syncChrome();
+      };
+
+      mediaDark.addEventListener("change", syncChrome);
+      window.addEventListener("storage", syncChrome);
+
       function start() {
-        const dark = matchMedia('(prefers-color-scheme: dark)');
-        const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-        const chapter = Number(new URLSearchParams(location.search).get('chapter')) || 7;
-        const canvas = document.getElementById('tutorial');
-        const app = new window.wasmBindings.Tutorial(canvas, chapter, reduced.matches, dark.matches, true);
+        const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+        const canvas = document.getElementById("tutorial");
+        app = new window.wasmBindings.Tutorial(canvas, chapter, reduced.matches, isDark(), true);
         const draw = () => {
           if (!app.tick()) requestAnimationFrame(draw);
         };
         requestAnimationFrame(draw);
-        dark.addEventListener('change', () => app.set_dark(dark.matches));
       }
       if (window.wasmBindings) start();
-      else window.addEventListener('TrunkApplicationStarted', start, { once: true });
+      else window.addEventListener("TrunkApplicationStarted", start, { once: true });
     </script>
   </body>
 </html>

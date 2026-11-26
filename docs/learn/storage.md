@@ -5,7 +5,7 @@ aside: false
 
 # Save and restore the list
 
-Keep added tasks and completion states between app launches.
+Mark persistent fields on the model so added tasks and checkmarks survive when the window closes.
 
 <TutorialWorkspace :chapter="6" file="lib.rs">
 
@@ -13,23 +13,23 @@ Keep added tasks and completion states between app launches.
 
 <template #exercise>
 
-Change at least one task, allow half a second for autosave, then close and reopen the app.
+Add or toggle a task, wait half a second for autosave, then switch chapters and come back—your changes remain intact.
 
 </template>
 
 </TutorialWorkspace>
 
-## Work through the code {#source}
+## Inside this frame {#source}
 
-1. The item and the owned list declare persisted fields. Install `PersistencePlugin` before `app.add_model(..).finish()` so registration can restore data before the first composition.
-2. In the desktop runner the storage is `task-list.mirui`. The Web runner uses a versioned local storage prefix. The filter selection and in-progress animation are presentation states. The progress starts from the count already restored.
+1. `Task` and `Tasks` annotate durable fields with `#[persist]`. Installing `PersistencePlugin::new(storage).autosave(500)` **before** `app.add_model(..).finish()` restores the snapshot during model registration, before the first frame is composed.
+2. The desktop runner writes to `task-list.mirui`; the browser runner writes to a versioned `localStorage` key. Transient view state—the active filter tab and any in-flight animation—stays out of storage, and the progress bar initializes directly to the restored count.
 
-## Run locally {#run}
+## Run on your machine {#run}
 
-Run this in the repository checkout for the current documentation version.
+From the repository root for this manual version:
 
 ```sh
 cargo run -p mirui-first-app --features desktop --example desktop -- 6
 ```
 
-Use the same working directory when restarting the desktop example, since the example storage path is relative.
+The desktop example resolves `task-list.mirui` relative to the current working directory, so relaunch from the same directory to verify recovery.

@@ -3,9 +3,9 @@ pageClass: tutorial-page
 aside: false
 ---
 
-# Reuse a component and its styles
+# Reuse components and styles
 
-Give repeated controls consistent spacing and let a completed row pick its own colors.
+Fold the repeated filter tabs into a `#[compose]` function and let completed rows dim through a shared stylesheet.
 
 <TutorialWorkspace :chapter="4" file="interface.rs">
 
@@ -13,25 +13,25 @@ Give repeated controls consistent spacing and let a completed row pick its own c
 
 <template #exercise>
 
-Toggle a row and compare its appearance with the rows that remain open.
+Toggle a few rows and compare the muted ink of completed items against the crisp ink of open ones.
 
 </template>
 
 </TutorialWorkspace>
 
-## Work through the code {#source}
+## Inside this frame {#source}
 
-1. Use `#[compose]` to give a reusable filter control a typed Model and a display prop. Callers can pass a literal label or a reactive value to `prop!(String)`; the control binds it once at the display site.
-2. Register shared `task`, `task.complete`, and `filter` rules with `StyleSheetPlugin`. Select classes from reactive state so each completed row changes independently. Inherited typography stays on the container.
+1. `#[compose]` turns the filter button into a reusable unit: `model!(Tasks)` handles the tap action, while `prop!(String)` accepts either a static string or a reactive `${...}` expression and binds it once at the `Button`.
+2. `StyleSheetPlugin` registers `task`, `task.complete`, and `filter` rules in one place. Each row toggles `"task.complete"` from `task.done()`, updating its ink color while inheriting font metrics from the parent column.
 
 <<< @/examples/first-app/src/lib.rs#task-styles{rust}
 
-## Run locally {#run}
+## Run on your machine {#run}
 
-Run this in the repository checkout for the current documentation version.
+From the repository root for this manual version:
 
 ```sh
 cargo run -p mirui-first-app --features desktop --example desktop -- 4
 ```
 
-A direct widget field has priority over a class field. Keep shared color choices in one place when you want the class to control them.
+An attribute written directly on a widget overrides a stylesheet class. Keep state-driven colors in the stylesheet when you want classes to switch them.

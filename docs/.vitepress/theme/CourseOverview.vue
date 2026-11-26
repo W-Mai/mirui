@@ -10,13 +10,14 @@ const zh = computed(() => lang.value === 'zh-CN');
   <div class="course">
     <header class="course-cover">
       <div class="course-intro">
+        <span class="course-kicker">{{ zh ? '7 章互动课程 · Rust + WebAssembly' : '7 interactive chapters · Rust + WebAssembly' }}</span>
         <h1>{{ frontmatter.title }}</h1>
         <p>{{ frontmatter.description }}</p>
         <div class="course-actions">
           <a class="site-cta primary" :href="withBase((zh ? '/zh' : '') + '/learn/window.html')">
             {{ zh ? '从第一章开始' : 'Start chapter one' }} <span aria-hidden="true">→</span>
           </a>
-          <a :href="withBase('/play/?chapter=7')" target="_blank" rel="noopener">{{ zh ? '试用成品' : 'Try the app' }} ↗</a>
+          <a class="site-cta" :href="withBase('/play/?chapter=7')" target="_blank" rel="noopener">{{ zh ? '试用成品' : 'Try the app' }} <span aria-hidden="true">↗</span></a>
         </div>
       </div>
       <div class="course-art" aria-hidden="true">

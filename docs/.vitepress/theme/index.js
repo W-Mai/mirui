@@ -1,4 +1,4 @@
-import DefaultTheme from 'vitepress/theme';
+import DefaultTheme from 'vitepress/theme-without-fonts';
 import { h, reactive } from 'vue';
 import { workspaceSettings } from './tutorial-runtime';
 import VersionBar from './VersionBar.vue';

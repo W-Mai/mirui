@@ -3,9 +3,9 @@ pageClass: tutorial-page
 aside: false
 ---
 
-# 给应用加动效
+# 注入物理动效
 
-让完成进度平滑更新，让选中框跟随筛选按钮。
+进度条不再僵硬跳变，筛选栏的选中外框踏着临界阻尼弹簧滑向新目标。
 
 <TutorialWorkspace :chapter="5" file="motion.rs">
 
@@ -13,23 +13,23 @@ aside: false
 
 <template #exercise>
 
-快速点选再反选，进度条从当前位置反向。切换 Open、Done，选中框滑到对应按钮。
+趁进度条还在滑动时快速连点同一行两次，看它如何从半途平滑折返；再点选 `Open` 与 `Done`，观察蓝色外框的跟随轨迹。
 
 </template>
 
 </TutorialWorkspace>
 
-## 顺着代码做 {#source}
+## 拆解这一帧 {#source}
 
-1. 从完成数求出归一化的 `Fixed` 目标。目标变动时，从当前显示值启动 Tween。动画中再次点击，也从当时显示的位置开始。
-2. `#[animate]` 回调更新显示值。动画播完后，动画组件从实体移除。选中框通过 `FollowBounds` 跟随筛选按钮，使用 `INTERACTIVE` 弹簧。
+1. `aim_progress` 系统在每帧动画阶段算出归一化的 `Fixed` 目标值（Q24.8 定点数）。一旦目标值变了，就以**当前画面上已经滑到的位置**（`progress.0`）为起点发起一段新的 `Tween`。所以哪怕在半途反悔连点，进度条也绝不会闪烁或瞬移回起点。
+2. `#[animate]` 回调在每一帧把插值结果写回 `Progress` 组件，抵达终点后自动卸下动画组件，后续帧零开销。筛选栏外框则直接给 `View` 挂上 `FollowBounds`，用 `INTERACTIVE` 弹簧自动追随当前激活按钮的几何边界。
 
 ## 在本机运行 {#run}
 
-在当前文档版本对应的仓库根目录执行。
+在当前文档版本对应的仓库根目录下执行：
 
 ```sh
 cargo run -p mirui-first-app --features desktop --example desktop -- 5
 ```
 
-完成状态与筛选条件即时更新，进度条和选中框的显示值经过中间状态。
+底层 `Model` 在点击瞬间就已经改完；只有屏幕上的进度宽度和跟随框在时间轴上平滑过渡。

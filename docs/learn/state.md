@@ -5,7 +5,7 @@ aside: false
 
 # Complete a task
 
-Make a task remember whether it is complete, and make the counter agree with it.
+Let each row remember whether it is done, and let the header tally flip on the exact same frame.
 
 <TutorialWorkspace :chapter="2" file="model.rs">
 
@@ -13,23 +13,23 @@ Make a task remember whether it is complete, and make the counter agree with it.
 
 <template #exercise>
 
-Click the first row. Its checkmark appears and the total moves from one completed task to two. Click again to undo it.
+Tap `Connect the display`: its checkmark lights up and the header count steps from `1 of 3` to `2 of 3`. Tap again to undo.
 
 </template>
 
 </TutorialWorkspace>
 
-## Work through the code {#source}
+## Inside this frame {#source}
 
-1. Register `Tasks` with `app.add_model(Tasks::default()).finish()` before composing the UI. Each row receives the handle to a task, so both the row and the derived count can observe `done`.
-2. The row binds its checkmark to the task and calls `task.toggle()` from `on Tap`. Click the same row twice to see the change and its reversal. The completion count is derived from the list, so there is no second count to update.
+1. Call `app.add_model(Tasks::default()).finish()` before composing. Each row receives the handle to its own `Task`. Because `done` is marked `#[observe]`, any `${...}` expression that calls `task.done()` subscribes to that field automatically.
+2. The row's `on Tap` handler simply calls `task.toggle()`. Both the checkmark visibility and `tasks.completed()` in the header derive from the same model data—there is no second counter to keep in sync by hand.
 
-## Run locally {#run}
+## Run on your machine {#run}
 
-Run this in the repository checkout for the current documentation version.
+From the repository root for this manual version:
 
 ```sh
 cargo run -p mirui-first-app --features desktop --example desktop -- 2
 ```
 
-Use the generated `done()` getter inside the reactive expression so it subscribes to the field it reads.
+Always read the generated `task.done()` getter inside `${...}` bindings so the reactive scope records the dependency.

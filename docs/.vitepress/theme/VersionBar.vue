@@ -17,6 +17,9 @@ const mounted = ref(false);
 
 onMounted(async () => {
   mounted.value = true;
+  if (currentVersion.value === 'dev' && /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(window.location.hostname)) {
+    return;
+  }
   try {
     const response = await fetch('/docs/versions.json');
     if (!response.ok) return;
@@ -40,7 +43,11 @@ async function navigate(version, language) {
     if (!response.ok) throw new Error('Version unavailable');
     const index = await response.json();
     if (index.version !== version) throw new Error('Version index mismatch');
-    const target = chapterTarget(index, page, language, hash);
+    let target = chapterTarget(index, page, language, hash);
+    if (version === currentVersion.value && language === 'zh' && target.includes('?reading=language')
+        && new URLSearchParams(window.location.search).get('reading') === 'language') {
+      target = versionBase(version) + 'zh/';
+    }
     if (language !== currentLanguage.value) {
       try { localStorage.setItem('mirui-language', language); } catch {}
     }

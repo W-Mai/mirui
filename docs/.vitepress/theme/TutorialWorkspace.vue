@@ -92,6 +92,7 @@ async function start() {
 
 watch(mode, resume, { flush: 'post' });
 watch(isDark, dark => tutorial?.set_dark(dark));
+watch(zh, isZh => detachFrame?.setLocale?.(isZh));
 watch(() => props.chapter, start, { flush: 'post' });
 onMounted(() => {
   const style = workspace.value.style;
@@ -113,7 +114,10 @@ onBeforeUnmount(() => {
 <template>
   <section ref="workspace" class="lesson-workspace" :data-mode="mode" :aria-label="zh ? '本章代码和预览' : 'Chapter code and preview'">
     <header class="lesson-tools">
-      <span class="lesson-file">{{ file }}</span>
+      <div class="lesson-meta">
+        <span class="lesson-badge">{{ zh ? `第 ${chapter} / 7 章` : `0${chapter} / 07` }}</span>
+        <span class="lesson-file">{{ file }}</span>
+      </div>
       <fieldset class="lesson-modes" :style="{ '--selected': modes.findIndex(entry => entry[0] === mode) }" :aria-label="zh ? '工作区视图' : 'Workspace view'">
         <label v-for="[value, en, cn] in modes" :key="value">
           <input v-model="mode" type="radio" :name="group" :value="value" />
@@ -141,8 +145,11 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <footer class="lesson-footer">
-      <div><slot name="exercise" /></div>
-      <a :href="withBase('/play/?chapter=' + chapter)" target="_blank" rel="noopener">{{ zh ? '独立窗口' : 'Open separately' }} ↗</a>
+      <div class="lesson-exercise">
+        <span class="lesson-try-dot" aria-hidden="true"></span>
+        <div><slot name="exercise" /></div>
+      </div>
+      <a class="lesson-open-ext" :href="withBase('/play/?chapter=' + chapter)" target="_blank" rel="noopener">{{ zh ? '独立窗口' : 'Open separately' }} <span aria-hidden="true">↗</span></a>
     </footer>
   </section>
 </template>

@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vitepress dev --host 127.0.0.1",
+    "dev": "vitepress dev --host 0.0.0.0",
     "build": "vitepress build",
-    "preview": "vitepress preview --host 127.0.0.1",
+    "preview": "vitepress preview --host 0.0.0.0",
     "playground": "cd examples/first-app && env -u NO_COLOR trunk --no-color build --release --dist ../../public/play --public-url ./",
     "test": "bun test tests"
   },

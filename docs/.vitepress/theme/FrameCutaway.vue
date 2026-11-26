@@ -14,10 +14,10 @@ const pending = ref(false);
 const active = ref(-1);
 const failed = ref(false);
 const levels = [
-  { en: 'Input', zh: '输入与事件', detail: 'Tap', href: '/events.html#recognized-gesture-batches' },
-  { en: 'Model and subscriptions', zh: 'Model 与订阅', detail: 'Model', href: '/state-management.html#registered-model-instances' },
-  { en: 'Layout and repaint', zh: '布局与局部绘制', detail: 'View · Damage', href: '/backend-fallback.html' },
-  { en: 'Rendering and submission', zh: '后端与帧提交', detail: 'Renderer · Surface', href: '/backend-targets.html#renderer-scopes' },
+  { index: '01', en: 'Hit test', zh: '命中与手势', detail: 'Tap · Q24.8', href: '/events.html#recognized-gesture-batches' },
+  { index: '02', en: 'Model', zh: 'Model 订阅', detail: 'Task::toggle', href: '/state-management.html#registered-model-instances' },
+  { index: '03', en: 'Layout', zh: '布局与脏区', detail: 'View · PrevRect', href: '/backend-fallback.html' },
+  { index: '04', en: 'Raster', zh: '光栅与落屏', detail: 'Canvas · Surface', href: '/backend-targets.html#renderer-scopes' },
 ];
 const illustration = frameImage.replace(/href="#chapter-(\d)"/g, (_, layer) => `href="${withBase(levels[layer].href)}"`);
 let example;
@@ -33,6 +33,7 @@ function display(progress) {
 
 function setLayer(layer) {
   active.value = layer;
+  if (!scene.value) return;
   for (const node of scene.value.querySelectorAll('[data-layer]')) {
     node.dataset.active = String(Number(node.dataset.layer) === layer);
   }
@@ -96,22 +97,32 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="frame-cutaway" :aria-label="zh ? '一帧的剖面' : 'An exploded view of a frame'">
+  <section class="frame-cutaway" :aria-label="zh ? '一帧的四层剖面' : 'Four layers of a single frame'">
+    <header class="frame-head">
+      <span class="frame-caption">
+        <i class="frame-dot" aria-hidden="true"></i>
+        {{ zh ? 'FRAME PIPELINE · 单帧剖面' : 'FRAME PIPELINE · 4 PLANES' }}
+      </span>
+      <span class="frame-readout" role="status">{{ completed }} / 3 {{ zh ? '已勾选' : 'done' }}</span>
+    </header>
     <div class="frame-figure" ref="scene" v-html="illustration"></div>
     <div class="frame-details">
       <div class="frame-actions">
-        <button class="site-cta primary" type="button" :disabled="pending" :aria-pressed="checked" @click="toggle">
-          {{ zh ? (checked ? '取消勾选任务' : '勾选一条任务') : (checked ? 'Uncheck the task' : 'Complete a task') }}
+        <button class="site-cta primary frame-trigger" type="button" :disabled="pending" :aria-pressed="checked" @click="toggle">
+          <span>{{ zh ? (checked ? '撤回这次点击' : '点一下第一行') : (checked ? 'Undo the tap' : 'Tap the first row') }}</span>
         </button>
-        <span role="status">{{ completed }} / 3 {{ zh ? '完成' : 'complete' }}</span>
+        <span class="frame-hint">{{ zh ? '信号沿右侧轨迹逐层下传，只重绘脏区像素' : 'Follow the signal down the four planes' }}</span>
       </div>
-      <nav class="frame-links" :aria-label="zh ? '架构章节' : 'Architecture chapters'">
-        <a v-for="(level, index) in levels" :key="level.href" :href="withBase(level.href)" :class="{ active: active === index }">
-          <span>{{ zh ? level.zh : level.en }}</span>
+      <nav class="frame-links" :aria-label="zh ? '单帧四层章节' : 'Frame layers'" @mouseleave="setLayer(-1)">
+        <a v-for="(level, index) in levels" :key="level.href" :href="withBase(level.href)"
+          :class="{ active: active === index }"
+          @mouseenter="setLayer(index)" @focus="setLayer(index)">
+          <span class="frame-step">{{ level.index }}</span>
+          <span class="frame-label">{{ zh ? level.zh : level.en }}</span>
           <code>{{ level.detail }}</code>
         </a>
       </nav>
-      <small v-if="failed" role="status">{{ zh ? '示例暂不可用' : 'Example unavailable' }}</small>
+      <small v-if="failed" role="status">{{ zh ? 'Wasm 预览未就绪' : 'Preview unavailable' }}</small>
     </div>
   </section>
 </template>
