@@ -12,6 +12,8 @@ pub(crate) struct ProgressTarget(pub Fixed);
 pub(crate) struct MotionSettings(pub Transition);
 
 // #region progress-motion
+//~focus-start:ch5
+//~add-start:ch5
 #[system(order = Animation)]
 pub(crate) fn aim_progress(
     tasks: model!(Tasks),
@@ -32,6 +34,8 @@ pub(crate) fn aim_progress(
 pub(crate) fn apply_progress(value: motion!(), progress: component!(mut Progress)) {
     progress.0 = value;
 }
+//~add-end:ch5
+//~focus-end:ch5
 // #endregion progress-motion
 
 #[view(component = Progress, invalidation = Visual)]

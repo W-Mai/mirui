@@ -21,7 +21,7 @@ function navigation(zh: boolean) {
   return [
     { text: zh ? '教程' : 'Tutorial', link: zh ? '/zh/learn/' : '/learn/', activeMatch: '/learn/(?!recipes)' },
     { text: zh ? '常用写法' : 'Patterns', link: zh ? '/zh/learn/recipes' : '/learn/recipes', activeMatch: '/learn/recipes' },
-    { text: zh ? '指南' : 'Guides', link: zh ? '/zh/#guides' : '/#guides', activeMatch: '^/(?!.*learn/)(?:quickstart|state-management|model-collections|events|widget-events|navigation|scrolling|typography|text-editing|clipboard|resources|shared-textures|persistence|surface-sizing|backend-targets|backend-fallback|timing-diagnostics|ci)\\b' },
+    { text: zh ? '指南' : 'Guides', link: zh ? '/zh/#guides' : '/#guides', activeMatch: '^/(?!.*learn/)(?:quickstart|state-management|composition|model-collections|events|widget-events|navigation|scrolling|typography|text-editing|clipboard|resources|shared-textures|persistence|surface-sizing|backend-targets|backend-fallback|timing-diagnostics|ci)\\b' },
     { text: 'Gallery', link: 'https://mirui.rs/' },
     { text: 'API', link: api },
   ];
@@ -46,6 +46,7 @@ const sidebar = [
     text: 'Build interfaces',
     items: [
       { text: 'Reactive UI and styles', link: '/state-management' },
+      { text: 'Composition, roles, and views', link: '/composition' },
       { text: 'Model collections', link: '/model-collections' },
       { text: 'Events and callbacks', link: '/events' },
       { text: 'Building custom widgets', link: '/widget-events' },
@@ -119,6 +120,7 @@ export default defineConfig({
             text: '构建界面',
             items: [
               { text: '响应式状态与样式', link: '/state-management' },
+              { text: '组合、角色与自定义视图', link: '/composition' },
               { text: '有界列表与键值复用', link: '/model-collections' },
               { text: '手势识别与事件回调', link: '/events' },
               { text: '自定义控件与绘制', link: '/widget-events' },

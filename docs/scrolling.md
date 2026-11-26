@@ -2,6 +2,48 @@
 
 Framebuffer transfers use the difference between the current scroll offset and the last successfully painted offset. Nested transfers use the painted source window; a changed clip or incompatible geometry repaints instead. Input handlers do not maintain a separate render delta.
 
+<MiruiSnippet recipe="scroll" label="ScrollOffset" file="recipes.rs" height="240px">
+
+<<< @/examples/first-app/src/recipes.rs#recipe-scroll{rust}
+
+<template #exercise>
+
+Tap `Top (#1)`, `Middle (#4)`, or `Bottom (#7)` to drive `scroll_offset` with a spring transition, or drag/wheel inside the list directly.
+
+</template>
+
+</MiruiSnippet>
+
+<div class="arch-diagram" role="img" aria-label="Scroll viewport clipping, framebuffer transfer, and virtualized LazyList window">
+  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="scr-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="20" width="256" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · INPUT &amp; MOTION</text>
+    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Drag, Wheel &amp; Programmatic</text>
+    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ScrollOffset · ScrollConfig</text>
+    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">commands.scroll_into(target)</text>
+    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Inertia, elastic bounds &amp; springs</text>
+    <path d="M272 84H314" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#scr-arrow)" />
+    <rect x="322" y="20" width="256" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="338" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · VIEWPORT &amp; CELLS</text>
+    <text x="338" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Clip &amp; Virtualized Pool</text>
+    <text x="338" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">clip_children: true · LazyList</text>
+    <text x="338" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">visible_start + 2 spare rows</text>
+    <text x="338" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Position-only shifts skip layout</text>
+    <path d="M578 84H620" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#scr-arrow)" />
+    <rect x="628" y="20" width="236" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="644" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · DAMAGE PLAN</text>
+    <text x="644" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Copy + Exposed Strip</text>
+    <text x="644" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">app.dirty_regions()?</text>
+    <text x="644" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Scroll transfer + repaint</text>
+    <text x="644" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Reuses shifted pixels on SW</text>
+  </svg>
+</div>
+
 ## Inspecting pending drawing
 
 `app.dirty_regions()?` borrows the pending redraw rectangles and scroll transfers in logical pixels. `affected_regions()` includes both kinds of coverage; `app.dirty_region()?` returns their bounding rectangle. Queries prepare reactive state and layout without advancing animation or consuming pending drawing. Changes made after a query are included when `render_dirty()` prepares its plan again.

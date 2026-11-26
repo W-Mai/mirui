@@ -5,32 +5,32 @@ aside: false
 
 # 编译进浏览器画布
 
-把同一份 `install` 函数交给 `WebCanvasSurface`，在任意宽度的视口里检验整套交互与布局自适应。
+前六章我们写的 `model.rs`、`interface.rs`、`motion.rs` 一行都不用改——只需要换一个 20 行的宿主入口，同一个任务清单就能从桌面原生窗口跑进浏览器的 `<canvas>`。
+
+## Web 宿主与桌面宿主并排对照 {#app}
+
+在下面的工作台中，默认聚焦的是 `web.rs` 里的浏览器入口。点一下顶部文件栏里的 **`desktop.rs`** 标签，对比两者的代码：除了把 `SdlSurface` 换成 `WebCanvasSurface`、把 `FileStorage` 换成 `LocalStorageStorage`，中间调用的都是同一个 `install(&mut app, chapter, reduced, storage)`。
+
+你也可以点击右上角的 **眼睛按钮（切换为「全部」）**，随时翻阅这个七章工程全部 6 个源文件的每一行完整代码：
 
 <TutorialWorkspace :chapter="7" file="web.rs">
 
-<<< @/examples/first-app/src/web.rs#web-host{rust}
-
 <template #exercise>
 
-拖动预览框右下角的圆形手柄，把画布收窄成手机竖屏宽度，试试添加任务与切换筛选；点击右下角浮现的尺寸数字即可一键归位。
+拖动预览框右下角的圆形手柄，把画布收窄成手机竖屏宽度，添加一条任务并切换筛选；点击右下角浮现的尺寸数字即可一键归位。
 
 </template>
 
 </TutorialWorkspace>
 
-## 拆解这一帧 {#source}
+### 这一步做了什么 {#source}
 
-1. 桌面端与浏览器端共用同一个 `install(&mut app, chapter, reduced, storage)`，一行 UI 代码都不用改。Web 入口只负责创建 `WebCanvasSurface` 与 `WebCanvasRendererFactory`，并在浏览器的 `requestAnimationFrame` 循环里推进 `app.tick()`；当教程工作台切走或关闭时，及时释放实例。
-2. 在仓库里跑一遍下面两条命令：集成测试会在无头表面上挂载全部七章界面、模拟点击增删并验证快照恢复；`playground` 脚本则用 Trunk 把这套 Rust 工程编译成你在本页右侧直接把玩的 WebAssembly 模块。
+1. **同一份 `install`，多端复用**：应用逻辑、响应式模型、样式表和弹簧动画全在 `install` 里，与具体平台彻底解耦。浏览器端只需在 `requestAnimationFrame` 循环中调用 `app.tick()`。
+2. **无头集成测试与 Wasm 打包**：在仓库里跑一遍下面两条命令，第一条会在内存无头表面（`App::headless`）上把全部 7 章和所有最小演示挂载、点击、落盘并校验一遍；第二条则用 Trunk 编译出本页右侧正在运行的 WebAssembly 模块。
 
-## 在本机运行 {#run}
-
-在当前文档版本对应的仓库根目录下执行：
+## 在本机运行与验证 {#run}
 
 ```sh
 cargo test -p mirui-first-app
 bun run --cwd docs playground
 ```
-
-如果在本地起文档站时发现右侧画布未加载，先跑一次 `bun run --cwd docs playground` 生成最新的 Wasm 产物即可。

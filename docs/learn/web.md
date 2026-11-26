@@ -5,11 +5,15 @@ aside: false
 
 # Run and verify it in the browser
 
-Hand the same `install` function to `WebCanvasSurface`, then resize the live viewport down to phone width.
+None of the code we wrote in `model.rs`, `interface.rs`, or `motion.rs` needs to change for the browser—only a 20-line host entry point swaps `SdlSurface` for `WebCanvasSurface`.
+
+## Compare the Web and desktop entry points {#app}
+
+In the workspace below, the focused view shows `web.rs`. Click the **`desktop.rs`** tab in the top bar to compare the two hosts side by side: both prepare their surface and storage backend, then call the exact same `install(&mut app, chapter, reduced, storage)`.
+
+You can also click the **eye button (`Focus` → `Full`)** at any time to browse every line of all six source files in the crate:
 
 <TutorialWorkspace :chapter="7" file="web.rs">
-
-<<< @/examples/first-app/src/web.rs#web-host{rust}
 
 <template #exercise>
 
@@ -19,18 +23,14 @@ Drag the circular grip at the bottom-right corner of the preview to narrow the a
 
 </TutorialWorkspace>
 
-## Inside this frame {#source}
+### What changed in this step {#source}
 
-1. Desktop and Web entry points call the exact same `install(&mut app, chapter, reduced, storage)`. The Web host binds a `<canvas>` via `WebCanvasSurface` and `WebCanvasRendererFactory`, drives `app.tick()` on `requestAnimationFrame`, and frees the instance when the preview unmounts.
-2. Run the two commands below: the integration suite mounts every chapter headlessly, exercises model mutations, and verifies persistence round-trips; the `playground` build compiles the WebAssembly bundle running inside this page.
+1. **One `install`, multiple surfaces**: Models, stylesheets, layout, and animations live in `install`. The Web host binds a `<canvas>` with `WebCanvasSurface` and drives `app.tick()` from `requestAnimationFrame`.
+2. **Headless integration tests & Wasm bundle**: Run the two commands below. `cargo test` mounts all seven chapters and every concept demo on `App::headless`, exercising taps and persistence round-trips; `playground` builds the WebAssembly bundle running on this page.
 
 ## Run on your machine {#run}
-
-From the repository root for this manual version:
 
 ```sh
 cargo test -p mirui-first-app
 bun run --cwd docs playground
 ```
-
-If you start the docs server in a fresh checkout, run `bun run --cwd docs playground` first so the live canvas has its compiled Wasm bundle.

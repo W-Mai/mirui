@@ -43,7 +43,8 @@ function buildLlmsTxt(base, context) {
 
 - [Common Patterns (EN)](${origin}learn/recipes.html) / [常用界面写法 (ZH)](${origin}zh/learn/recipes.html): Live examples for reactive thresholds, flex sizing, spring FollowBounds, and custom vector views.
 - [Quickstart & Targets](${origin}quickstart.html): Toolchain setup for desktop SDL, ESP32-C3, Android, iOS, and multi-target workspaces.
-- [Reactive State & Styles](${origin}state-management.html): Models, Resources (\`res!(T)\`), \`Prop<T>\`, \`Computed\`, \`StyleSheetPlugin\`, and flush boundaries.
+- [Reactive State & Styles](${origin}state-management.html): Models, \`Signal<T>\`, \`Computed<T>\`, \`StyleSheetPlugin\`, and flush boundaries.
+- [Composition, Roles & Views](${origin}composition.html): \`#[compose]\`, \`prop!(T)\`, \`res!(T)\`, \`#[system]\`, \`#[view]\`, and \`ui!(compose Name)\` niches.
 - [Model Collections](${origin}model-collections.html): Bounded \`ModelList\`, \`ModelMap\`, \`ModelSet\`, and stable \`ModelItemId\` keys.
 - [Events & Callbacks](${origin}events.html): Gesture recognition, bubbling, and \`#[event]\` handlers.
 - [Navigation & Motion](${origin}navigation.html): \`FollowBounds\`, \`NavigationStack\`, \`PageView\`, springs, and tweens.

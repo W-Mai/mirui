@@ -5,31 +5,45 @@ aside: false
 
 # 注入物理动效
 
-进度条不再僵硬跳变，筛选栏的选中外框踏着临界阻尼弹簧滑向新目标。
+好的动效不是放一段固定时长的录像，而是**随时响应打断**：进度条滑到一半时用户反悔再点一下，它必须从当前位置平滑折返；筛选标签宽度不同，选中框得自己边滑边伸缩。
 
-<TutorialWorkspace :chapter="5" file="motion.rs">
+## 1. 最小演示：`FollowBounds` 弹簧跟随框 {#concept}
 
-<<< @/examples/first-app/src/motion.rs#progress-motion{rust}
+先单独看筛选栏的跟随框是怎么工作的。下面这个例子里，三枚按钮宽度各不相同，最后一个 `View` 挂上了 `FollowBounds::new(id("spring_first")).with_transition(...)`。点击任意按钮时，`pick_tab` 事件只需把 `follower.target` 指向被点击的实体，临界阻尼弹簧就会自动算好位置与宽度的过渡：
+
+<MiruiSnippet recipe="mini-motion" label="最小演示" file="recipes.rs" height="220px">
 
 <template #exercise>
 
-趁进度条还在滑动时快速连点同一行两次，看它如何从半途平滑折返；再点选 `Open` 与 `Done`，观察蓝色外框的跟随轨迹。
+在 `MCU`、`Desktop`、`Web` 之间快速来回连点——观察蓝色外框如何在半空中继承当前速度平滑折返，同时自动贴合目标按钮的宽度。
+
+</template>
+
+</MiruiSnippet>
+
+---
+
+## 2. 带入任务清单：可折返进度条 + 筛选跟随框 {#app}
+
+现在把这套弹簧外框装进任务清单的筛选栏（见 `interface.rs`），再在 `motion.rs` 里用 `#[system]` + `#[animate]` 给顶部标题栏加一条平滑补间的完成进度条：
+
+<TutorialWorkspace :chapter="5" file="motion.rs">
+
+<template #exercise>
+
+趁顶部进度条还在滑动时快速连点同一行两次，看它如何从半途平滑折返；再点选 `Open` 与 `Done`，观察筛选栏外框的弹簧跟随。
 
 </template>
 
 </TutorialWorkspace>
 
-## 拆解这一帧 {#source}
+### 这一步做了什么 {#source}
 
-1. `aim_progress` 系统在每帧动画阶段根据完成数与总数算出归一化的 `Fixed` 目标比值。一旦目标值变了，就以**当前画面上已经滑到的位置**（`progress.0`）为起点发起一段新的 `Tween`。所以哪怕在半途反悔连点，进度条也绝不会闪烁或瞬移回起点。
-2. `#[animate]` 回调在每一帧把插值结果写回 `Progress` 组件，抵达终点后自动卸下动画组件，后续帧零开销。筛选栏外框则直接给 `View` 挂上 `FollowBounds`，用 `INTERACTIVE` 弹簧自动追随当前激活按钮的几何边界。
+1. **从当前显示值起跳（Retargeting）**：在 `motion.rs` 的 `aim_progress` 系统里，每当 `goal` 改变，新的补间都是从**当前已经画在屏幕上的 `progress.0`** 出发（`settings.0.motion(progress.0, goal)`），而不是从 0 重新开始。
+2. **动画结束即卸载**：`#[animate(component = AnimateProgress)]` 在每一帧更新 `Progress`，一旦抵达终点就会自动从实体上移除 `AnimateProgress` 组件，静止帧零额外开销。
 
 ## 在本机运行 {#run}
-
-在当前文档版本对应的仓库根目录下执行：
 
 ```sh
 cargo run -p mirui-first-app --features desktop --example desktop -- 5
 ```
-
-底层 `Model` 在点击瞬间就已经改完；只有屏幕上的进度宽度和跟随框在时间轴上平滑过渡。

@@ -1,9 +1,17 @@
 use super::motion::indicator_transition;
+use mirui::core::model::{ModelHandle, ModelItemId, ModelList};
+use mirui::core::persistence::PersistencePlugin;
+use mirui::core::storage::StorageHandle;
+use mirui::input::event::scroll::{ScrollConfig, ScrollOffset};
 use mirui::prelude::draw::*;
 use mirui::prelude::*;
 use mirui::render::scene::{LineCap, LineJoin, Paint};
+use mirui::text::TextPath;
 use mirui::types::Transform;
-use mirui::ui::widgets::{Button, FollowBounds, ParagraphStyle, Text, TextAlign};
+use mirui::ui::widgets::{
+    Button, FollowBounds, ParagraphStyle, Placeholder, Text, TextAlign, TextDocument, TextEditing,
+    TextInput,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Recipe {
@@ -11,6 +19,14 @@ pub enum Recipe {
     Layout,
     Spring,
     Vector,
+    Curve,
+    Scroll,
+    MiniWindow,
+    MiniState,
+    MiniList,
+    MiniStyle,
+    MiniMotion,
+    MiniStorage,
 }
 
 impl Recipe {
@@ -20,8 +36,20 @@ impl Recipe {
             "layout" => Some(Self::Layout),
             "spring" => Some(Self::Spring),
             "vector" => Some(Self::Vector),
+            "curve" => Some(Self::Curve),
+            "scroll" => Some(Self::Scroll),
+            "mini-window" => Some(Self::MiniWindow),
+            "mini-state" => Some(Self::MiniState),
+            "mini-list" => Some(Self::MiniList),
+            "mini-style" => Some(Self::MiniStyle),
+            "mini-motion" => Some(Self::MiniMotion),
+            "mini-storage" => Some(Self::MiniStorage),
             _ => None,
         }
+    }
+
+    pub fn needs_storage(self) -> bool {
+        matches!(self, Self::MiniStorage)
     }
 }
 
@@ -29,7 +57,23 @@ pub fn install_recipe<B: Surface, F: RendererFactory<B>>(
     app: &mut App<B, F>,
     recipe: Recipe,
     reduced: bool,
+    storage: Option<StorageHandle>,
 ) {
+    if recipe.needs_storage()
+        && let Some(storage) = storage
+    {
+        app.add_plugin(PersistencePlugin::new(storage).autosave(200));
+    }
+    if matches!(recipe, Recipe::MiniStyle) {
+        //~focus-start:mini-style
+        app.add_plugin(
+            StyleSheetPlugin::new()
+                .class("pill", style!(height: 36, border_radius: 8))
+                .class("pill.on", style!(text_color: ColorToken::Primary))
+                .class("pill.off", style!(text_color: ColorToken::OnSurfaceVariant)),
+        );
+        //~focus-end:mini-style
+    }
     let root = app.spawn_root().id();
     match recipe {
         Recipe::Reactive => {
@@ -48,10 +92,397 @@ pub fn install_recipe<B: Surface, F: RendererFactory<B>>(
             app.with_widget(paint_glyph::view());
             app.compose(root, vector_scene());
         }
+        Recipe::Curve => {
+            let crest = app
+                .paths()
+                .insert_static(WAVE_CREST.commands())
+                .expect("crest path");
+            let valley = app
+                .paths()
+                .insert_static(WAVE_VALLEY.commands())
+                .expect("valley path");
+            let route = app.add_model(CurveRoute::new(crest, valley)).finish();
+            app.compose(root, curve_scene(route));
+        }
+        Recipe::Scroll => {
+            let scroller = app.add_model(ScrollTarget::default()).finish();
+            app.compose(root, scroll_scene(scroller, reduced));
+        }
+        Recipe::MiniWindow => {
+            app.compose(root, mini_window_scene());
+        }
+        Recipe::MiniState => {
+            let state = app.add_model(MiniSwitch::default()).finish();
+            app.compose(root, mini_state_scene(state));
+        }
+        Recipe::MiniList => {
+            let notes = app.add_model(MiniNotes::default()).finish();
+            let draft = app.add_model(TextDocument::new()).finish();
+            app.compose(root, mini_list_scene(notes, draft));
+        }
+        Recipe::MiniStyle => {
+            let pill = app.add_model(MiniPill::default()).finish();
+            app.compose(root, mini_style_scene(pill));
+        }
+        Recipe::MiniMotion => {
+            let tabs = app.add_model(SpringTabs::default()).finish();
+            app.compose(root, spring_scene(tabs, reduced));
+        }
+        Recipe::MiniStorage => {
+            let counter = app.add_model(SavedCount::default()).finish();
+            app.compose(root, mini_storage_scene(counter));
+        }
     }
 }
 
+// #region mini-window
+//~focus-start:mini-window
+#[compose]
+fn mini_window_scene() {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(20),
+            row_gap: 12,
+            text_color: ColorToken::OnSurface
+        ) {
+            Column (
+                height: 64,
+                padding: Padding::all(14),
+                justify: JustifyContent::Center,
+                bg_color: ColorToken::Secondary,
+                border_radius: 10
+            ) {
+                Text ("Hello Mirui", font_size: 24, height: 32, text_color: ColorToken::OnSecondary)
+            }
+            Row (height: 44, column_gap: 10) {
+                Column (
+                    grow: 1.0,
+                    padding: Padding::all(12),
+                    bg_color: ColorToken::SurfaceVariant,
+                    border_radius: 8
+                ) {
+                    Text ("First row", font_size: 13, height: 20)
+                }
+                Column (
+                    grow: 1.0,
+                    padding: Padding::all(12),
+                    bg_color: ColorToken::SurfaceVariant,
+                    border_radius: 8
+                ) {
+                    Text ("Second row", font_size: 13, height: 20)
+                }
+            }
+        }
+    };
+}
+//~focus-end:mini-window
+// #endregion mini-window
+
+// #region mini-state
+//~focus-start:mini-state
+#[model]
+#[derive(Default)]
+pub struct MiniSwitch {
+    #[observe]
+    pub checked: bool,
+    #[observe]
+    pub taps: u32,
+}
+
+#[model]
+impl MiniSwitch {
+    pub fn flip(&mut self) {
+        self.checked = !self.checked;
+        self.taps = self.taps.saturating_add(1);
+    }
+}
+
+#[compose]
+fn mini_state_scene(state: model!(MiniSwitch)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(20),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Text (
+                text: ${ format_args!("Status: {} ({} taps)", if state.checked() { "Done" } else { "Open" }, state.taps()) },
+                capacity: 36,
+                height: 26,
+                font_size: 16
+            )
+            Button (
+                text: ${ if state.checked() { "✓ Completed — tap to undo" } else { "Tap to mark complete" } },
+                height: 44,
+                border_radius: 10,
+                normal_color: ${ if state.checked() { ColorToken::Primary } else { ColorToken::SurfaceVariant } },
+                pressed_color: ColorToken::Outline,
+                text_color: ${ if state.checked() { ColorToken::OnPrimary } else { ColorToken::OnSurface } }
+            ) on Tap { state.flip(); }
+        }
+    };
+}
+//~focus-end:mini-state
+// #endregion mini-state
+
+// #region mini-list
+//~focus-start:mini-list
+#[model]
+#[derive(Default)]
+pub struct NoteItem {
+    pub label: String,
+}
+
+#[model]
+impl NoteItem {}
+
+#[model]
+pub struct MiniNotes {
+    pub items: model!(owned ModelList<NoteItem>),
+    seq: u32,
+}
+
+impl Default for MiniNotes {
+    fn default() -> Self {
+        let mut items = ModelList::bounded(6);
+        let _ = items.try_push(NoteItem { label: "Wire SPI display".into() });
+        let _ = items.try_push(NoteItem { label: "Mount root view".into() });
+        Self { items: items.into(), seq: 3 }
+    }
+}
+
+#[model]
+impl MiniNotes {
+    pub fn add(&mut self, text: Option<String>) {
+        let label = text.unwrap_or_else(|| format!("Item #{}", self.seq));
+        if self.items.try_push(NoteItem { label }).is_ok() {
+            self.seq = self.seq.saturating_add(1);
+        }
+    }
+
+    pub fn remove(&mut self, id: ModelItemId) {
+        let _ = self.items.remove(id);
+    }
+}
+
+#[event]
+fn add_note(notes: model!(MiniNotes), draft: model!(TextDocument)) {
+    let text = draft.read(|s| {
+        let t = s.trim();
+        (!t.is_empty()).then(|| t.chars().take(28).collect::<String>())
+    });
+    notes.add(text);
+    let _ = draft.set_text("");
+}
+
+#[event]
+fn remove_note(id: ModelItemId, notes: model!(MiniNotes)) {
+    notes.remove(id);
+}
+
+#[compose]
+fn note_row(notes: model!(MiniNotes), id: ModelItemId, item: model!(NoteItem)) -> Entity {
+    let title = item.read(|n| n.label.clone());
+    ui! {
+        Row (
+            height: 34,
+            padding: Padding::all(6),
+            align: AlignItems::Center,
+            justify: JustifyContent::SpaceBetween,
+            bg_color: ColorToken::SurfaceVariant,
+            border_radius: 7
+        ) {
+            Text (text: title, grow: 1.0, height: 20, font_size: 13)
+            Button (
+                "×",
+                width: 28,
+                height: 26,
+                border_radius: 6,
+                normal_color: ColorToken::Surface,
+                pressed_color: ColorToken::Outline,
+                text_color: ColorToken::OnSurfaceVariant
+            ) on Tap(remove_note::callback(id, notes))
+        }
+    }
+}
+
+#[compose]
+fn mini_list_scene(notes: model!(MiniNotes), draft: model!(TextDocument)) {
+    ui! {
+        Column (grow: 1.0, padding: Padding::all(16), row_gap: 8, text_color: ColorToken::OnSurface) {
+            Row (height: 36, column_gap: 8) {
+                TextInput (
+                    grow: 1.0,
+                    height: 36,
+                    padding: Padding::all(8),
+                    bg_color: ColorToken::SurfaceVariant,
+                    border_radius: 8
+                ) [
+                    TextEditing::new(draft.clone()),
+                    Placeholder("Type an item..."),
+                ] on TextEditing::Submitted(add_note::callback(notes, draft))
+                Button (
+                    "+ Add",
+                    width: 64,
+                    height: 36,
+                    border_radius: 8,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap(add_note::callback(notes, draft))
+            }
+            Column (grow: 1.0, row_gap: 6, clip_children: true) {
+                walk ${ notes.items().entries() } with entry by entry.0 {
+                    note_row (notes, entry.0, entry.1)
+                }
+            }
+        }
+    };
+}
+//~focus-end:mini-list
+// #endregion mini-list
+
+// #region mini-style
+//~focus-start:mini-style
+#[model]
+#[derive(Default)]
+pub struct MiniPill {
+    #[observe]
+    pub active: bool,
+}
+
+#[model]
+impl MiniPill {
+    pub fn toggle(&mut self) {
+        self.active = !self.active;
+    }
+}
+
+#[compose]
+fn status_badge(title: prop!(String), active: prop!(bool), pill: model!(MiniPill)) -> Entity {
+    ui! {
+        Button (
+            text: ${ title },
+            grow: 1.0,
+            normal_color: ColorToken::SurfaceVariant,
+            pressed_color: ColorToken::Outline,
+            class: ${ ("pill", if active.get() { "pill.on" } else { "pill.off" }) }
+        ) on Tap { pill.toggle(); }
+    }
+}
+
+#[compose]
+fn mini_style_scene(pill: model!(MiniPill)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(20),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Text (
+                "Both buttons share #[compose] & the 'pill' stylesheet class",
+                height: 20,
+                font_size: 13,
+                text_color: ColorToken::OnSurfaceVariant
+            )
+            Row (height: 44, column_gap: 10, align: AlignItems::Center) {
+                status_badge (
+                    ${ if pill.active() { "● Active class (.pill.on)" } else { "○ Muted class (.pill.off)" } },
+                    ${ pill.active() },
+                    pill
+                )
+                status_badge ("Mirror badge", ${ !pill.active() }, pill)
+            }
+        }
+    };
+}
+//~focus-end:mini-style
+// #endregion mini-style
+
+// #region mini-storage
+//~focus-start:mini-storage
+#[model(persistence(key = "mirui_mini_saved_count"))]
+pub struct SavedCount {
+    #[observe]
+    #[persist]
+    pub value: i32,
+}
+
+impl Default for SavedCount {
+    fn default() -> Self {
+        Self { value: 1 }
+    }
+}
+
+#[model]
+impl SavedCount {
+    pub fn add(&mut self, delta: i32) {
+        self.value += delta;
+    }
+
+    pub fn reset(&mut self) {
+        self.value = 1;
+    }
+}
+
+#[compose]
+fn mini_storage_scene(counter: model!(SavedCount)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(20),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 28, justify: JustifyContent::SpaceBetween, align: AlignItems::Center) {
+                Text (
+                    "#[persist] snapshot",
+                    grow: 1.0,
+                    height: 20,
+                    font_size: 13,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Text (
+                    text: ${ format_args!("Saved: {}", counter.value()) },
+                    capacity: 20,
+                    grow: 1.0,
+                    font_size: 20,
+                    height: 28,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+                )
+            }
+            Row (height: 40, column_gap: 8) {
+                Button (
+                    "+ 1 (Autosaves)",
+                    grow: 1.0,
+                    height: 40,
+                    border_radius: 9,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap { counter.add(1); }
+                Button (
+                    "Reset",
+                    width: 80,
+                    height: 40,
+                    border_radius: 9,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { counter.reset(); }
+            }
+        }
+    };
+}
+//~focus-end:mini-storage
+// #endregion mini-storage
+
 // #region recipe-reactive
+//~focus-start:reactive
 #[model]
 pub struct Gauge {
     #[observe]
@@ -81,10 +512,18 @@ fn reactive_scene(gauge: model!(Gauge)) {
             text_color: ColorToken::OnSurface
         ) {
             Row (height: 28, justify: JustifyContent::SpaceBetween, align: AlignItems::Center) {
-                Text ("Signal binding", font_size: 14, text_color: ColorToken::OnSurfaceVariant)
+                Text (
+                    "Signal binding",
+                    grow: 1.0,
+                    height: 20,
+                    font_size: 14,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
                 Text (
                     text: ${ format_args!("{} %", gauge.level()) },
                     capacity: 12,
+                    grow: 1.0,
                     font_size: 22,
                     height: 28,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::End)
@@ -130,9 +569,11 @@ fn reactive_scene(gauge: model!(Gauge)) {
         }
     };
 }
+//~focus-end:reactive
 // #endregion recipe-reactive
 
 // #region recipe-layout
+//~focus-start:layout
 #[model]
 #[derive(Default)]
 pub struct FlexDeck {
@@ -156,10 +597,12 @@ fn layout_scene(deck: model!(FlexDeck)) {
             row_gap: 12,
             text_color: ColorToken::OnSurface
         ) {
-            Row (height: 34, justify: JustifyContent::SpaceBetween, align: AlignItems::Center) {
+            Row (height: 34, column_gap: 8, align: AlignItems::Center) {
                 Text (
-                    text: ${ if deck.compact() { "Compact · 128 px card" } else { "Expanded · full row" } },
+                    text: ${ if deck.compact() { "Compact · 96 px card" } else { "Expanded · 156 px card" } },
                     capacity: 28,
+                    grow: 1.0,
+                    min_width: 0,
                     height: 22,
                     font_size: 13,
                     text_color: ColorToken::OnSurfaceVariant,
@@ -211,9 +654,11 @@ fn layout_scene(deck: model!(FlexDeck)) {
         }
     };
 }
+//~focus-end:layout
 // #endregion recipe-layout
 
 // #region recipe-spring
+//~focus-start:spring,mini-motion
 #[model]
 #[derive(Default)]
 pub struct SpringTabs {
@@ -251,7 +696,7 @@ fn spring_scene(tabs: model!(SpringTabs), reduced: bool) {
             text_color: ColorToken::OnSurface
         ) {
             Text (
-                "Tap any pill — the frame retargets mid-flight",
+                "Tap any pill — FollowBounds retargets mid-flight",
                 height: 22,
                 font_size: 13,
                 text_color: ColorToken::OnSurfaceVariant,
@@ -293,6 +738,7 @@ fn spring_scene(tabs: model!(SpringTabs), reduced: bool) {
                     pressed_color: ColorToken::SurfaceVariant,
                     text_color: ColorToken::OnSurface
                 ) on Tap(pick_tab::callback(2, tabs))
+                //~add-start:mini-motion
                 View (
                     id: "spring_ring",
                     border_width: 2,
@@ -302,6 +748,7 @@ fn spring_scene(tabs: model!(SpringTabs), reduced: bool) {
                     FollowBounds::new(id("spring_first"))
                         .with_transition(indicator_transition(reduced)),
                 ]
+                //~add-end:mini-motion
             }
             Text (
                 text: ${
@@ -319,9 +766,11 @@ fn spring_scene(tabs: model!(SpringTabs), reduced: bool) {
         }
     };
 }
+//~focus-end:spring,mini-motion
 // #endregion recipe-spring
 
 // #region recipe-vector
+//~focus-start:vector
 static APERTURE_BLADE: Path = path!(M 50 6 L 94 50 L 50 94 L 6 50 Z);
 static INNER_RING: Path = path!(M 50 24 L 76 50 L 50 76 L 24 50 Z);
 
@@ -455,4 +904,218 @@ fn vector_scene() {
         }
     };
 }
+//~focus-end:vector
 // #endregion recipe-vector
+
+// #region recipe-curve
+//~focus-start:curve
+static WAVE_CREST: Path = path!(M 12 68 Q 70 20 128 68 Q 186 116 244 68);
+static WAVE_VALLEY: Path = path!(M 12 52 Q 70 100 128 52 Q 186 4 244 52);
+
+#[model]
+pub struct CurveRoute {
+    crest: PathId,
+    valley: PathId,
+    #[observe]
+    pub inverted: bool,
+    #[observe]
+    pub offset: i32,
+}
+
+impl CurveRoute {
+    pub fn new(crest: PathId, valley: PathId) -> Self {
+        Self {
+            crest,
+            valley,
+            inverted: false,
+            offset: 8,
+        }
+    }
+}
+
+#[model]
+impl CurveRoute {
+    #[observe]
+    pub fn placement(&self) -> TextPath {
+        let path = if self.inverted { self.valley } else { self.crest };
+        TextPath::new(path).with_offset(Fixed::from_int(self.offset))
+    }
+
+    pub fn flip(&mut self) {
+        self.inverted = !self.inverted;
+    }
+
+    pub fn advance(&mut self) {
+        self.offset = (self.offset + 18) % 72;
+    }
+}
+
+#[compose]
+fn curve_scene(route: model!(CurveRoute)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(18),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 32, column_gap: 6, align: AlignItems::Center) {
+                Text (
+                    text: ${ format_args!("+{} px", route.offset()) },
+                    capacity: 16,
+                    grow: 1.0,
+                    min_width: 0,
+                    height: 22,
+                    font_size: 13,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Button (
+                    "Slide +18",
+                    width: 72,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { route.advance(); }
+                Button (
+                    "Flip wave",
+                    width: 74,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap { route.flip(); }
+            }
+            View (
+                grow: 1.0,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 12,
+                clip_children: true
+            ) {
+                Text (
+                    "mirui rides the wave",
+                    path: ${ route.placement() },
+                    position: Position::Absolute,
+                    left: 6,
+                    top: 10,
+                    width: Dimension::percent(96),
+                    height: Dimension::percent(85),
+                    font_size: 15,
+                    text_color: ColorToken::Primary
+                )
+            }
+        }
+    };
+}
+//~focus-end:curve
+// #endregion recipe-curve
+
+// #region recipe-scroll
+//~focus-start:scroll
+#[model]
+#[derive(Default)]
+pub struct ScrollTarget {
+    #[observe]
+    pub offset_y: i32,
+}
+
+#[model]
+impl ScrollTarget {
+    pub fn jump(&mut self, y: i32) {
+        self.offset_y = y;
+    }
+}
+
+#[compose]
+fn scroll_item(title: &'static str) -> Entity {
+    ui! {
+        Row (
+            height: 38,
+            shrink: 0.0,
+            padding: Padding::all(10),
+            align: AlignItems::Center,
+            bg_color: ColorToken::Surface,
+            border_radius: 8
+        ) {
+            Text (title, height: 18, font_size: 13)
+        }
+    }
+}
+
+#[compose]
+fn scroll_scene(scroller: model!(ScrollTarget), reduced: bool) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(16),
+            row_gap: 10,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 32, column_gap: 6, align: AlignItems::Center) {
+                Button (
+                    "Top (#1)",
+                    grow: 1.0,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { scroller.jump(0); }
+                Button (
+                    "Middle (#4)",
+                    grow: 1.0,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { scroller.jump(96); }
+                Button (
+                    "Bottom (#7)",
+                    grow: 1.0,
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap { scroller.jump(180); }
+            }
+            Column (
+                grow: 1.0,
+                min_height: 0,
+                padding: Padding::all(8),
+                row_gap: 6,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 10,
+                clip_children: true,
+                scroll_offset: ${
+                    ScrollOffset {
+                        x: Fixed::ZERO,
+                        y: Fixed::from_int(scroller.offset_y()),
+                    }
+                }
+            ) [
+                ScrollOffset::default(),
+                ScrollConfig::default().with_transition(indicator_transition(reduced)),
+            ] {
+                scroll_item ("01 · FramebufSurface (MCU SPI)")
+                scroll_item ("02 · SdlSurface (Desktop CPU)")
+                scroll_item ("03 · SdlGpuSurface (OpenGL / Metal)")
+                scroll_item ("04 · WgpuSurface (Vulkan / DX12)")
+                scroll_item ("05 · WebCanvasSurface (Browser)")
+                scroll_item ("06 · LinuxDrmSurface (KMS / GBM)")
+                scroll_item ("07 · NuttxSurface (Embedded RTOS)")
+            }
+        }
+    };
+}
+//~focus-end:scroll
+// #endregion recipe-scroll

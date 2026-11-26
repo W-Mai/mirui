@@ -52,6 +52,8 @@ impl Tutorial {
     ) -> Result<Self, JsError> {
         let chapter = Chapter::new(chapter).ok_or_else(|| JsError::new("Unknown chapter"))?;
         // #region web-host
+        //~focus-start:ch7
+        //~add-start:ch7
         let surface = WebCanvasSurface::new(canvas);
         let mut app = App::with_factory(surface, WebCanvasRendererFactory::new());
         app.set_theme(if dark { "dark" } else { "light" })
@@ -67,6 +69,8 @@ impl Tutorial {
         app.prepare_text_layout()
             .map_err(|error| JsError::new(&format!("{error:?}")))?;
         Ok(Self { app })
+        //~add-end:ch7
+        //~focus-end:ch7
         // #endregion web-host
     }
 
@@ -81,7 +85,14 @@ impl Tutorial {
         let mut app = App::with_factory(surface, WebCanvasRendererFactory::new());
         app.set_theme(if dark { "dark" } else { "light" })
             .map_err(|error| JsError::new(&format!("{error:?}")))?;
-        install_named_recipe(&mut app, recipe, reduced);
+        let storage = if recipe.needs_storage() {
+            LocalStorageStorage::with_prefix(concat!("mirui-mini-", env!("CARGO_PKG_VERSION")))
+                .ok()
+                .map(Storage::into_handle)
+        } else {
+            None
+        };
+        install_named_recipe(&mut app, recipe, reduced, storage);
         app.prepare_text_layout()
             .map_err(|error| JsError::new(&format!("{error:?}")))?;
         Ok(Self { app })

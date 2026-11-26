@@ -5,31 +5,49 @@ aside: false
 
 # Complete a task
 
-Let each row remember whether it is done, and let the header tally flip on the exact same frame.
+In chapter 1 the rows were static labels. Now we introduce reactive state (`#[model]`) so tapping a row flips its checkmark and updates the header tally on the same frame.
 
-<TutorialWorkspace :chapter="2" file="model.rs">
+## 1. Minimal demo: `#[model]` and `${...}` bindings {#concept}
 
-<<< @/examples/first-app/src/model.rs#task{rust}
+Annotate a struct with `#[model]` and mark observable fields with `#[observe]`. The macro generates a getter method for each observed field (`state.checked()`, `state.taps()`).
+
+Calling those getters inside `${...}` subscribes the widget attribute to the field; mutating the model inside `on Tap` updates every subscriber automatically:
+
+<MiruiSnippet recipe="mini-state" label="CONCEPT" file="recipes.rs" height="200px">
 
 <template #exercise>
 
-Tap `Connect the display`: its checkmark lights up and the header count steps from `1 of 3` to `2 of 3`. Tap again to undo.
+Tap the button on the right: the button label, background color, and tap counter all react to `state.flip()` without manual widget mutation.
+
+</template>
+
+</MiruiSnippet>
+
+---
+
+## 2. In the task list: syncing rows and the header count {#app}
+
+Now bring the same pattern into the task list. In `model.rs` we mark `done` with `#[observe]` and add a derived `completed()` query on `Tasks`; in `interface.rs` each row wraps its content in `Button ... on Tap { task.toggle(); }`.
+
+With the **eye button** on, the source pane gathers the focused regions across **`model.rs` · `interface.rs` · `lib.rs`** and highlights the lines added in this step (`+`). Click any file tab or turn the eye off to read the full files:
+
+<TutorialWorkspace :chapter="2" file="model.rs">
+
+<template #exercise>
+
+Tap `Connect the display`: its checkmark appears and the header count steps from `1 of 3` to `2 of 3`. Tap again to undo.
 
 </template>
 
 </TutorialWorkspace>
 
-## Inside this frame {#source}
+### What changed in this step {#source}
 
-1. Call `app.add_model(Tasks::default()).finish()` before composing. Each row receives the handle to its own `Task`. Because `done` is marked `#[observe]`, any `${...}` expression that calls `task.done()` subscribes to that field automatically.
-2. The row's `on Tap` handler simply calls `task.toggle()`. Both the checkmark visibility and `tasks.completed()` in the header derive from the same model data—there is no second counter to keep in sync by hand.
+1. **Single source of truth**: The header's `format_args!("{} of {} complete", tasks.completed(), tasks.total())` counts completed items directly from the list. Because there is no second counter to maintain, the row checkmarks and header tally can never drift apart.
+2. **Always call the generated getter**: Inside `${...}`, call `task.done()` rather than reading `task.done` directly so the reactive scope records the subscription.
 
 ## Run on your machine {#run}
-
-From the repository root for this manual version:
 
 ```sh
 cargo run -p mirui-first-app --features desktop --example desktop -- 2
 ```
-
-Always read the generated `task.done()` getter inside `${...}` bindings so the reactive scope records the dependency.

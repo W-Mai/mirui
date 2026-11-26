@@ -5,13 +5,21 @@ pub const TITLES: [&str; 3] = ["Connect the display", "Open a window", "Try the 
 pub(crate) const TASK_LIMIT: usize = 8;
 
 // #region task
+//~focus-start:ch2,ch6
+//~add-start:ch6
 #[model(persistence)]
+//~add-end:ch6
 #[derive(Default)]
+//~add-start:ch2
 pub struct Task {
+    //~add-start:ch6
     #[persist]
+    //~add-end:ch6
     pub title: String,
     #[observe]
+    //~add-start:ch6
     #[persist]
+    //~add-end:ch6
     pub done: bool,
 }
 
@@ -21,6 +29,8 @@ impl Task {
         self.done = !self.done;
     }
 }
+//~add-end:ch2
+//~focus-end:ch2,ch6
 // #endregion task
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,6 +50,8 @@ impl Filter {
     }
 }
 
+//~focus-start:ch6
+//~add-start:ch6
 #[model(persistence(key = "first_app_tasks"))]
 pub struct Tasks {
     #[persist]
@@ -49,6 +61,8 @@ pub struct Tasks {
     #[persist]
     sequence: u32,
 }
+//~add-end:ch6
+//~focus-end:ch6
 
 impl Default for Tasks {
     fn default() -> Self {
@@ -74,6 +88,8 @@ impl Default for Tasks {
 #[model]
 impl Tasks {
     // #region collection
+    //~focus-start:ch2
+    //~add-start:ch2
     #[observe]
     pub fn completed(&self) -> usize {
         self.items.iter().filter(|task| task.done()).count()
@@ -83,7 +99,11 @@ impl Tasks {
     pub fn total(&self) -> usize {
         self.items.len()
     }
+    //~add-end:ch2
+    //~focus-end:ch2
 
+    //~focus-start:ch3
+    //~add-start:ch3
     pub fn set_filter(&mut self, filter: Filter) {
         self.filter = filter;
     }
@@ -98,5 +118,7 @@ impl Tasks {
     pub fn remove(&mut self, key: ModelItemId) {
         let _ = self.items.remove(key);
     }
+    //~add-end:ch3
+    //~focus-end:ch3
     // #endregion collection
 }

@@ -16,6 +16,8 @@ enum Edit {
     Remove(ModelItemId),
 }
 
+//~focus-start:ch3
+//~add-start:ch3
 #[event]
 fn edit_tasks(edit: Edit, tasks: model!(Tasks), draft: model!(TextDocument)) {
     match edit {
@@ -33,6 +35,8 @@ fn edit_tasks(edit: Edit, tasks: model!(Tasks), draft: model!(TextDocument)) {
         Edit::Remove(key) => tasks.remove(key),
     }
 }
+//~add-end:ch3
+//~focus-end:ch3
 
 #[event]
 fn select_filter(
@@ -48,6 +52,7 @@ fn select_filter(
     }
 }
 
+//~focus-start:ch2,ch4
 #[compose]
 fn task_row(
     tasks: model!(Tasks),
@@ -60,6 +65,7 @@ fn task_row(
     ui! {
         Column (visible: ${ tasks.filter().includes(task.done()) }, height: 49, shrink: 0.0) {
             Row (height: 48, align: AlignItems::Center) {
+                //~add-start:ch2
                 Button (
                     grow: 1.0,
                     min_width: 0,
@@ -67,12 +73,14 @@ fn task_row(
                     clip_children: true,
                     normal_color: ColorToken::Surface,
                     pressed_color: ColorToken::SurfaceVariant,
+                    //~add-start:ch4
                     class: ${
                         (
                             chapter.has_presets().then_some("task"),
                             (chapter.has_presets() && task.done()).then_some("task.complete"),
                         )
                     }
+                    //~add-end:ch4
                 ) {
                     Row (grow: 1.0, min_width: 0, align: AlignItems::Center, column_gap: 12) {
                         Column (
@@ -103,6 +111,7 @@ fn task_row(
                         )
                     }
                 } on Tap { task.toggle(); }
+                //~add-end:ch2
                 if chapter.has_list() {
                     Button (
                         "Remove",
@@ -119,6 +128,7 @@ fn task_row(
         }
     }
 }
+//~focus-end:ch2,ch4
 
 fn filter_style() -> StylePreset<Button> {
     style!(
@@ -136,6 +146,8 @@ fn tab_surface(active: bool) -> ColorToken {
 }
 
 // #region filter-button
+//~focus-start:ch4
+//~add-start:ch4
 #[compose]
 fn filter_button(
     tasks: model!(Tasks),
@@ -153,6 +165,8 @@ fn filter_button(
         ) on Tap(select_filter::callback(filter, tasks, marker))
     }
 }
+//~add-end:ch4
+//~focus-end:ch4
 // #endregion filter-button
 
 #[compose]
@@ -168,6 +182,7 @@ fn all_tasks(tasks: model!(Tasks), marker: Option<Entity>, chapter: Chapter) -> 
     }
 }
 
+//~focus-start:ch5
 #[compose]
 fn filters(tasks: model!(Tasks), chapter: Chapter, reduced: bool) -> Entity {
     let (open, done) = (Filter::Open, Filter::Done);
@@ -194,6 +209,7 @@ fn filters(tasks: model!(Tasks), chapter: Chapter, reduced: bool) -> Entity {
                 chapter.has_motion().then(|| id("filter_marker")),
                 chapter
             )
+            //~add-start:ch5
             View (
                 id: "filter_marker",
                 visible: ${ chapter.has_motion() },
@@ -204,10 +220,14 @@ fn filters(tasks: model!(Tasks), chapter: Chapter, reduced: bool) -> Entity {
                 FollowBounds::new(id("filter_all"))
                     .with_transition(indicator_transition(reduced || !chapter.has_motion())),
             ]
+            //~add-end:ch5
         }
     }
 }
+//~focus-end:ch5
 
+//~focus-start:ch3
+//~add-start:ch3
 #[compose]
 fn add_task(tasks: model!(Tasks), draft: model!(TextDocument)) -> Entity {
     ui! {
@@ -235,6 +255,8 @@ fn add_task(tasks: model!(Tasks), draft: model!(TextDocument)) -> Entity {
         }
     }
 }
+//~add-end:ch3
+//~focus-end:ch3
 
 #[compose]
 pub(crate) fn task_list(
@@ -253,6 +275,7 @@ pub(crate) fn task_list(
             text_color: ColorToken::OnSurface,
             font_size: 14
         ) {
+            //~focus-start:ch2,ch5
             Column (
                 height: if chapter.has_motion() { 102 } else { 92 },
                 padding: Padding::all(14),
@@ -262,6 +285,7 @@ pub(crate) fn task_list(
                 border_radius: 12
             ) {
                 Text ("Task list", font_size: 30, height: 39, text_color: ColorToken::OnSecondary)
+                //~add-start:ch2
                 Text (
                     text: ${ format_args!("{} of {} complete", tasks.completed(), tasks.total()) },
                     capacity: 32,
@@ -269,20 +293,26 @@ pub(crate) fn task_list(
                     height: 19,
                     text_color: ColorToken::OnSecondary
                 )
+                //~add-end:ch2
+                //~add-start:ch5
                 if chapter.has_motion() {
                     View (height: 4, bg_color: ColorToken::OnSurfaceVariant, border_radius: 2) [
                         Progress(start),
                         ProgressTarget(start),
                     ]
                 }
+                //~add-end:ch5
             }
+            //~focus-end:ch2,ch5
             if chapter.has_list() {
                 filters (tasks, chapter, reduced)
             }
+            //~focus-start:ch3
             Column (grow: 1.0, min_height: 0, clip_children: true) [
                 ScrollOffset::default(),
                 ScrollConfig::default(),
             ] {
+                //~add-start:ch3
                 walk ${ tasks.items().entries() } with row by row.0 {
                     task_row (
                         tasks,
@@ -292,6 +322,7 @@ pub(crate) fn task_list(
                         chapter
                     )
                 }
+                //~add-end:ch3
                 if chapter.has_list() {
                     Text (
                         visible: ${
@@ -313,6 +344,7 @@ pub(crate) fn task_list(
                     )
                 }
             }
+            //~focus-end:ch3
             if chapter.has_list() {
                 add_task (tasks, draft)
             }

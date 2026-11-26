@@ -57,6 +57,7 @@ const catalog = computed(() => [
       { en: 'Common patterns', zh: '常用界面写法', href: zh.value ? '/zh/learn/recipes.html' : '/learn/recipes.html', code: 'ui!' },
       { en: 'Quickstart and targets', zh: '环境搭建与多端工程', href: '/quickstart.html', code: 'cargo' },
       { en: 'Reactive UI and styles', zh: '响应式状态与样式', href: '/state-management.html', code: 'Model' },
+      { en: 'Composition, roles & views', zh: '组合、角色与自定义视图', href: '/composition.html', code: '#[compose]' },
       { en: 'Model collections', zh: '有界列表与键值复用', href: '/model-collections.html', code: 'ModelList' },
       { en: 'Events and callbacks', zh: '手势识别与事件回调', href: '/events.html', code: '#[event]' },
       { en: 'Navigation and motion', zh: '页面导航与物理动效', href: '/navigation.html', code: '#[animate]' },

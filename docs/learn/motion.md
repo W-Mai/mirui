@@ -5,11 +5,29 @@ aside: false
 
 # Give the interface motion
 
-Tween the completion meter and let a critically damped spring glide the selection frame across the filter bar.
+Responsive motion must handle interruption gracefully: if a user double-taps a task while the progress bar is half-way across, the bar should reverse smoothly from its current position rather than snapping back to zero.
+
+## 1. Minimal demo: `FollowBounds` spring selection ring {#concept}
+
+First, let's isolate the filter bar's selection ring. Below, three buttons have different widths, and a trailing `View` attaches `FollowBounds::new(id("spring_first")).with_transition(...)`. When a button is tapped, `pick_tab` sets `follower.target = target` and the critically damped spring interpolates both position and width:
+
+<MiruiSnippet recipe="mini-motion" label="CONCEPT" file="recipes.rs" height="220px">
+
+<template #exercise>
+
+Tap rapidly across `MCU`, `Desktop`, and `Web`—watch the blue outline reverse mid-flight while preserving velocity and resizing to the new target.
+
+</template>
+
+</MiruiSnippet>
+
+---
+
+## 2. In the task list: retargetable progress tween + filter spring {#app}
+
+Now we mount that `FollowBounds` ring inside `filters` (`interface.rs`) and add a custom `Progress` view driven by `aim_progress` and `#[animate]` (`motion.rs`) in the header:
 
 <TutorialWorkspace :chapter="5" file="motion.rs">
-
-<<< @/examples/first-app/src/motion.rs#progress-motion{rust}
 
 <template #exercise>
 
@@ -19,17 +37,13 @@ Double-tap a row while the progress bar is still moving—watch it reverse smoot
 
 </TutorialWorkspace>
 
-## Inside this frame {#source}
+### What changed in this step {#source}
 
-1. `aim_progress` computes the normalized `Fixed` ratio from the completed and total counts. Whenever that target changes, it launches a new tween starting from the **currently displayed** `progress.0`—so rapid clicks retarget in place without snapping.
-2. The `#[animate]` callback writes each interpolated value into `Progress` and removes the animation component once it settles. On the filter bar, a `View` with `FollowBounds` chases the active button's geometry using the `INTERACTIVE` spring.
+1. **Retargeting from the displayed value**: In `motion.rs`, whenever `goal` changes, `aim_progress` starts a new tween from the **currently displayed** `progress.0` (`settings.0.motion(progress.0, goal)`).
+2. **Zero cost at rest**: `#[animate(component = AnimateProgress)]` updates `Progress` each frame and removes `AnimateProgress` from the entity as soon as the tween settles.
 
 ## Run on your machine {#run}
-
-From the repository root for this manual version:
 
 ```sh
 cargo run -p mirui-first-app --features desktop --example desktop -- 5
 ```
-
-The underlying `Model` flips on the first frame; only the visual meter width and the selection frame travel through intermediate values.

@@ -671,7 +671,26 @@
   transition: top var(--manual-motion), opacity var(--manual-motion) !important;
 }
 
-/* ── Reading prose, code & tables ──────────────────────── */
+/* ── Reading prose, diagrams, code & tables ────────────── */
+.arch-diagram {
+  margin: 22px 0 28px;
+  padding: 12px 14px;
+  border: 1px solid var(--site-rule-strong);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle, var(--dot) 1px, transparent 1px) 0 0 / 12px 12px,
+    var(--site-panel-2);
+  box-shadow: inset 0 1px 0 var(--rim-top), inset 0 -1px 0 var(--rod-lo);
+  overflow-x: auto;
+}
+
+.arch-diagram svg {
+  display: block;
+  width: 100%;
+  min-width: 640px;
+  height: auto;
+}
+
 .vp-doc h1 {
   letter-spacing: -.035em;
   font-weight: 660;

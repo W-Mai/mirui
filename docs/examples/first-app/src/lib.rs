@@ -60,21 +60,31 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
         .expect("decode the bundled tutorial font");
     app.with_fonts(FontManager::new(MaxSize::Unbound, font));
     app.add_plugin(StdInstantClockPlugin);
+    //~focus-start:ch1
+    //~add-start:ch1
     let root = app.spawn_root().id();
     if chapter.0 == 1 {
         app.compose(root, first_window());
         return None;
     }
+    //~add-end:ch1
+    //~focus-end:ch1
 
     // #region persistence
+    //~focus-start:ch6
+    //~add-start:ch6
     if chapter.has_storage()
         && let Some(storage) = storage
     {
         app.add_plugin(PersistencePlugin::new(storage).autosave(500));
     }
+    //~add-end:ch6
+    //~focus-end:ch6
     // #endregion persistence
     if chapter.has_presets() {
         // #region task-styles
+        //~focus-start:ch4
+        //~add-start:ch4
         app.add_plugin(
             StyleSheetPlugin::new()
                 .class("task", style!(text_color: ColorToken::OnSurface))
@@ -84,15 +94,25 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
                 )
                 .class("filter", style!(font_size: 13)),
         );
+        //~add-end:ch4
+        //~focus-end:ch4
         // #endregion task-styles
     }
+    //~focus-start:ch2,ch6
+    //~add-start:ch2
     let tasks = app.add_model(Tasks::default()).finish();
+    //~add-end:ch2
+    //~focus-end:ch2,ch6
     if chapter.has_motion() {
+        //~focus-start:ch5
+        //~add-start:ch5
         app.add_resource(motion::MotionSettings(motion::progress_transition(reduced)));
         app.with_widget(motion::paint_progress::view().with_systems([
             motion::aim_progress::system(tasks.clone()),
             motion::AnimateProgress::system(),
         ]));
+        //~add-end:ch5
+        //~focus-end:ch5
     }
     let draft = app.add_model(TextDocument::new()).finish();
     app.compose(
@@ -106,6 +126,7 @@ pub fn install_named_recipe<B: Surface, F: RendererFactory<B>>(
     app: &mut App<B, F>,
     recipe: Recipe,
     reduced: bool,
+    storage: Option<StorageHandle>,
 ) {
     app.with_theme(palette::book(app.theme().id().as_str() == "dark"));
     app.with_default_widgets().with_default_systems();
@@ -113,10 +134,12 @@ pub fn install_named_recipe<B: Surface, F: RendererFactory<B>>(
         .expect("decode the bundled tutorial font");
     app.with_fonts(FontManager::new(MaxSize::Unbound, font));
     app.add_plugin(StdInstantClockPlugin);
-    recipes::install_recipe(app, recipe, reduced);
+    recipes::install_recipe(app, recipe, reduced, storage);
 }
 
 // #region window
+//~focus-start:ch1
+//~add-start:ch1
 #[compose]
 fn first_window() {
     ui! {
@@ -134,4 +157,6 @@ fn first_window() {
         }
     };
 }
+//~add-end:ch1
+//~focus-end:ch1
 // #endregion window

@@ -2,6 +2,16 @@
 
 Enable the `persistence` feature to use `PersistencePlugin` with a storage backend.
 
+<MiruiSnippet recipe="mini-storage" label="#[persist]" file="recipes.rs" height="200px">
+
+<template #exercise>
+
+Tap `+ 1 (Autosaves)` a few times, pause 0.2 seconds, then click **`Relaunch ↻`** in the footer to destroy and recreate the `App` from its saved snapshot.
+
+</template>
+
+</MiruiSnippet>
+
 ## Model field descriptions
 
 `#[model(persistence)]` declares a field codec. Add `#[persist]` to fields included in the archive; `persistence(key = "settings")` also declares root key metadata. `#[observe]` remains independent of persistence. Static owned Model fields use their child's codec.

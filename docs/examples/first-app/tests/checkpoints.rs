@@ -4,9 +4,22 @@ use mirui_first_app::{Chapter, Recipe, install, install_named_recipe};
 
 #[test]
 fn every_recipe_mounts_and_draws() {
-    for name in ["reactive", "layout", "spring", "vector"] {
+    for name in [
+        "reactive",
+        "layout",
+        "spring",
+        "vector",
+        "curve",
+        "scroll",
+        "mini-window",
+        "mini-state",
+        "mini-list",
+        "mini-style",
+        "mini-motion",
+        "mini-storage",
+    ] {
         let mut app = App::headless(420, 260);
-        install_named_recipe(&mut app, Recipe::parse(name).unwrap(), false);
+        install_named_recipe(&mut app, Recipe::parse(name).unwrap(), false, None);
         assert!(!app.tick());
         app.render().unwrap();
     }

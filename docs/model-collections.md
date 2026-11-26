@@ -2,6 +2,16 @@
 
 `ModelList<T>` stores an ordered sequence of Models. `ModelMap<K, T>` associates sorted business keys with Models. `ModelSet<K>` tracks membership of immutable values. All live in `mirui::core::model` and can be declared as owned Model fields. Register the parent once; collection changes share the same transaction and observation lifecycle.
 
+<MiruiSnippet recipe="mini-list" label="ModelList" file="recipes.rs" height="230px">
+
+<template #exercise>
+
+Type an item and press Return (or tap `+ Add`) to append to the bounded `ModelList`, then remove any row by its stable `ModelItemId`.
+
+</template>
+
+</MiruiSnippet>
+
 ## Keyed data
 
 ```rust

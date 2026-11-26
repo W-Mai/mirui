@@ -2,6 +2,55 @@
 
 mirui shapes text into positioned glyphs, then optionally places those glyphs on a registered vector path. The same `Path` and `PathId` types drive drawing, clipping, hit testing, and text baselines.
 
+<MiruiSnippet recipe="curve" label="TextPath" file="recipes.rs" height="230px">
+
+<<< @/examples/first-app/src/recipes.rs#recipe-curve{rust}
+
+<template #exercise>
+
+Tap `Slide +18` to advance the leading offset along the Bézier curve, or tap `Flip wave` to switch the reactive `TextPath` between crest and valley paths.
+
+</template>
+
+</MiruiSnippet>
+
+<div class="arch-diagram" role="img" aria-label="Typography pipeline from FontStack and shaping to linear or path glyph placement">
+  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="typo-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · FONT STACK</text>
+    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Primary + FALLBACK</text>
+    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">FontToken::Default</text>
+    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">FontToken::FALLBACK</text>
+    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">MIRX A1 / A8 / SDF strikes</text>
+    <path d="M210 84H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#typo-arrow)" />
+    <rect x="256" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · SHAPING</text>
+    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Bidi &amp; Line Breaking</text>
+    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">TextWrap · Ellipsis</text>
+    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">TextLayoutCapacity</text>
+    <text x="272" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Bounded workspace buffers</text>
+    <path d="M450 84H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#typo-arrow)" />
+    <rect x="496" y="20" width="186" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · PLACEMENT</text>
+    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Box or Bézier Path</text>
+    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">TextPath::with_offset</text>
+    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Outputs&lt;TextGeometry&gt;</text>
+    <text x="512" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Tangent frames &amp; carets</text>
+    <path d="M682 84H720" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#typo-arrow)" />
+    <rect x="728" y="20" width="136" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="744" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · RASTER</text>
+    <text x="744" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Glyph &amp; Hit Test</text>
+    <text x="744" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Selection runs</text>
+    <text x="744" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Oriented carets</text>
+    <text x="744" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">SW / GPU / Web</text>
+  </svg>
+</div>
+
 ## Default font and providers
 
 `Font::default()` opens the embedded ASCII MIRX face at 8 px. Its A1 atlas is borrowed from program storage. `font_size` scales both metrics and drawing. Characters outside ASCII use the face's question-mark glyph unless a font stack supplies coverage. Applications that require more characters can register another MIRX font through `App::with_fonts`.

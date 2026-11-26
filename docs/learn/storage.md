@@ -5,31 +5,47 @@ aside: false
 
 # Save and restore the list
 
-Mark persistent fields on the model so added tasks and checkmarks survive when the window closes.
+A task list shouldn't lose your work when the window closes. Persistence in `mirui` is declarative: mark durable fields with `#[persist]`, install `PersistencePlugin`, and the model restores its snapshot as soon as it is registered.
 
-<TutorialWorkspace :chapter="6" file="lib.rs">
+## 1. Minimal demo: `#[persist]` and simulated relaunch {#concept}
 
-<<< @/examples/first-app/src/lib.rs#persistence{rust}
+Here is a minimal persistent counter: `SavedCount` opts into `#[model(persistence(key = "..."))]` and marks `value` with `#[persist]`.
+
+Tap `+ 1 (Autosaves)` a few times, wait 0.2 seconds, and click **`Relaunch ↻`** at the bottom-right of the workspace—it destroys the running `App` instance and mounts a brand-new one from storage:
+
+<MiruiSnippet recipe="mini-storage" label="CONCEPT" file="recipes.rs" height="200px">
 
 <template #exercise>
 
-Add or toggle a task, wait half a second for autosave, then switch chapters and come back—your changes remain intact.
+Increment the counter, pause briefly for autosave, then click **`Relaunch ↻`** in the workspace footer to verify the new `App` instance restores the saved count.
+
+</template>
+
+</MiruiSnippet>
+
+---
+
+## 2. In the task list: autosave and startup restoration {#app}
+
+Now we annotate `Task` and `Tasks` in `model.rs` and install `PersistencePlugin` **before** `app.add_model(...)` in `lib.rs`:
+
+<TutorialWorkspace :chapter="6" file="model.rs">
+
+<template #exercise>
+
+Add or toggle a task, wait half a second for autosave, then click **`Relaunch ↻`** in the footer (or refresh the browser) to see your list restored.
 
 </template>
 
 </TutorialWorkspace>
 
-## Inside this frame {#source}
+### What changed in this step {#source}
 
-1. `Task` and `Tasks` annotate durable fields with `#[persist]`. Installing `PersistencePlugin::new(storage).autosave(500)` **before** `app.add_model(..).finish()` restores the snapshot during model registration, before the first frame is composed.
-2. The desktop runner writes to `task-list.mirui`; the browser runner writes to a versioned `localStorage` key. Transient view state—the active filter tab and any in-flight animation—stays out of storage, and the progress bar initializes directly to the restored count.
+1. **Install the plugin before registering models**: `app.add_model(Tasks::default()).finish()` queries `PersistencePlugin` immediately during registration, so the very first composed frame already reflects the restored data.
+2. **Persist domain data, not transient UI state**: Notice `filter` on `Tasks` is marked `#[observe]` but not `#[persist]`. Active filter tabs and in-flight animations reset cleanly on launch while tasks and completion states endure.
 
 ## Run on your machine {#run}
-
-From the repository root for this manual version:
 
 ```sh
 cargo run -p mirui-first-app --features desktop --example desktop -- 6
 ```
-
-The desktop example resolves `task-list.mirui` relative to the current working directory, so relaunch from the same directory to verify recovery.

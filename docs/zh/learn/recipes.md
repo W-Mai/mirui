@@ -89,3 +89,43 @@ title: 常用界面写法
 </MiruiSnippet>
 
 `path!(...)` 在编译期构造零堆分配的静态矢量路径；`#[view(component = VectorGlyph)]` 把组件注册成可在 `ui!` 中直接书写的标签，并在绘制阶段把 `100 × 100` 的局部坐标系缩放到控件的实际布局矩形 `paint.rect()`。
+
+---
+
+## 沿贝塞尔曲线排字 (`TextPath`) {#curve}
+
+把整形后的字形贴合到静态或响应式的贝塞尔曲线上，动态滑动起始偏移或切换路径。
+
+<MiruiSnippet recipe="curve" label="TextPath" file="recipes.rs" height="230px">
+
+<<< @/examples/first-app/src/recipes.rs#recipe-curve{rust}
+
+<template #exercise>
+
+点击 `Slide +18` 让文字沿波浪线向前推进，或点击 `Flip wave` 在波峰与波谷两条曲线间切换。
+
+</template>
+
+</MiruiSnippet>
+
+`app.paths().insert_static(...)` 注册编译期 `Path` 并返回轻量的 `PathId`。`Text` 绑定 `path: ${ route.placement() }` 后，每当偏移量或目标路径改变，字形就会沿着曲线切线重新排布。
+
+---
+
+## 滚动视口与平滑定位 (`ScrollOffset`) {#scroll}
+
+给裁剪容器挂上滚动能力，既支持手指拖拽与滚轮，也能从状态绑定平滑滑向指定偏移。
+
+<MiruiSnippet recipe="scroll" label="ScrollOffset" file="recipes.rs" height="240px">
+
+<<< @/examples/first-app/src/recipes.rs#recipe-scroll{rust}
+
+<template #exercise>
+
+点击顶部的 `Top (#1)`、`Middle (#4)` 或 `Bottom (#7)`，观察列表如何带着阻尼过渡滑向目标位置。
+
+</template>
+
+</MiruiSnippet>
+
+在 `Column(clip_children: true)` 上挂载 `ScrollOffset::default()` 与 `ScrollConfig::default().with_transition(...)` 即可启用滚动视口；通过 `scroll_offset: ${ ... }` 即可响应式地驱动滚动位置。

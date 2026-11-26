@@ -87,3 +87,43 @@ Tap any of the three tiles to cycle its stroke width (`2 px → 3 px → 4 px`) 
 </MiruiSnippet>
 
 `path!(...)` builds a zero-allocation static `Path`. `#[view(component = VectorGlyph)]` exposes `VectorGlyph` directly inside `ui!` and scales its `100 × 100` local coordinates to `paint.rect()` during rendering.
+
+---
+
+## Text along Bézier curves (`TextPath`) {#curve}
+
+Place shaped text along a static or reactive vector curve and slide its leading offset without copying path commands.
+
+<MiruiSnippet recipe="curve" label="TextPath" file="recipes.rs" height="230px">
+
+<<< @/examples/first-app/src/recipes.rs#recipe-curve{rust}
+
+<template #exercise>
+
+Tap `Slide +18` to advance the text along the wave, or tap `Flip wave` to switch between crest and valley paths.
+
+</template>
+
+</MiruiSnippet>
+
+`app.paths().insert_static(...)` registers a compile-time `Path` and returns a lightweight `PathId`. Binding `path: ${ route.placement() }` updates glyph placement whenever the model's `TextPath` offset or curve selection changes.
+
+---
+
+## Animated scroll containers (`ScrollOffset`) {#scroll}
+
+Drive a clipped scroll container from model state with a spring transition while keeping direct pointer and wheel scrolling active.
+
+<MiruiSnippet recipe="scroll" label="ScrollOffset" file="recipes.rs" height="240px">
+
+<<< @/examples/first-app/src/recipes.rs#recipe-scroll{rust}
+
+<template #exercise>
+
+Tap `Top (#1)`, `Middle (#4)`, or `Bottom (#7)` to glide the scroll container to that offset.
+
+</template>
+
+</MiruiSnippet>
+
+Attaching `ScrollOffset::default()` and `ScrollConfig::default().with_transition(...)` turns a `Column(clip_children: true)` into a scrollable viewport; `scroll_offset: ${ ... }` smoothly redirects the container whenever the target offset changes.
