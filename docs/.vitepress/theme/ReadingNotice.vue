@@ -30,5 +30,6 @@ watch(() => route.path, readReason);
   <p v-if="theme.version === 'dev' && revision" class="manual-revision">
     {{ zh ? '开发版文档' : 'Development documentation' }}
     · <a :href="`https://github.com/W-Mai/mirui/tree/${theme.source}`"><code>{{ theme.source.slice(0, 8) }}</code></a>
+    · <a :href="withBase('/llms.txt')" target="_blank" rel="noopener"><code>llms.txt</code></a>
   </p>
 </template>

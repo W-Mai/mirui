@@ -10,10 +10,12 @@ mod interface;
 pub mod model;
 mod motion;
 mod palette;
+pub mod recipes;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
 pub use model::{Tasks, TasksHandle};
+pub use recipes::Recipe;
 
 const UI_FONT: &[u8] = include_bytes!("../../../../src/gallery/demos/assets/ui_geist.mirx");
 
@@ -98,6 +100,20 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
         interface::task_list(tasks.clone(), draft, chapter, reduced),
     );
     Some(tasks)
+}
+
+pub fn install_named_recipe<B: Surface, F: RendererFactory<B>>(
+    app: &mut App<B, F>,
+    recipe: Recipe,
+    reduced: bool,
+) {
+    app.with_theme(palette::book(app.theme().id().as_str() == "dark"));
+    app.with_default_widgets().with_default_systems();
+    let font = Font::from_mirx("Geist", 14, UI_FONT, &Default::default())
+        .expect("decode the bundled tutorial font");
+    app.with_fonts(FontManager::new(MaxSize::Unbound, font));
+    app.add_plugin(StdInstantClockPlugin);
+    recipes::install_recipe(app, recipe, reduced);
 }
 
 // #region window

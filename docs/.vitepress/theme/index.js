@@ -22,6 +22,7 @@ export default {
     if (!import.meta.env.SSR) installReadingMotion(router);
     app.component('ManualHome', ManualHome);
     app.component('TutorialWorkspace', TutorialWorkspace);
+    app.component('MiruiSnippet', TutorialWorkspace);
   },
   Layout() {
     return h(DefaultTheme.Layout, null, {

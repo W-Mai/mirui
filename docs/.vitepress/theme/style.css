@@ -183,6 +183,11 @@
   color: var(--site-ink);
 }
 
+.manual-section-note a {
+  color: var(--site-blue-ink);
+  text-decoration: none;
+}
+
 /* ── Guides section & rotating rim-light cards ─────────── */
 .manual-guides {
   margin-top: clamp(2.8rem, 4.5vw, 4.2rem);

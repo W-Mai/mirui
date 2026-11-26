@@ -4,7 +4,13 @@ import { useData, withBase } from 'vitepress';
 import { loadTutorial, workspaceSettings } from './tutorial-runtime';
 import { mountPreviewFrame } from '../../examples/first-app/preview-frame.js';
 
-const props = defineProps({ chapter: { type: Number, required: true }, file: { type: String, required: true } });
+const props = defineProps({
+  chapter: { type: Number, default: 0 },
+  recipe: { type: String, default: '' },
+  label: { type: String, default: '' },
+  file: { type: String, required: true },
+  height: { type: String, default: '' },
+});
 const { lang, isDark } = useData();
 const zh = computed(() => lang.value === 'zh-CN');
 const modes = [['code', 'Code', '代码'], ['split', 'Split', '分栏'], ['preview', 'Preview', '预览']];
@@ -80,7 +86,9 @@ async function start() {
     const module = await loadTutorial();
     if (generation !== current) return;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    tutorial = new module.Tutorial(canvas.value, props.chapter, reduced, isDark.value, true);
+    tutorial = props.recipe
+      ? module.Tutorial.from_recipe(canvas.value, props.recipe, reduced, isDark.value)
+      : new module.Tutorial(canvas.value, props.chapter, reduced, isDark.value, true);
     status.value = 'ready';
     draw();
   } catch (error) {
@@ -93,18 +101,23 @@ async function start() {
 watch(mode, resume, { flush: 'post' });
 watch(isDark, dark => tutorial?.set_dark(dark));
 watch(zh, isZh => detachFrame?.setLocale?.(isZh));
-watch(() => props.chapter, start, { flush: 'post' });
+watch(() => [props.chapter, props.recipe], start, { flush: 'post' });
 onMounted(() => {
   const style = workspace.value.style;
-  if (settings.width) style.setProperty('--preview-width', settings.width);
-  if (settings.height) style.setProperty('--preview-height', settings.height);
+  if (props.height) style.setProperty('--preview-height', props.height);
+  else if (settings.width || settings.height) {
+    if (settings.width) style.setProperty('--preview-width', settings.width);
+    if (settings.height) style.setProperty('--preview-height', settings.height);
+  }
   detachFrame = mountPreviewFrame(canvas.value.parentElement, zh.value);
   start();
   document.addEventListener('visibilitychange', resume);
 });
 onBeforeUnmount(() => {
-  settings.width = workspace.value.style.getPropertyValue('--preview-width');
-  settings.height = workspace.value.style.getPropertyValue('--preview-height');
+  if (!props.height) {
+    settings.width = workspace.value.style.getPropertyValue('--preview-width');
+    settings.height = workspace.value.style.getPropertyValue('--preview-height');
+  }
   detachFrame?.();
   release();
   document.removeEventListener('visibilitychange', resume);
@@ -112,10 +125,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section ref="workspace" class="lesson-workspace" :data-mode="mode" :aria-label="zh ? '本章代码和预览' : 'Chapter code and preview'">
+  <section ref="workspace" class="lesson-workspace" :data-mode="mode" :aria-label="zh ? '代码与实时画布' : 'Live code and canvas'">
     <header class="lesson-tools">
       <div class="lesson-meta">
-        <span class="lesson-badge">{{ zh ? `第 ${chapter} / 7 章` : `0${chapter} / 07` }}</span>
+        <span class="lesson-badge">{{ label || (recipe ? (zh ? '实时微画布' : 'LIVE SNIPPET') : (zh ? `第 ${chapter} / 7 章` : `0${chapter} / 07`)) }}</span>
         <span class="lesson-file">{{ file }}</span>
       </div>
       <fieldset class="lesson-modes" :style="{ '--selected': modes.findIndex(entry => entry[0] === mode) }" :aria-label="zh ? '工作区视图' : 'Workspace view'">
@@ -136,7 +149,7 @@ onBeforeUnmount(() => {
         @keydown.home.prevent="setSplit(50)" @dblclick="setSplit(50)"></div>
       <div :inert="mode === 'code'" class="lesson-preview" :data-status="status">
         <div class="lesson-device"><div class="preview-frame">
-          <canvas ref="canvas" tabindex="0" :aria-label="zh ? '任务清单' : 'Task list'"></canvas>
+          <canvas ref="canvas" tabindex="0" :aria-label="label || (zh ? '任务清单' : 'Task list')"></canvas>
         </div></div>
         <Transition name="lesson-status"><div v-if="status !== 'ready'" class="lesson-status" role="status">
           <span>{{ status === 'loading' ? (zh ? '正在加载预览…' : 'Loading preview…') : status === 'stopped' ? (zh ? '预览已关闭' : 'Preview closed') : (zh ? '预览加载失败' : 'Preview unavailable') }}</span>
@@ -149,7 +162,7 @@ onBeforeUnmount(() => {
         <span class="lesson-try-dot" aria-hidden="true"></span>
         <div><slot name="exercise" /></div>
       </div>
-      <a class="lesson-open-ext" :href="withBase('/play/?chapter=' + chapter)" target="_blank" rel="noopener">{{ zh ? '独立窗口' : 'Open separately' }} <span aria-hidden="true">↗</span></a>
+      <a class="lesson-open-ext" :href="withBase('/play/?' + (recipe ? 'recipe=' + recipe : 'chapter=' + chapter))" target="_blank" rel="noopener">{{ zh ? '独立窗口' : 'Open separately' }} <span aria-hidden="true">↗</span></a>
     </footer>
   </section>
 </template>

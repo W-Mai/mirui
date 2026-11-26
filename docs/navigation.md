@@ -4,6 +4,18 @@
 
 Attach `FollowBounds` to a widget to position it around another widget. It uses prepared `LayoutGeometry` outputs, including scrolling and transforms, and maps the target into the follower parent's coordinates. The follower does not occupy flex space; its children retain ordinary layout and padding.
 
+<MiruiSnippet recipe="spring" label="FollowBounds" file="recipes.rs" height="240px">
+
+<<< @/examples/first-app/src/recipes.rs#recipe-spring{rust}
+
+<template #exercise>
+
+Tap across `MCU`, `Desktop`, and `Web` to retarget `FollowBounds` mid-flight with the `INTERACTIVE` spring.
+
+</template>
+
+</MiruiSnippet>
+
 ```rust
 use mirui::prelude::*;
 use mirui::ui::widgets::FollowBounds;

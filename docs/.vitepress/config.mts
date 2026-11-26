@@ -19,7 +19,8 @@ if (!crateVersion || (version !== 'dev' && version !== crateVersion)) {
 const api = version === 'dev' ? 'https://docs.rs/mirui' : `https://docs.rs/mirui/${version}/mirui/`;
 function navigation(zh: boolean) {
   return [
-    { text: zh ? '教程' : 'Tutorial', link: zh ? '/zh/learn/' : '/learn/', activeMatch: '/learn/' },
+    { text: zh ? '教程' : 'Tutorial', link: zh ? '/zh/learn/' : '/learn/', activeMatch: '/learn/(?!recipes)' },
+    { text: zh ? '常用写法' : 'Patterns', link: zh ? '/zh/learn/recipes' : '/learn/recipes', activeMatch: '/learn/recipes' },
     { text: zh ? '指南' : 'Guides', link: zh ? '/zh/#guides' : '/#guides', activeMatch: '^/(?!.*learn/)(?:quickstart|state-management|model-collections|events|widget-events|navigation|scrolling|typography|text-editing|clipboard|resources|shared-textures|persistence|surface-sizing|backend-targets|backend-fallback|timing-diagnostics|ci)\\b' },
     { text: 'Gallery', link: 'https://mirui.rs/' },
     { text: 'API', link: api },
@@ -37,6 +38,7 @@ const sidebar = [
       { text: 'Give the interface motion', link: '/learn/motion' },
       { text: 'Save and restore the list', link: '/learn/storage' },
       { text: 'Run it in the browser', link: '/learn/web' },
+      { text: 'Common patterns', link: '/learn/recipes' },
       { text: 'Quickstart and targets', link: '/quickstart' },
     ],
   },
@@ -99,9 +101,9 @@ export default defineConfig({
         nav: navigation(true),
         sidebar: [
           {
-            text: '亲手写一个任务清单',
+            text: '开始上手',
             items: [
-              { text: '教程总览', link: '/zh/learn/' },
+              { text: '亲手写一个任务清单', link: '/zh/learn/' },
               { text: '打开窗口', link: '/zh/learn/window' },
               { text: '点亮第一枚勾选框', link: '/zh/learn/state' },
               { text: '增删与筛选列表', link: '/zh/learn/collections' },
@@ -109,24 +111,35 @@ export default defineConfig({
               { text: '注入物理动效', link: '/zh/learn/motion' },
               { text: '断电与重开之后', link: '/zh/learn/storage' },
               { text: '编译进浏览器画布', link: '/zh/learn/web' },
+              { text: '常用界面写法', link: '/zh/learn/recipes' },
+              { text: '环境搭建与多端工程', link: '/quickstart' },
             ],
           },
           {
-            text: '按模块深读（EN）',
+            text: '构建界面',
             items: [
-              { text: '环境搭建与多端工程', link: '/quickstart' },
               { text: '响应式状态与样式', link: '/state-management' },
               { text: '有界列表与键值复用', link: '/model-collections' },
               { text: '手势识别与事件回调', link: '/events' },
               { text: '自定义控件与绘制', link: '/widget-events' },
               { text: '页面导航与物理动效', link: '/navigation' },
               { text: '滚动容器与惯性控制', link: '/scrolling' },
+            ],
+          },
+          {
+            text: '排版、资产与存储',
+            items: [
               { text: '字体栈与曲线排字', link: '/typography' },
               { text: '文本编辑与输入法', link: '/text-editing' },
               { text: '跨平台剪贴板', link: '/clipboard' },
               { text: '静态与托管资源池', link: '/resources' },
               { text: '跨线程纹理移交', link: '/shared-textures' },
               { text: '状态快照与自动落盘', link: '/persistence' },
+            ],
+          },
+          {
+            text: '渲染后端与帧诊断',
+            items: [
               { text: '逻辑视口与缩放比', link: '/surface-sizing' },
               { text: '各平台后端实现', link: '/backend-targets' },
               { text: '混合后端与软件回退', link: '/backend-fallback' },

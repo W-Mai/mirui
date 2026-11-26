@@ -1,4 +1,4 @@
-use crate::{Chapter, TasksHandle, install};
+use crate::{Chapter, Recipe, TasksHandle, install, install_named_recipe};
 use mirui::app::App;
 use mirui::core::storage::{LocalStorageStorage, Storage};
 use mirui::render::web_canvas::WebCanvasRendererFactory;
@@ -68,6 +68,23 @@ impl Tutorial {
             .map_err(|error| JsError::new(&format!("{error:?}")))?;
         Ok(Self { app })
         // #endregion web-host
+    }
+
+    pub fn from_recipe(
+        canvas: HtmlCanvasElement,
+        name: &str,
+        reduced: bool,
+        dark: bool,
+    ) -> Result<Self, JsError> {
+        let recipe = Recipe::parse(name).ok_or_else(|| JsError::new("Unknown recipe"))?;
+        let surface = WebCanvasSurface::new(canvas);
+        let mut app = App::with_factory(surface, WebCanvasRendererFactory::new());
+        app.set_theme(if dark { "dark" } else { "light" })
+            .map_err(|error| JsError::new(&format!("{error:?}")))?;
+        install_named_recipe(&mut app, recipe, reduced);
+        app.prepare_text_layout()
+            .map_err(|error| JsError::new(&format!("{error:?}")))?;
+        Ok(Self { app })
     }
 
     pub fn tick(&mut self) -> bool {

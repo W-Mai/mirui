@@ -1,6 +1,16 @@
 use mirui::core::storage::{FileStorage, Storage};
 use mirui::prelude::App;
-use mirui_first_app::{Chapter, install};
+use mirui_first_app::{Chapter, Recipe, install, install_named_recipe};
+
+#[test]
+fn every_recipe_mounts_and_draws() {
+    for name in ["reactive", "layout", "spring", "vector"] {
+        let mut app = App::headless(420, 260);
+        install_named_recipe(&mut app, Recipe::parse(name).unwrap(), false);
+        assert!(!app.tick());
+        app.render().unwrap();
+    }
+}
 
 #[test]
 fn every_checkpoint_mounts_and_draws() {

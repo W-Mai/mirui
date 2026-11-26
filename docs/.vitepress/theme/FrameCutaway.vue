@@ -14,7 +14,7 @@ const pending = ref(false);
 const active = ref(-1);
 const failed = ref(false);
 const levels = [
-  { index: '01', en: 'Hit test', zh: '命中与手势', detail: 'Tap · Q24.8', href: '/events.html#recognized-gesture-batches' },
+  { index: '01', en: 'Hit test', zh: '命中与手势', detail: 'Tap · Gesture', href: '/events.html#recognized-gesture-batches' },
   { index: '02', en: 'Model', zh: 'Model 订阅', detail: 'Task::toggle', href: '/state-management.html#registered-model-instances' },
   { index: '03', en: 'Layout', zh: '布局与脏区', detail: 'View · PrevRect', href: '/backend-fallback.html' },
   { index: '04', en: 'Raster', zh: '光栅与落屏', detail: 'Canvas · Surface', href: '/backend-targets.html#renderer-scopes' },

@@ -10,6 +10,18 @@ the State demos in the gallery.
 
 See [Persistence](persistence.md) for storage and automatic-save configuration.
 
+<MiruiSnippet recipe="reactive" label="Model" file="recipes.rs" height="240px">
+
+<<< @/examples/first-app/src/recipes.rs#recipe-reactive{rust}
+
+<template #exercise>
+
+Tap `+ 10` or `- 10` to mutate `Gauge::level`—the label text, percentage bar width, and threshold color update on the same frame.
+
+</template>
+
+</MiruiSnippet>
+
 ## Contents
 
 1. [Registered model instances](#registered-model-instances)

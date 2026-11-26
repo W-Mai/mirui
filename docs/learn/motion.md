@@ -21,7 +21,7 @@ Double-tap a row while the progress bar is still moving—watch it reverse smoot
 
 ## Inside this frame {#source}
 
-1. `aim_progress` computes the normalized `Fixed` ratio (in Q24.8 fixed point). Whenever that target changes, it launches a new tween starting from the **currently displayed** `progress.0`—so rapid clicks retarget in place without snapping.
+1. `aim_progress` computes the normalized `Fixed` ratio from the completed and total counts. Whenever that target changes, it launches a new tween starting from the **currently displayed** `progress.0`—so rapid clicks retarget in place without snapping.
 2. The `#[animate]` callback writes each interpolated value into `Progress` and removes the animation component once it settles. On the filter bar, a `View` with `FollowBounds` chases the active button's geometry using the `INTERACTIVE` spring.
 
 ## Run on your machine {#run}

@@ -121,7 +121,9 @@
     <script type="module">
       import { mountPreviewFrame } from "./preview-frame.js";
       const slugs = ["window", "state", "collections", "components", "motion", "storage", "web"];
-      const rawChapter = Number(new URLSearchParams(location.search).get("chapter")) || 7;
+      const params = new URLSearchParams(location.search);
+      const recipe = params.get("recipe") || "";
+      const rawChapter = Number(params.get("chapter")) || 7;
       const chapter = Math.max(1, Math.min(7, rawChapter));
       const frame = document.querySelector(".preview-frame");
       const mediaDark = matchMedia("(prefers-color-scheme: dark)");
@@ -149,9 +151,13 @@
         app?.set_dark(dark);
         handle.setLocale?.(zh);
         const slug = slugs[chapter - 1] || "web";
-        document.getElementById("back-link").href = (zh ? "../zh/learn/" : "../learn/") + slug + ".html";
-        document.getElementById("back-text").textContent = zh ? "返回章节" : "Back to lesson";
-        document.getElementById("chapter-label").textContent = zh ? `第 ${chapter} / 7 章 · 任务清单` : `Chapter ${chapter} / 7 · Task list`;
+        document.getElementById("back-link").href = recipe
+          ? (zh ? "../zh/learn/recipes.html" : "../learn/recipes.html")
+          : (zh ? "../zh/learn/" : "../learn/") + slug + ".html";
+        document.getElementById("back-text").textContent = recipe ? (zh ? "返回常用写法" : "Back to patterns") : (zh ? "返回章节" : "Back to lesson");
+        document.getElementById("chapter-label").textContent = recipe
+          ? (zh ? `常用写法 · ${recipe}` : `Pattern · ${recipe}`)
+          : (zh ? `第 ${chapter} / 7 章 · 任务清单` : `Chapter ${chapter} / 7 · Task list`);
         const langBtn = document.getElementById("lang-btn");
         langBtn.textContent = zh ? "EN" : "中";
         langBtn.title = zh ? "Switch to English" : "切换到中文";
@@ -183,7 +189,9 @@
       function start() {
         const reduced = matchMedia("(prefers-reduced-motion: reduce)");
         const canvas = document.getElementById("tutorial");
-        app = new window.wasmBindings.Tutorial(canvas, chapter, reduced.matches, isDark(), true);
+        app = recipe
+          ? window.wasmBindings.Tutorial.from_recipe(canvas, recipe, reduced.matches, isDark())
+          : new window.wasmBindings.Tutorial(canvas, chapter, reduced.matches, isDark(), true);
         const draw = () => {
           if (!app.tick()) requestAnimationFrame(draw);
         };

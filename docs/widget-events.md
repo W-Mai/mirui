@@ -2,6 +2,18 @@
 
 For callback syntax, custom event payloads, routing, and capacity configuration, see [Events and callbacks](events.md).
 
+<MiruiSnippet recipe="vector" label="#[view]" file="recipes.rs" height="240px">
+
+<<< @/examples/first-app/src/recipes.rs#recipe-vector{rust}
+
+<template #exercise>
+
+Tap any `VectorGlyph` tile to mutate its component in an `on Tap` handler and re-stroke the static vector path.
+
+</template>
+
+</MiruiSnippet>
+
 ## Text documents
 
 `mirui::ui::widgets::TextDocument` stores UTF-8 content independently of an editor's selection, composition, and appearance. It can be registered with `app.add_model(document).finish()` or nested using `model!(owned TextDocument)`. Its default byte capacity is 32; `set_capacity` prepares larger buffers explicitly. Capacity changes are observable independently of the content revision.
