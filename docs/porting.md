@@ -3,7 +3,7 @@
 `mirui` separates the scene graph, layout engine, and reactive models from platform hardware through four orthogonal boundaries:
 - **`Surface`**: reports display metrics (`DisplayInfo`), drains input events (`InputEvent`), and flushes damaged physical-pixel rectangles (`PhysicalRect`);
 - **`FramebufferAccess` & `RendererFactory`**: exposes single or rotating CPU framebuffers to `SwRendererFactory` (with automatic scroll pixel-copy and dirty-region mirroring) or binds a custom GPU renderer;
-- **`RenderEngine` & `compose_backend!`**: intercepts hardware-supported 2D operations (such as STM32 Chrom-ART DMA2D, NXP PXP, or VG-Lite) while delegating unsupported rounded, projective, or blended draws to the software rasterizer;
+- **`RenderEngine` & `compose_backend!`**: routes supported operations to 2D DMA blitters (`STM32 DMA2D`, `NXP PXP`) or 2.5D vector GPUs (`VeriSilicon VG-Lite`, with runtime `vg_lite_query_feature` capability checks) while falling back to the software rasterizer only for unsupported features;
 - **`set_clock`, `Storage`, and `AudioSink`**: connects bare-metal timers, flash key-value stores, and I2S/DMA audio buffers on `no_std`.
 
 <MiruiSnippet recipe="porting-inspector" label="Surface & Dirty Window" file="recipes.rs" height="220px">
@@ -28,7 +28,7 @@ Pick the lightest tier that matches your display controller and memory architect
 | --- | --- | --- | --- | --- |
 | **Tier 1 · Callback Framebuffer** | SPI / QSPI / I2C LCD (`ST7789`, `ST7735`, `GC9A01`, `ILI9341`) | Pass one `\|buf, area: PhysicalRect\|` closure to `FramebufSurface` | `FramebufSurface` allocates one `Vec<u8>` (`W × H × bpp`) | Feed events directly or upgrade to Tier 2 when adding a touch IC |
 | **Tier 2 · Custom `Surface` + `FramebufferAccess`** | Static BSS DMA buffers, RTOS (`NuttX`, `Vela`, `Zephyr`, `FreeRTOS`), Linux `fbdev` / `DRM` | `Surface` + `FramebufferAccess` (`framebuffer` & optional `all_buffers`) | Caller-owned static array, mmap region, or DMA scanout ring | Full `poll_event()` queue (`Pointer`, `Rotary`, `Key`, `Wheel`) + automatic multi-buffer dirty mirroring |
-| **Tier 3 · Hybrid 2D Engine or Custom GPU** | MCU 2D engines (`STM32 DMA2D`, `NXP PXP`, `VG-Lite`) or native GPU APIs | `RenderEngine<SwRenderer>` + `compose_backend!` + `RendererFactory` (or full `Renderer`) | Shared with `SwRenderer` or device-owned `BackendTarget` | Hardware-accelerated fills/blits with automatic software fallback for unsupported geometry |
+| **Tier 3 · 2D Blitter / VG-Lite Vector GPU** | 2D DMA blitters (`STM32 DMA2D`, `NXP PXP`) or 2.5D vector GPUs (`VG-Lite` with `vg_lite_query_feature`) | `RenderEngine<SwRenderer>` + `compose_backend!` + `RendererFactory` (or full `Renderer`) | Shared with `SwRenderer` or device-owned `BackendTarget` | Hardware-accelerated rects, blits, or Bézier paths (`vg_lite_draw`) with per-command software fallback |
 
 ---
 
@@ -506,16 +506,23 @@ impl<const N: usize> IsrRing<N> {
 
 ---
 
-## Tier 3: 2D hardware acceleration with `compose_backend!` {#tier-3-hardware-acceleration}
+## Tier 3: 2D blitters and 2.5D vector GPUs (`compose_backend!`) {#tier-3-hardware-acceleration}
 
-Many embedded SoCs include a 2D DMA blitter (such as **STM32 Chrom-ART DMA2D**, **NXP PXP**, **Renesas DRW2D**, or **Vela VG-Lite**) that can fill axis-aligned solid rectangles and blit unrotated textures at bus speed, but cannot rasterize cubic Bézier paths, SDF glyphs, or projective 3D quads.
+Embedded graphics accelerators fall into two distinct capability classes, and `RenderEngine<T>` + `compose_backend!` handles both without forcing you to reimplement unsupported operations:
+
+| Accelerator Class | Typical IP / SoCs | Native Hardware Capabilities | Dynamic Feature Query & Fallback Boundary |
+| --- | --- | --- | --- |
+| **Fixed-Function 2D Blitter** | **STM32 Chrom-ART DMA2D**, **NXP PXP**, **Renesas DRW2D**, **ESP32-P4 PPA** | Axis-aligned rectangle fills (`fill_rect`), pixel-format conversion (`RGB565` ↔ `ARGB8888`), and unrotated / scale-only texture blits (`blit`) | No vector path rasterizer or 3D perspective—route `fill_rect` and `blit` to hardware, and delegate rounded corners, Bézier paths, and text to `SwRenderer` |
+| **2.5D Vector & Blit GPU** | **VeriSilicon VG-Lite** (NXP i.MX RT1170 / RT595, BES2700 / BES2800, Actions) | Hardware cubic/quadratic Bézier path tessellation (`vg_lite_draw` with `NonZero` / `EvenOdd`), 3×3 perspective matrix blits (`vg_lite_blit`), linear/radial gradients (`gcFEATURE_BIT_VG_LINEAR_GRADIENT_EXT`), and path scissor/masking (`gcFEATURE_BIT_VG_MASK`) | Query Silicon IP revision capabilities at runtime via **`vg_lite_query_feature(feature)`** inside `RenderEngine::route`: dispatch supported `fill_path`, `stroke_path`, projective `blit`, and gradients to `vg_lite_*`, and fall back to `SwRenderer` only when a specific chip revision lacks a feature (e.g. `ApplyBlur` or unimplemented radial gradient extensions) |
 
 With `RenderEngine<T>` and `compose_backend!`, you only write the fast path for the commands your peripheral supports. For every draw call:
-1. Your engine's `route(&self, target, request)` inspects the `DrawRequest`;
-2. If the hardware supports the exact geometry, paint, and blend mode, `route` returns `Ok(RenderRoute::Native)` and `submit` drives the peripheral;
-3. For everything else (rounded corners, arbitrary paths, rotated quads), `route` delegates to `target.route(request)` or returns `ExactFallback`, and `compose_backend!` automatically runs `end(&mut self, target)` (synchronizing DMA completion) before letting `SwRenderer` draw directly into the shared framebuffer.
+1. Your engine's `route(&self, target, request)` inspects the `DrawRequest` (and, on configurable IP like **VG-Lite**, checks cached `vg_lite_query_feature(gcFEATURE_BIT_VG_*)` flags);
+2. If the hardware supports the exact geometry, paint, and blend mode, `route` returns `Ok(RenderRoute::Native)` and `submit` drives the peripheral (`DMA2D` registers or `vg_lite_draw` / `vg_lite_blit`);
+3. For everything else, `route` delegates to `target.route(request)` or returns `ExactFallback`, and `compose_backend!` automatically runs `end(&mut self, target)` (e.g. polling `DMA2D TCIF` or calling `vg_lite_finish()`) before `SwRenderer` touches the shared framebuffer.
 
 <ArchFlow kind="compose-backend-route" />
+
+### Example A: Fixed-function 2D blitter (`DMA2D` / `PXP`) {#example-a-fixed-function-2d-blitter}
 
 ```rust
 use mirui::core::cache::InspectCaches;
@@ -539,7 +546,7 @@ impl<'a> RenderEngine<SwRenderer<'a>> for Dma2dEngine {
         request: &DrawRequest<'_, '_>,
     ) -> Result<RenderRoute, RenderError> {
         request.validate()?;
-        // Only accelerate unrotated, non-projective, sharp-cornered opaque rectangle fills:
+        // DMA2D only accelerates unrotated, non-projective, sharp-cornered opaque rectangle fills:
         if request.projective.is_identity()
             && request.command.transform().is_identity()
             && let DrawCommand::Fill {
@@ -624,6 +631,96 @@ impl<B: FramebufferAccess> RendererFactory<B> for Dma2dFactory {
 
     fn trim_memory(&mut self) {
         self.sw.trim_memory();
+    }
+}
+```
+
+### Example B: VeriSilicon VG-Lite vector GPU with `vg_lite_query_feature` {#example-b-vg-lite-vector-gpu}
+
+Unlike a simple DMA blitter, **VG-Lite** natively accelerates vector paths (`M / L / Q / C / Z` commands via `vg_lite_path_t` and `vg_lite_draw`), rounded rectangles, strokes (`gcFEATURE_BIT_VG_STROKE_PATH`), 3×3 perspective matrix blits (`vg_lite_blit`), and hardware gradients. Because different SoC vendors synthesize VG-Lite with different `gcFEATURE_BIT_VG_*` straps, query the hardware feature bits at initialization (or via `vg_lite_query_feature`) and route `fill_path`, `stroke_path`, `fill_rect`, and `blit` accordingly:
+
+```rust
+use mirui::render::{
+    Canvas, DrawCommand, DrawRequest, Paint, PreparedDraw, RenderEngine, RenderError, RenderRoute,
+    SwRenderer,
+};
+use mirui_macros::compose_backend;
+
+/// Cached result of `vg_lite_query_feature(gcFEATURE_BIT_VG_*)` probed at boot.
+#[derive(Clone, Copy)]
+pub struct VgLiteFeatures {
+    pub stroke_path: bool,     // gcFEATURE_BIT_VG_STROKE_PATH
+    pub linear_grad_ext: bool, // gcFEATURE_BIT_VG_LINEAR_GRADIENT_EXT
+    pub radial_grad: bool,     // gcFEATURE_BIT_VG_RADIAL_GRADIENT
+}
+
+pub struct VgLiteEngine {
+    pub features: VgLiteFeatures,
+    pub hw_paths: u32,
+}
+
+impl<'a> RenderEngine<SwRenderer<'a>> for VgLiteEngine {
+    fn route(
+        &self,
+        target: &SwRenderer<'a>,
+        request: &DrawRequest<'_, '_>,
+    ) -> Result<RenderRoute, RenderError> {
+        request.validate()?;
+        match request.command {
+            // VG-Lite natively tessellates cubic/quadratic Bézier paths & rounded rects:
+            DrawCommand::FillPath { paint, .. } => {
+                let paint_ok = match paint {
+                    Paint::Color(_) => true,
+                    Paint::LinearGradient(_) => self.features.linear_grad_ext,
+                    Paint::RadialGradient(_) => self.features.radial_grad,
+                };
+                if paint_ok {
+                    Ok(RenderRoute::Native)
+                } else {
+                    target.route(request)
+                }
+            }
+            DrawCommand::StrokePath { paint, .. } if self.features.stroke_path => match paint {
+                Paint::Color(_) => Ok(RenderRoute::Native),
+                _ => target.route(request),
+            },
+            // VG-Lite supports 3x3 homography matrices in vg_lite_blit / vg_lite_draw:
+            DrawCommand::Fill { .. } | DrawCommand::Blit { .. } => Ok(RenderRoute::Native),
+            // Gaussian blur or unsupported features fall back cleanly to SwRenderer:
+            _ => target.route(request),
+        }
+    }
+
+    fn submit(
+        &mut self,
+        target: &mut SwRenderer<'a>,
+        draw: &PreparedDraw<'_>,
+    ) -> Result<(), RenderError> {
+        let request = draw.request();
+        if self.route(target, &request)? == RenderRoute::Native {
+            self.hw_paths += 1;
+            // Encode mirui::render::PathCmd into VLC_OP_MOVE / LINE / QUAD / CUBIC / CLOSE
+            // and submit via `vg_lite_draw(&vg_target, &vg_path, fill_rule, &matrix, blend, color)`.
+        }
+        target.submit(draw)
+    }
+
+    fn end(&mut self, _target: &mut SwRenderer<'a>) {
+        // Call `vg_lite_finish()` so the command buffer completes before CPU accesses the buffer.
+    }
+}
+
+compose_backend! {
+    pub struct VgLiteHybrid<'a> {
+        sw: SwRenderer<'a>,
+        vglite: VgLiteEngine,
+    }
+    route {
+        default => sw,
+        fill_rect => vglite,
+        fill_path => vglite,
+        stroke_path => vglite,
+        blit => vglite,
     }
 }
 ```

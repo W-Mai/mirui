@@ -42,8 +42,8 @@ const featured = [
     step: 'IV',
     en: 'Backends & bare metal',
     zh: '从 MCU 到浏览器',
-    descEn: 'Port SPI panels, touch/rotary drivers, double-buffered scanout, and 2D DMA engines via Surface and compose_backend!.',
-    descZh: '通过 Surface 与 compose_backend! 将同一套界面树移植到 SPI 小屏、触摸/表冠驱动、双缓冲显存与 DMA2D 硬件加速器。',
+    descEn: 'Port SPI panels, touch/rotary drivers, double-buffered scanout, DMA2D/PXP blitters, and VG-Lite vector GPUs.',
+    descZh: '通过 Surface 与 compose_backend! 对接 SPI 屏幕、触控/表冠驱动、双缓冲显存、DMA2D/PXP 位块搬运与 VG-Lite 矢量 GPU。',
     tag: 'no_std · Surface',
     href: '/porting.html',
   },
@@ -104,15 +104,15 @@ const catalog = computed(() => [
         <p class="manual-tagline">
           <span class="manual-version">{{ theme.version === 'dev' ? 'dev' : `v${theme.version}` }}</span>
           <i aria-hidden="true">/</i>
-          <span>{{ zh ? '这可能是最优雅的声明式嵌入式图形库' : 'Possibly the most elegant declarative embedded graphics library' }}</span>
+          <span>{{ zh ? '面向 MCU、桌面与 WebAssembly 的声明式 Rust UI 库 · no_std + alloc' : 'Declarative Rust UI for MCUs, desktop, and WebAssembly · no_std + alloc' }}</span>
         </p>
         <h1>
-          {{ zh ? '一帧之内发生了什么' : 'See what one frame does' }}<span class="dot-see">.</span>
+          {{ zh ? '一帧之内做了什么' : 'What happens in a frame' }}<span class="dot-see">.</span>
         </h1>
         <p class="manual-lead">
           {{ zh
-            ? '点击落下，Model 字段更新，布局算出发生变化的几行矩形，渲染器只重绘那几块脏区。你可以跟着教程从空窗口写出完整的任务清单，也可以直接查阅常用写法与底层模块。'
-            : 'A tap lands, a Model flips, layout measures the damaged rows, and the renderer repaints only what moved. Build a complete task list from an empty window, or jump straight to common patterns and engine internals.' }}
+            ? '点击触发事件，Model 更新字段，布局重算受影响节点的矩形，渲染器只把变化的物理脏区刷给屏幕。你可以跟着 7 章教程从空窗口写完一个带持久化的任务清单，或者直接按模块查阅接口与契约。'
+            : 'An event fires, a Model updates its fields, layout recalculates the affected rectangles, and the renderer flushes only the damaged physical regions. Follow the 7-part tutorial from an empty window, or jump to a specific subsystem.' }}
         </p>
         <div class="manual-actions">
           <a class="site-cta primary" :href="course">

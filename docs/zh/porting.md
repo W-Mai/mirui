@@ -3,7 +3,7 @@
 `mirui` 通过四组正交的接口将声明式 UI 树、布局引擎与响应式状态同底层硬件解耦：
 - **`Surface`**：汇报屏幕逻辑尺寸与像素格式（`DisplayInfo`）、排空原始输入事件（`InputEvent`），并将发生变化的物理像素脏矩形（`PhysicalRect`）刷上屏幕；
 - **`FramebufferAccess` 与 `RendererFactory`**：将单缓冲或多缓冲 CPU 帧缓冲暴露给 `SwRendererFactory`（自动获得滚动像素平移复用与双缓冲脏区镜像同步），或绑定自定义 GPU 渲染器；
-- **`RenderEngine` 与 `compose_backend!`**：拦截硬件外设支持的 2D 绘制操作（如 STM32 Chrom-ART DMA2D、NXP PXP、Vela VG-Lite），并将圆角裁剪、透视投影或复杂混合自动委托给软件光栅化器；
+- **`RenderEngine` 与 `compose_backend!`**：将受支持的操作路由给 2D 位块搬运外设（如 `STM32 DMA2D`、`NXP PXP`）或 2.5D 矢量 GPU（如支持硬件路径绘制与 `vg_lite_query_feature` 动态特性查询的 `VeriSilicon VG-Lite`），仅在遇到当前硬件不支持的特性时回退给软件光栅化器；
 - **`set_clock`、`Storage` 与 `AudioSink`**：在 `no_std` 裸机或 RTOS 上接入硬件单调时钟、Flash 键值存储与 I2S/DMA 音频合成。
 
 <MiruiSnippet recipe="porting-inspector" label="Surface & Dirty Window" file="recipes.rs" height="220px">
@@ -28,7 +28,7 @@
 | --- | --- | --- | --- | --- |
 | **Tier 1 · 回调帧缓冲 (`FramebufSurface`)** | SPI / QSPI / I2C 小屏（`ST7789`、`ST7735`、`GC9A01`、`ILI9341`） | 无需实现任何 trait，只需传入一个 `\|buf, area: PhysicalRect\|` 闭包 | `FramebufSurface` 内部持有 `Vec<u8>`（`W × H × bpp`） | 适合纯显示或简单轮询；接入触摸芯片与 DMA 同步时可平滑升级至 Tier 2 |
 | **Tier 2 · 自定义 `Surface` + `FramebufferAccess`** | 静态 BSS/SRAM DMA 缓冲、RTOS（`NuttX`、`Vela`、`Zephyr`、`FreeRTOS`）、Linux `fbdev` / `DRM` | 实现 `Surface` + `FramebufferAccess`（`framebuffer` 及可选的 `all_buffers`） | 调用方持有的静态数组、`mmap` 显存或双缓冲 DMA 环 | 完整的 `poll_event()` 队列（触控、旋钮、按键、滚轮）+ `SwRendererFactory` 自动双缓冲镜像 |
-| **Tier 3 · 混合 2D 硬件加速或自定义 GPU** | 带 2D 加速外设的 MCU/SoC（`STM32 DMA2D`、`NXP PXP`、`VG-Lite`）或原生 GPU | 实现 `RenderEngine<SwRenderer>` + `compose_backend!` + `RendererFactory`（或完整 `Renderer`） | 与 `SwRenderer` 共享帧缓冲，或由设备管理 `BackendTarget` | 硬件加速矩形填充与纹理拷贝，圆角/路径/透视变换自动回退至软件光栅化 |
+| **Tier 3 · 2D Blitter / VG-Lite 矢量 GPU** | 2D 位块外设（`STM32 DMA2D`、`NXP PXP`）或 2.5D 矢量 GPU（`VG-Lite`，支持 `vg_lite_query_feature`） | 实现 `RenderEngine<SwRenderer>` + `compose_backend!` + `RendererFactory`（或完整 `Renderer`） | 与 `SwRenderer` 共享帧缓冲，或由设备管理 `BackendTarget` | 硬件加速矩形/位块搬运或贝塞尔路径绘制（`vg_lite_draw`），不支持的特性按命令自动回退至软件光栅化 |
 
 ---
 
@@ -506,16 +506,23 @@ impl<const N: usize> IsrRing<N> {
 
 ---
 
-## Tier 3：用 `compose_backend!` 接入 2D 硬件加速 {#tier-3-hardware-acceleration}
+## Tier 3：用 `compose_backend!` 接入 2D 位块加速与 VG-Lite 矢量 GPU {#tier-3-hardware-acceleration}
 
-许多嵌入式 SoC 内置了专用的 2D DMA 图形加速外设（例如 **STM32 Chrom-ART DMA2D**、**NXP PXP**、**Renesas DRW2D** 或 **Vela VG-Lite**）。这类外设通常能以总线满速填充无旋转矩形和搬运纹理，但不支持三次贝塞尔曲线填充、SDF 字形或 3D 透视投影四边形。
+嵌入式 SoC 上的图形加速外设通常分为两类，它们的能力边界差异很大，而 `RenderEngine<T>` + `compose_backend!` 可以同时覆盖这两种硬件形态：
 
-借助 `RenderEngine<T>` 与 `compose_backend!`，你**只需编写硬件外设擅长的那几个加速函数**，无需从零实现整套矢量与文字光栅化器：
-1. 在 `route(&self, target, request)` 中检查 `DrawRequest`；
-2. 若几何变换、圆角与不透明度完全符合硬件外设能力，返回 `Ok(RenderRoute::Native)` 并在 `submit` 中启动硬件加速；
-3. 其余不支持的绘制请求直接委托给 `target.route(request)`——`compose_backend!` 会在从硬件引擎切回 `SwRenderer` 时自动调用一次 `end(&mut self, target)`（等待 DMA 完成屏障），随后由 `SwRenderer` 在同一块帧缓冲上无缝接力绘制。
+| 硬件加速类别 | 典型 IP 与芯片平台 | 原生硬件加速能力 | 动态特性查询与回退边界 |
+| --- | --- | --- | --- |
+| **固定功能 2D Blitter** | **STM32 Chrom-ART DMA2D**、**NXP PXP**、**Renesas DRW2D**、**ESP32-P4 PPA** | 轴对齐纯色矩形填充（`fill_rect`）、像素格式转换（`RGB565` ↔ `ARGB8888`）与无旋转/仅缩放纹理搬运（`blit`） | 无硬件矢量路径光栅化器与 3D 透视能力——将 `fill_rect` 与 `blit` 路由给硬件，圆角、贝塞尔路径与文字交还 `SwRenderer` |
+| **2.5D 矢量与合成 GPU** | **VeriSilicon VG-Lite**（NXP i.MX RT1170 / RT595、恒玄 BES2700 / BES2800、炬芯等） | 硬件二次/三次贝塞尔路径细分与填充（`vg_lite_draw`，支持 `NonZero` / `EvenOdd`）、路径描边（`gcFEATURE_BIT_VG_STROKE_PATH`）、3×3 透视矩阵纹理合成（`vg_lite_blit`）、硬件线性/径向渐变（`gcFEATURE_BIT_VG_LINEAR_GRADIENT_EXT` / `RADIAL_GRADIENT`）与遮罩裁剪（`gcFEATURE_BIT_VG_MASK`） | 不同芯片集成的 VG-Lite IP 裁剪配置不同：在 `RenderEngine::route` 中通过 **`vg_lite_query_feature(feature)`** 查询当前芯片支持的特性位，将受支持的 `fill_path`、`stroke_path`、透视 `blit` 与渐变直接交由 `vg_lite_*` 硬件执行，仅在当前芯片未合成某项扩展特性（或遇到高斯模糊 `ApplyBlur`）时回退至 `SwRenderer` |
+
+借助 `RenderEngine<T>` 与 `compose_backend!`，你只需按外设真实能力实现对应的加速分支：
+1. 在 `route(&self, target, request)` 中检查 `DrawRequest`（对于 **VG-Lite** 等可配置 IP，同时结合 `vg_lite_query_feature(gcFEATURE_BIT_VG_*)` 的特性位）；
+2. 若当前硬件支持该几何、画刷与混合模式，返回 `Ok(RenderRoute::Native)` 并在 `submit` 中提交给外设（写 `DMA2D` 寄存器或调用 `vg_lite_draw` / `vg_lite_blit`）；
+3. 其余操作委托给 `target.route(request)`——`compose_backend!` 会在从硬件引擎切回 `SwRenderer` 时自动调用一次 `end(&mut self, target)`（如等待 `DMA2D TCIF` 标志或调用 `vg_lite_finish()` 提交并等待 GPU 命令缓冲完成），随后由 `SwRenderer` 在同一块帧缓冲上接力绘制。
 
 <ArchFlow kind="compose-backend-route" />
+
+### 示例 A：固定功能 2D 位块加速器 (`DMA2D` / `PXP`) {#example-a-fixed-function-2d-blitter}
 
 ```rust
 use mirui::core::cache::InspectCaches;
@@ -539,7 +546,7 @@ impl<'a> RenderEngine<SwRenderer<'a>> for Dma2dEngine {
         request: &DrawRequest<'_, '_>,
     ) -> Result<RenderRoute, RenderError> {
         request.validate()?;
-        // 仅用硬件加速无旋转、无透视、直角（radius == 0）且不透明的纯色矩形填充：
+        // DMA2D 仅加速无旋转、无透视、直角（radius == 0）且不透明的纯色矩形填充：
         if request.projective.is_identity()
             && request.command.transform().is_identity()
             && let DrawCommand::Fill {
@@ -628,7 +635,97 @@ impl<B: FramebufferAccess> RendererFactory<B> for Dma2dFactory {
 }
 ```
 
-构造应用时调用 `App::with_factory(surface, Dma2dFactory::default())` 即可启用混合加速管线。如果目标平台是拥有独立显存纹理的完整 GPU 后端，请直接实现 `Renderer` 与 `BackendTarget`（详见[各平台渲染目标存储](backend-targets.md)与[混合后端与软件回退](backend-fallback.md)）。
+### 示例 B：支持路径绘制与 `vg_lite_query_feature` 的 VG-Lite 2.5D 矢量 GPU {#example-b-vg-lite-vector-gpu}
+
+与单纯的 2D DMA 位块搬运器不同，**VeriSilicon VG-Lite** 原生支持矢量路径光栅化（将 `M / L / Q / C / Z` 路径编码为 `vg_lite_path_t` 并通过 `vg_lite_draw` 硬件填充或描边）、圆角矩形、3×3 单应性透视矩阵纹理合成（`vg_lite_blit`）以及硬件渐变。由于不同 SoC 厂商在综合 VG-Lite IP 时开启的硬件特性位（`gcFEATURE_BIT_VG_*`）不尽相同，可在初始化时通过 `vg_lite_query_feature` 读取硬件能力表，并将 `fill_path`、`stroke_path`、`fill_rect` 与 `blit` 全部纳入 `compose_backend!` 路由：
+
+```rust
+use mirui::render::{
+    Canvas, DrawCommand, DrawRequest, Paint, PreparedDraw, RenderEngine, RenderError, RenderRoute,
+    SwRenderer,
+};
+use mirui_macros::compose_backend;
+
+/// 启动时通过 `vg_lite_query_feature(gcFEATURE_BIT_VG_*)` 探测并缓存的硬件特性表。
+#[derive(Clone, Copy)]
+pub struct VgLiteFeatures {
+    pub stroke_path: bool,     // gcFEATURE_BIT_VG_STROKE_PATH != 0
+    pub linear_grad_ext: bool, // gcFEATURE_BIT_VG_LINEAR_GRADIENT_EXT != 0
+    pub radial_grad: bool,     // gcFEATURE_BIT_VG_RADIAL_GRADIENT != 0
+}
+
+pub struct VgLiteEngine {
+    pub features: VgLiteFeatures,
+    pub hw_paths: u32,
+}
+
+impl<'a> RenderEngine<SwRenderer<'a>> for VgLiteEngine {
+    fn route(
+        &self,
+        target: &SwRenderer<'a>,
+        request: &DrawRequest<'_, '_>,
+    ) -> Result<RenderRoute, RenderError> {
+        request.validate()?;
+        match request.command {
+            // VG-Lite 原生支持二次/三次贝塞尔曲线填充与圆角矩形（根据特性位决定是否硬件加速渐变画刷）：
+            DrawCommand::FillPath { paint, .. } => {
+                let paint_ok = match paint {
+                    Paint::Color(_) => true,
+                    Paint::LinearGradient(_) => self.features.linear_grad_ext,
+                    Paint::RadialGradient(_) => self.features.radial_grad,
+                };
+                if paint_ok {
+                    Ok(RenderRoute::Native)
+                } else {
+                    target.route(request)
+                }
+            }
+            DrawCommand::StrokePath { paint, .. } if self.features.stroke_path => match paint {
+                Paint::Color(_) => Ok(RenderRoute::Native),
+                _ => target.route(request),
+            },
+            // VG-Lite 的 vg_lite_blit / vg_lite_draw 原生支持 3x3 仿射与透视变换矩阵：
+            DrawCommand::Fill { .. } | DrawCommand::Blit { .. } => Ok(RenderRoute::Native),
+            // 高斯模糊（ApplyBlur）或当前芯片未开启的扩展特性自动交还 SwRenderer：
+            _ => target.route(request),
+        }
+    }
+
+    fn submit(
+        &mut self,
+        target: &mut SwRenderer<'a>,
+        draw: &PreparedDraw<'_>,
+    ) -> Result<(), RenderError> {
+        let request = draw.request();
+        if self.route(target, &request)? == RenderRoute::Native {
+            self.hw_paths += 1;
+            // 将 mirui::render::PathCmd 编码为 VLC_OP_MOVE / LINE / QUAD / CUBIC / CLOSE，
+            // 并调用 `vg_lite_draw(&vg_target, &vg_path, fill_rule, &matrix, blend, color)`。
+        }
+        target.submit(draw)
+    }
+
+    fn end(&mut self, _target: &mut SwRenderer<'a>) {
+        // 调用 `vg_lite_finish()` 提交命令缓冲并等待 GPU 完成后，再允许 CPU 访问同一块帧缓冲。
+    }
+}
+
+compose_backend! {
+    pub struct VgLiteHybrid<'a> {
+        sw: SwRenderer<'a>,
+        vglite: VgLiteEngine,
+    }
+    route {
+        default => sw,
+        fill_rect => vglite,
+        fill_path => vglite,
+        stroke_path => vglite,
+        blit => vglite,
+    }
+}
+```
+
+构造应用时调用 `App::with_factory(surface, Dma2dFactory::default())`（或自定义的 `VgLiteFactory`）即可启用混合加速管线。如果目标平台是拥有独立显存纹理的完整 GPU 后端，请直接实现 `Renderer` 与 `BackendTarget`（详见[各平台渲染目标存储](backend-targets.md)与[混合后端与软件回退](backend-fallback.md)）。
 
 ---
 

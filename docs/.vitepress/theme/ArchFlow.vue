@@ -516,19 +516,53 @@ const SPECS = {
   },
   'compose-backend-route': {
     badge: 'HYBRID ENGINE & EXACT FALLBACK',
-    titleEn: 'Per-command routing between hardware engines, SwRenderer & bounded fallback',
-    titleZh: '混合后端命令路由、DMA/缓存屏障与有界软件回退流水线',
+    titleEn: 'Per-command routing across 2D blitters, VG-Lite vector GPUs & bounded fallback',
+    titleZh: '2D 位块外设、VG-Lite 矢量 GPU 特性查询与有界软件回退路由流水线',
     mode: 'pipeline',
     nodes: [
-      { id: 'classify', tag: '01 · ROUTE', en: 'Engine::route(request)', zh: '引擎语义与几何判定', sub: 'Native vs ExactFallback' },
+      { id: 'classify', tag: '01 · ROUTE & QUERY', en: 'Engine::route(request)', zh: '命令与硬件特性判定', sub: 'vg_lite_query_feature' },
       { id: 'begin', tag: '02 · BARRIER IN', en: 'Engine::begin(target)', zh: '切入硬件引擎会话', sub: 'Clean/Invalidate Cache' },
-      { id: 'submit', tag: '03 · EXECUTE', en: 'Hardware or Fallback', zh: '硬件执行或局部回退重放', sub: 'DMA2D / FallbackRegion' },
-      { id: 'end', tag: '04 · BARRIER OUT', en: 'Engine::end(target)', zh: '等待硬件完成并交接', sub: 'Wait TCIF before CPU' },
+      { id: 'submit', tag: '03 · EXECUTE', en: 'Hardware or Fallback', zh: '硬件执行或局部回退重放', sub: 'vg_lite_draw / DMA2D' },
+      { id: 'end', tag: '04 · BARRIER OUT', en: 'Engine::end(target)', zh: '等待硬件完成并交接', sub: 'vg_lite_finish / TCIF' },
     ],
     scenarios: [
       {
-        en: 'Hardware Native path (DMA2D / GPU)',
-        zh: '硬件原生快路径 (Native)',
+        en: 'VG-Lite 2.5D Vector GPU',
+        zh: 'VG-Lite 矢量路径与特性查询',
+        steps: [
+          {
+            node: 0,
+            en: '`VgLiteEngine::route` checks `request.command` against the cached `vg_lite_query_feature(gcFEATURE_BIT_VG_*)` table: cubic/quadratic Bézier `FillPath`, `StrokePath`, and 3×3 projective `Blit` return `Ok(RenderRoute::Native)`.',
+            zh: '`VgLiteEngine::route` 对照启动时通过 `vg_lite_query_feature(gcFEATURE_BIT_VG_*)` 探测的硬件特性表：二次/三次贝塞尔曲线填充（`FillPath`）、描边（`StrokePath`）与 3×3 透视矩阵纹理合成（`Blit`）直接返回 `Ok(RenderRoute::Native)`。',
+            code: 'if vg_lite_query_feature(gcFEATURE_BIT_VG_STROKE_PATH) != 0 { return Ok(RenderRoute::Native); }',
+            metric: 'Hardware Bézier tessellation + 3×3 matrix blit',
+          },
+          {
+            node: 1,
+            en: 'When entering a batch of VG-Lite draws, `vglite.begin(&mut sw)` prepares the `vg_lite_buffer_t` target wrapper around the current framebuffer and flushes dirty CPU D-Cache lines.',
+            zh: '进入连续的 VG-Lite 硬件绘制会话时，`vglite.begin(&mut sw)` 将当前帧缓冲封装为 `vg_lite_buffer_t` 目标，并刷出相关 CPU D-Cache 缓存行。',
+            code: 'vglite.begin(&mut sw_target)?; // binds vg_lite_buffer_t once per batch',
+            metric: 'Consecutive vector/blit draws batch into one command buffer',
+          },
+          {
+            node: 2,
+            en: '`vglite.submit` encodes `PathCmd` (`MoveTo`, `LineTo`, `QuadTo`, `CubicTo`, `Close`) into `VLC_OP_*` opcodes and calls `vg_lite_draw` (or `vg_lite_draw_grad` / `vg_lite_blit`).',
+            zh: '`vglite.submit` 将 `PathCmd`（`MoveTo/LineTo/QuadTo/CubicTo/Close`）编码为 `VLC_OP_*` 指令流，调用 `vg_lite_draw`、`vg_lite_draw_grad` 或 `vg_lite_blit` 推入 GPU 队列。',
+            code: 'vg_lite_draw(&mut vg_buf, &mut vg_path, fill_rule, &mut matrix, blend, color);',
+            metric: 'Zero CPU scanline rasterization for vector paths',
+          },
+          {
+            node: 3,
+            en: 'Only when a command requires an unimplemented feature on that chip revision (or `ApplyBlur`) does `compose_backend!` call `vglite.end()` (`vg_lite_finish()`) and hand control back to `SwRenderer`.',
+            zh: '只有遇到当前芯片未合成的扩展特性或高斯模糊（`ApplyBlur`）时，`compose_backend!` 才自动调用 `vglite.end()`（执行 `vg_lite_finish()` 等待 GPU 完结）并交由 `SwRenderer` 接力。',
+            code: 'vg_lite_finish(); // synchronizes GPU command buffer before CPU fallback',
+            metric: 'Per-feature hardware routing via vg_lite_query_feature',
+          },
+        ],
+      },
+      {
+        en: '2D Blitter (DMA2D / PXP)',
+        zh: '固定功能 2D Blitter (DMA2D)',
         steps: [
           {
             node: 0,
