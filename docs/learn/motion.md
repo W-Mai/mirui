@@ -27,6 +27,8 @@ Tap rapidly across `MCU`, `Desktop`, and `Web`—watch the blue outline reverse 
 
 Now we mount that `FollowBounds` ring inside `filters` (`interface.rs`) and add a custom `Progress` view driven by `aim_progress` and `#[animate]` (`motion.rs`) in the header:
 
+<ArchFlow kind="uml-ch5-motion" />
+
 <TutorialWorkspace :chapter="5" file="motion.rs">
 
 <template #exercise>

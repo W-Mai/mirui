@@ -918,6 +918,455 @@ const SPECS = {
       },
     ],
   },
+  'uml-ch1-tree': {
+    badge: 'CHAPTER 01 · ENTITY & LAYOUT TREE UML',
+    titleEn: 'Host Surface, Root Entity & Flexbox UI Tree Ownership',
+    titleZh: '宿主 Surface、根实体与 Flexbox 界面树组件挂载关系图',
+    mode: 'uml',
+    boxes: [
+      {
+        stereo: '<<Surface>>',
+        title: 'SdlSurface / WebCanvasSurface',
+        fields: ['+ width: 420, height: 440', '+ scale: Fixed'],
+        methods: ['+ display_info() -> DisplayInfo', '+ flush(area: PhysicalRect)'],
+      },
+      {
+        stereo: '<<ECS World>>',
+        title: 'App<B, F> & Root Entity',
+        fields: ['+ world: World', '+ theme: Palette (Light/Dark)'],
+        methods: ['+ spawn_root() -> EntityCommands', '+ compose(root, first_window())'],
+      },
+      {
+        stereo: '<<#[compose] Tree>>',
+        title: 'first_window() Hierarchy',
+        fields: ['Column (grow: 1.0, pad: 20, gap: 16)', '├─ Header Column (ColorToken::Secondary)', '└─ 2× Static Text (height: 26)'],
+        methods: ['Flexbox top-down layout solve', 'Semantic token color resolution'],
+      },
+    ],
+    relations: ['owns & flushes →', 'mounts into →'],
+    scenarios: [
+      {
+        en: 'Mount & layout flow',
+        zh: '挂载与布局求值链路',
+        steps: [
+          {
+            box: 0,
+            en: '`SdlSurface::new("Task list", 420, 440)` (or `WebCanvasSurface` in browser) provides the physical backing target and logical viewport dimensions.',
+            zh: '`SdlSurface::new("Task list", 420, 440)`（或浏览器中的 `WebCanvasSurface`）提供底层像素缓冲区与逻辑视口宽高。',
+            code: 'let mut app = App::new(SdlSurface::new("Task list", 420, 440));',
+            metric: 'Platform-independent Surface trait boundary',
+          },
+          {
+            box: 1,
+            en: '`app.spawn_root().id()` allocates the root ECS entity sized to the surface viewport, and `app.compose(root, first_window())` attaches the child hierarchy.',
+            zh: '`app.spawn_root().id()` 创建铺满视口的根实体，`app.compose(root, first_window())` 将组合函数返回的节点树挂载到根实体下。',
+            code: 'let root = app.spawn_root().id(); app.compose(root, first_window());',
+            metric: 'Stack-built composition descriptor (0 heap intermediates)',
+          },
+          {
+            box: 2,
+            en: 'During `render()`, Flexbox resolves the outer `Column`, the `Secondary` header card, and the two `Text` rows, resolving `ColorToken` against the active theme.',
+            zh: '在绘制阶段，Flexbox 求解外层 `Column`、深色标题卡与两行 `Text` 的几何矩形，并按当前明暗主题解析 `ColorToken`。',
+            code: 'Column (grow: 1.0) { Column (bg_color: ColorToken::Secondary) { ... } }',
+            metric: 'Automatic light / dark theme switching',
+          },
+        ],
+      },
+    ],
+  },
+  'uml-ch2-reactive': {
+    badge: 'CHAPTER 02 · MODEL & SUBSCRIBER UML',
+    titleEn: 'Tasks → ModelList<Task> ownership & reactive ${...} dependency graph',
+    titleZh: 'Tasks ⇄ Task 模型聚合关系与 ${...} 响应式依赖拓扑图',
+    mode: 'uml',
+    boxes: [
+      {
+        stereo: '<<#[model] Root>>',
+        title: 'Tasks (model.rs)',
+        fields: ['+ items: model!(owned ModelList<Task>)', '+ filter: Filter #[observe]', '- sequence: u32'],
+        methods: ['+ completed(&self) -> usize #[observe]', '+ total(&self) -> usize #[observe]'],
+      },
+      {
+        stereo: '<<#[model] Item>>',
+        title: 'Task (model.rs)',
+        fields: ['+ title: String', '+ done: bool #[observe]'],
+        methods: ['+ done(&self) -> bool (generated)', '+ toggle(&mut self)'],
+      },
+      {
+        stereo: '<<#[compose] Subscribers>>',
+        title: 'task_list & task_row (interface.rs)',
+        fields: ['Header Text <- tasks.completed() / total()', 'Checkbox & Icon <- task.done()'],
+        methods: ['Button on Tap -> task.toggle()', 'Single-frame coalesced repaint'],
+      },
+    ],
+    relations: ['1 owns 0..8 →', 'notifies ${...} →'],
+    scenarios: [
+      {
+        en: 'Tap row → Sync header & icon',
+        zh: '点击任务行 → 图标与顶部计数同帧同步',
+        steps: [
+          {
+            box: 1,
+            en: 'Tapping a row runs `on Tap { task.toggle(); }`, flipping `task.done` on that specific `Task` item inside `Tasks.items`.',
+            zh: '点击某一行触发 `on Tap { task.toggle(); }`，翻转该行对应 `Task` 实例上的 `#[observe] pub done: bool` 字段。',
+            code: 'pub fn toggle(&mut self) { self.done = !self.done; }',
+            metric: 'Mutates only the clicked Task item',
+          },
+          {
+            box: 0,
+            en: 'Because `Tasks` owns `items: model!(owned ModelList<Task>)`, mutating a child `Task` automatically invalidates `Tasks::completed(&self)` on the parent model!',
+            zh: '由于父模型 `Tasks` 通过 `model!(owned ModelList<Task>)` 内联持有子模型集合，子项 `task.done` 的变化会自动向上冒泡使父模型的派生方法 `tasks.completed()` 失效！',
+            code: '#[observe] pub fn completed(&self) -> usize { self.items.iter().filter(|t| t.done()).count() }',
+            metric: 'Derived count — no second counter field to go out of sync',
+          },
+          {
+            box: 2,
+            en: 'Before layout, `flush_signal_dirty` updates both the row’s checkbox (`bg_color`, `Icon.visible`) and the header `Text` (`"2 of 3 complete"`) in the same frame.',
+            zh: '在同帧布局前，`flush_signal_dirty` 同时更新该行勾选框（`bg_color`、`Icon.visible`）与顶部标题栏计数（`"2 of 3 complete"`），零手动 DOM 赋值。',
+            code: 'Text(text: ${ format_args!("{} of {} complete", tasks.completed(), tasks.total()) })',
+            metric: '2 widget bindings updated in 1 frame pass',
+          },
+        ],
+      },
+    ],
+  },
+  'uml-ch3-collections': {
+    badge: 'CHAPTER 03 · KEYED LIST & DRAFT UML',
+    titleEn: 'TextDocument draft, Edit event & keyed ModelItemId reconciliation',
+    titleZh: '输入草稿 TextDocument、Edit 事件与 ModelItemId 键值对齐关系图',
+    mode: 'uml',
+    boxes: [
+      {
+        stereo: '<<Draft Model>>',
+        title: 'TextDocument & add_task',
+        fields: ['draft: model!(TextDocument)', 'TextInput [TextEditing::new(draft)]'],
+        methods: ['on Submitted / +Add -> edit_tasks(Edit::Add)', 'draft.read(...) & draft.set_text("")'],
+      },
+      {
+        stereo: '<<Bounded Collection>>',
+        title: 'Tasks & ModelList<Task>',
+        fields: ['items: ModelList<Task> (cap: 8)', 'filter: Filter::{All, Open, Done}'],
+        methods: ['+ add(title) -> try_push(Task)', '+ remove(key: ModelItemId)'],
+      },
+      {
+        stereo: '<<Keyed Reconciliation>>',
+        title: 'walk ... by row.0 (ModelItemId)',
+        fields: ['row.0: ModelItemId (stable key)', 'row.1: ModelHandle<Task>'],
+        methods: ['visible: ${ tasks.filter().includes(task.done()) }', 'Remove button binds exact ModelItemId'],
+      },
+    ],
+    relations: ['commits into →', 'reconciles by ID →'],
+    scenarios: [
+      {
+        en: 'Add, filter & keyed remove',
+        zh: '新增、非破坏性筛选与按键值精准删除',
+        steps: [
+          {
+            node: 0,
+            box: 0,
+            en: 'While typing in `TextInput`, keystrokes mutate the isolated `draft: TextDocument` model—the task list itself is not touched or re-laid out on every keystroke.',
+            zh: '在底部输入框打字时，每次按键只修改独立的 `draft: TextDocument` 草稿模型，不会在敲字中途频繁重排上方的任务列表。',
+            code: 'TextInput(...) [TextEditing::new(draft.clone()), Placeholder("New task")]',
+            metric: 'Decouples IME/caret churn from business list',
+          },
+          {
+            box: 1,
+            en: 'Pressing Return or `+ Add` fires `edit_tasks(Edit::Add, tasks, draft)`, pushing a new `Task` into `ModelList::bounded(8)` and assigning it a unique `ModelItemId`.',
+            zh: '按下回车或点击 `+ Add` 触发 `edit_tasks(Edit::Add, tasks, draft)`，将新 `Task` 推入容量上限为 8 的 `ModelList` 并分配唯一 `ModelItemId`。',
+            code: 'if self.items.try_push(Task { title, done: false }).is_ok() { self.sequence += 1; }',
+            metric: 'Bounded capacity (TASK_LIMIT = 8)',
+          },
+          {
+            box: 2,
+            en: '`walk ${ tasks.items().entries() } with row by row.0` keys each row widget by `ModelItemId`. Filtering toggles `visible` without removing items, and `Edit::Remove(key)` always deletes the exact item.',
+            zh: '`walk ... by row.0` 以 `ModelItemId` 作为稳定键复用行子树；切换 `Open/Done` 仅改变行的 `visible` 属性，点击 `Remove` 永远按 `ModelItemId` 精准命中目标行。',
+            code: 'Button("Remove") on Tap(edit_tasks::callback(Edit::Remove(key), tasks, draft))',
+            metric: 'Zero index-shift bugs when filtering or deleting',
+          },
+        ],
+      },
+    ],
+  },
+  'uml-ch4-styles': {
+    badge: 'CHAPTER 04 · COMPONENT & STYLESHEET UML',
+    titleEn: 'StylePreset, StyleSheetPlugin classes & prop!(T) forwarding',
+    titleZh: 'StylePreset 静态预设、StyleSheetPlugin 动态类与 prop!(T) 关系图',
+    mode: 'uml',
+    boxes: [
+      {
+        stereo: '<<Style Resolution>>',
+        title: 'StyleSheetPlugin & StylePreset',
+        fields: ['.class("task", text_color: OnSurface)', '.class("task.complete", OnSurfaceVariant)', 'filter_style() -> StylePreset<Button>'],
+        methods: ['Precedence: Inline > .class > StylePreset'],
+      },
+      {
+        stereo: '<<#[compose] Component>>',
+        title: 'filter_button (interface.rs)',
+        fields: ['tasks: model!(Tasks)', 'title: prop!(String)', 'filter: Filter'],
+        methods: ['Button(text: ${ title }, style: filter_style())', 'normal_color: ${ tab_surface(...) }'],
+      },
+      {
+        stereo: '<<Dynamic Class Binding>>',
+        title: 'task_row Button',
+        fields: ['class: ${ ("task", task.done().then("task.complete")) }'],
+        methods: ['Toggling task.done() swaps .task.complete', 'Text color dims automatically'],
+      },
+    ],
+    relations: ['styles →', 'switches on state →'],
+    scenarios: [
+      {
+        en: 'Style precedence & prop!(T)',
+        zh: '样式优先级与 prop!(T) 零拷贝转发',
+        steps: [
+          {
+            box: 0,
+            en: '`StylePreset` (`style!(...)`) shares static compile-time layout/shape properties, while `StyleSheetPlugin` registers runtime `.class(...)` rules in `lib.rs`.',
+            zh: '`StylePreset`（`style!(...)`）用于在编译期复用静态宽高与圆角；`StyleSheetPlugin` 则在 `lib.rs` 中注册运行时动态切换的 `.class(...)` 规则。',
+            code: '.class("task", style!(text_color: ColorToken::OnSurface)).class("task.complete", ...)',
+            metric: 'Precedence: Inline prop > Class rule > StylePreset',
+          },
+          {
+            box: 1,
+            en: '`filter_button` takes `title: prop!(String)`. Whether the caller passes a literal `"Open"` or a `${...}` reactive binding, `prop!(T)` forwards it directly to `Button` without an extra wrapper signal.',
+            zh: '`filter_button` 声明 `title: prop!(String)`，无论调用方传入静态字面量 `"Open"` 还是 `${...}` 响应式表达式，都会直接零开销转发给内部 `Button`。',
+            code: 'fn filter_button(tasks: model!(Tasks), title: prop!(String), filter: Filter, ...)',
+            metric: 'Reusable across Open and Done tabs',
+          },
+          {
+            box: 2,
+            en: 'When `task.done()` flips to `true`, the tuple `class: ${ ... }` enables `"task.complete"`, dimming the row text color without touching layout.',
+            zh: '当 `task.done()` 变为 `true` 时，元组 `class: ${ ... }` 自动激活 `"task.complete"` 类，在不触发重新布局的前提下将已完成行文字调暗。',
+            code: 'class: ${ (chapter.has_presets().then_some("task"), (chapter.has_presets() && task.done()).then_some("task.complete")) }',
+            metric: 'Visual-only invalidation (0 layout pass)',
+          },
+        ],
+      },
+    ],
+  },
+  'uml-ch5-motion': {
+    badge: 'CHAPTER 05 · ECS MOTION & VIEW UML',
+    titleEn: 'How #[system], #[animate], #[view] & FollowBounds drive retargetable motion',
+    titleZh: '#[system] 目标追踪、#[animate] 逐帧插值、#[view] 绘制与 FollowBounds 关系图',
+    mode: 'uml',
+    boxes: [
+      {
+        stereo: '<<#[system(order = Animation)]>>',
+        title: 'aim_progress (motion.rs)',
+        fields: ['tasks: model!(Tasks)', 'settings: res!(MotionSettings)', 'meters: query!(Entity, mut ProgressTarget, Progress)'],
+        methods: ['goal = progress_ratio(completed, total)', 'commands.insert(entity, AnimateProgress(...))'],
+      },
+      {
+        stereo: '<<#[animate] & #[view]>>',
+        title: 'apply_progress & paint_progress',
+        fields: ['Progress(pub Fixed) #[component]', 'ProgressTarget(pub Fixed) #[component]'],
+        methods: ['apply_progress: progress.0 = value', 'paint_progress: DrawCommand::Fill(area * progress.0)'],
+      },
+      {
+        stereo: '<<Spring Follower>>',
+        title: 'FollowBounds (#filter_marker)',
+        fields: ['target: Entity (filter_all / Open / Done)', 'transition: INTERACTIVE Spring'],
+        methods: ['select_filter: marker.target = selected', 'Preserves velocity on mid-flight retarget'],
+      },
+    ],
+    relations: ['attaches AnimateProgress →', 'runs alongside →'],
+    scenarios: [
+      {
+        en: 'Retargetable progress & spring tab',
+        zh: '可中途折返的进度条与弹簧跟随框',
+        steps: [
+          {
+            box: 0,
+            en: 'On each frame, `aim_progress` computes `goal = completed / total`. If `target.0 != goal`, it starts a new motion from the **currently displayed `progress.0`** (`settings.0.motion(progress.0, goal)`).',
+            zh: '`aim_progress` 系统每帧计算目标比例 `goal = completed / total`。一旦目标变化，立即以**当前屏幕已显示的 `progress.0` 为起点**生成新轨迹，绝不生硬跳回 0。',
+            code: 'commands.insert(entity, AnimateProgress(settings.0.motion(progress.0, goal)));',
+            metric: 'Mid-flight retargeting without jump discontinuities',
+          },
+          {
+            box: 1,
+            en: '`#[animate(component = AnimateProgress)]` advances `progress.0` each tick and automatically removes `AnimateProgress` once settled; `paint_progress` draws the bar width.',
+            zh: '`#[animate(component = AnimateProgress)]` 每帧推进 `progress.0` 并在抵达终点后自动移除动画组件；`paint_progress` 读取 `progress.0` 绘出对应宽度的填充条。',
+            code: 'area.w = area.w * progress.0.clamp(Fixed::ZERO, Fixed::ONE);',
+            metric: 'Visual-only invalidation · 0 idle overhead when settled',
+          },
+          {
+            box: 2,
+            en: 'In the filter bar, `select_filter` sets `marker.target = selected`. `FollowBounds` springs `#filter_marker` across `All`, `Open`, and `Done` while preserving momentum.',
+            zh: '在筛选栏中，`select_filter` 只需把 `marker.target` 指向刚点击的按钮实体，`FollowBounds` 就会带着当前动量平滑过渡位置与宽度。',
+            code: 'if let Some(marker) = followers.get(marker) { marker.target = selected; }',
+            metric: 'Velocity-preserving critically damped spring',
+          },
+        ],
+      },
+    ],
+  },
+  'uml-ch6-storage': {
+    badge: 'CHAPTER 06 · PERSISTENCE & PLUGIN ORDER UML',
+    titleEn: 'PersistencePlugin registration order & selective #[persist] archive schema',
+    titleZh: 'PersistencePlugin 注册时序与 #[persist] vs #[observe] 选择性落盘关系图',
+    mode: 'uml',
+    boxes: [
+      {
+        stereo: '<<1. Install Plugin First>>',
+        title: 'PersistencePlugin (lib.rs)',
+        fields: ['storage: FileStorage / LocalStorageStorage', 'autosave: 500 ms'],
+        methods: ['app.add_plugin(PersistencePlugin::new(storage))', 'Must precede app.add_model(Tasks)!'],
+      },
+      {
+        stereo: '<<2. Register & Restore Root>>',
+        title: 'Tasks #[model(persistence)]',
+        fields: ['+ items: ModelList<Task> #[persist]', '+ sequence: u32 #[persist]', '+ filter: Filter #[observe] (NOT persisted!)'],
+        methods: ['app.add_model(Tasks::default()).finish()', 'Restores archive before UI compose()'],
+      },
+      {
+        stereo: '<<3. Nested Item Codec>>',
+        title: 'Task #[model(persistence)]',
+        fields: ['+ title: String #[persist]', '+ done: bool #[observe] #[persist]'],
+        methods: ['Encoded inside parent "first_app_tasks"', 'Deduplicated via WriteOutcome::Unchanged'],
+      },
+    ],
+    relations: ['restores on finish() →', 'serializes owned items →'],
+    scenarios: [
+      {
+        en: 'Startup restore & selective save',
+        zh: '启动恢复顺序与选择性字段落盘',
+        steps: [
+          {
+            box: 0,
+            en: '`lib.rs` installs `PersistencePlugin::new(storage).autosave(500)` **before** calling `app.add_model(Tasks::default()).finish()`.',
+            zh: '`lib.rs` 必须在调用 `app.add_model(Tasks::default()).finish()` **之前**安装 `PersistencePlugin`，否则模型注册时找不到存储服务。',
+            code: 'app.add_plugin(PersistencePlugin::new(storage).autosave(500));',
+            metric: 'Plugin order contract enforced',
+          },
+          {
+            box: 1,
+            en: 'During `.finish()`, `Tasks` immediately reads `"first_app_tasks"` and replaces `items` and `sequence` before `app.compose` builds the first frame. Note that `filter` has `#[observe]` without `#[persist]`, so reopening always starts on `Filter::All`.',
+            zh: '在 `.finish()` 内部，`Tasks` 立即读取 `"first_app_tasks"` 存档并在首帧 `compose` 前恢复列表；而 `filter` 仅标了 `#[observe]` 未标 `#[persist]`，因此重开应用总是干净地回到 `Filter::All`。',
+            code: '#[persist] pub items: model!(owned ModelList<Task>), #[observe] pub(crate) filter: Filter',
+            metric: 'Orthogonal #[persist] and #[observe] attributes',
+          },
+          {
+            box: 2,
+            en: 'Because `Task` derives `#[model(persistence)]`, `ModelList<Task>` automatically uses `Task`’s field codec to archive every item’s `title` and `done` state.',
+            zh: '子模型 `Task` 同样声明了 `#[model(persistence)]`，因此父模型的 `ModelList<Task>` 会自动调用子模型编解码器保存每条任务的 `title` 与 `done`。',
+            code: '#[model(persistence)] pub struct Task { #[persist] pub title: String, #[observe] #[persist] pub done: bool }',
+            metric: 'Zero boilerplate collection serialization',
+          },
+        ],
+      },
+    ],
+  },
+  'uml-ecs-roles': {
+    badge: 'COMPOSITION & ECS ROLES UML',
+    titleEn: 'Static relationship between #[model], #[component], #[compose], #[event], #[system] & #[view]',
+    titleZh: '#[model]、#[component]、#[compose]、#[event]、#[system] 与 #[view] 架构关系全图',
+    mode: 'uml',
+    boxes: [
+      {
+        stereo: '<<State & ECS Data>>',
+        title: '#[model] & #[component]',
+        fields: ['#[model]: App-owned reactive state (model!(T))', '#[component]: Per-entity ECS data (component!())', 'Resource: Global service (res!(T) / res!(mut T))'],
+        methods: ['#[observe] fields notify ${...} & watch(...)'],
+      },
+      {
+        stereo: '<<Tree & Behavior>>',
+        title: '#[compose] & #[event]',
+        fields: ['#[compose]: Builds ui! entity hierarchy', '#[event]: Scoped input/notification handler'],
+        methods: ['Roles: event!(E), entity!(), query!(C), commands!()', 'Mutates models & queues structural commands'],
+      },
+      {
+        stereo: '<<Frame Schedule & Paint>>',
+        title: '#[system], #[animate] & #[view]',
+        fields: ['#[system]: Per-tick ECS query processor', '#[animate]: Curve/spring component driver', '#[view(component = C)]: Custom widget painter'],
+        methods: ['Roles: paint!(), motion!(), res!(Outputs<T>)'],
+      },
+    ],
+    relations: ['bound & mutated by →', 'scheduled & drawn by →'],
+    scenarios: [
+      {
+        en: 'Data → Interaction → Rendering',
+        zh: '数据层 → 交互组合层 → 帧调度与渲染层',
+        steps: [
+          {
+            box: 0,
+            en: '`#[model]` holds application domain state with fine-grained `#[observe]` tracking; `#[component]` stores per-widget ECS data attached to entities; `Resource` stores app-wide services.',
+            zh: '`#[model]` 承载带 `#[observe]` 细粒度追踪的业务状态；`#[component]` 存储挂载在单个控件实体上的 ECS 组件数据；`Resource` 存放全局服务。',
+            code: 'let model = app.add_model(Counter::default()).finish();',
+            metric: 'Zero World exposure in user code',
+          },
+          {
+            box: 1,
+            en: '`#[compose]` functions assemble entities and bind `${ model.field() }` or `prop!(T)`. When input arrives, `#[event]` callbacks borrow `event!(E)`, `model!(T)`, `query!(C)`, and `commands!()`.',
+            zh: '`#[compose]` 函数组装实体树并绑定 `${ model.field() }` 或 `prop!(T)`；当输入到达时，`#[event]` 回调按需借用 `event!(E)`、`model!(T)`、`query!(C)` 与 `commands!()`。',
+            code: '#[event] fn on_tap(ev: event!(Tap), m: model!(Counter), cmds: commands!()) { ... }',
+            metric: 'Compile-time borrow & alias validation',
+          },
+          {
+            box: 2,
+            en: 'Each tick, `#[system]` and `#[animate]` update components before layout, and `#[view(component = C)]` renders custom vector/texture commands through `paint!()`.',
+            zh: '在每帧调度中，`#[system]` 与 `#[animate]` 在布局前更新组件数据，随后 `#[view(component = C)]` 通过 `paint!()` 提交自定义矢量或纹理绘制命令。',
+            code: '#[view(component = CustomGauge)] fn paint_gauge(g: component!(), paint: paint!()) { ... }',
+            metric: 'Orthogonal roles with unified parameter syntax',
+          },
+        ],
+      },
+    ],
+  },
+  'uml-text-editing': {
+    badge: 'SHARED TEXT DOCUMENT & EDITOR ENTITIES UML',
+    titleEn: 'One owned TextDocument shared across multiple editor entities with independent selections',
+    titleZh: '单份 TextDocument 数据模型与多个独立光标编辑器实体的挂载依赖关系图',
+    mode: 'uml',
+    boxes: [
+      {
+        stereo: '<<#[model] Owner>>',
+        title: 'SearchForm & TextDocument',
+        fields: ['query: model!(owned TextDocument)', 'submissions: u32 #[observe]', 'UTF-8 buffer (capacity: 128 B)'],
+        methods: ['+ set_text("SPI 128x160")', '+ revision() -> u64 #[observe]'],
+      },
+      {
+        stereo: '<<Entity #1 (Custom)>>',
+        title: 'SearchEditor Node',
+        fields: ['SearchEditor { document: Some(query) }', 'TextEditing (inserted by attach_search)', 'TextInput (inserted by attach_search)'],
+        methods: ['Independent TextSelection { anchor, cursor }', 'on Submitted -> form.submit()'],
+      },
+      {
+        stereo: '<<Entity #2 (Standard)>>',
+        title: 'Mirror TextInput Node',
+        fields: ['TextInput (appearance & layout)', 'TextEditing::new(form.query())', 'Placeholder("Mirror TextInput")'],
+        methods: ['Independent TextSelection & IME preedit', 'Observes same query.revision()'],
+      },
+    ],
+    relations: ['shared ModelHandle →', 'syncs UTF-8 content ⇄'],
+    scenarios: [
+      {
+        en: 'Shared content, local carets',
+        zh: '共享 UTF-8 文档内容，隔离本地光标与选区',
+        steps: [
+          {
+            box: 0,
+            en: '`SearchForm` owns `query: model!(owned TextDocument)`. Both editors receive a cloned `ModelHandle<TextDocument>` pointing to the same underlying UTF-8 buffer.',
+            zh: '`SearchForm` 内联持有 `query: model!(owned TextDocument)`。上下两个编辑器各自接收一份指向同一底层 UTF-8 缓冲区的 `ModelHandle<TextDocument>`。',
+            code: 'let _ = form.query().set_capacity(128); let _ = form.query().set_text("Mirui Canvas");',
+            metric: 'Single UTF-8 buffer in memory (zero duplicate string copies)',
+          },
+          {
+            box: 1,
+            en: 'When `SearchEditor` mounts, its `attach_search` hook inspects the node and inserts `TextEditing::new(doc)` (selection & keyboard logic) and `TextInput::new()` (painting).',
+            zh: '`SearchEditor` 挂载时，其 `attach_search` 钩子自动向同一实体补齐 `TextEditing::new(doc)`（负责按键与选区逻辑）与 `TextInput::new()`（负责视觉绘制）。',
+            code: '#[view(component = SearchEditor, attach = attach_search::callback())] fn search_view() {}',
+            metric: 'Separates behavior registration from per-node state',
+          },
+          {
+            box: 2,
+            en: 'Typing in either editor advances `query.revision()`, immediately repainting both editors while keeping each editor’s `TextSelection` and caret position independent!',
+            zh: '在任一输入框内打字都会推进 `query.revision()` 并触发两个输入框同帧重绘，而每个输入框各自的 `TextSelection` 光标位置与预编辑状态则完全独立！',
+            code: 'TextInput(...) [TextEditing::new(form.query()), Placeholder("Mirror TextInput")]',
+            metric: 'External edits clamp out-of-bounds carets safely',
+          },
+        ],
+      },
+    ],
+  },
 };
 
 const spec = computed(() => SPECS[props.kind] || SPECS['reactive-dataflow']);
@@ -988,6 +1437,33 @@ function arrowSegmentStyle(st) {
         <code class="arch-stage-sub">{{ node.sub }}</code>
         <span class="arch-stage-hint">{{ zh ? `阶段 0${idx + 1}` : `Stage 0${idx + 1}` }} →</span>
       </button>
+    </div>
+
+    <!-- Mode C: Interactive UML Class & Dependency Graph -->
+    <div v-else-if="spec.mode === 'uml'" class="arch-uml-grid" role="list">
+      <template v-for="(box, bIdx) in spec.boxes" :key="bIdx">
+        <button
+          type="button"
+          role="listitem"
+          class="arch-uml-card"
+          :class="{ active: currentStep.box === bIdx }"
+          @click="activeStep = Math.min(bIdx, currentScenario.steps.length - 1)"
+        >
+          <div class="arch-uml-head">
+            <span class="arch-uml-stereo">{{ box.stereo }}</span>
+            <strong class="arch-uml-name">{{ box.title }}</strong>
+          </div>
+          <ul class="arch-uml-section">
+            <li v-for="(f, fIdx) in box.fields" :key="fIdx"><code>{{ f }}</code></li>
+          </ul>
+          <ul class="arch-uml-section methods">
+            <li v-for="(m, mIdx) in box.methods" :key="mIdx"><code>{{ m }}</code></li>
+          </ul>
+        </button>
+        <div v-if="bIdx < spec.boxes.length - 1" class="arch-uml-rel" aria-hidden="true">
+          <span>{{ spec.relations[bIdx] }}</span>
+        </div>
+      </template>
     </div>
 
     <!-- Mode B: Responsive 3-Lane Swimlane Sequence Diagram with Opaque Pill Labels -->

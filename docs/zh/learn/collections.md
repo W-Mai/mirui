@@ -31,6 +31,8 @@ aside: false
 
 看左侧聚焦的 `model.rs` 与 `interface.rs`（标 **`+`** 处）：筛选并不会把任务从 `ModelList` 里删掉，而是通过 `visible: ${ tasks.filter().includes(task.done()) }` 控制行的显隐；頂部的完成计数依然统计整份清单：
 
+<ArchFlow kind="uml-ch3-collections" />
+
 <TutorialWorkspace :chapter="3" file="model.rs">
 
 <template #exercise>

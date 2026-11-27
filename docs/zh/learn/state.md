@@ -27,7 +27,9 @@ aside: false
 
 ## 2. 带入任务清单：行勾选与顶部统计同步 {#app}
 
-现在把同样的机制放进任务清单里。在 `model.rs` 里给 `Task` 加上 `#[observe] pub done: bool`，并在 `Tasks` 上提供派生查询 `completed()`；然后在 `interface.rs` 里把每一行包进 `Button ... on Tap { task.toggle(); }`：
+现在把同样的机制放进任务清单里。在 `model.rs` 里定义 `Task`（带 `#[observe] pub done: bool`）与聚合根模型 `Tasks`（持有 `items: model!(owned ModelList<Task>)` 并提供派生查询 `completed()` / `total()`）；然后在 `interface.rs` 里把每一行包进 `Button ... on Tap { task.toggle(); }`：
+
+<ArchFlow kind="uml-ch2-reactive" />
 
 <TutorialWorkspace :chapter="2" file="model.rs">
 

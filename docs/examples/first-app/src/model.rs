@@ -33,6 +33,8 @@ impl Task {
 //~focus-end:ch2,ch6
 // #endregion task
 
+//~focus-start:ch3
+//~add-start:ch3
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Filter {
     All,
@@ -49,20 +51,28 @@ impl Filter {
         }
     }
 }
+//~add-end:ch3
+//~focus-end:ch3
 
-//~focus-start:ch6
+//~focus-start:ch2,ch3,ch6
 //~add-start:ch6
 #[model(persistence(key = "first_app_tasks"))]
+//~add-end:ch6
+//~add-start:ch2
 pub struct Tasks {
+    //~add-start:ch6
     #[persist]
+    //~add-end:ch6
     pub items: model!(owned ModelList<Task>),
     #[observe]
     pub(crate) filter: Filter,
+    //~add-start:ch6
     #[persist]
+    //~add-end:ch6
     sequence: u32,
 }
-//~add-end:ch6
-//~focus-end:ch6
+//~add-end:ch2
+//~focus-end:ch2,ch3,ch6
 
 impl Default for Tasks {
     fn default() -> Self {
@@ -85,8 +95,10 @@ impl Default for Tasks {
     }
 }
 
+//~focus-start:ch2,ch3
 #[model]
 impl Tasks {
+    //~focus-end:ch2,ch3
     // #region collection
     //~focus-start:ch2
     //~add-start:ch2
@@ -121,4 +133,6 @@ impl Tasks {
     //~add-end:ch3
     //~focus-end:ch3
     // #endregion collection
+    //~focus-start:ch2,ch3
 }
+//~focus-end:ch2,ch3

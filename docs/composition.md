@@ -55,6 +55,8 @@ Tap `Toggle width` or drag the bottom-right grip to resize the viewport—the pr
 
 ## Choosing state and rendering roles {#choosing-state-and-rendering-roles}
 
+<ArchFlow kind="uml-ecs-roles" />
+
 | Role | Use | Update path |
 | --- | --- | --- |
 | `#[model]` | Registered business state, including multiple instances of one type | Generated handle methods compare `#[observe]` values, publish named revisions, and deliver typed effects |

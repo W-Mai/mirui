@@ -29,6 +29,8 @@ aside: false
 
 现在把持久化加进任务清单。在 `model.rs` 里给 `Task` 和 `Tasks` 的业务字段标上 `#[persist]`，并在 `lib.rs` 里确保 **`PersistencePlugin` 在 `app.add_model(...)` 之前安装**：
 
+<ArchFlow kind="uml-ch6-storage" />
+
 <TutorialWorkspace :chapter="6" file="model.rs">
 
 <template #exercise>

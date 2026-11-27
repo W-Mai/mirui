@@ -29,7 +29,9 @@ Tap the button on the right: the button label, background color, and tap counter
 
 Now bring the same pattern into the task list. In `model.rs` we mark `done` with `#[observe]` and add a derived `completed()` query on `Tasks`; in `interface.rs` each row wraps its content in `Button ... on Tap { task.toggle(); }`.
 
-With the **eye button** on, the source pane gathers the focused regions across **`model.rs` · `interface.rs` · `lib.rs`** and highlights the lines added in this step (`+`). Click any file tab or turn the eye off to read the full files:
+With the **eye button** on, the source pane gathers the focused regions across **`model.rs` · `interface.rs` · `lib.rs`** (including the `Task` and `Tasks` struct definitions and `#[model] impl Tasks`) and highlights the lines added in this step (`+`). Click any file tab or turn the eye off to read the full files:
+
+<ArchFlow kind="uml-ch2-reactive" />
 
 <TutorialWorkspace :chapter="2" file="model.rs">
 

@@ -27,6 +27,8 @@ aside: false
 
 任务清单的第一章在顶部放一块深色标题栏 `Task list`，底下排两行静态任务。点击顶部的 **`desktop.rs`** 标签页或 **眼睛按钮**，可以看到 `SdlSurface` 是如何创建窗口并调用 `install` 的：
 
+<ArchFlow kind="uml-ch1-tree" />
+
 <TutorialWorkspace :chapter="1" file="lib.rs">
 
 <template #exercise>

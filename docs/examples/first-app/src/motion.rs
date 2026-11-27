@@ -3,6 +3,7 @@ use mirui::anim::{INTERACTIVE, Transition, TweenConfig, ease};
 use mirui::prelude::*;
 use mirui::render::command::DrawCommand;
 
+//~focus-start:ch5
 #[component]
 pub(crate) struct Progress(pub Fixed);
 
@@ -10,6 +11,7 @@ pub(crate) struct Progress(pub Fixed);
 pub(crate) struct ProgressTarget(pub Fixed);
 
 pub(crate) struct MotionSettings(pub Transition);
+//~focus-end:ch5
 
 // #region progress-motion
 //~focus-start:ch5
@@ -35,7 +37,6 @@ pub(crate) fn apply_progress(value: motion!(), progress: component!(mut Progress
     progress.0 = value;
 }
 //~add-end:ch5
-//~focus-end:ch5
 // #endregion progress-motion
 
 #[view(component = Progress, invalidation = Visual)]
@@ -53,6 +54,7 @@ pub(crate) fn paint_progress(progress: component!(), theme: res!(Theme), paint: 
         });
     }
 }
+//~focus-end:ch5
 
 pub(crate) fn progress_transition(reduced: bool) -> Transition {
     TweenConfig::new(if reduced { 0 } else { 240 }, &ease::OUT_CUBIC).into()

@@ -29,6 +29,8 @@ aside: false
 
 回到任务清单：我们把 `Open` 和 `Done` 提炼成 `filter_button` 组件，并在 `lib.rs` 里注册 `task`、`task.complete` 和 `filter` 三个样式类。当某一行被勾选时，`interface.rs` 里的 `task_row` 自动挂上 `"task.complete"`，文字随之变为柔和的次要墨色：
 
+<ArchFlow kind="uml-ch4-styles" />
+
 <TutorialWorkspace :chapter="4" file="interface.rs">
 
 <template #exercise>

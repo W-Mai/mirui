@@ -31,6 +31,8 @@ Now we wire `TextInput`, `Remove` buttons, and the `All / Open / Done` filter ba
 
 Inspect the focused changes across `model.rs` and `interface.rs` (marked with **`+`**): filtering never removes items from `ModelList`—it simply binds each row's `visible` property to `tasks.filter().includes(task.done())`, while the header tally continues to report the full list:
 
+<ArchFlow kind="uml-ch3-collections" />
+
 <TutorialWorkspace :chapter="3" file="model.rs">
 
 <template #exercise>

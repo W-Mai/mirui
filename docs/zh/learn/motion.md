@@ -27,6 +27,8 @@ aside: false
 
 现在把这套弹簧外框装进任务清单的筛选栏（见 `interface.rs`），再在 `motion.rs` 里用 `#[system]` + `#[animate]` 给顶部标题栏加一条平滑补间的完成进度条：
 
+<ArchFlow kind="uml-ch5-motion" />
+
 <TutorialWorkspace :chapter="5" file="motion.rs">
 
 <template #exercise>

@@ -29,6 +29,8 @@ Tap either pill—both badges flip between `.pill.on` and `.pill.off` through th
 
 Back in the task list, we extract `filter_button` in `interface.rs` and register the `task`, `task.complete`, and `filter` classes in `lib.rs`. When a task is checked off, `task_row` attaches `"task.complete"` and dims its label automatically:
 
+<ArchFlow kind="uml-ch4-styles" />
+
 <TutorialWorkspace :chapter="4" file="interface.rs">
 
 <template #exercise>

@@ -51,6 +51,8 @@ Type an item and press Return (or tap `+ Add`) to append to the bounded `ModelLi
 
 ## Keyed data {#keyed-data}
 
+<ArchFlow kind="uml-ch3-collections" />
+
 ```rust
 use mirui::{model, app::App};
 use mirui::core::model::{CollectionError, ModelMap};

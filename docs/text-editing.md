@@ -49,7 +49,9 @@ Use `commands.selection().select_all(editor)` to select an editor's complete doc
 
 This example owns the query in an application Model. `SearchEditor()` attaches the editing capability and standard appearance; a second `TextInput()` shares the query while keeping its own selection. Return invokes the application's submit method through the existing notification API.
 
-<MiruiSnippet recipe="editor-shared" label="TextDocument & SearchEditor" file="recipes.rs" height="210px">
+<ArchFlow kind="uml-text-editing" />
+
+<MiruiSnippet recipe="editor-shared" label="TextDocument & SearchEditor" file="recipes.rs" height="220px">
 
 <template #exercise>
 

@@ -98,11 +98,11 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
         //~focus-end:ch4
         // #endregion task-styles
     }
-    //~focus-start:ch2,ch6
+    //~focus-start:ch2,ch3,ch6
     //~add-start:ch2
     let tasks = app.add_model(Tasks::default()).finish();
     //~add-end:ch2
-    //~focus-end:ch2,ch6
+    //~focus-end:ch2,ch3,ch6
     if chapter.has_motion() {
         //~focus-start:ch5
         //~add-start:ch5
@@ -114,11 +114,17 @@ pub fn install<B: Surface, F: RendererFactory<B>>(
         //~add-end:ch5
         //~focus-end:ch5
     }
+    //~focus-start:ch2,ch3
+    //~add-start:ch3
     let draft = app.add_model(TextDocument::new()).finish();
+    //~add-end:ch3
+    //~add-start:ch2
     app.compose(
         root,
         interface::task_list(tasks.clone(), draft, chapter, reduced),
     );
+    //~add-end:ch2
+    //~focus-end:ch2,ch3
     Some(tasks)
 }
 

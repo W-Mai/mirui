@@ -29,6 +29,8 @@ Increment the counter, pause briefly for autosave, then click **`Relaunch ↻`**
 
 Now we annotate `Task` and `Tasks` in `model.rs` and install `PersistencePlugin` **before** `app.add_model(...)` in `lib.rs`:
 
+<ArchFlow kind="uml-ch6-storage" />
+
 <TutorialWorkspace :chapter="6" file="model.rs">
 
 <template #exercise>

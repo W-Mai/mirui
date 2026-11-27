@@ -3,6 +3,7 @@ use mirui::prelude::App;
 use mirui::surface::sdl::SdlSurface;
 use mirui_first_app::{Chapter, install};
 
+//~focus-start:ch1,ch7
 fn main() {
     let chapter = std::env::args()
         .nth(1)
@@ -22,3 +23,4 @@ fn main() {
     install(&mut app, chapter, false, storage);
     app.run();
 }
+//~focus-end:ch1,ch7

@@ -55,6 +55,8 @@
 
 ## 选择状态与渲染角色 {#choosing-state-and-rendering-roles}
 
+<ArchFlow kind="uml-ecs-roles" />
+
 | 角色 | 适用场景 | 更新链路 |
 | --- | --- | --- |
 | `#[model]` | 已注册的业务状态（支持同一类型注册多个实例） | 生成的句柄方法比对 `#[observe]` 前后值、发布具名修订号并派发强类型副作用 |

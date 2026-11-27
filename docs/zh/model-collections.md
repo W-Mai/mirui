@@ -51,6 +51,8 @@
 
 ## 键值关联数据 (`ModelMap`) {#keyed-data}
 
+<ArchFlow kind="uml-ch3-collections" />
+
 ```rust
 use mirui::{model, app::App};
 use mirui::core::model::{CollectionError, ModelMap};

@@ -1377,6 +1377,129 @@ html.reading-turn { view-transition-name: none; }
   }
 }
 
+/* ── Mode C: Interactive UML Class & Dependency Topology Board ── */
+.arch-uml-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
+  padding: 14px;
+}
+
+.arch-uml-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--site-rule-strong);
+  border-radius: 12px;
+  background: var(--site-panel);
+  box-shadow: inset 0 1px 0 var(--rim-top), inset 0 -1px 0 var(--rod-lo);
+  color: var(--site-ink);
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+}
+
+.arch-uml-card:hover {
+  border-color: var(--site-blue-ink);
+  transform: translateY(-1px);
+}
+
+.arch-uml-card.active {
+  border-color: var(--site-blue-ink);
+  box-shadow: 0 0 0 1px var(--site-blue-ink), inset 0 1px 0 var(--rim-top);
+}
+
+.arch-uml-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--site-rule);
+  background: color-mix(in srgb, var(--site-panel-2) 85%, var(--site-panel));
+}
+
+.arch-uml-card.active .arch-uml-head {
+  background: color-mix(in srgb, var(--site-blue-wash) 75%, var(--site-panel));
+}
+
+.arch-uml-stereo {
+  color: var(--site-blue-ink);
+  font: 600 10px/1.2 var(--font-mono);
+  letter-spacing: .04em;
+}
+
+.arch-uml-card.active .arch-uml-stereo {
+  color: var(--logo-see);
+}
+
+.arch-uml-name {
+  color: var(--site-ink);
+  font: 640 13px/1.3 var(--font-ui);
+}
+
+.arch-uml-section {
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 8px 11px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arch-uml-section.methods {
+  margin-top: auto !important;
+  border-top: 1px dashed var(--site-rule-strong);
+  background: color-mix(in srgb, var(--site-panel-2) 45%, transparent);
+}
+
+.arch-uml-section li {
+  margin: 0 !important;
+  line-height: 1.35;
+}
+
+.arch-uml-section code {
+  display: block;
+  border: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  color: var(--site-ink-2) !important;
+  font: 480 11px/1.35 var(--font-mono) !important;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.arch-uml-section.methods code {
+  color: var(--site-blue-ink) !important;
+}
+
+.arch-uml-rel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
+}
+
+.arch-uml-rel span {
+  padding: 3px 7px;
+  border: 1px solid var(--site-rule-strong);
+  border-radius: 999px;
+  background: var(--site-panel);
+  color: var(--site-muted);
+  font: 600 10px/1.1 var(--font-mono);
+  white-space: nowrap;
+}
+
+@media (max-width: 920px) {
+  .arch-uml-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .arch-uml-rel {
+    padding: 2px 0;
+  }
+}
+
 .arch-flow-inspector {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

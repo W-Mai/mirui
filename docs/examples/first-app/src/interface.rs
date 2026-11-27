@@ -258,6 +258,7 @@ fn add_task(tasks: model!(Tasks), draft: model!(TextDocument)) -> Entity {
 //~add-end:ch3
 //~focus-end:ch3
 
+//~focus-start:ch2,ch3,ch5
 #[compose]
 pub(crate) fn task_list(
     tasks: model!(Tasks),
@@ -275,6 +276,7 @@ pub(crate) fn task_list(
             text_color: ColorToken::OnSurface,
             font_size: 14
         ) {
+            //~focus-end:ch2,ch3,ch5
             //~focus-start:ch2,ch5
             Column (
                 height: if chapter.has_motion() { 102 } else { 92 },
@@ -348,6 +350,8 @@ pub(crate) fn task_list(
             if chapter.has_list() {
                 add_task (tasks, draft)
             }
+            //~focus-start:ch2,ch3,ch5
         }
     };
 }
+//~focus-end:ch2,ch3,ch5

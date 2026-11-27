@@ -49,7 +49,9 @@
 
 下面的示例将查询文本保存在应用层的 `Model` 中。`SearchEditor()` 在挂载时自动补齐编辑能力与标准输入框外观；第二个 `TextInput()` 共享同一份查询文档，同时拥有各自独立的选区。按下回车键时，通过现有的通知 API 调用模型的提交方法。
 
-<MiruiSnippet recipe="editor-shared" label="TextDocument & SearchEditor" file="recipes.rs" height="210px">
+<ArchFlow kind="uml-text-editing" />
+
+<MiruiSnippet recipe="editor-shared" label="TextDocument & SearchEditor" file="recipes.rs" height="220px">
 
 <template #exercise>
 

@@ -27,6 +27,8 @@ Drag the grip at the bottom-right corner to resize the viewport and see the two 
 
 In chapter 1 we mount a dark `Task list` header block with two static rows underneath. Click the **`desktop.rs`** tab or toggle the **eye button** to see how `SdlSurface` creates the native window and calls `install`:
 
+<ArchFlow kind="uml-ch1-tree" />
+
 <TutorialWorkspace :chapter="1" file="lib.rs">
 
 <template #exercise>
