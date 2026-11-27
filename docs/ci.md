@@ -1,6 +1,12 @@
-# CI checks
+# CI checks {#ci-checks}
 
-`cargo xtask ci` runs the complete check set. Use `cargo xtask ci --list` to list checks, or pass check names to run only those checks:
+`cargo xtask ci` runs the complete verification pipeline—from formatting and `cha` architectural analysis to dual-configuration runtime tests (`std` + `linux-fb`), `trybuild` compile-fail contracts, and bare-metal cross targets.
+
+<ArchFlow kind="ci-matrix" />
+
+## Running CI checks locally {#running-ci-checks-locally}
+
+Use `cargo xtask ci --list` to list all registered checks, or pass specific check names to run a subset:
 
 ```sh
 cargo xtask ci format
@@ -11,34 +17,56 @@ cargo xtask ci host-clippy examples
 cargo xtask ci wasm-check riscv-check linux-fb-check
 ```
 
-Names are validated before execution. Unknown or duplicate names fail instead of silently selecting a different check. Each check reports elapsed wall time; subprocess and scheduling time are included.
+Names are validated before execution: unknown or duplicate check names fail immediately instead of silently falling back. Each check reports elapsed wall time (including subprocess execution and OS scheduling).
 
-Local checks can skip cross targets or Linux-only checks when their prerequisites are unavailable. In GitHub Actions, a selected check with a missing target or unsupported host fails instead of reporting a successful skip.
+Local runs can skip cross-compilation targets or Linux-only checks when their host prerequisites are unavailable. In GitHub Actions, a selected check with a missing target or unsupported host fails hard instead of reporting a successful skip.
 
-`tests-std` runs workspace library and binary unit tests, runtime integration tests and doctests. `contracts-std` runs compiler diagnostics and external-crate contract tests. The corresponding `tests-linux-fb` and `contracts-linux-fb` checks retain the Linux framebuffer feature configuration and run on Linux hosts.
+On macOS, doctest linking requires the SDL library search path just like native binary builds. On Apple Silicon with Homebrew, run:
 
-Renderer unit tests live under `tests/unit/render/` and keep access to private rendering types through their original module declarations. Run the renderer suite with `cargo test --lib --features sdl-gpu,wgpu render::`. Pixel Flight and SpriteStack keep their unit tests in `tests/unit/` inside each crate.
+```sh
+env RUSTDOCFLAGS="-L native=/opt/homebrew/lib" cargo xtask ci tests-std
+```
 
-Integration targets are discovered from Cargo metadata. Packages declare compiler contract targets in `[package.metadata.ci].contract-tests`; every other integration target enters the runtime group automatically. A stale declaration or ambiguous workspace target name fails the check. Adding an ordinary integration test requires no CI list update.
+---
 
-The groups use the same workspace feature selection as full workspace testing. Separating compiler diagnostics does not disable them or replace them with source-text assertions. Native clipboard test binaries retain their own harness behavior.
+## Check groups and runner matrix {#check-groups-and-runner-matrix}
 
-On macOS, doctest linking needs the SDL library search path as well as native Rust builds. With an Apple Silicon Homebrew installation, use `env RUSTDOCFLAGS="-L native=/opt/homebrew/lib" cargo xtask ci tests-std`.
+GitHub Actions reads `.github/ci-matrix.json` and runs up to six check groups concurrently on isolated runners. Every group uses a dedicated Rust cache key and installs only its required toolchain components (`rustfmt`, `clippy`, `xrune-fmt`, `cha`, or `wasm32` / `riscv32imc` standard-library targets).
 
-Cha checks report timings for each health fixture, repository API policy and source analysis. The health fixtures must produce their expected errors; repository checks retain their error threshold and cache policy. Failures print the captured JSON and stderr without repeating the analysis.
+| Matrix Group | `cargo xtask ci` Checks | Key Responsibilities & Prerequisites |
+| --- | --- | --- |
+| **Formatting** | `format` | Verifies `cargo fmt --check` across Rust crates and `xrune-fmt` on `.xrune` style manifests |
+| **Cha Policy & Analysis** | `cha-policy`, `cha-analysis` | Validates health fixtures (which must trigger their expected errors), repository API boundaries, and static architecture rules (`cargo xtask cha` runs both) |
+| **Runtime Suites (`std` & `linux-fb`)** | `tests-std`, `tests-linux-fb` | Workspace library & binary unit tests, auto-discovered runtime integration tests, and doctests under both standard and Linux framebuffer features |
+| **Compiler Contracts (`std` & `linux-fb`)** | `contracts-std`, `contracts-linux-fb` | Pinned `rustc 1.97.0` `trybuild` compile-fail `.stderr` diagnostics (`[package.metadata.ci].contract-tests`) and external-crate visibility contracts |
+| **Host Lint, Release & Size** | `host-clippy`, `examples`, `release`, `size` | Zero-warning host Clippy lints, Gallery/example compilation, optimized release builds, and binary footprint checks |
+| **Cross Targets** | `wasm-check`, `riscv-check`, `linux-fb-check` | Verifies `wasm32-unknown-unknown`, bare-metal `riscv32imc-unknown-none-elf` (`no_std + alloc`), and Linux `fbdev`/`evdev` targets |
 
-GitHub Actions reads check groups from `.github/ci-matrix.json` and runs up to six groups concurrently on separate runners. Formatting, API policy, general analysis, release builds, host lint/examples, runtime tests, compiler contracts and cross-target checks have independent results. Each compiler contract and runtime suite runs with both the standard and Linux framebuffer configurations. The two Cha groups each validate the analyzer and health fixtures before analysis; `cargo xtask cha` runs both together.
+### Test discovery and renderer unit suites {#test-discovery-and-renderer-unit-suites}
 
-Groups use distinct Rust cache keys and install their required native libraries and tools. Build and size checks share a runner, as do host Clippy and examples. Cargo commands within a group run sequentially to reuse that runner's target directory. The workflow explicitly selects the pinned Rust toolchain, with cross-target components declared for the target-check group.
+Integration targets are discovered automatically from Cargo metadata:
+- Packages list compile-fail / contract targets in `[package.metadata.ci].contract-tests`;
+- Every other integration target enters the runtime test group automatically—adding a new integration test requires **zero** edits to CI configuration files;
+- Renderer unit tests live under `tests/unit/render/` and retain access to private rendering types through their module declarations. Run them directly with:
 
-Toolchain components are explicit matrix prerequisites: formatting installs `rustfmt`, while host lint and RV32 checks install `clippy`. Formatting also installs `xrune-fmt`; both analysis groups install Cha. Native build/test groups install SDL and evdev development libraries. The target-check group installs the WASM and RV32 standard-library targets. Matrix coverage checks validate these requirements and their forwarding to the toolchain installer.
+```sh
+cargo test --lib --features sdl-gpu,wgpu render::
+```
 
-The final `ci` job requires successful matrix preparation and successful completion of every group. Missing, skipped, cancelled or failed results cannot produce a successful summary. Architecture tests check that the matrix covers every registered check exactly once and execute the summary script against each result combination. The release tool continues to wait for the complete workflow on its exact commit.
+The final `ci` summary job requires every matrix group to succeed. Any missing, skipped, cancelled, or failed group fails the summary gate.
 
-Parallel jobs reduce the serial critical path but can increase aggregate runner time and cache storage. New group caches may be cold; compare complete workflow durations on comparable runs before claiming a speedup. GitHub's [matrix execution documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations) describes runner concurrency and failure handling.
+---
 
-## Documentation checks
+## Documentation checks {#documentation-checks}
 
-From `docs/`, install the locked dependencies with `bun install --frozen-lockfile`. Run `bun run playground` to build the optional browser application, then start the local site with `bun run dev`. The development manual is available under `/docs/dev/`.
+From `docs/`, install locked dependencies with `bun install --frozen-lockfile`, build the compiled Wasm playground, and run the static build and bilingual anchor parity suite:
 
-Use `bun run test` for routing and archive checks, `cargo test -p mirui-first-app` for the course checkpoints, and `bun run build` for the static site and link validation. The Pages workflow builds the Gallery and manual on separate runners. A release snapshot appears in the version selector after the course builds against the published crate and Pages verifies the snapshot.
+```sh
+bun install --frozen-lockfile
+bun run playground
+bun run build
+bun run test
+cargo test -p mirui-first-app
+```
+
+The GitHub Pages workflow builds the interactive Gallery and the bilingual manual on separate runners. A release snapshot appears in the top-bar version selector after `mirui-first-app` builds against the published crate and Pages validates the archive hash and Wasm bundle.

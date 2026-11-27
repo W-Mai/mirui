@@ -1,4 +1,4 @@
-# Composition, roles, and custom views
+# Composition, roles, and custom views {#composition-roles-and-custom-views}
 
 How `#[compose]` functions, resource borrows (`res!`), forwarded props (`prop!`), ECS systems (`#[system]`), and custom view descriptors (`#[view]` / `ui!(compose Name)`) fit together.
 
@@ -51,17 +51,6 @@ Tap `Toggle width` or drag the bottom-right grip to resize the viewport—the pr
   </svg>
 </div>
 
-## Contents
-
-1. [Choosing state and rendering roles](#choosing-state-and-rendering-roles)
-2. [Compositions and `prop!(T)` inputs](#compositions-and-prop-inputs)
-3. [Application resources (`res!`)](#application-resources)
-4. [Named widget identities (`id`)](#named-widget-identities)
-5. [Programmatic builders (`App::compose` closures)](#programmatic-builders)
-6. [Systems, queries, and timers (`#[system]`, `#[timer]`, `#[animate]`)](#systems-queries-and-timers)
-7. [Custom Views (`#[view]`)](#custom-views)
-8. [Reusable Niches (`ui!(compose Name)`)](#reusable-niches)
-
 ---
 
 ## Choosing state and rendering roles {#choosing-state-and-rendering-roles}
@@ -97,7 +86,7 @@ Calling a `#[compose]` function prepares a stack-held composition without execut
 
 Keep visual styling on the nodes a composition creates. Orbit Console sets its background on its own shell node without changing the caller's parent background.
 
-### Zero-allocation prop forwarding (`Prop<T>` & `prop!(T)`)
+### Zero-allocation prop forwarding (`Prop<T>` & `prop!(T)`) {#zero-allocation-prop-forwarding-prop-t-prop-t}
 
 `Prop<T>` carries a static value or a shared read-only getter. `Prop::from(value)` stores a value; `Prop::new(move || source.get())` retains a getter without evaluating it. `get()` reads in the caller's reactive scope, so a widget binding subscribes to the original sources. Cloning a dynamic prop shares its getter without allocating or registering another consumer. Each read evaluates the getter; use `Computed` when a result needs caching. Static props add no framework allocation, while each dynamic prop allocates one shared closure during preparation.
 
@@ -247,7 +236,7 @@ fn update_selected(
 }
 ```
 
-### Timers (`#[timer]`)
+### Timers (`#[timer]`) {#timers-timer}
 
 `#[timer]` declares one schedule (`after = ms`, `every = ms`, `repeat = (count, ms)`, or `until = (deadline, ms)`) and typed callback roles:
 
@@ -265,7 +254,7 @@ fn tick(
 app.add_timer(tick::timer(counter));
 ```
 
-### Scalar motion applicators (`#[animate]`)
+### Scalar motion applicators (`#[animate]`) {#scalar-motion-applicators-animate}
 
 `#[animate]` declares how a scalar `Motion` is applied. It generates the named motion component and a system constructor:
 

@@ -1,6 +1,34 @@
-# Navigation paths
+# Navigation paths {#navigation-paths}
 
-## Following widget bounds
+<div class="arch-diagram" role="img" aria-label="Comparison of mirui's three navigation and motion primitives: FollowBounds, NavigationStack, and PageView">
+  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="nav-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="20" width="268" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · FOLLOWBOUNDS</text>
+    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Layout-Delta Spring &amp; Tween</text>
+    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">FollowBounds::new(target)</text>
+    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">with_outset · with_transition</text>
+    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Velocity-preserving mid-flight retarget</text>
+    <rect x="306" y="20" width="268" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="322" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · NAVIGATIONSTACK&lt;R&gt;</text>
+    <text x="322" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Retained Push / Pop Lifecycle</text>
+    <text x="322" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">NavigationPath::with_capacity</text>
+    <text x="322" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">push · pop · clear · CreatePage</text>
+    <text x="322" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Restores hidden subtrees &amp; scroll state</text>
+    <rect x="596" y="20" width="268" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="612" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · PAGEVIEW&lt;P&gt;</text>
+    <text x="612" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">State-Driven Active Page</text>
+    <text x="612" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">PageView(page: ${state.page()})</text>
+    <text x="612" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">PageTransition::slide / fade</text>
+    <text x="612" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Reversible transitions &amp; zero-copy slide</text>
+  </svg>
+</div>
+
+## Following widget bounds {#following-widget-bounds}
 
 Attach `FollowBounds` to a widget to position it around another widget. It uses prepared `LayoutGeometry` outputs, including scrolling and transforms, and maps the target into the follower parent's coordinates. The follower does not occupy flex space; its children retain ordinary layout and padding.
 
@@ -45,7 +73,21 @@ The follower respects its own ancestor clips and the target's ancestor clip. Hid
 
 Bounds update immediately by default. Add `.with_transition(mirui::anim::SNAPPY)` or pass a `TweenConfig` to animate position and size changes. The first valid placement and recovery from an unavailable target are immediate. Retargeting preserves each axis's displayed position; springs also retain velocity. Rendering and hit testing use the displayed bounds, clipped to the current source viewport. `transition: None` or zero duration switches immediately. Only animated followers allocate motion component storage, prepared when animation is enabled; advancing and retargeting reuse it.
 
-## Interactive example
+### Simulating proximity in tests {#simulating-proximity-in-tests}
+
+Gallery's **Nearby** (`nearby_demo`) showcases `FollowBounds`, directional `PageView` deck slides, and retained modal overlays in a local handheld game launcher, paired with a deterministic proximity/network simulation inspector (`F2` or **Simulate** above the Web canvas):
+
+| Simulation Control / Flow | Shortcut / Trigger | Behavior & State Contract |
+| --- | --- | --- |
+| **Toggle Simulation Inspector** | `F2` / Web `Simulate` | Expands a scrollable 300 px inspector to the left of the 640×480 launcher without altering application state |
+| **Connection Flows & 9 Case Presets** | `J` or hold `X` / Inspector | Starts game creation/joining, local matching, LAN, or direct entry across 9 presets (success, connection/restore failure, existing/no rooms, reconnecting, remote closure, no match, unsupported) |
+| **Step & Local Confirmation** | `Deliver reply` / `Local A` / `Local B` | `Deliver reply` advances one remote operation with an expected-result hint; `Local A` / `Local B` drive host approval and start confirmation through the active route |
+| **State-Gated Fault Injection** | Fault buttons / `Repeat case` / `Stop case` | Injects failure, timeout, host rejection, remote departure, connection loss, or restore results; `Repeat case` restarts the scenario and `Stop case` restores the retained launcher |
+| **Navigation & Deck Shortcuts** | `Tab` / `K` / `Y` / `X` | `Tab` switches favorites & retained catalog; `K` opens settings/search keyboard; `Y` sorts/searches/switches themes; `X` launches on release or opens multiplayer on hold (cancelled if navigation intervenes) |
+
+Nearby starts with the forest palette (switching between forest, sunset, and night in settings) and plays ten bundled sound cues across navigation and connection transitions. Connection panels animate over the retained browser below, caching modal backgrounds within the shared offscreen budget, and returning from tools or completed simulations restores the exact catalog position and selection.
+
+## Interactive example {#interactive-example}
 
 Page Studio is available in the Gallery's Showcase section as `page_studio`. Its collection, place details and note editor demonstrate stack navigation and retained controls; the scene panel demonstrates `PageView`. The toolbar separates None/Slide/Fade effects from Tween/Spring motion. Tween offers Linear, Ease out and Ease in-out at 300 ms; Spring offers Smooth, Snappy, Bouncy and Interactive. The Follow Bounds panel moves an independent outline between three differently sized buttons using `FollowBounds`; each selection uses the toolbar's current motion and preset.
 
@@ -54,19 +96,7 @@ cargo run -p gallery --example page_studio_demo
 cargo run -p gallery --example page_studio_demo --no-default-features --features wgpu
 ```
 
-Nearby demonstrates a local game launcher with favorites, platform and game browsers, search and connection flows. Press and release X to launch a game, or hold X for multiplayer. Nested overlays provide game actions, settings, system controls, tools, exit and power confirmation. Navigation and connection state changes play ten bundled sound cues. Sound and volume settings control the installed audio output and share mute state with the Web audio control; theme and brightness remain local demo state. Unavailable actions show their reason. Page changes use explicit forward and backward slide directions. The native window starts at 640×480 and reflows when resized. Device, network and game-process operations are simulated. The default backend is SDL; the same UI also runs with SDL-GPU or WGPU.
-
-Nearby starts with the forest palette; settings switch between forest, sunset and night. Pixel scenery uses the same theme roles. Initial viewport height selects native 12 px or 24 px typography and compact spacing; Flex handles subsequent window resizing. Tab switches favorites and the retained catalog location, K opens settings or toggles the search keyboard, and J opens the connection flow. Y sorts favorites, opens catalog search, edits favorites in game results, or deletes a search character. Connection choice pages use Y to switch themes. F2 toggles a scrollable simulation inspector to the left of the application. The host grows by 300 logical pixels after size confirmation; the application retains its dimensions and state. Fixed or restricted hosts keep the application visible without an overlay.
-
-Connection flows opened from the launcher use an animated panel while retaining the browser below. Closing the panel restores the same collection and selection. Modal backgrounds retain completed widget output within the demo's shared offscreen budget.
-
-Discovery shows nearby rooms above the connection options. Down at the end of the room list expands the options; Up from the options restores the rooms. Clicking either pane activates it. The inspector starts game creation, game joining, local-game matching, LAN creation, LAN joining or direct in-game entry. Its nine case presets cover success, connection failure, restore failure, an existing room, no rooms, reconnecting, remote closure, no matching game and an unsupported game.
-
-Click Simulate above the Web canvas or press F2 to open the inspector. Deliver reply advances one remote operation, with a hint identifying the expected result. Local A and Local B use the application's existing confirm and cancel paths: host approval and starting a game require local confirmation. State-gated fault buttons inject failure, timeout, host rejection, remote departure, connection loss or a restore result; unavailable replies are disabled. Repeat case starts a fresh attempt with the same flow and condition. Stop case returns to the retained launcher and clears the simulated connection.
-
-X starts the selected game on release, or opens its multiplayer flow automatically when held. Navigation cancels an unfinished press; holding X through a modal or page change cannot launch the new selection.
-
-Choosing a game from the connection panel closes the panel and opens the launcher catalog through its deck animation, preserving the catalog location. Returning from tools or controls restores the parent-menu selection. Game launches share the retained-network confirmation, including the X shortcut; network management opens the current host or client connection. Completed simulated requests restore the launcher and preserve retained network state. The F2 controls use the same active route as pointer and keyboard input. Nearby keeps its own palette when the surrounding website switches appearance.
+Run Nearby with SDL, SDL-GPU, or WGPU:
 
 ```sh
 cargo run -p gallery --example nearby_demo
@@ -74,7 +104,7 @@ cargo run -p gallery --example nearby_demo --no-default-features --features sdl-
 cargo run -p gallery --example nearby_demo --no-default-features --features wgpu
 ```
 
-## Navigation state
+## Navigation state {#navigation-state}
 
 `NavigationPath<R>` is an observable Model containing pushed destinations. The root page is not part of the path. Register an instance with `App::add_model` or store it in an owned Model field.
 
@@ -106,7 +136,7 @@ assert!(path.is_empty());
 
 `with_capacity(n)` prepares storage for at most `n` destinations. `push` moves the destination into prepared storage; it does not grow storage or clone the route. Equal destinations are separate entries. `pop` and `clear` retain capacity. A rejected mutation leaves the path unchanged.
 
-## Retained navigation stacks
+## Retained navigation stacks {#retained-navigation-stacks}
 
 `NavigationStack` binds a path to a page factory. Its ordinary children are the root page; the factory handles every pushed destination. Register `navigation::view::<Route>()` once per route type, not once per page. Multiple independent navigation areas use separate path instances.
 
@@ -210,7 +240,7 @@ Returning to a visited entry restores its existing widgets and scroll position. 
 
 Page creation may allocate, including cloning an owned route payload. Path mutation and unchanged-page coordination reuse prepared framework storage. A failed factory preserves the displayed page without retrying every frame; the next path revision or factory replacement permits another attempt. The application root and shared Models are not replaced by navigation.
 
-## Pages selected by application state
+## Pages selected by application state {#pages-selected-by-application-state}
 
 `PageView` follows an application value without keeping a history. Register its View once for each route type, then provide a `CreatePage` callback. The callback returns one newly constructed page root. Equal page values retain the existing subtree; a different value constructs its replacement before retiring the old subtree. Failed construction leaves the displayed page intact and is not retried until the selection or factory changes.
 
@@ -274,7 +304,7 @@ fn main() {
 
 `PageView::new(page)` supports non-macro composition. Its `page` field stores `Option<R>`; `None` selects no page, and ordinary DSL field conversion accepts an `R` directly. Routes need `Clone + PartialEq`, not `Default`. Page construction can allocate; an unchanged selection does not clone its route or rebuild its widgets. The factory also accepts the ordinary inline closure and `on CreatePage { ... }` forms.
 
-## Page transitions
+## Page transitions {#page-transitions}
 
 ```rust
 use mirui::anim::{BOUNCY, Easing, Transition, TweenConfig, ease};

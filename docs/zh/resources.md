@@ -2,42 +2,7 @@
 
 `ResourceManager<T>` 在既有缓存预算下将资源令牌（token）解析为共享值。`ResourceHandle::get()` 与 `ResourceManager::resolve()` 返回已完成值或管理器回退值（fallback）的 `cache::Handle<T>`，直接共享同一缓存条目而不拷贝底层内容。已获取的值句柄在条目被替换、驱逐乃至管理器被销毁后依然可读；而通过需求句柄（`ResourceHandle`）发起的下一次读取则会自动跟随管理器的当前最新值。静态注册项与已完成句柄的读取不会触发加载器（loader）。
 
-<div class="arch-diagram" role="img" aria-label="从 ImageSource 与 ResourceManager 经由 ProbeLoader 与 AssetProvider 到受预算管控的像素驻留流水线">
-  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <marker id="res-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
-      </marker>
-    </defs>
-    <rect x="16" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · SOURCE BINDING</text>
-    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">令牌、路径或纹理</text>
-    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Image(src: ...) · prop!</text>
-    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ImageSource::from</text>
-    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">需求句柄与响应式订阅</text>
-    <path d="M210 84H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#res-arrow)" />
-    <rect x="256" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · MANAGER &amp; PROBE</text>
-    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">缓存与协作式轮询</text>
-    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ResourceManager&lt;T&gt;</text>
-    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Loader · ProbeLoader</text>
-    <text x="272" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">每个加载器 4 个并发调用槽位</text>
-    <path d="M450 84H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#res-arrow)" />
-    <rect x="496" y="20" width="186" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · BYTE PROVIDER</text>
-    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">内存映射或分块 I/O</text>
-    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">AssetProvider · AssetSource</text>
-    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">AssetCacheConfig</text>
-    <text x="512" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">有界块缓存与在途 I/O 控制</text>
-    <path d="M682 84H720" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#res-arrow)" />
-    <rect x="728" y="20" width="136" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="744" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · RESIDENCY</text>
-    <text x="744" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">像素解码与驻留</text>
-    <text x="744" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">cache::Handle&lt;T&gt;</text>
-    <text x="744" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">poll_pixels_in</text>
-    <text x="744" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">解码预算与优雅降级</text>
-  </svg>
-</div>
+<ArchFlow kind="resource-pipeline" />
 
 `Image(src: ${expression})` 通过现有的响应式属性机制绑定资源令牌、矢量路径或已驻留纹理，并可通过 `prop!(ImageSource)` 在多层组合函数之间转发。切换图像源会保留控件原有的绘制配置、释放上一个资源的需求订阅并转而订阅新资源；相等的值不会触发无谓更新。强类型构建器使用 `bind_property::<prop::ImageSource>(getter)`，回调中则可使用 `commands.set::<prop::ImageSource>(entity, source.into())`。
 
@@ -104,9 +69,28 @@ app.add_plugin(
 
 ## 字节源提供者与按需区域解码 (`AssetProvider` & `poll_pixels_in`) {#byte-providers}
 
-`AssetProvider` 按键打开对象，其关联的 `AssetReader` 汇报长度、定位与内容一致性（`SourceConsistency::Stable` 保证跨多次读取的内容版本不可变）。对于静态内存数据，内置的 `&'static [u8]` 读取器直接通过 `mapped()` 暴露零拷贝切片；对于外部闪存或文件系统，则通过 `ResourcePlugin` 与 `ImageResourcesPlugin` 绑定分块异步读取与格式解码器。
+| 预算层级 / 配置项 | 管控范围与计费对象 | 默认值 / 典型上限 | 容量耗尽与淘汰行为 |
+| --- | --- | --- | --- |
+| **`values` 预算** (`ResourceManager<T>`) | 已完成的资源缓存条目（`cache::Handle<T>`）、内存映射 RAW 长度及纹理控制存储 | 按 `ResourceManager` 配置（`MaxSize::Bytes` 或 `Count`） | 淘汰未被引用的冷索引条目；已被持有的 `cache::Handle<T>` 在释放前始终可读 |
+| **`probes` 预算** (`with_probes` / `enable_probes`) | 仅探测不解码的元数据（`ProbeLoader<T>`、图像宽高与格式头） | 可选元数据缓存（`MaxSize::Bytes` 或 `Count`） | 令牌替换、移除或完整加载完成时自动失效；未启用缓存时仍直接返回探测结果 |
+| **`AssetCacheConfig`** (`ResourcePlugin::with_cache`) | 共享源字节块、被读取器借用的已驱逐块以及在途物理读取缓冲 | `1 KiB` 块、`4 KiB` 预算、`2` 个在途读取、`4` 个会话/提供方、`1 KiB` 键长、`256 B` 识别前缀 | 拒绝无界源缓存；会话或读取槽位耗尽时返回 `Capacity` 而不隐式扩容 |
+| **`with_decode_budget(bytes)`** (`ImageResourcesPlugin`) | 内置源解码器共享活动池：局部区域瓦片、在途区域读取、被锁定的已驱逐像素、编码组元数据与编解码工作区 | 默认按需准备 `128 KiB`（静态与 `mapped()` RAW 图像零占用） | 优先复用未锁定的冷瓦片；被锁定的活跃区域占满预算时返回 `ResourceLimit(Texture)` |
 
-加载完成后先发布图像几何尺寸与持有的 `AssetSource`，随后在真正需要绘制的视口区域内通过 `Texture::poll_pixels_in(region, context)` 按需读取 RAW 行或解码相交的编码块。像素尚未就绪时，`Image` 会先行绘制配置的回退占位图，待像素就绪后自动在所属线程触发重绘。`ImageResourcesPlugin::with_decode_budget(bytes)` 限制内置源解码器的共享活动内存上限（默认按需准备 `128 KiB`）：
+### `AssetProvider` 与零拷贝内存映射切片 {#asset-provider-and-mapped-slices}
+
+当基于字节源的 `Texture` 发布后，其保留的读取进度归属于该纹理值本身，而非单个 `Image` 控件。移除或切换 `Image` 仅停止驱动旧像素需求，不会清除已缓存的成功值或令其他独立的纹理持有者失效；释放最后一个纹理持有者时，才会通过原始提供方会话安全退役在途物理读取。每个物理读取最多保留 8 个不同的等待上下文（同一 `App` 内的多个控件共享同一个唤醒槽位）。
+
+`AssetProvider` 按键打开对象，其关联的 `AssetReader` 汇报长度、定位与内容一致性（`SourceConsistency::Stable` 保证跨多次读取的内容版本不可变）。对于静态内存或只读映射数据，读取器可直接通过 `mapped()` 暴露完整不可变切片（内置 `&'static [u8]` 读取器直接零拷贝借用底层切片并支持即时随机读取）。每次物理读取接管一个 `AssetBuffer` 并在 `ReadComplete` 中归还（即使读取失败也会归还缓冲）。
+
+### 块缓存与会话容量预算 {#block-cache-and-session-budgets}
+
+`ResourcePlugin` 注册具名字节提供方，`ImageResourcesPlugin::with_source` 将图像令牌映射到提供方键，并通过 `with_loader` 安装字节识别器与解码器。解码器识别 `LoadInput::Bytes`，通过 `FormatMatch::Need` 请求有界前缀，并使用 `LoadContext::poll_read_exact` 或 `poll_read` 读取数据。
+
+内置 MIRX 字节解码器同时支持内存映射（mapped）与非映射随机访问的 `FLAT` 及 `CHUNK` 图像：映射 RAW 图像直接借用经校验的单平面像素并保留行跨距（stride）；非映射容器使用有界窗口校验目录、关键载荷与 `DATA` 校验和，编码图像则保留组元数据与单个可复用的单元输入缓冲。
+
+### 按需视口像素驻留 (`poll_pixels_in`) {#lazy-viewport-pixel-residency}
+
+加载完成后先发布图像几何尺寸与持有的 `AssetSource`，随后在真正需要绘制的视口区域内通过 `Texture::poll_pixels_in(region, context)` 按需读取 RAW 行或解码相交的编码块。像素尚未就绪时，`Image` 会先行绘制配置的回退占位图（自定义视图可使用 `paint.poll_draw(&command)` 在返回 `Poll::Pending` 时绘制替代内容），待像素就绪后自动在所属线程触发重绘。`ImageResourcesPlugin::with_decode_budget(bytes)` 限制内置源解码器的共享活动内存上限（默认按需准备 `128 KiB`）：
 
 ```rust,ignore
 app.add_plugin(

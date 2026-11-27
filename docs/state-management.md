@@ -1,4 +1,4 @@
-# Reactive state and styles
+# Reactive state and styles {#reactive-state-and-styles}
 
 `mirui` drives widget attributes and tree structure declaratively from `#[model]` instances, `Signal<T>`, `Computed<T>`, and `StyleSheetPlugin`. Mutate a model field or signal and only the widgets that read it update on the next frame—no manual diffing or observer wiring.
 
@@ -16,57 +16,7 @@ Tap `+ 10` or `- 10` to mutate `Gauge::level`—the label text, percentage bar w
 
 </MiruiSnippet>
 
-<div class="arch-diagram" role="img" aria-label="Reactive transaction and single-frame flush pipeline">
-  <svg viewBox="0 0 880 172" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <marker id="state-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
-      </marker>
-    </defs>
-    <rect x="16" y="22" width="192" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · MUTATION</text>
-    <text x="32" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Model / Signal Write</text>
-    <text x="32" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">gauge.step(10)</text>
-    <text x="32" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">signal.set(next)</text>
-    <text x="32" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Compares #[observe] snapshots</text>
-    <path d="M208 86H246" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#state-arrow)" />
-    <rect x="254" y="22" width="192" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="270" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · DIRTY QUEUE</text>
-    <text x="270" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Coalesced Subscribers</text>
-    <text x="270" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">${ gauge.level() }</text>
-    <text x="270" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Computed&lt;T&gt; · Effect</text>
-    <text x="270" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Enqueued once per frame</text>
-    <path d="M446 86H484" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#state-arrow)" />
-    <rect x="492" y="22" width="182" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="508" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · FLUSH</text>
-    <text x="508" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">flush_signal_dirty</text>
-    <text x="508" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Property::apply</text>
-    <text x="508" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">StyleSheet classes</text>
-    <text x="508" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Updates only changed fields</text>
-    <path d="M674 86H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#state-arrow)" />
-    <rect x="720" y="22" width="144" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="736" y="48" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · DAMAGE</text>
-    <text x="736" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Layout / Visual</text>
-    <text x="736" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">PrevRect ∪ CurrRect</text>
-    <text x="736" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">render_dirty()</text>
-    <text x="736" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Repaints dirty region</text>
-  </svg>
-</div>
-
-## Contents
-
-1. [Registered model instances (`#[model]`)](#registered-model-instances)
-   - [Owned child models](#owned-child-models)
-   - [Model roles (`model!(T)`)](#model-roles)
-2. [Reactive primitives (`Signal`, `Computed`, `Effect`)](#primitives)
-3. [Reusable styles (`style!` & `StyleSheetPlugin`)](#reusable-styles)
-   - [Stylesheet classes](#stylesheet-classes)
-4. [Reactive attributes (`$`)](#reactive-attributes)
-5. [Layout-responsive attributes (`@`)](#layout-responsive-attributes)
-6. [Reactive control flow (`if $`, `match $`)](#reactive-control-flow)
-7. [Lists: `walk`, index vs keyed](#lists)
-8. [The flush model](#the-flush-model)
-9. [Limits and contracts](#limits)
+<ArchFlow kind="reactive-dataflow" />
 
 ---
 

@@ -16,57 +16,7 @@
 
 </MiruiSnippet>
 
-<div class="arch-diagram" role="img" aria-label="响应式事务与单帧合并刷新流水线">
-  <svg viewBox="0 0 880 172" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <marker id="state-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
-      </marker>
-    </defs>
-    <rect x="16" y="22" width="192" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · MUTATION</text>
-    <text x="32" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Model / Signal 写入</text>
-    <text x="32" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">gauge.step(10)</text>
-    <text x="32" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">signal.set(next)</text>
-    <text x="32" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">比对 #[observe] 前后快照</text>
-    <path d="M208 86H246" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#state-arrow)" />
-    <rect x="254" y="22" width="192" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="270" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · DIRTY QUEUE</text>
-    <text x="270" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">订阅者去重入队</text>
-    <text x="270" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">${ gauge.level() }</text>
-    <text x="270" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Computed&lt;T&gt; · Effect</text>
-    <text x="270" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">同一帧多次修改自动合并</text>
-    <path d="M446 86H484" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#state-arrow)" />
-    <rect x="492" y="22" width="182" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="508" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · FLUSH</text>
-    <text x="508" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">flush_signal_dirty</text>
-    <text x="508" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Property::apply</text>
-    <text x="508" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">StyleSheet 样式类切换</text>
-    <text x="508" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">仅更新实际变化的属性</text>
-    <path d="M674 86H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#state-arrow)" />
-    <rect x="720" y="22" width="144" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="736" y="48" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · DAMAGE</text>
-    <text x="736" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">布局与脏区重绘</text>
-    <text x="736" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">PrevRect ∪ CurrRect</text>
-    <text x="736" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">render_dirty()</text>
-    <text x="736" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">只刷新受影响的像素</text>
-  </svg>
-</div>
-
-## 目录 {#contents}
-
-1. [已注册的模型实例 (`#[model]`)](#registered-model-instances)
-   - [内联子模型 (`model!(owned Child)`)](#owned-child-models)
-   - [模型角色参数 (`model!(T)`)](#model-roles)
-2. [响应式原语 (`Signal`、`Computed`、`Effect`)](#primitives)
-3. [可复用样式 (`style!` 与 `StyleSheetPlugin`)](#reusable-styles)
-   - [样式表类规则](#stylesheet-classes)
-4. [响应式属性 (`$`)](#reactive-attributes)
-5. [几何响应式属性 (`@`)](#layout-responsive-attributes)
-6. [响应式控制流 (`if $`、`match $`)](#reactive-control-flow)
-7. [列表迭代：`walk`、按位置与按键值](#lists)
-8. [单帧合并刷新机制](#the-flush-model)
-9. [边界条件与契约](#limits)
+<ArchFlow kind="reactive-dataflow" />
 
 ---
 

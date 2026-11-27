@@ -1,7 +1,7 @@
 # 屏幕、输入与硬件加速移植 {#porting-a-display-and-input-backend}
 
 `mirui` 通过四组正交的接口将声明式 UI 树、布局引擎与响应式状态同底层硬件解耦：
-- **`Surface`**：汇报屏幕逻辑尺寸与像素格式（`DisplayInfo`）、轮询原始输入事件（`InputEvent`），并将发生变化的物理像素脏矩形（`PhysicalRect`）刷上屏幕；
+- **`Surface`**：汇报屏幕逻辑尺寸与像素格式（`DisplayInfo`）、排空原始输入事件（`InputEvent`），并将发生变化的物理像素脏矩形（`PhysicalRect`）刷上屏幕；
 - **`FramebufferAccess` 与 `RendererFactory`**：将单缓冲或多缓冲 CPU 帧缓冲暴露给 `SwRendererFactory`（自动获得滚动像素平移复用与双缓冲脏区镜像同步），或绑定自定义 GPU 渲染器；
 - **`RenderEngine` 与 `compose_backend!`**：拦截硬件外设支持的 2D 绘制操作（如 STM32 Chrom-ART DMA2D、NXP PXP、Vela VG-Lite），并将圆角裁剪、透视投影或复杂混合自动委托给软件光栅化器；
 - **`set_clock`、`Storage` 与 `AudioSink`**：在 `no_std` 裸机或 RTOS 上接入硬件单调时钟、Flash 键值存储与 I2S/DMA 音频合成。
@@ -16,53 +16,7 @@
 
 </MiruiSnippet>
 
-<div class="arch-diagram" role="img" aria-label="从宿主循环与时钟经由 Surface 与 RenderEngine 到物理屏幕或 GPU 的四阶段后端移植边界">
-  <svg viewBox="0 0 880 182" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <marker id="port-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
-      </marker>
-    </defs>
-    <rect x="16" y="22" width="192" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · HOST &amp; CLOCK</text>
-    <text x="32" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">宿主主循环与时钟</text>
-    <text x="32" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">time::set_clock(ns_fn)</text>
-    <text x="32" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">app.tick() / render_dirty()</text>
-    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">驱动弹簧动画、定时器与输入</text>
-    <path d="M208 91H246" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#port-arrow)" />
-    <rect x="254" y="22" width="198" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="270" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · SURFACE &amp; INPUT</text>
-    <text x="270" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">显示表面与外设输入</text>
-    <text x="270" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">display_info() · poll_event()</text>
-    <text x="270" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">begin_flush → flush(area)</text>
-    <text x="270" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">触摸屏、旋钮编码器与物理按键</text>
-    <path d="M452 91H490" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#port-arrow)" />
-    <rect x="498" y="22" width="194" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="514" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · RENDER PIPELINE</text>
-    <text x="514" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">软件、混合加速或 GPU</text>
-    <text x="514" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">FramebufferAccess</text>
-    <text x="514" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">compose_backend! (DMA2D)</text>
-    <text x="514" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">滚动平移复用与双缓冲自动镜像</text>
-    <path d="M692 91H730" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#port-arrow)" />
-    <rect x="738" y="22" width="126" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="754" y="48" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · HARDWARE</text>
-    <text x="754" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">物理屏幕 / 扫描</text>
-    <text x="754" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">SPI CASET/RASET</text>
-    <text x="754" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">DRM / VSync 翻页</text>
-    <text x="754" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">仅传输脏区像素</text>
-  </svg>
-</div>
-
-## 目录 {#contents}
-
-1. [选择移植层级](#choosing-a-porting-tier)
-2. [Tier 1：用 `FramebufSurface` 快速点亮 SPI 屏幕](#tier-1-callback-framebuffer)
-3. [Tier 2：实现 `Surface` 与 `FramebufferAccess`](#tier-2-custom-surface-and-framebuffer)
-   - [双缓冲扫描输出与自动脏区镜像](#double-buffered-scanout-and-mirroring)
-4. [接入触摸屏、旋钮编码器与物理按键](#wiring-touch-rotary-and-keys)
-5. [Tier 3：用 `compose_backend!` 接入 2D 硬件加速](#tier-3-hardware-acceleration)
-6. [裸机时钟、Flash 存储与 I2S 音频](#clocks-storage-and-audio)
-7. [板级移植验收清单](#porting-checklist)
+<ArchFlow kind="porting-dma-vsync" />
 
 ---
 
@@ -109,19 +63,6 @@ const H: u16 = 240;
 const BPP: usize = ColorFormat::RGB565Swapped.bytes_per_pixel(); // 2
 const STRIDE: usize = W as usize * BPP;
 
-fn push_spi_window(
-    x0: u16,
-    y0: u16,
-    x1: u16,
-    y1: u16,
-    row_bytes: impl Iterator<Item = &'static [u8]>,
-) {
-    let _ = (x0, y0, x1, y1, row_bytes);
-    // 1. 发送 CASET (0x2A)，参数为闭区间 [x0 >> 8, x0 as u8, x1 >> 8, x1 as u8]
-    // 2. 发送 RASET (0x2B)，参数为闭区间 [y0 >> 8, y0 as u8, y1 >> 8, y1 as u8]
-    // 3. 发送 RAMWR (0x2C)，随后通过 SPI DMA 依次发送每一行像素切片
-}
-
 let surface = FramebufSurface::with_format(
     W,
     H,
@@ -137,13 +78,16 @@ let surface = FramebufSurface::with_format(
         let x1 = x0 + w - 1;
         let y1 = y0 + h - 1;
 
-        // 若脏区横跨整屏宽度，可直接发起单次连续 DMA 传输：
+        // 1. 发送 CASET (0x2A)，参数为闭区间 [(x0 >> 8) as u8, x0 as u8, (x1 >> 8) as u8, x1 as u8]
+        // 2. 发送 RASET (0x2B)，参数为闭区间 [(y0 >> 8) as u8, y0 as u8, (y1 >> 8) as u8, y1 as u8]
+        // 3. 发送 RAMWR (0x2C)，随后通过 SPI DMA 传输窗口像素：
         if x0 == 0 && w == W {
+            // 若脏区横跨整屏宽度，直接发起单次连续 DMA 传输：
             let start = y0 as usize * STRIDE;
             let end = (y0 + h) as usize * STRIDE;
             let _contiguous = &buf[start..end];
         } else {
-            // 否则按行遍历局部窗口内的像素切片：
+            // 否则按行遍历局部窗口内的像素切片（每行偏移递增 STRIDE）：
             for row in y0..(y0 + h) {
                 let offset = row as usize * STRIDE + x0 as usize * BPP;
                 let _slice = &buf[offset..offset + w as usize * BPP];
@@ -152,7 +96,7 @@ let surface = FramebufSurface::with_format(
         let _ = (x1, y1);
     },
 )
-// 可选：当 SPI 片选/指令建立开销较大时，可将多块稀疏脏区合并为单个外接矩形一次性刷新：
+// 当 SPI 片选/指令建立开销较大时，可将多块稀疏脏区合并为单个外接矩形一次性刷新：
 .with_redraw_strategy(RedrawStrategy::BoundingBox);
 
 let mut app = App::new(surface);
@@ -166,7 +110,7 @@ app.render().unwrap();
 ## Tier 2：实现 `Surface` 与 `FramebufferAccess` {#tier-2-custom-surface-and-framebuffer}
 
 当你的硬件工程需要：
-1. 将帧缓冲放在**静态 BSS / SRAM / PSRAM 段**（不经过堆分配）；
+1. 将帧缓冲放在**静态 BSS / SRAM / PSRAM 段**（32 字节对齐以配合 DMA 与 Cache 行，零堆分配）；
 2. 在 `poll_event()` 中投递电容触摸、旋钮编码器或矩阵按键事件；
 3. 利用 `begin_flush()` → `flush(area)` → `end_flush()` 协调异步 DMA 通道或 VSync 同步信号；或
 4. 在**双缓冲 / 多缓冲**之间轮换扫描输出，
@@ -188,8 +132,11 @@ const PHYS_W: u16 = 240;
 const PHYS_H: u16 = 280;
 const FB_LEN: usize = PHYS_W as usize * PHYS_H as usize * 2;
 
+#[repr(C, align(32))]
+pub struct AlignedFb(pub [u8; FB_LEN]);
+
 pub struct BoardSurface {
-    fb: [u8; FB_LEN],
+    fb: AlignedFb,
     pending_events: [Option<InputEvent>; 8],
     event_head: usize,
     event_len: usize,
@@ -199,7 +146,7 @@ pub struct BoardSurface {
 impl BoardSurface {
     pub const fn new() -> Self {
         Self {
-            fb: [0; FB_LEN],
+            fb: AlignedFb([0; FB_LEN]),
             pending_events: [const { None }; 8],
             event_head: 0,
             event_len: 0,
@@ -250,7 +197,7 @@ impl Surface for BoardSurface {
     fn flush(&mut self, area: PhysicalRect) -> Result<(), RenderError> {
         if !area.is_empty() {
             self.dirty_count += 1;
-            // 将 `self.fb` 中的 `area` 物理区域发送给屏幕控制器。
+            // 对 `area` 所在内存范围执行 Clean D-Cache 并启动 SPI/QSPI DMA。
         }
         Ok(())
     }
@@ -286,7 +233,7 @@ impl Surface for BoardSurface {
 impl FramebufferAccess for BoardSurface {
     fn framebuffer(&mut self) -> Texture<'_> {
         Texture::new(
-            &mut self.fb,
+            &mut self.fb.0,
             PHYS_W,
             PHYS_H,
             ColorFormat::RGB565Swapped,
@@ -387,6 +334,16 @@ impl FramebufferAccess for DoubleBufferedSurface {
 }
 ```
 
+### D-Cache 缓存一致性与 DMA 防撕裂屏障 {#dcache-coherency-and-dma}
+
+在启用了数据缓存（D-Cache）的高性能 MCU/SoC（如 **ARM Cortex-M7**、**Cortex-A** 或带缓存的 **RISC-V** 核心）上，CPU 软件光栅化写入的是 D-Cache，而 SPI DMA、LTDC 与 DMA2D 直接通过总线矩阵读写物理 SRAM/PSRAM。请严格遵守以下三条缓存同步规则，防止局部刷新区域出现陈旧横纹或混合花屏：
+
+| 访问交接方向 | 必须执行的屏障操作 | 物理原因 |
+| --- | --- | --- |
+| **CPU `SwRenderer` → SPI / LTDC DMA 读取** | 启动 DMA 前对脏矩形覆盖的缓存行执行 **Clean D-Cache** (`SCB_CleanDCache_by_Addr`) | 将 CPU 刚画在缓存里的新像素写回物理 SRAM，防止 DMA 传出旧数据 |
+| **CPU `SwRenderer` → 2D 加速器 (`DMA2D` / `PXP`)** | 在 `RenderEngine::begin` 中执行 **Clean & Invalidate D-Cache** (`SCB_CleanInvalidateDCache_by_Addr`) | 确保硬件加速器看到之前的 CPU 像素，同时作废即将被硬件覆写的 CPU 缓存行 |
+| **2D 加速器 (`DMA2D`) → CPU `SwRenderer`** | 在 `RenderEngine::end` 中等待硬件传输完成标志（TCIF）并执行内存屏障 (`dmb`) | 防止 2D 引擎仍在写内存时 CPU 提前介入读写同一行像素 |
+
 ---
 
 ## 接入触摸屏、旋钮编码器与物理按键 {#wiring-touch-rotary-and-keys}
@@ -394,6 +351,17 @@ impl FramebufferAccess for DoubleBufferedSurface {
 `Surface::poll_event(&mut self)` 每次返回一条 `InputEvent`，直到队列排空返回 `None`。所有空间坐标（`PointerDown`、`PointerMove`、`PointerUp`、`Wheel`）均使用**逻辑像素坐标**（`0..display_info().width`、`0..display_info().height`）并以定点数 `Fixed` 表示：
 - 当 `display_info().scale` 为 `Fixed::ONE`（`1.0`）时，直接用 `Fixed::from_int(raw_x)` 转换触摸芯片读出的整数坐标；
 - 当启用了 HiDPI 缩放（例如 `480×480` 物理屏幕设置 `scale = 2.0`、逻辑视口 `240×240`）时，将物理触摸坐标除以缩放比：`Fixed::from_int(raw_x) / scale`。
+
+### 屏幕旋转 (`MADCTL`) 与触控坐标映射 {#panel-rotation-and-touch-mapping}
+
+当通过屏幕驱动芯片的 `MADCTL (0x36)` 寄存器（`MV`、`MX`、`MY` 位）旋转显示方向时，电容触摸芯片往往仍按原生竖屏方向汇报坐标。在构造 `InputEvent` 前按以下公式将 `(raw_x, raw_y)` 映射为逻辑 `(x, y)`：
+
+| 旋转角度 | `MADCTL` 寄存器位 | 逻辑宽高 `(W, H)` | 触控坐标变换公式 `(raw_x, raw_y) -> (x, y)` |
+| --- | --- | --- | --- |
+| **0°（原生竖屏）** | `0x00` | `(PHYS_W, PHYS_H)` | `(raw_x, raw_y)` |
+| **顺时针 90°（横屏）** | `MV \| MX` (`0x60`) | `(PHYS_H, PHYS_W)` | `(raw_y, PHYS_W - 1 - raw_x)` |
+| **180°（倒置竖屏）** | `MX \| MY` (`0xC0`) | `(PHYS_W, PHYS_H)` | `(PHYS_W - 1 - raw_x, PHYS_H - 1 - raw_y)` |
+| **顺时针 270°（反向横屏）** | `MV \| MY` (`0xA0`) | `(PHYS_H, PHYS_W)` | `(PHYS_H - 1 - raw_y, raw_x)` |
 
 ```rust
 use mirui::input::event::input::{
@@ -463,6 +431,72 @@ pub fn map_enter_key(pressed: bool) -> InputEvent {
 }
 ```
 
+### 中断服务函数 (ISR) 到 UI 主线程的无锁环形队列 {#lock-free-isr-event-queue}
+
+严禁在硬件中断（ISR）内直接调用 `App` 的任何方法。正确做法是在 GPIO / 正交编码器 / 触摸中断中将轻量原始事件推入单生产者单消费者（SPSC）无锁环形队列，唤醒主线程，并在 `Surface::poll_event()` 中排空：
+
+```rust
+use core::sync::atomic::{AtomicUsize, Ordering};
+use mirui::input::event::input::{InputEvent, KEY_ROTARY_PRESS, Key, Rotary};
+
+#[derive(Clone, Copy)]
+pub enum RawIrqEvent {
+    RotaryStep(i16),
+    CrownPress(bool),
+}
+
+pub struct IsrRing<const N: usize> {
+    slots: [core::cell::UnsafeCell<Option<RawIrqEvent>>; N],
+    head: AtomicUsize,
+    tail: AtomicUsize,
+}
+
+unsafe impl<const N: usize> Sync for IsrRing<N> {}
+
+impl<const N: usize> IsrRing<N> {
+    pub const fn new() -> Self {
+        Self {
+            slots: [const { core::cell::UnsafeCell::new(None) }; N],
+            head: AtomicUsize::new(0),
+            tail: AtomicUsize::new(0),
+        }
+    }
+
+    /// 在 GPIO / 旋钮编码器中断服务函数（ISR，单生产者）中调用：
+    pub fn push_from_isr(&self, ev: RawIrqEvent) -> bool {
+        let tail = self.tail.load(Ordering::Relaxed);
+        let next = (tail + 1) % N;
+        if next == self.head.load(Ordering::Acquire) {
+            return false; // 队列已满
+        }
+        unsafe { *self.slots[tail].get() = Some(ev) };
+        self.tail.store(next, Ordering::Release);
+        true
+    }
+
+    /// 在 UI 主线程的 `Surface::poll_event(&mut self)`（单消费者）中调用：
+    pub fn pop_for_surface(&self) -> Option<InputEvent> {
+        let head = self.head.load(Ordering::Relaxed);
+        if head == self.tail.load(Ordering::Acquire) {
+            return None;
+        }
+        let raw = unsafe { (*self.slots[head].get()).take() }?;
+        self.head.store((head + 1) % N, Ordering::Release);
+        Some(match raw {
+            RawIrqEvent::RotaryStep(delta) => Rotary { id: 0, delta }.into(),
+            RawIrqEvent::CrownPress(pressed) => Key {
+                code: KEY_ROTARY_PRESS,
+                physical: None,
+                pressed,
+                modifiers: None,
+                repeat: Some(false),
+            }
+            .into(),
+        })
+    }
+}
+```
+
 ### 休眠生命周期与内存告警钩子 {#lifecycle-and-memory-pressure-hooks}
 
 - **息屏挂起与唤醒恢复（`AppSuspend` / `AppResume`）**：在关闭屏幕背光或进入低功耗睡眠前投递 `InputEvent::AppSuspend`，唤醒后投递 `InputEvent::AppResume`。`App` 会在挂起时自动取消未完成的触摸拖拽手势，并触发 `PersistencePlugin` 将待存状态写入 Flash。
@@ -519,7 +553,7 @@ impl<'a> RenderEngine<SwRenderer<'a>> for Dma2dEngine {
     }
 
     fn begin(&mut self, _target: &mut SwRenderer<'a>) -> Result<(), RenderError> {
-        // 进入连续硬件绘制会话前配置外设寄存器。
+        // 进入连续硬件绘制会话前执行 Clean & Invalidate D-Cache。
         Ok(())
     }
 
@@ -533,15 +567,14 @@ impl<'a> RenderEngine<SwRenderer<'a>> for Dma2dEngine {
             && let DrawCommand::Fill { area, color, .. } = request.command
         {
             self.hw_fills += 1;
-            // 实际驱动中在此处根据 `target.viewport.physical_rect(...)` 配置 DMA2D 寄存器并启动填充；
-            // 此处转发给软件目标以保证示例可直接独立运行：
+            // 实际驱动中在此处根据 `target.viewport.physical_rect(...)` 配置 DMA2D OMAR/OOR/NLR 寄存器。
             let _ = (area, color);
         }
         target.submit(draw)
     }
 
     fn end(&mut self, _target: &mut SwRenderer<'a>) {
-        // 在切回 CPU 软件光栅化器访问同一块 RAM 帧缓冲前，等待 DMA2D 传输完成中断标志。
+        // 在切回 CPU 软件光栅化器访问同一块 RAM 帧缓冲前，轮询等待 DMA2D TCIF 传输完成标志。
     }
 }
 
@@ -634,7 +667,33 @@ impl Plugin for BoardClockPlugin {
 }
 ```
 
-### 2. Flash 键值存储对接 (`mirui::core::storage::Storage`) {#_2-flash-kv-storage-mirui-core-storage-storage}
+### 2. 动态节拍与低功耗睡眠主循环 (`wfi` & RTOS 唤醒) {#_2-tick-less-sleep-and-low-power-main-loop}
+
+在电池供电的手表、手环与传感器终端上，空转轮询 `app.tick()` 会白白消耗电量。每帧 `app.tick()` 后检查 `app.dirty_regions()` 是否为空：当有脏区时调用 `app.render_dirty()` 并按 60 Hz（16 ms）或 VSync 节拍推进；当画面静止无脏区时，立即执行 `wfi`（Wait For Interrupt）或挂起在 RTOS 信号量上，等待下一次触摸/旋钮中断唤醒：
+
+```rust
+use mirui::prelude::*;
+use mirui::surface::framebuf::FramebufSurface;
+
+let surface = FramebufSurface::new(240, 240, |_buf, _area| {});
+let mut app = App::new(surface);
+app.with_default_widgets().with_default_systems();
+let _root = app.spawn_root().id();
+app.render().unwrap();
+
+// 低功耗嵌入式事件循环的单轮迭代：
+let should_quit = app.tick();
+if !should_quit {
+    if !app.dirty_regions().unwrap().is_empty() {
+        app.render_dirty().unwrap();
+        // 活动帧：按 16ms 节拍或等待 VSync / DMA 完成中断。
+    } else {
+        // 静止帧：零脏区像素！直接执行 cortex_m::asm::wfi() 或阻塞等待输入信号量。
+    }
+}
+```
+
+### 3. Flash 键值存储对接 (`mirui::core::storage::Storage`) {#_2-flash-kv-storage-mirui-core-storage-storage}
 
 若要将 `#[model(persistence)]` 状态保存到 SPI NorFlash、LittleFS、KVDB、NVS 或 EEPROM，只需实现同步的 `Storage` trait 并传给 `PersistencePlugin::new(storage)`。当待写入的字节与已存储字节相同时，返回 `WriteOutcome::Unchanged` 即可跳过擦写，保护 Flash 寿命：
 
@@ -666,7 +725,7 @@ impl Storage for FlashKvStorage {
 }
 ```
 
-### 3. I2S / DMA 音频合成 (`AudioMixer` 与 `AudioSink`) {#_3-i2s-dma-audio-synthesis-audiomixer-audiosink}
+### 4. I2S / DMA 音频合成 (`AudioMixer` 与 `AudioSink`) {#_3-i2s-dma-audio-synthesis-audiomixer-audiosink}
 
 启用 `audio` 特性后，`AudioMixer<V>` 可以在**零堆分配**的前提下将多声部合成波形与乐谱直接渲染进调用方提供的 `i16` PCM 缓冲区。在 I2S DMA 半传输/全传输中断或 RTOS 音频线程中调用 `mixer.render_mono(&mut dma_half_buffer)`，并实现 `AudioSink` 接收来自 `app.audio()` 的控制命令：
 
@@ -709,8 +768,10 @@ impl AudioSink for I2sAudioSink {
 
 ## 板级移植验收清单 {#porting-checklist}
 
-1. **无头冒烟测试（Headless Smoke Test）**：在烧录开发板之前，先在宿主机 `cargo test` 中把应用的 `#[compose]` 树挂载到 `App::headless(W, H)` 上并调用 `app.render().unwrap()`，提前验证布局尺寸与字体/路径容量预留是否充足。
-2. **三色条与字节序校验**：在屏幕上并排画红（`Color::rgb(255, 0, 0)`）、绿（`Color::rgb(0, 255, 0)`）、蓝（`Color::rgb(0, 0, 255)`）三条色块。如果红蓝颠倒，切换屏幕初始化的 `MADCTL` BGR 位（或在 `RGBA8888` / `BGRA8888` 间切换）；如果绿色条出现高低位断裂杂色，在 `RGB565` 与 `RGB565Swapped` 之间切换。
-3. **局部脏矩形跨距校验**：点击一个独立小按钮触发局部刷新（此时 `area.width() < W`）。如果局部刷新区域出现斜纹或错位，检查 `CASET` / `RASET` 的结束坐标是否写成了闭区间 `(x + w - 1, y + h - 1)`，以及逐行切片时源缓冲区偏移是否按整屏跨距 `W * bpp` 递增。
-4. **触控与旋钮坐标对齐**：在屏幕四角各放一枚 `Button`，点击验证 `PointerDown` / `PointerUp` 的 `(x, y)` 轴向是否与屏幕旋转方向（`MADCTL` 的 `MV` / `MX` / `MY` 位）一致。
-5. **时钟与空闲休眠验证**：确认界面静止且无动画时 `app.tick()` 返回 `false`，此时主循环应进入低功耗等待（`wfi` 或带下一次定时器超时时间的 RTOS 信号量等待），直到收到下一条外部触控中断或定时唤醒。
+| 阶段 | 验收项 | 常见配置错误表现 | 排查与修正方法 |
+| --- | --- | --- | --- |
+| **01 · 无头冒烟测试** | 在宿主机 `cargo test` 中将 `#[compose]` 树挂载到 `App::headless(W, H)` | 上板后偶发文本截断或路径超限 | 上板前先在单测中验证布局尺寸与 `Text(capacity: N)` / `PathStore` 容量 |
+| **02 · 三色条与字节序** | 并排绘制纯红 `(255,0,0)`、纯绿 `(0,255,0)`、纯蓝 `(0,0,255)` 色块 | 红蓝颠倒，或绿色条出现高低位断裂杂色 | 红蓝颠倒切换 `MADCTL` 的 BGR 位；绿色断裂在 `RGB565` 与 `RGB565Swapped` 间切换 |
+| **03 · 局部脏区跨距** | 点击独立小按钮触发 `area.width() < W` 的局部刷新 | 局部重绘区域变成斜纹或画面错位 | 确认 `CASET/RASET` 终点坐标为闭区间 `(x+w-1, y+h-1)`，且逐行偏移按 `W * bpp` 递增 |
+| **04 · D-Cache 与 DMA 同步** | 快速拖动滑块或滚动列表 | 局部脏矩形内出现水平陈旧像素条纹 | 启动 DMA 前执行 `SCB_CleanDCache_by_Addr`，并在 `begin_flush()` 中等待上一帧 DMA 完成 |
+| **05 · 触控旋转与空闲功耗** | 依次点击屏幕四角按钮，随后静置屏幕 | 触控坐标镜像/旋转错位；静止时电流偏高 | 对照 `MADCTL` 触控变换表修正 `(x, y)`，并在 `dirty_regions().is_empty()` 时进入 `wfi` 休眠 |

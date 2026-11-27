@@ -6,19 +6,21 @@ use mirui::core::storage::StorageHandle;
 use mirui::input::event::scroll::{ScrollConfig, ScrollOffset};
 use mirui::prelude::draw::*;
 use mirui::prelude::*;
+use mirui::render::command::{CompositeMode, DrawCommand};
 use mirui::render::path::{PathCmd, PathStore};
 use mirui::render::scene::{LineCap, LineJoin, Paint};
 use mirui::text::{PathCaretGeometry, PathDirection, TextGeometry, TextPath};
 use mirui::types::Transform;
-use mirui::ui::Outputs;
+use mirui::ui::clipboard::ClipboardFinished;
 use mirui::ui::widgets::navigation::{
     self, CreatePage as StackCreatePage, NavigationPath, NavigationStack, PageTransition,
 };
 use mirui::ui::widgets::page_view::{self, CreatePage as ViewCreatePage, PageView};
 use mirui::ui::widgets::{
-    Button, FollowBounds, ParagraphStyle, Placeholder, Text, TextAlign, TextDocument, TextEditing,
-    TextInput, TextOverflow, TextWrap,
+    Button, Checkbox, FollowBounds, ParagraphStyle, Placeholder, ProgressBar, Slider, Switch, Text,
+    TextAlign, TextDocument, TextEditing, TextInput, TextOverflow, TextWrap,
 };
+use mirui::ui::{Outputs, WidgetTexture};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Recipe {
@@ -48,6 +50,10 @@ pub enum Recipe {
     ComposeNiche,
     StateAt,
     PortingInspector,
+    EventsPlayground,
+    ControlsGallery,
+    ClipboardLab,
+    OffscreenPreview,
 }
 
 impl Recipe {
@@ -79,6 +85,10 @@ impl Recipe {
             "compose-niche" => Some(Self::ComposeNiche),
             "state-at" => Some(Self::StateAt),
             "porting-inspector" => Some(Self::PortingInspector),
+            "events-playground" => Some(Self::EventsPlayground),
+            "controls-gallery" => Some(Self::ControlsGallery),
+            "clipboard-lab" => Some(Self::ClipboardLab),
+            "offscreen-preview" => Some(Self::OffscreenPreview),
             _ => None,
         }
     }
@@ -244,6 +254,26 @@ pub fn install_recipe<B: Surface, F: RendererFactory<B>>(
         Recipe::PortingInspector => {
             let probe = app.add_model(SurfaceProbe::default()).finish();
             app.compose(root, porting_inspector_scene(probe));
+        }
+        Recipe::EventsPlayground => {
+            let lab = app.add_model(GestureLab::default()).finish();
+            app.compose(root, events_playground_scene(lab));
+        }
+        Recipe::ControlsGallery => {
+            let deck = app.add_model(ControlDeck::default()).finish();
+            app.compose(root, controls_gallery_scene(deck));
+        }
+        Recipe::ClipboardLab => {
+            let clip = app.add_model(ClipboardBench::default()).finish();
+            let _ = clip.doc().set_capacity(64);
+            let _ = clip.doc().set_text("mirui::ui::clipboard");
+            app.compose(root, clipboard_lab_scene(clip));
+        }
+        Recipe::OffscreenPreview => {
+            app.with_widget(mirror_preview::view())
+                .with_offscreen_pool_budget(128 * 1024);
+            let state = app.add_model(MirrorCardState::default()).finish();
+            app.compose(root, offscreen_preview_scene(state));
         }
     }
 }
@@ -2387,3 +2417,440 @@ fn porting_inspector_scene(probe: model!(SurfaceProbe)) {
     };
 }
 //~focus-end:porting-inspector
+
+//~focus-start:events-playground
+#[model]
+#[derive(Default)]
+pub struct GestureLab {
+    #[observe]
+    pub single_taps: u32,
+    #[observe]
+    pub double_taps: u32,
+    #[observe]
+    pub drag_dx: i32,
+    #[observe]
+    pub bubble_hits: u32,
+    #[observe]
+    pub allow_bubble: bool,
+}
+
+#[model]
+impl GestureLab {
+    pub fn on_single(&mut self) {
+        self.single_taps += 1;
+    }
+
+    pub fn on_double(&mut self) {
+        self.double_taps += 1;
+    }
+
+    pub fn on_drag(&mut self, dx: i32) {
+        self.drag_dx = (self.drag_dx + dx).clamp(-120, 120);
+    }
+
+    pub fn on_parent_bubble(&mut self) {
+        self.bubble_hits += 1;
+    }
+
+    pub fn toggle_bubble(&mut self) {
+        self.allow_bubble = !self.allow_bubble;
+    }
+}
+
+#[event]
+fn drag_puck(event: event!(DragMove), lab: model!(GestureLab)) {
+    lab.on_drag(event.dx.to_int());
+}
+
+#[compose]
+fn events_playground_scene(lab: model!(GestureLab)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(16),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 30, column_gap: 8, align: AlignItems::Center) {
+                Button (
+                    text: ${ if lab.allow_bubble() { "Bubble: Allow (false)" } else { "Bubble: Stop (true)" } },
+                    width: 158,
+                    height: 28,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { lab.toggle_bubble(); }
+                Text (
+                    text: ${ format_args!("Parent hits: {}", lab.bubble_hits()) },
+                    capacity: 24,
+                    grow: 1.0,
+                    height: 20,
+                    font_size: 12,
+                    text_color: ColorToken::OnSurfaceVariant
+                )
+            }
+            Row (
+                height: 76,
+                padding: Padding::all(10),
+                column_gap: 10,
+                align: AlignItems::Center,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 10
+            ) on Tap { lab.on_parent_bubble(); } {
+                Button (
+                    "Tap or Double-Tap",
+                    width: 148,
+                    height: 52,
+                    font_size: 12,
+                    border_radius: 8,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap {
+                    lab.on_single();
+                    !lab.allow_bubble()
+                } on Tap(2) { lab.on_double(); }
+                View (
+                    grow: 1.0,
+                    height: 52,
+                    padding: Padding::all(10),
+                    bg_color: ColorToken::Secondary,
+                    border_radius: 8,
+                    clip_children: true
+                ) {
+                    View (
+                        position: Position::Absolute,
+                        left: ${ 10 + lab.drag_dx() },
+                        top: 16,
+                        width: 112,
+                        height: 20
+                    ) {
+                        Text (
+                            "Drag puck ↔",
+                            height: 20,
+                            font_size: 12,
+                            text_color: ColorToken::OnSecondary
+                        )
+                    }
+                } on DragMove(drag_puck::callback(lab))
+            }
+            Text (
+                text: ${ format_args!("Tap(1): {} · Tap(2): {} · Drag dx: {}px", lab.single_taps(), lab.double_taps(), lab.drag_dx()) },
+                capacity: 56,
+                height: 18,
+                font_size: 12,
+                text_color: ColorToken::OnSurfaceVariant
+            )
+        }
+    };
+}
+//~focus-end:events-playground
+
+//~focus-start:controls-gallery
+#[model]
+pub struct ControlDeck {
+    #[observe]
+    pub gain: i32,
+    #[observe]
+    pub armed: bool,
+    #[observe]
+    pub limiter: bool,
+}
+
+impl Default for ControlDeck {
+    fn default() -> Self {
+        Self {
+            gain: 64,
+            armed: true,
+            limiter: true,
+        }
+    }
+}
+
+#[model]
+impl ControlDeck {
+    pub fn set_gain(&mut self, value: i32) {
+        self.gain = value.clamp(0, 100);
+    }
+
+    pub fn set_armed(&mut self, on: bool) {
+        self.armed = on;
+    }
+
+    pub fn set_limiter(&mut self, checked: bool) {
+        self.limiter = checked;
+    }
+}
+
+#[compose]
+fn controls_gallery_scene(deck: model!(ControlDeck)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(16),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 30, column_gap: 10, align: AlignItems::Center) {
+                Switch (width: 44, height: 24, on: ${ deck.armed() })
+                    on Toggled { deck.set_armed(event.now); }
+                Checkbox (width: 22, height: 22, checked: ${ deck.limiter() })
+                    on Toggled { deck.set_limiter(event.now); }
+                Text (
+                    text: ${ format_args!("Limiter · Gain: {}%", deck.gain()) },
+                    capacity: 28,
+                    grow: 1.0,
+                    height: 20,
+                    font_size: 13
+                )
+            }
+            Slider (
+                min: 0,
+                max: 100,
+                value: ${ Fixed::from_int(deck.gain()) },
+                height: 28,
+                fill_color: ColorToken::Primary
+            ) on ValueChanged { deck.set_gain(event.new.round().to_int()); }
+            ProgressBar (
+                value: ${ if deck.armed() { deck.gain() as f32 / 100.0 } else { 0.0 } },
+                height: 12,
+                fill_color: ColorToken::Primary
+            )
+            Text (
+                text: ${ format_args!("Bus: {} · Peak guard: {}", if deck.armed() { "ARMED" } else { "MUTED" }, if deck.limiter() { "ON" } else { "BYPASS" }) },
+                capacity: 48,
+                height: 18,
+                font_size: 12,
+                text_color: ColorToken::OnSurfaceVariant
+            )
+        }
+    };
+}
+//~focus-end:controls-gallery
+
+//~focus-start:clipboard-lab
+#[model]
+pub struct ClipboardBench {
+    doc: model!(owned TextDocument),
+    #[observe]
+    pub last_status: &'static str,
+}
+
+impl Default for ClipboardBench {
+    fn default() -> Self {
+        Self {
+            doc: TextDocument::new().into(),
+            last_status: "Ready (tap Select All -> Copy / Cut / Paste)",
+        }
+    }
+}
+
+#[model]
+impl ClipboardBench {
+    pub fn record(
+        &mut self,
+        result: Result<
+            mirui::ui::clipboard::ClipboardOutcome,
+            mirui::ui::clipboard::ClipboardError,
+        >,
+    ) {
+        use mirui::ui::clipboard::ClipboardOutcome;
+        self.last_status = match result {
+            Ok(ClipboardOutcome::Copied) => "ClipboardFinished: Ok(Copied)",
+            Ok(ClipboardOutcome::Cut) => "ClipboardFinished: Ok(Cut)",
+            Ok(ClipboardOutcome::Pasted) => "ClipboardFinished: Ok(Pasted)",
+            Ok(ClipboardOutcome::CopiedWithoutCut) => "ClipboardFinished: Ok(CopiedWithoutCut)",
+            Ok(ClipboardOutcome::EmptySelection) => "ClipboardFinished: Ok(EmptySelection)",
+            Err(_) => "ClipboardFinished: Err(ClipboardError)",
+        };
+    }
+}
+
+#[event]
+fn on_clip_done(ev: event!(ClipboardFinished), bench: model!(ClipboardBench)) {
+    bench.record(ev.result);
+}
+
+#[compose]
+fn clipboard_toolbar(editor: Entity) -> Entity {
+    ui! {
+        Row (height: 30, column_gap: 6, align: AlignItems::Center) {
+            Button (
+                "Select All",
+                grow: 1.0,
+                height: 28,
+                font_size: 12,
+                border_radius: 7,
+                normal_color: ColorToken::SurfaceVariant,
+                pressed_color: ColorToken::Outline,
+                text_color: ColorToken::OnSurface
+            ) [PointerFocus::Preserve] on Tap {
+                commands!().selection().select_all(editor);
+            }
+            Button (
+                "Copy",
+                grow: 1.0,
+                height: 28,
+                font_size: 12,
+                border_radius: 7,
+                normal_color: ColorToken::Primary,
+                pressed_color: ColorToken::Secondary,
+                text_color: ColorToken::OnPrimary
+            ) [PointerFocus::Preserve] on Tap {
+                commands!().clipboard().copy(editor);
+            }
+            Button (
+                "Cut",
+                grow: 1.0,
+                height: 28,
+                font_size: 12,
+                border_radius: 7,
+                normal_color: ColorToken::SurfaceVariant,
+                pressed_color: ColorToken::Outline,
+                text_color: ColorToken::OnSurface
+            ) [PointerFocus::Preserve] on Tap {
+                commands!().clipboard().cut(editor);
+            }
+            Button (
+                "Paste",
+                grow: 1.0,
+                height: 28,
+                font_size: 12,
+                border_radius: 7,
+                normal_color: ColorToken::SurfaceVariant,
+                pressed_color: ColorToken::Outline,
+                text_color: ColorToken::OnSurface
+            ) [PointerFocus::Preserve] on Tap {
+                commands!().clipboard().paste(editor);
+            }
+        }
+    }
+}
+
+#[compose]
+fn clipboard_lab_scene(bench: model!(ClipboardBench)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(16),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            TextInput (
+                id: "clip_editor",
+                height: 36,
+                padding: Padding::all(9),
+                font_size: 13
+            ) [
+                TextEditing::new(bench.doc()),
+                Placeholder("Type or select text..."),
+            ] on ClipboardFinished(on_clip_done::callback(bench))
+            clipboard_toolbar (id("clip_editor"))
+            Text (
+                text: ${ bench.last_status() },
+                capacity: 56,
+                height: 18,
+                font_size: 12,
+                text_color: ColorToken::OnSurfaceVariant
+            )
+        }
+    };
+}
+//~focus-end:clipboard-lab
+
+//~focus-start:offscreen-preview
+#[model]
+#[derive(Default)]
+pub struct MirrorCardState {
+    #[observe]
+    pub pulse: u32,
+}
+
+#[model]
+impl MirrorCardState {
+    pub fn step(&mut self) {
+        self.pulse = self.pulse.wrapping_add(1);
+    }
+}
+
+#[component]
+pub struct MirrorPreview {
+    #[depends_on(WidgetTexture)]
+    pub source: Entity,
+}
+
+#[view(component = MirrorPreview)]
+fn mirror_preview(item: component!(), outputs: res!(Outputs<WidgetTexture>), paint: paint!()) {
+    let rect = paint.rect();
+    paint.draw(&DrawCommand::Fill {
+        area: rect,
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color: Color::rgb(24, 30, 44),
+        radius: Fixed::from_int(10),
+        opa: 255,
+    });
+    let Some(source) = outputs.get(item.source) else {
+        return;
+    };
+    paint.draw(&DrawCommand::Blit {
+        pos: Point::new(rect.x + Fixed::from_int(8), rect.y + Fixed::from_int(8)),
+        size: Point::new(
+            (rect.w - Fixed::from_int(16)).max(Fixed::ONE),
+            (rect.h - Fixed::from_int(16)).max(Fixed::ONE),
+        ),
+        transform: paint.transform(),
+        quad: paint.quad(),
+        texture: source.texture(),
+        opa: 230,
+        radius: Fixed::from_int(6),
+        composite: CompositeMode::SourceOver,
+    });
+}
+
+#[compose]
+fn offscreen_preview_scene(state: model!(MirrorCardState)) {
+    ui! {
+        Row (
+            grow: 1.0,
+            padding: Padding::all(16),
+            column_gap: 12,
+            align: AlignItems::Center,
+            text_color: ColorToken::OnSurface
+        ) {
+            Column (
+                id: "source_card",
+                grow: 1.0,
+                height: 112,
+                padding: Padding::all(12),
+                justify: JustifyContent::SpaceBetween,
+                bg_color: ColorToken::Primary,
+                border_radius: 10
+            ) {
+                Text (
+                    text: ${ format_args!("Source #{}", state.pulse()) },
+                    capacity: 24,
+                    height: 20,
+                    font_size: 14,
+                    text_color: ColorToken::OnPrimary
+                )
+                Button (
+                    "Mutate Source",
+                    height: 30,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Surface,
+                    pressed_color: ColorToken::SurfaceVariant,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { state.step(); }
+            }
+            View (
+                grow: 1.0,
+                height: 112
+            ) [MirrorPreview { source: id("source_card") }]
+        }
+    };
+}
+//~focus-end:offscreen-preview

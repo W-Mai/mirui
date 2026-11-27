@@ -6,6 +6,8 @@
 
 ## 路由判定契约 (`RenderRoute`) {#route-contract}
 
+### ExactFallback 与 Native 路由边界 {#exactfallback-vs-native-routing}
+
 - **`RenderRoute::Native`**：全程在硬件后端原生执行，零回退内存分配、零帧缓冲回读、零回写上传；
 - **`RenderRoute::ExactFallback(FallbackRegion)`**：携带局部软件重放所需的物理目标矩形与按行对齐的字节跨距（row stride）。路由规划在触碰目标之前即已完成，因此工作区缺失、对齐不符或容量不足都会在修改任何像素前直接报错返回，绝不会留下半截残缺画面。
 
@@ -14,10 +16,21 @@
 2. **局部重放（Replay）**：在同一个局部 RGBA 平面（plane）中用软件光栅化器精确执行该作用域内的绘制命令；
 3. **单次写回（Writeback）**：将完成的局部区域一次性写回或合成回硬件目标。连续共享顺序与裁剪状态的多条回退命令会合并在同一个回退作用域内完成，不会每条命令来回跨越后端边界。
 
-软件后端自身也针对常见场景做了精确加速：
-- 轴对齐或扫描线恒定颜色的线性渐变每行只求值一次；居中轴对齐径向渐变复用行内纵向距离平方；
-- 渐变色标插值保持完整的 `Q48.16` 定点分数与精确整数舍入；
-- `PaintCtx::with_clip_path` 在后端支持原生路径裁剪时直接走原生路径，否则通过 `plan_scope` 与 `render_scope` 在有界局部区域内精确执行。
+SDL-GPU 与原生 WGPU 对仿射及透视投影线条与圆弧采用有界目标区域回退（规划阶段即在访问设备前算入描边外扩与裁剪范围）。`PaintCtx::with_clip_path` 在后端支持原生路径裁剪时直接走原生路径，否则通过 `plan_scope` 与 `render_scope` 在有界局部区域内精确执行（区域重定基会将纯平移的仿射命令保留为仿射操作，而不会误升格为透视投影光栅路径）。
+
+### 软件光栅化快速路径 {#software-rasterizer-fast-paths}
+
+当绘制命令在纯软件后端或有界 `ExactFallback` 局部区域内执行时，软件光栅化器会针对不同几何与着色特征启用专门的扫描线、定点数与跨度（span）混合快速路径，同时严格保持精确覆盖率、整数舍入与零单次绘制堆分配：
+
+| 子系统 / 操作类型 | 快速路径与特化策略 | 精度与内存分配契约 |
+| --- | --- | --- |
+| **仿射圆角与普通矩形填充** | 仿射圆角填充走四边形（quad）光栅路径（保留局部圆角半径、不透明度、视口缩放与裁剪掩码）；普通仿射填充保持矩形路径。 | 直接绘制与局部区域作用域保持完全一致的几何语义。 |
+| **扫描线恒定颜色线性渐变** | 当物理颜色沿扫描线保持恒定时，每行仅求值一次颜色。 | 绘制局部采样器在命令结束后不保留状态；分数与透视采样保留原始坐标求值。 |
+| **居中与轴对齐径向渐变** | 在每个整数扫描线内复用纵向距离平方，每条命令一次性准备常量 `Pad` 截断边界，并在整数像素坐标下直接求值而不升格为宽分数乘法。 | 完全容纳于通用采样器存储内；居中参数使用带精确截断的有界定点除法；启用 `std` 时宽定点平方根仅在精确整数下取整校验通过后才接受浮点候选值。 |
+| **渐变色标步进与插值** | 将每个已转换的区间边界传递至下一色标区间，并利用选定的归一化区间界定定点分数以使用 32 位算术求出精确商。 | 保留完整 `Q48.16` 定点分数与精确整数通道舍入；归一化 MIRX 偏移使用精确单精度转换。 |
+| **路径光栅化与跨度着色** | 在既有行暂存区记录加权区间边界，借用像素前先裁剪扫描线边界，并在不透明字节通道目标上对纯色/扫描线恒定渐变按恒定覆盖率跨度（span）批量计算。 | 有效写入 Alpha 为 0 的样本直接跳过偏移计算与混合；不新增展开覆盖率数组、中间图像或单次绘制分配。 |
+| **最近邻 RGBA 整数/分数放大** | 在不透明目标上通过有理数采样器与固定颜色跨度混合器合并重复源下标；当源行与命令完全不透明时，通过互不重叠的行切片直接复用已完成的目标行。 | 有效不透明度无法达到 `1` 的行在查表前即跳过；带透明通道目标、缩小采样与掩码保留逐点采样。 |
+| **目标像素写入与通道混合** | 不透明目标上的软件混合在独立整数通道（lanes）中并行求值 R/B 通道；`RGBA8888`、`BGRA8888` 与 `RGB888` 直接按序写入有界字节切片。 | `AlphaMode::Blend` 保留直通 Alpha 合成；`RGB565` 变体保留共享整数打包与量化规则。 |
 
 ## 几何与内存边界类型 {#geometry-and-memory-types}
 
@@ -146,6 +159,16 @@ let fallback = ProjectiveFallback::borrowed_with(&mut bytes, requirements)?;
 
 通过在自定义组件字段上声明 `#[depends_on(WidgetTexture)]`，消费者控件可以在自己的 `#[view]` 中直接通过 `res!(Outputs<WidgetTexture>)` 采样另一个控件的离屏输出纹理，**全程无需将其回读到 CPU**：
 
+<MiruiSnippet recipe="offscreen-preview" label="#[depends_on(WidgetTexture)]" file="recipes.rs" height="210px">
+
+<template #exercise>
+
+点击左侧卡片上的 `Mutate Source`；右侧的 `MirrorPreview` 声明了 `#[depends_on(WidgetTexture)]`，直接通过 `res!(Outputs<WidgetTexture>)` 将已发布的离屏纹理合成上屏，全程无需 CPU 回读。
+
+</template>
+
+</MiruiSnippet>
+
 ```rust
 use mirui::prelude::*;
 use mirui::render::{DrawCommand, RenderError, SamplerConfig};
@@ -176,6 +199,14 @@ fn preview(
 ```
 
 ### 离屏输出几何边界与历史帧 (`#[retain_previous]`) {#output-geometry-and-history}
+
+| 输出类型 | 访问器 / 属性 | 坐标系与载荷内容 | 存储与失效契约 |
+| --- | --- | --- | --- |
+| `WidgetTexture` | `layout_rect()` | 根布局坐标系下的 `(x, y, w, h)`（不含祖先滚动偏移与外部变换）。 | 随已完成的离屏纹理槽位一同在 `Outputs` 池中发布。 |
+| `WidgetTexture` | `local_bounds()` | 相对于 `layout_rect` 原点的逻辑外接边界（包含边框、阴影、发光与未裁剪子节点）。 | 缩放后向外取整；改变逻辑尺寸、局部外接范围或输出缩放比例会清空不兼容的历史帧。 |
+| `WidgetTexture` | `#[retain_previous(WidgetTexture)]` | 通过 `outputs.previous(owner)` 读取的上一帧成功产出的冻结纹理。 | 为 `owner` 额外分配第二个历史槽位；失败的绘制不会推进历史；仅平移源控件位置会保留历史。 |
+| `LayoutGeometry` | `border_rect()` / `content_rect()` | 控件局部逻辑坐标（`content_rect` 已扣除布局内边距与安全区内边距）。 | 纯几何快照（`#[depends_on(LayoutGeometry)]`），零像素缓冲分配、零逐帧存储增长。 |
+| `LayoutGeometry` | `transform()` / `clip()` | `transform()` 将局部边界映射到屏幕（含祖先滚动与 2D/3D 变换）；`clip()` 为祖先裁剪区与视口的屏幕空间交集。 | 在输入与绘制阶段之前准备就绪；隐藏、卸载或已删除的源控件返回 `None`。 |
 
 每个已发布的 `WidgetTexture` 同时暴露根布局坐标系下的 `layout_rect()` 以及包含边框、阴影、发光与未裁剪子节点的局部外接范围 `local_bounds()`。对于需要跨帧混合的效果（如 `TemporalMix` 残影混合），在组件上标注 `#[retain_previous(WidgetTexture)]` 即可请求保留自身上一帧成功产出的历史纹理，并通过 `outputs.previous(owner)` 读取：
 

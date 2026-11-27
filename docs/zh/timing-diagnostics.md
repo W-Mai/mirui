@@ -65,6 +65,16 @@ app.request_timings(false);
 
 ### 阶段耗时与 256 样本环形统计 {#phase-timings-and-ring-summaries}
 
+| 阶段 / 统计项 | `FrameTimings` / `FrameStats` 访问器 | 测量范围说明 |
+| --- | --- | --- |
+| **`input`** | `timings.input()` | 排空 `Surface::poll_event()`、手势识别以及输入/业务通知回调执行 |
+| **`systems`** | `timings.systems()` | 已注册的 `#[system]` 与 `#[timer]` 调度执行及延迟命令提交 |
+| **`layout`** | `timings.layout()` | 响应式信号刷出、Flexbox/文本测量以及脏矩形收集（`dirty.layout`） |
+| **`render`** | `timings.render()` | 场景遍历、离屏渲染目标生成与 `Renderer::submit` 绘制提交 |
+| **`flush`** | `timings.flush()` | `Surface::begin_flush()`、`flush(PhysicalRect)`、`end_flush()` 与双缓冲镜像同步 |
+| **`seed`** | `timings.seed()` | 播种上一帧视觉覆盖范围，供下一帧局部脏区差分使用 |
+| **256 样本环形窗口** | `stats.summary(op, phases)` | 最近 256 次有效完结操作的均值（`avg`）、极值（`min/max`）、最近秩 `P99` 与抖动（`jitter`） |
+
 每次操作的墙钟耗时（wall time）包含业务 `post_render` 钩子与平台维护，但不含后续的报告回调与宿主帧率等待。请注意：**墙钟耗时包含驱动阻塞与线程未被操作系统调度的时间，不能直接等同于 CPU 耗时**。
 
 `FrameTimings` 分别记录六个核心阶段：`input`（输入处理）、`systems`（系统执行）、`layout`（布局与脏区收集）、`render`（渲染器绘制）、`flush`（表面刷新）与 `previous-coverage seeding`（上一帧覆盖范围播种）。各访问器返回 `Option<u64>`（`None` 表示该阶段未运行或无效，`Some(0)` 表示实测为 0 纳秒）。`phase_wall_nanos()` 对已测量的阶段求和。

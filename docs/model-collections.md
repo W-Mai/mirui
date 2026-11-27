@@ -1,4 +1,4 @@
-# Model collections
+# Model collections {#model-collections}
 
 `ModelList<T>` stores an ordered sequence of Models. `ModelMap<K, T>` associates sorted business keys with Models. `ModelSet<K>` tracks membership of immutable values. All live in `mirui::core::model` and can be declared as owned Model fields. Register the parent once; collection changes share the same transaction and observation lifecycle.
 
@@ -12,7 +12,44 @@ Type an item and press Return (or tap `+ Add`) to append to the bounded `ModelLi
 
 </MiruiSnippet>
 
-## Keyed data
+<div class="arch-diagram" role="img" aria-label="Bounded model collections, stable ModelItemId handles, and RetainedItems keyed row reconciliation">
+  <svg viewBox="0 0 880 176" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="mc-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="22" width="198" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · COLLECTION</text>
+    <text x="32" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Bounded Model Storage</text>
+    <text x="32" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ModelList&lt;T&gt; · ModelMap&lt;K,V&gt;</text>
+    <text x="32" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ModelSet&lt;T&gt; · bounded(N)</text>
+    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Zero-alloc capacity edits</text>
+    <path d="M214 88H252" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#mc-arrow)" />
+    <rect x="260" y="22" width="196" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="276" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · IDENTITY</text>
+    <text x="276" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Stable ModelItemId</text>
+    <text x="276" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">entries() → (id, item)</text>
+    <text x="276" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">get_by_id(id) · reconcile</text>
+    <text x="276" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Survives reorder &amp; merge</text>
+    <path d="M456 88H494" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#mc-arrow)" />
+    <rect x="502" y="22" width="196" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="518" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · RECONCILE</text>
+    <text x="518" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">RetainedItems Keyed Diff</text>
+    <text x="518" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">walk $entries by entry.0</text>
+    <text x="518" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">LazyList(items: ...)</text>
+    <text x="518" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Matches rows by ModelItemId</text>
+    <path d="M698 88H736" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#mc-arrow)" />
+    <rect x="744" y="22" width="120" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="760" y="48" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · RETAINED</text>
+    <text x="760" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Sibling Reuse</text>
+    <text x="760" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Focus &amp; anim</text>
+    <text x="760" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">No rebuild</text>
+    <text x="760" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Preserves state</text>
+  </svg>
+</div>
+
+## Keyed data {#keyed-data}
 
 ```rust
 use mirui::{model, app::App};
@@ -61,7 +98,7 @@ fn main() -> Result<(), CollectionError> {
 
 `get` and `contains_key` accept borrowed keys: a `ModelMap<String, Item>` can be queried with `&str`. `try_insert(key, data)` returns `(ModelItemId, Option<Item>)`: a new key has no old value, while an existing key returns the replaced data and keeps its identity. Failure returns `(error, key, data)`.
 
-## Iteration and identity
+## Iteration and identity {#iteration-and-identity}
 
 | Operation | Registered result |
 | --- | --- |
@@ -76,7 +113,7 @@ Registered `entries`, `iter`, and `values` hold a structural lease until their i
 
 Positions and business keys are not item identities. Removing an item invalidates its previous references; reinserting the same key does not revive them. List reordering and same-key Map replacement preserve identity. Declared event, System, and Timer bindings skip execution if a captured member has been retired.
 
-## Virtualized rows
+## Virtualized rows {#virtualized-rows}
 
 Pass the registered collection to `LazyList.items`; conversion is automatic. Using `Tasks` from the example above:
 
@@ -114,7 +151,7 @@ fn task_list(tasks: model!(Tasks)) -> Entity {
 
 The cell Model belongs to a reusable row; the task Model belongs to the dataset. Read the cell's current ID inside each property or callback. A task captured once during construction would still refer to that original task after the cell is reused. List and Map sources use the same row lifecycle; maps display members in key order. See [virtualized cells](scrolling.md#virtualized-cells) for count-based rows, source replacement, and input cancellation.
 
-## Member effects
+## Member effects {#member-effects}
 
 Lists and maps expose their direct members' declared effects through `on_effect`. The callback borrows a `ModelItemEffect<E>` containing the stable member `id` and the original `event`:
 
@@ -160,7 +197,7 @@ Each collection accepts one consumer per event type. Reordering, member replacem
 
 The collection stores one typed route table, independent of its member capacity. Installing a captured callback allocates its storage once; delivery borrows the payload without cloning it or allocating a forwarding callback for each member.
 
-## Binding rows
+## Binding rows {#binding-rows}
 
 Use `entries()` with keyed `walk` to keep each row attached to its Model when the collection changes order:
 
@@ -181,7 +218,7 @@ fn task_rows(tasks: model!(Tasks)) {
 
 Keyed row tables retain their allocated storage. Pure reordering does not allocate temporary input or row tables; adding rows still incurs normal widget construction costs. Indexed `walk` retains rows by position rather than Model identity, so use stable member keys when items can move or be replaced.
 
-## Capacity
+## Capacity {#capacity}
 
 `new()` starts empty with capacity zero. `with_capacity(n)` prepares capacity, while `bounded(n)` also sets a hard limit. `reserve(additional)` prepares at least `len() + additional` positions, including registered member metadata. Removal retains capacity. Ordinary insertion and replacement do not grow storage; explicitly constructing, importing, or reserving a collection may allocate.
 
@@ -193,7 +230,7 @@ Observation storage also depends on installed consumers. Within each reactive gr
 
 Map lookup uses binary search. Insertion and removal can move ordered entries; stable retention is linear. The key index and member storage are retained, and capacity-bounded edits and registered item updates reuse their framework storage.
 
-## Loading list and map data
+## Loading list and map data {#loading-list-and-map-data}
 
 `items.load(records)` installs an owned iterator of Model data and retires all previous item identities. The collection field, capacity, hard limit, and its observers remain in place. Loading can prepare larger nested collection shapes; it is an explicit allocating operation, not an ordinary capacity-bounded edit. Existing event, System, and Timer bindings to retired items stop executing.
 
@@ -211,7 +248,7 @@ if let Err(failure) = todo.items().load(records) {
 
 Loading inside a parent Model method shares that parent's transaction. An outer `Err` does not undo installed data or revive retired item references; it suppresses that transaction's observations and effects. Iterator or user-code panics follow the existing Model panic contract.
 
-## Merging list data
+## Merging list data {#merging-list-data}
 
 `items.reconcile(records, key_of, merge)` matches incoming data against existing Models using `K: Ord` business keys. Matching Models keep their identities, observers, and effect handlers. Missing Models are retired, new keys receive new identities, and incoming order becomes list order. Duplicate keys in either dataset reject the batch before the merge closure runs; errors return the input through `CollectionLoadError`.
 
@@ -229,7 +266,7 @@ todo.items().reconcile(
 
 Reconciliation stages input and matching indices and may prepare nested storage. It is not a zero-allocation edit. Matching items with unchanged order do not publish a structural change merely because their fields were merged. A merge panic poisons the enclosing registered Model transaction; completed business changes are not rolled back.
 
-## Merging keyed data
+## Merging keyed data {#merging-keyed-data}
 
 `map.reconcile(entries, merge)` uses the Map's own keys; it does not take a separate key extractor. The input is an owned iterator of `(key, data)` pairs. Matching members retain their identities, original stored keys, observations, and effect handlers. New keys create members, absent keys retire members, and traversal remains sorted by key.
 
@@ -241,7 +278,7 @@ workspace.users().reconcile(records, |current, incoming| {
 
 The closure receives `&mut Item` and an incoming `Item`, never a mutable index key, and returns the Model's declared change value as in List merges. Fields omitted from the merge keep their local values. Duplicate input keys and capacity or iteration conflicts reject the batch before any merge; errors return consumed and remaining input in original order. Key indexing stays aligned with completed member changes if a merge panics; this is not rollback or permission to reuse a poisoned registered Model.
 
-## Membership sets
+## Membership sets {#membership-sets}
 
 Declare `selected: model!(owned ModelSet<UserId>)` for selected IDs, enabled options, or tags. `ModelSet::from_iter(values)` moves and deduplicates input into sorted order; `bounded(n)` prepares an empty set with a hard limit. Members are not Models and do not have individual handles. Use a Map when the stored objects need mutable fields or methods.
 

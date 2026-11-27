@@ -2,44 +2,29 @@
 
 本文介绍如何声明强类型事件载荷、绑定回调以及配置有界的通知与命令存储。关于控件自身的输入钩子与文本编辑通知，请参阅[控件初始化、输入与通知](widget-events.md)；关于文档编辑与输入法会话，请参阅[文本编辑与输入法](text-editing.md)；关于选区快照与系统剪贴板读写，请参阅[跨平台剪贴板](clipboard.md)。
 
-<div class="arch-diagram" role="img" aria-label="从原始指针/按键输入到手势识别、冒泡/通知路由、#[event] 回调与延迟命令提交的四阶段流水线">
-  <svg viewBox="0 0 880 182" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <marker id="ev-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
-      </marker>
-    </defs>
-    <rect x="16" y="22" width="184" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · RAW INPUT</text>
-    <text x="32" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">命中测试与手势识别</text>
-    <text x="32" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Tap(n) · LongPress</text>
-    <text x="32" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Drag · Pinch · Rotate</text>
-    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">派发前自动刷新过期几何</text>
-    <path d="M200 91H240" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ev-arrow)" />
-    <rect x="248" y="22" width="212" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="264" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · ROUTE DISPATCH</text>
-    <text x="264" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">强类型事件路由</text>
-    <text x="264" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">EntityBubble (目标 → 根)</text>
-    <text x="264" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">EntityNotification (控件通知)</text>
-    <text x="264" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">InputFallback → App 监听器</text>
-    <path d="M460 91H500" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ev-arrow)" />
-    <rect x="508" y="22" width="184" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="524" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · #[event] HANDLER</text>
-    <text x="524" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">受控作用域执行</text>
-    <text x="524" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">event!(E) · entity!()</text>
-    <text x="524" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">model!(T) · query!(...)</text>
-    <text x="524" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">BubbleControl::Allow / Stop</text>
-    <path d="M692 91H732" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ev-arrow)" />
-    <rect x="740" y="22" width="124" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="756" y="48" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · COMMIT</text>
-    <text x="756" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">延迟命令提交</text>
-    <text x="756" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">commands!()</text>
-    <text x="756" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Model 副作用</text>
-    <text x="756" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">在下一条输入前落定</text>
-  </svg>
-</div>
+<MiruiSnippet recipe="events-playground" label="Tap, Double-Tap & Drag" file="recipes.rs" height="220px">
+
+<template #exercise>
+
+点击 `Tap or Double-Tap` 按钮体验单击 `on Tap` 与双击 `on Tap(2)` 回调，切换顶部的 `Bubble: Allow (false) / Stop (true)` 观察父容器 `Row` 是否收到冒泡点击，并左右拖动右侧滑块观察 `DragMove` 实时增量。
+
+</template>
+
+</MiruiSnippet>
+
+<ArchFlow kind="event-routing" />
 
 ## 事件类型契约 (`Event` 与 `EventKey`) {#event-type-contracts}
+
+| 路由类型 | 典型事件载荷 | 派发路径 | 返回值与冒泡控制契约 |
+| --- | --- | --- | --- |
+| **`EntityBubble`** | `Tap`、`LongPress`、`DragStart/Move/End`、`Pinch`、`Rotate` | 命中节点 → `Parent` 祖先链 → 根节点 | 返回 `false` / `BubbleControl::Allow` 继续冒泡；返回 `()` / `true` / `Stop` 消费并停止 |
+| **`EntityNotification`** | `Slider::ValueChanged`、`Switch::Toggled`、`ClipboardFinished` | 直接送达发出通知的实体监听器（双缓冲 FIFO） | 固定返回 `()`（不可消费，扇出广播） |
+| **`EntityRequest<R>`** | `SelectAll`、`InspectSelection`、`Copy/Cut/PasteSelection` | 在目标实体上同步调用唯一提供者 | 返回强类型 `R`（如 `Result<..., RequestError>`） |
+| **`InputFallback`** | `Key`、`TextCommitted`、`Wheel`、`Rotary` | 焦点 / 滚动目标 → 祖先链 → `App::on_event` | 被焦点编辑器或滚动容器消费的输入不会落入全局快捷键 |
+| **`AppNotification`** | `Started`、`Suspended`、`Resumed`、`MemoryWarning`、`Quit` | 生命周期钩子完成后直接送达 `App::on_event` | 固定返回 `()` |
+
+### 选区请求与 `Event` 特征 {#selection-requests-and-event-traits}
 
 选区请求使用 `ui::selection::SelectAll` 并返回 `Result<(), RequestError>`。调用 `commands.selection().select_all(entity)` 会在目标节点上调用唯一的提供者（不冒泡、不走 `App` 回退、也不占用通知队列存储）。`TextEditing` 默认注册了该提供者；自定义组件也可以在 `View` 的 `input` 元组中注册 `#[event]` 回调，或在具体节点上用 `on SelectAll` 覆盖默认实现。请求类绑定不会给节点增加指针高亮反馈或命中测试目标。
 

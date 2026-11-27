@@ -1,4 +1,4 @@
-# Persistence
+# Persistence {#persistence}
 
 Enable the `persistence` feature to use `PersistencePlugin` with a storage backend.
 
@@ -11,6 +11,43 @@ Tap `+ 1 (Autosaves)` a few times, pause 0.2 seconds, then click **`Relaunch ↻
 </template>
 
 </MiruiSnippet>
+
+<div class="arch-diagram" role="img" aria-label="Persistence pipeline from #[persist] field codecs through restore-before-compose and candidate tracking to deduplicated Storage::write">
+  <svg viewBox="0 0 880 176" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="ps-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="20" width="190" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · ARCHIVE CODEC</text>
+    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Field &amp; Custom Codecs</text>
+    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">#[model(persistence)]</text>
+    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">#[persist] · ModelCodec</text>
+    <text x="32" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Independent of #[observe]</text>
+    <path d="M206 88H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ps-arrow)" />
+    <rect x="252" y="20" width="196" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="268" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · REGISTER &amp; RESTORE</text>
+    <text x="268" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Prepare Before Apply</text>
+    <text x="268" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">add_model(v).finish()</text>
+    <text x="268" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">with_key("docs/42")</text>
+    <text x="268" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Protects corrupt records</text>
+    <path d="M448 88H486" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ps-arrow)" />
+    <rect x="494" y="20" width="190" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="510" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · SAVE CANDIDATE</text>
+    <text x="510" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Autosave &amp; Lifecycle</text>
+    <text x="510" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">.autosave(ms) · Suspend</text>
+    <text x="510" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">EncodeOutcome::Deferred</text>
+    <text x="510" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Zero copy on model writes</text>
+    <path d="M684 88H722" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ps-arrow)" />
+    <rect x="730" y="20" width="134" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="746" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · STORAGE</text>
+    <text x="746" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Byte Backend</text>
+    <text x="746" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Unchanged skip</text>
+    <text x="746" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">File / Web / Flash</text>
+    <text x="746" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Flash wear guard</text>
+  </svg>
+</div>
 
 ## Model field descriptions
 

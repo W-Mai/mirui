@@ -1,5 +1,33 @@
 # 页面导航与物理动效 {#navigation-paths}
 
+<div class="arch-diagram" role="img" aria-label="mirui 三大导航与动效原语对比：FollowBounds、NavigationStack 与 PageView">
+  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="nav-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="20" width="268" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · FOLLOWBOUNDS</text>
+    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">几何边界弹簧与补间跟随</text>
+    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">FollowBounds::new(target)</text>
+    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">with_outset · with_transition</text>
+    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">半途重定向保留当前速度</text>
+    <rect x="306" y="20" width="268" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="322" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · NAVIGATIONSTACK&lt;R&gt;</text>
+    <text x="322" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">保留状态的压栈 / 弹栈导航</text>
+    <text x="322" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">NavigationPath::with_capacity</text>
+    <text x="322" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">push · pop · clear · CreatePage</text>
+    <text x="322" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">弹栈自动恢复后台子树与滚动位置</text>
+    <rect x="596" y="20" width="268" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="612" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · PAGEVIEW&lt;P&gt;</text>
+    <text x="612" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">状态驱动的活动单页容器</text>
+    <text x="612" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">PageView(page: ${state.page()})</text>
+    <text x="612" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">PageTransition::slide / fade</text>
+    <text x="612" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">可逆过渡与纯位移零拷贝滑动</text>
+  </svg>
+</div>
+
 ## 跟随控件几何边界 (`FollowBounds`) {#following-widget-bounds}
 
 将 `FollowBounds` 挂载到任意控件上，即可让它自动环绕定位到另一个目标控件周围。它直接读取布局阶段准备好的 `LayoutGeometry` 输出（包含滚动偏移与几何变换），并将目标矩形映射到跟随者父容器的局部坐标系中。跟随者自身不占用 Flex 布局空间，而其内部子节点依然遵循常规的布局与内边距规则。
@@ -46,6 +74,18 @@ app.render().unwrap();
 跟随者同时遵循自身祖先与目标祖先的裁剪区域。当目标处于隐藏、已删除、未挂载、循环引用（如指向自身或自身子树内部）或无法映射的状态时，跟随者会自动暂停绘制、输入与输出读取，直到目标关系重新合法；移除 `FollowBounds` 组件则会恢复控件原本书写的 `Style`。
 
 默认情况下边界立即跳变。加上 `.with_transition(mirui::anim::SNAPPY)` 或传入 `TweenConfig` 即可为位置与尺寸变化开启平滑动画。首次挂载定位与从不可用状态恢复时总是立即到位；在运动途中切换目标（retargeting）会保留各轴当前的显示位置，弹簧过渡还会**保留当前运动速度**。只有启用了过渡动画的跟随者才会分配运动组件存储，并在后续推进与重定向时原地复用。
+
+### 在测试中模拟近场联机 {#simulating-proximity-in-tests}
+
+Gallery 的 **Nearby**（`nearby_demo`）在一个本地掌机游戏启动器中综合展示了 `FollowBounds`、方向性 `PageView` 卡组滑动与保留式模态浮层，并配套提供了确定性的近场/联机状态模拟检查器（按 `F2` 或点击 Web 画布上方的 **Simulate** 展开）：
+
+| 模拟控制 / 联机流程 | 快捷键 / 触发入口 | 行为与状态契约 |
+| --- | --- | --- |
+| **展开/收起模拟检查器** | `F2` / Web `Simulate` | 在 640×480 启动器左侧展开 300 px 宽的可滚动检查器面板，不改变应用业务状态 |
+| **联机流程与 9 组预设用例** | 按 `J` 或长按 `X` / 检查器 | 覆盖创建/加入房间、本地匹配、局域网与直连等 9 组预设（成功、连接/恢复失败、有/无房间、重连中、远端关闭、无匹配、不支持） |
+| **单步推进与本地确认** | `Deliver reply` / `Local A` / `Local B` | `Deliver reply` 附带预期结果提示推进单步远端响应；`Local A` / `Local B` 驱动房主审批与开始确认 |
+| **状态门控故障注入** | 故障按钮 / `Repeat case` / `Stop case` | 按当前阶段注入失败、超时、房主拒绝、远端离开、断线或恢复结果；`Repeat case` 重跑当前用例，`Stop case` 恢复原启动器位置 |
+| **目录与卡组导航快捷键** | `Tab` / `K` / `Y` / `X` | `Tab` 切换收藏夹与分类目录；`K` 打开设置与搜索软键盘；`Y` 排序/搜索/切换主题；`X` 短按启动、长按进入联机 |
 
 ## 交互式演示 (`page_studio` 与 `nearby`) {#interactive-example}
 

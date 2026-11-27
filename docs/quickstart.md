@@ -1,4 +1,4 @@
-# Quickstart
+# Quickstart {#quickstart}
 
 How to go from zero to a running mirui application on desktop, mobile, WebAssembly, or embedded hardware while sharing the same UI model.
 
@@ -6,18 +6,42 @@ This guide is the long-form companion to the README and the docs.rs
 crate-level introduction. It expects familiarity with `cargo` and
 basic Rust, plus an SPI datasheet reading habit if you target an MCU.
 
-## Contents
+<div class="arch-diagram" role="img" aria-label="Multi-target Cargo workspace architecture sharing a single no_std UI crate across desktop, web, mobile, and embedded MCU targets">
+  <svg viewBox="0 0 880 188" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="qs-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="24" width="236" height="140" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="50" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">SHARED CORE · app/</text>
+    <text x="32" y="74" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Shared UI Crate (no_std + alloc)</text>
+    <text x="32" y="98" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">#[model] · #[compose] · ui!</text>
+    <text x="32" y="118" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">#[view] · #[system] · StyleSheet</text>
+    <text x="32" y="142" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">100% platform-agnostic UI logic</text>
+    <path d="M252 54H304" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
+    <path d="M252 94H304" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
+    <path d="M252 134H304" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
+    <rect x="312" y="20" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="328" y="42" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 01 · DESKTOP</text>
+    <text x="328" y="61" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Desktop SDL / WGPU</text>
+    <text x="328" y="78" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">SdlSurface · SdlGpuSurface · WgpuSurface</text>
+    <rect x="596" y="20" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="612" y="42" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 02 · BROWSER</text>
+    <text x="612" y="61" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Web Canvas (Trunk Wasm)</text>
+    <text x="612" y="78" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">WebCanvasSurface · wasm32-unknown-unknown</text>
+    <rect x="312" y="100" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="328" y="122" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 03 · EMBEDDED</text>
+    <text x="328" y="141" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Embedded MCU (ESP32 / NuttX / STM32)</text>
+    <text x="328" y="158" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">FramebufSurface · DMA2D · RGB565 SPI</text>
+    <rect x="596" y="100" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="612" y="122" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 04 · MOBILE</text>
+    <text x="612" y="141" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Mobile (Android / iOS)</text>
+    <text x="612" y="158" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">MobileHost · NativeActivity · UIWindowScene</text>
+  </svg>
+</div>
 
-1. [Toolchain prerequisites](#toolchain-prerequisites)
-2. [Desktop SDL](#desktop-sdl)
-3. [ESP32-C3 embedded](#esp32-c3-embedded)
-4. [Cargo workspace](#cargo-workspace)
-5. [WGPU configuration](#wgpu-configuration)
-6. [Android and iOS](#android-and-ios)
-7. [Skip the boilerplate with `cargo-generate`](#skip-the-boilerplate)
-8. [Where to go next](#where-to-go-next)
-
-## Toolchain prerequisites
+## Toolchain prerequisites {#toolchain-prerequisites}
 
 Stable Rust (1.85 or newer) is enough for the desktop path:
 
@@ -37,7 +61,7 @@ cargo install espflash
 The desktop and ESP32-C3 targets in the workspace template use stable
 Rust; browser and mobile targets need their respective toolchains.
 
-## Desktop SDL
+## Desktop SDL {#desktop-sdl}
 
 The SDL backend links SDL2 dynamically; install the runtime and headers with the platform package manager:
 
@@ -143,7 +167,7 @@ add the Homebrew lib path:
 export LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH"
 ```
 
-### Optional audio
+### Optional audio {#optional-audio}
 
 Use `sdl-audio` on desktop or `web-audio` in the browser. `AudioPlugin` owns one fixed-capacity command bus and exposes `AudioHandle` through `app.audio()`. Bare-metal applications can fill a caller-owned PCM buffer with `AudioMixer` or implement `AudioSink` for an I2S/DMA driver.
 
@@ -165,7 +189,7 @@ read-only state as a reactive source; call `get()` inside a `ui!` property to
 follow mute and output changes. Cloned handles stop accepting commands after
 the app is dropped. `AudioBus<N>` remains available for standalone use.
 
-## ESP32-C3 embedded
+## ESP32-C3 embedded {#esp32-c3-embedded}
 
 The embedded path takes a hardware kit, an SPI display, and a USB cable.
 The shape of an mirui ESP project is small — `no_std` `main`, esp-hal
@@ -220,7 +244,7 @@ takes the bytes the other way around. mirui's
 contract — `display_info`, `flush`, `poll_event`, persistence — and
 which to override for a custom backend.
 
-## Cargo workspace
+## Cargo workspace {#cargo-workspace}
 
 When the same UI code should drive both a desktop window and an MCU
 panel, put the UI in a shared library crate and let one binary crate
@@ -303,7 +327,7 @@ and adds the esp-hal stack. Each target's `main.rs` opens a Surface,
 constructs `App`, then registers the shared composition with
 `app.compose(root, app::build_ui())`.
 
-### Adding a new target
+### Adding a new target {#adding-a-new-target}
 
 The workspace is meant to grow. To add ESP32-S3, RP2040, STM32, or any
 other MCU:
@@ -320,7 +344,7 @@ Build it with `cargo build -p esp32s3`. Workspace membership is
 automatic — the glob picks the new directory up on the next `cargo`
 invocation.
 
-## WGPU configuration
+## WGPU configuration {#wgpu-configuration}
 
 `WgpuSurface::new` and `MobileWgpuSurface::new` return initialization errors. Their `with_config` constructors accept the same device and presentation settings:
 
@@ -341,7 +365,7 @@ For a configured mobile host, use `MobileHost::new(title, move |window| MobileWg
 
 Presentation pacing is separate from logical updates: install `FrameRateCapPlugin` with a clock plugin to cap ticks, including idle or failed frames. Without it, native hosts remain uncapped. SDL uses `SdlGpuConfig::vsync` or `SdlSurface::new_with_vsync`; Web uses browser animation frames. Neither presentation mode nor a frame cap reduces rendering resolution. `with_texture_cache_budget` on either GPU factory limits retained image uploads, not the window target or glyph cache. Capture and readback can synchronize GPU work and should be excluded from ordinary frame-time measurements.
 
-## Android and iOS
+## Android and iOS {#android-and-ios}
 
 The `android` and `ios` generator templates ask for a rendering path. `wgpu` submits mirui draw commands directly to the platform WGPU surface. `sw` retains one caller-budgeted RGBA framebuffer, rasterizes with the software backend, uploads dirty regions, and uses WGPU only for presentation. Both paths keep the `App`, ECS world, and reactive state alive across native suspend and resume while recreating the platform surface.
 
@@ -380,7 +404,7 @@ Software-rendered hosts use native device density within an explicit framebuffer
 
 `app.spawn_root()` keeps children inside the current safe area by default; fullscreen content can opt out with `app.spawn_root().ignore_safe_area().id()`. iOS renders against the full drawable while publishing logical safe-area insets separately, so edge-to-edge backgrounds and inset content share one coordinate space.
 
-## Skip the boilerplate
+## Skip the boilerplate {#skip-the-boilerplate}
 
 The same templates this guide walks through by hand are published as a
 [`cargo-generate`](https://github.com/cargo-generate/cargo-generate)
@@ -414,7 +438,7 @@ cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/ios 
 
 `--name` supplies the generated package name. The generator asks for the mirui version and, where applicable, the rendering backend, then fills the Cargo manifests and source files. The `wasm` template uses the shipped `web-canvas` Surface and runs through trunk.
 
-## Where to go next
+## Where to go next {#where-to-go-next}
 
 You have a running mirui app. The next steps depend on what you want to build:
 

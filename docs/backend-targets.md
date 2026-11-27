@@ -1,10 +1,54 @@
-# Backend target storage
+# Backend target storage {#backend-target-storage}
 
 `mirui::render::BackendTarget` describes native output storage and source-owned CPU readback. It is a backend extension interface; application components use `Texture` and `Outputs`.
 
+<div class="arch-diagram" role="img" aria-label="Backend target pipeline from TargetPlan through working-set budget admission and BackendTarget storage to ThreadOwner::collect() retirement">
+  <svg viewBox="0 0 880 184" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="bt-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="20" width="186" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · TARGETPLAN</text>
+    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Storage &amp; Readback Plan</text>
+    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">PlaneLayout · TargetAlpha</text>
+    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">storage + readback_bytes</text>
+    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Bounds workspace &amp; staging</text>
+    <path d="M202 92H238" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
+    <rect x="246" y="20" width="204" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="262" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · BUDGET ADMISSION</text>
+    <text x="262" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Working-Set Admission</text>
+    <text x="262" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Protects pending outputs</text>
+    <text x="262" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">retain_storage(receipt)</text>
+    <text x="262" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">CPU vs Native selection</text>
+    <path d="M450 92H486" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
+    <rect x="494" y="20" width="188" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="510" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · BACKENDTARGET</text>
+    <text x="510" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Software / SDL-GPU / WGPU</text>
+    <text x="510" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Rebuild / Incremental</text>
+    <text x="510" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Direct sample or readback</text>
+    <text x="510" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Device &amp; generation checked</text>
+    <path d="M682 92H718" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
+    <rect x="726" y="20" width="138" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="742" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · RETIREMENT</text>
+    <text x="742" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">ThreadOwner</text>
+    <text x="742" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ThreadOwner::collect()</text>
+    <text x="742" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Safe owner boundary</text>
+    <text x="742" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Releases receipt charge</text>
+  </svg>
+</div>
+
+| Backend | Backing Storage | Thread Ownership | Readback Support | Target Budget Scope |
+| --- | --- | --- | --- | --- |
+| `Software (CPU)` | Checked CPU byte plane (`Straight` RGBA / format-specific) | Portable (`Send + Sync` with `sync`) | Zero-copy resident borrow (`Texture::pixels`) | Shared `Outputs` pool ledger (pixels + paint workspace) |
+| `SDL-GPU` | Single-sample packed `Premultiplied` RGBA8 texture | Creating-thread bound (`ThreadOwner` + `ThreadResource<T>`) | Direct regional/full readback (`readback_bytes = 0` staging) | `Outputs` pool + Factory `with_projective_fallback` workspace |
+| `WGPU` | Resolved view + optional MSAA attachment (`RGBA8`) | Portable `Device` / `Queue` context (`Send + Sync`) | Native hosts via row-aligned staging buffer (none on WASM) | `Outputs` pool (incl. `readback_bytes`) + Factory `with_target_edit_budget` |
+| `Web Canvas` | Offscreen `<canvas>` / 2D context & `ImageData` cache | Browser main / worker thread local | Synchronous 2D `getImageData` (unavailable on browser WGPU) | Shared `Outputs` pool + upload cache limits |
+
 With the optional `sync` feature, target payloads must implement `Send + Sync`. This constrains the transferable representation; raw objects with creating-thread restrictions remain in their thread owner. The default feature set retains local payloads. See [shared textures](shared-textures.md) for application handoff.
 
-## Storage and lifetime
+## Storage and lifetime {#storage-and-lifetime}
 
 `TargetDescriptor` combines a checked `PlaneLayout` with `TargetAlpha::Straight` or `Premultiplied`. The alpha encoding describes stored channels, independently of the destination blending policy in `AlphaMode`.
 
@@ -16,7 +60,7 @@ Pending sources with a CPU consumer prefer CPU production, including sources sha
 
 Shared storage requires `BackendTarget::retain_storage(TargetStorage)`. The producer attaches one receipt after allocation and before publication; a wrapper forwards it to the actual resource owner. The receipt retains both the existing storage charge and readback allowance. Clones retain those same charges without reserving them again. Release the receipt after the associated resources and staging, including any deferred owner-thread destruction. Repeated attachment is an error. Native plans include their receipt-retention fields, and the output budget also accounts for shared receipt ownership.
 
-### Thread-bound resources
+### Thread-bound resources {#thread-bound-resources}
 
 With shared storage and `std`, thread-bound backends can use `render::target::ThreadOwner` and `ThreadResource<T>`. The token is transferable even when `T` is local. `with` resolves the native resource only on its creating thread; another thread receives `WrongThread`, a closed owner receives `InvalidTexture`, and recursive access receives `InvalidScope`. Returned values cannot borrow the native resource. No remote device calls are queued.
 
@@ -24,7 +68,7 @@ Include `owner.metadata_bytes::<T>()?` in planning and recheck `token.metadata_b
 
 A target owns the device resources required to sample, read and release its storage. It must not borrow a temporary renderer or require a window frame to remain alive. Validate native handles against device identity and resource generation before using them; matching concrete payload types alone is insufficient.
 
-### SDL-GPU targets
+### SDL-GPU targets {#sdl-gpu-targets}
 
 SDL-GPU surfaces and upload caches share one renderer/window owner and resource generation. Temporary renderers borrow driver state only during upload, drawing or readback. Source pixel preparation, CPU glyph rasterization, software fallback and region-edit callbacks run outside that borrow. A conflicting driver borrow returns `RenderError::InvalidScope`; retained caches keep the underlying renderer alive until their textures are released.
 
@@ -34,7 +78,7 @@ SDL source reads and region-edit callbacks expose straight-alpha pixels. Softwar
 
 SDL consumers sample completed same-device native textures directly for source-over when the driver supports premultiplied blending. Rectangle and affine-quad sampling apply opacity to both premultiplied color and alpha. Other devices, unsupported blending and other composite modes use source-owned pixels and the existing upload cache. Active or unfinished sources are rejected before cache lookup. Sampling runs inside a callback with a short texture borrow; raw texture references cannot escape that callback. The device borrow covers only drawing, and source readback occurs outside it.
 
-### WGPU targets
+### WGPU targets {#wgpu-targets}
 
 WGPU frame attachments determine pipeline format, sample count, clipping bounds and readback format. The resolved view retains its backing texture; a multisample view retains the attachment loaded by subsequent passes. Command encoding, uniform storage and pipeline caching remain shared by the renderer.
 
@@ -46,7 +90,7 @@ Device loss and abandoned or out-of-order restoration invalidate native resource
 
 Native WGPU readback reuses a device-specific staging buffer and mapping completion state. Shared targets retain the existing portable device context through shared storage, publish completed/active state atomically, and take the readback workspace out of its metadata gate while running driver operations. The readback lease restores storage on return or unwinding; a conflicting immediate backend read returns InvalidScope. Ordinary Texture polling coordinates readers through the existing mirror state. Plans account for the additional shared readback control storage. Factory memory trimming releases that storage; growth replaces it, and failed mapping discards it before retrying. Source bytes are converted directly into checked pixel storage, preserving destination stride and padding. Explicit snapshots still allocate independent CPU pixels, and GPU command encoding and mapping retain their driver costs.
 
-## Source reads
+## Source reads {#source-reads}
 
 `Renderer::route` classifies a request, `prepare(request, route, cx)` retains its ready source storage, and `submit(&PreparedDraw)` consumes that storage. Preparation does not borrow the renderer across its return. `RenderEngine<T>` exposes the same preparation step. `compose_backend!` uses its declared command routes for classification, preparation, ordinary submission and text-run submission, including nested compositions. If preparation changes the command kind, submission uses the prepared command's route. An engine's `begin` runs only after preparation succeeds; a failed `begin` does not call `end`, while a failed submission still does.
 
@@ -81,7 +125,7 @@ fn poll_draw(
 }
 ```
 
-### Region readback and CPU cache
+### Region readback and CPU cache {#region-readback-and-cpu-cache}
 
 `PreparedDraw::poll_cpu(request, route, output_scale, cx)` retains the source pixels needed by a draw. Direct CPU storage, including mapped RAW images, remains a complete borrowed view without computing a regional footprint. Sources requiring preparation use the software rasterizer's integer and fractional sampling calculations for axis-aligned draws; arbitrary transforms conservatively retain the complete source. This does not trigger full-image decoding or readback for directly borrowed storage. `texture_region()` exposes the ready lease without performing another read. `PreparedDraw::native` retains command and source identity without CPU readback, leaving device compatibility and feedback checks to the backend. The token copies the existing command description, borrows its resources and does not borrow the destination renderer. `request()` returns the retained original geometry, not the cropped region's dimensions.
 
@@ -99,7 +143,7 @@ Cached pixel views retain immutable storage through cache handles rather than ho
 
 `poll_pixels_in(region, cx)` prepares the requested source region, while `poll_read_pixels(cx)` prepares a complete contiguous view. Resident views complete immediately without allocating. Native device readback remains synchronous and may wait for the device; polling does not turn driver calls into asynchronous work. Native region reads use region-sized destinations rather than reading the complete source.
 
-### Output admission and publication
+### Output admission and publication {#output-admission-and-publication}
 
 Native CPU cache admission reserves one full pixel plane and its cache-owner metadata. Regional allocations, including independently pinned owners, draw from that same reservation; unused bytes remain committed to the source. Insufficient capacity returns `ResourceLimit(Texture)` without changing live views. Unpinned buffers are reused, and a resident complete image supplies regional subviews without another allocation or readback. A partial cached region remains readable after device loss but cannot stand in for a complete image. Default budget limits are unchanged.
 
@@ -115,7 +159,7 @@ Output production automatically selects native targets when the backend plan and
 
 Binding workspace is required only by pending native writes, not by completed sources or retained history. Software production can reclaim unused binding storage under budget pressure, while preserving storage needed by earlier admitted native writes in the same batch. Idle batches retain reusable capacity.
 
-## Renderer scopes
+## Renderer scopes {#renderer-scopes}
 
 SDL-GPU and native WGPU target planning requires enough configured destination workspace for a complete target-sized fallback. SDL checks its existing `ProjectiveFallback` capacity, including row alignment; WGPU checks `with_target_edit_budget` and the device readback limit. Missing capacity returns `None` before drawing. Binding rechecks the workspace; WGPU prepares reusable edit bytes and staging before entering the callback. Incremental binding never replaces target storage to satisfy these checks. Output storage, history, source CPU copies, source staging and shared paint/binding workspace use the output budget; destination fallback buffers and upload caches retain their Factory limits. The output budget is not a total backend memory limit.
 
@@ -147,7 +191,7 @@ The backend checks content validity when binding and invalidates partially modif
 
 `restore_target(state, completed)` receives `true` only when the callback and child flush succeeded. Accept child contents only if restoration also succeeds; otherwise invalidate them. It does not signal publication or window presentation. On failure, pending child commands must be discarded or safely completed on their original target before restoring the parent. Failed binding must restore its partial state or invalidate the device; failed restoration must prevent later submission. Restoring a parent must not initialize it again.
 
-### Conformance
+### Conformance {#conformance}
 
 `compose_backend!` forwards target planning, reuse checks, creation, binding and restoration to its `default` field. It uses the default scope executor, preserving every original engine and concrete renderer type, including nested compositions and borrowed engines. No additional DSL, projection type or callback adapter is required from the backend author.
 
@@ -157,7 +201,7 @@ The external implementation in [the composed-target contract tests](../tests/com
 
 The [update contracts](../tests/compose_backend_basic/native_targets/updates.rs) check invalidation after failed binding, submission, callbacks and nested unwinding; restoration failure also prevents later submissions. Nested incremental scopes preserve both targets across intermediate flushes without allocating after preparation. These checks exercise the shared executor and macro routing, not a GPU driver.
 
-## SDL frame tracing
+## SDL frame tracing {#sdl-frame-tracing}
 
 With `perf`, `output.target` records native/CPU output selection, storage reuse and admission failures. `sdl.target.workspace` identifies missing or insufficient SDL destination-fallback workspace independently of the output pool. These are bounded decision events, not GPU durations; see [timing diagnostics](timing-diagnostics.md#backend-evidence) for identity, byte-count and attribution rules.
 

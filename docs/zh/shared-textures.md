@@ -2,10 +2,18 @@
 
 可选的 `sync` 特性使 `Texture`、其像素与区域守卫、字节源，以及当 `T: Send + Sync` 时的 `cache::Handle<T>` 具备跨线程所有权。该特性默认关闭，且不会启用 `std`。目标平台需要指针宽度的原子操作；裸机应用需提供各自平台的 `critical-section` 实现。本地构建仍保留 `Rc`、局部状态与回调。
 
+<ArchFlow kind="thread-sync" />
+
 ```toml
 # 在既有的 mirui 依赖中：
 features = ["sync", "std"]
 ```
+
+| 原语 / 跨线程模式 | 线程移动性（`sync`） | 像素内存与预算归属 | 典型跨线程移交用法 |
+| --- | --- | --- | --- |
+| **`Texture::from_vec` / `Handle<Texture<'static>>`** | `Send + Sync`（直接转移自有 `Texture` 或克隆 `Handle<Texture>`） | 转移原始像素分配与预算凭据；克隆 `Handle` 共享同一不可变条目而不拷贝像素 | 在后台工作线程执行图像解码（`Texture::from_vec`）并移交回 App 线程，或克隆 `ResourceHandle::get()` 交给工作线程并发读取 |
+| **`source.read_pixels()` 作用域守卫** | 守卫满足 `Send + Sync`；借用的 `Texture<'_>` 保留其 Rust 生命周期 | 在提交前锁定已准备好的 CPU 像素区域；逐像素遍历不访问设备、不逐像素加锁 | 先在 SDL/属主线程调用 `source.read_pixels()?` 准备 CPU 像素，再将就绪守卫借给 `std::thread::scope` 工作线程（避免 `RenderError::WrongThread`） |
+| **`ThreadResource<T>` 与 `ThreadOwner::collect()`** | 包装令牌满足 `Send + Sync`；底层原生设备对象留在创建线程 | 工作线程丢弃令牌仅原子标记退役而不触碰 GPU/SDL 上下文；`ThreadOwner` 在属主线程统一回收原生目标 | 为绑定线程的原生后端（如 SDL 纹理与离屏目标）提供安全跨线程引用计数；可移植 WGPU 后端则直接共享线程安全设备上下文 |
 
 ## 工作线程移交 {#worker-handoff}
 

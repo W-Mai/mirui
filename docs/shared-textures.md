@@ -1,13 +1,21 @@
-# Shared textures
+# Shared textures {#shared-textures}
 
 The optional `sync` feature enables cross-thread ownership of `Texture`, its pixel and region guards, byte sources, and `cache::Handle<T>` when `T: Send + Sync`. It is disabled by default and does not enable `std`. Targets need pointer-width atomics; bare-metal applications provide their platform's `critical-section` implementation. Local builds retain `Rc`, local state and callbacks.
+
+<ArchFlow kind="thread-sync" />
 
 ```toml
 # In the existing mirui dependency:
 features = ["sync", "std"]
 ```
 
-## Worker handoff
+| Primitive / Pattern | Thread Mobility (`sync`) | Pixel & Budget Ownership | Typical Cross-Thread Handoff |
+| --- | --- | --- | --- |
+| **`Texture::from_vec` / `Handle<Texture<'static>>`** | `Send + Sync` (move owned `Texture` or clone `Handle<Texture>`) | Transfers original pixel allocation & budget receipt; `Clone` on `Handle` shares immutable entry without copying pixels | Decode on a background worker (`Texture::from_vec`) and return to the App thread, or clone `ResourceHandle::get()` to inspect on workers |
+| **`source.read_pixels()` scoped guard** | Guard is `Send + Sync`; borrowed `Texture<'_>` retains its Rust lifetime | Pins prepared CPU region before submission; pixel iteration requires no device access or per-pixel lock | Call `source.read_pixels()?` on the SDL/owner thread first, then pass the ready guard into `std::thread::scope` workers (avoids `RenderError::WrongThread`) |
+| **`ThreadResource<T>` & `ThreadOwner::collect()`** | Token is `Send + Sync`; raw device object stays on creating thread | Worker drop marks retirement without touching the GPU/SDL context; `ThreadOwner` reclaims raw targets on the owner thread | Safe cross-thread reference counting for thread-bound native backends (SDL textures/targets) while portable WGPU shares its device context directly |
+
+## Worker handoff {#worker-handoff}
 
 Move an existing decoded buffer into the ordinary texture constructor. Moving the texture transfers the original pixel allocation. Sharing a completed resource uses its existing value handle.
 
@@ -41,7 +49,7 @@ Existing loaders publish worker completion on their owning App thread through ta
 
 Textures remain non-`Clone`. Cloning a value handle retains the same immutable value; snapshots explicitly copy pixels. Borrowed textures and guards retain their Rust lifetimes. Scoped threads can borrow ready guards without copying pixels.
 
-## Native sources
+## Native sources {#native-sources}
 
 Compatible same-device draws sample native storage directly. Other consumers prepare the required CPU region through the source, then use their existing upload cache. Preparation pins the region before submission; pixel iteration does not access a device or lock per pixel.
 
@@ -63,7 +71,7 @@ Closing an SDL surface invalidates its native sources and releases raw targets o
 
 Native WGPU resources share their portable device context and serialize reusable readback state. Textures can retain that context after their original surface is dropped. Device failures and source/target conflicts retain their normal errors. Web backends keep their existing CPU-output strategy; `sync` does not provide a JavaScript object transfer protocol or create a browser worker runtime. Source constraints follow the Rust auto traits supplied by each target's bindings; an accepted type alone does not establish an external JavaScript worker handoff.
 
-## Sources, budgets and extensions
+## Sources, budgets and extensions {#sources-budgets-and-extensions}
 
 Under `sync`, `AssetProvider` and `AssetReader` require `Send + Sync`; their open and read futures require `Send`. Polling remains exclusive. Stable mappings retain their original reader, and pending or cancelled reads retain in-flight buffers until their physical owner releases them. Loader completion wakes existing UI demand rather than accessing UI state from a worker.
 
@@ -71,7 +79,7 @@ Source blocks, decoded pixels, output storage and backend upload caches keep the
 
 `BackendTarget` payloads require `Send + Sync` with this feature. Portable backends retain their thread-safe device storage directly. Thread-bound backends use `ThreadOwner` and `ThreadResource<T>` without making raw device objects transferable. Native targets attach `TargetStorage` to their actual storage owner. Existing `compose_backend!` routing and target binding remain unchanged. See [backend target storage](backend-targets.md) for the extension contract.
 
-## Indexed images
+## Indexed images {#indexed-images}
 
 `Texture::from_mirx` accepts MIRX I1, I2, I4 and I8 images. Software rendering reads these packed samples directly and looks up straight-alpha RGBA colors in the image's palette. GPU backends resolve the requested regions during upload. Multiple sprites can share the same atlas.
 

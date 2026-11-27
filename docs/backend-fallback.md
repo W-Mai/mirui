@@ -1,4 +1,4 @@
-# Exact backend fallback
+# Exact backend fallback {#exact-backend-fallback}
 
 MIRUI classifies every checked draw before it changes the target. A backend
 uses its native path only when that path preserves the complete request:
@@ -7,41 +7,9 @@ else either enters an exact bounded fallback or returns a typed error.
 
 ![Backend fallback routing and bounded execution](backend-fallback.svg)
 
-## Route contract
+## Route contract {#route-contract}
 
-Software affine rounded fills use the existing quad raster path, preserving the local corner radius, opacity, viewport scale and clip mask in direct draws and region scopes. Plain affine fills retain their rectangle path.
-
-Software linear gradients whose physical color is constant along a scanline evaluate that color once per row. The draw-local sampler retains no data after the command; fractional and projective sampling preserve the original coordinate evaluation.
-
-Centered radial gradients with an axis-aligned paint mapping reuse the squared vertical distance within each integer scanline and prepare constant Pad cutoffs once per command. The specialized sampler fits within the general sampler's existing storage; fractional and projective reads evaluate their own coordinates independently. Centered parameters use bounded fixed-point division with exact truncation; other radial fields retain the general solver and wide arithmetic.
-
-Gradient stop interpolation retains its full Q48.16 fraction and evaluates byte channels with exact integer arithmetic. Normalized MIRX offsets use exact single-precision conversion; general MIRX numeric conversion keeps its full range.
-
-Software path rasterization records weighted interval boundaries in its existing row scratch and reconstructs coverage once per row. Subpixel sampling, fill rules and fractional edge coverage are unchanged.
-
-Gradient stop interpolation uses the selected normalized interval to bound its fixed-point fraction and evaluate the exact quotient with 32-bit arithmetic. General fixed-point division and color rounding remain unchanged.
-
-The stop walk carries each converted boundary into the following interval, avoiding a repeated offset conversion while preserving duplicate-stop selection and endpoint colors.
-
-Axis-aligned radial gradients evaluate integer pixel coordinates without lifting them into a wide fractional product. The integer path preserves the existing input wrapping and low-word product; fractional and projective sampling retain wide multiplication. Sampler storage and output precision are unchanged.
-
-With `std`, wide fixed-point square roots can accept a standard floating-point candidate only after exact integer checks establish the same floor as integer square root. Rejected candidates use integer square root. Builds without `std` use the integer implementation throughout; no precision tolerance or additional storage is introduced.
-
-Fractional nearest-neighbor RGBA upscaling on opaque targets groups repeated source indices with the existing rational sampler and fixed-color span blender. Horizontal edge coverage remains per pixel, row coverage retains the original rounding, and rows whose effective opacity cannot reach one are skipped before source lookup. Alpha-aware targets and downscaling retain point sampling; no expanded image or additional cache is prepared.
-
-Path shaders borrow their existing scanline differences. Solid and scanline-constant linear gradients without a clip mask batch exact constant-coverage spans on opaque byte-channel targets, preparing opacity and fixed-source channel products once per span. Other formats, alpha-aware targets, masks, projective coordinates and varying gradient colors retain the general per-point shader without span partitioning. No expanded coverage array, intermediate image, retained span list or per-draw allocation is added.
-
-Path shading clips scanline bounds to the target before borrowing pixel storage. The exclusive borrow reuses target format, stride and alpha mode throughout the draw while preserving the existing pixel-format blending rules. Gradient samples with zero effective write alpha skip target offset calculation and blending.
-
-Opaque-target software blending evaluates R/B in separate integer lanes using the original per-channel rounding. `AlphaMode::Blend` retains its existing straight-alpha compositing.
-
-RGBA8888, BGRA8888 and RGB888 pixel writes store their ordered channels directly in the existing bounded byte slice. RGB565 variants retain the shared integer packing and quantization rules.
-
-Nearest-neighbor RGBA upscaling reuses completed destination rows only after validating full source-row opacity and full command opacity. Copies use disjoint row slices; transparent rows retain independent destination blending. The draw-local cursor does not allocate or retain pixel storage, and downscales, fractional coverage, masks and other composites preserve their existing paths.
-
-SDL-GPU and native WGPU use bounded destination-region fallback for affine and projective lines and arcs. Planning includes stroke extent and clipping before device access. Affine requests retain the software affine raster path; projected strokes are rebased in physical coordinates to avoid scaling a fractional region offset twice.
-
-`PaintCtx::with_clip_path` uses native clipping when supported and otherwise executes its complete body through `plan_scope` and `render_scope`. Planning failure skips the body; successful entry executes it once, preserves nested clip order and drawing context, and retains drawing failures before writeback failures. Region rebasing preserves affine commands as affine operations instead of selecting a projective raster path for a translation.
+### ExactFallback vs Native routing {#exactfallback-vs-native-routing}
 
 `RenderRoute::Native` performs no fallback allocation, readback, or upload.
 `RenderRoute::ExactFallback(FallbackRegion)` carries the physical destination
@@ -61,7 +29,25 @@ not depend on the destination. Consecutive operations that share ordering and
 clip state stay inside one fallback scope instead of crossing the backend
 boundary per command.
 
-## Geometry and memory types
+SDL-GPU and native WGPU use bounded destination-region fallback for affine and projective lines and arcs. Planning includes stroke extent and clipping before device access. Affine requests retain the software affine raster path; projected strokes are rebased in physical coordinates to avoid scaling a fractional region offset twice.
+
+`PaintCtx::with_clip_path` uses native clipping when supported and otherwise executes its complete body through `plan_scope` and `render_scope`. Planning failure skips the body; successful entry executes it once, preserves nested clip order and drawing context, and retains drawing failures before writeback failures. Region rebasing preserves affine commands as affine operations instead of selecting a projective raster path for a translation.
+
+### Software rasterizer fast paths {#software-rasterizer-fast-paths}
+
+When a command executes on the software backend or inside a bounded `ExactFallback` region, the rasterizer selects specialized scanline, fixed-point, and span-blending fast paths while preserving exact coverage, rounding, and zero per-draw allocation:
+
+| Subsystem / Operation | Fast Path & Specialization | Precision & Allocation Contract |
+| --- | --- | --- |
+| **Affine rounded & plain fills** | Affine rounded fills use the quad raster path (preserving local corner radius, opacity, viewport scale, and clip mask); plain affine fills retain the rectangle path. | Direct draws and region scopes share identical geometry. |
+| **Scanline-constant linear gradients** | Evaluates physical color once per row when constant along a scanline. | Draw-local sampler retains no data after the command; fractional/projective sampling preserves original coordinate evaluation. |
+| **Centered & axis-aligned radial gradients** | Reuses squared vertical distance per integer scanline, prepares constant `Pad` cutoffs once per command, and evaluates integer pixel coordinates without wide fractional products. | Fits in general sampler storage; centered parameters use bounded fixed-point division with exact truncation; with `std`, wide `sqrt` accepts a float candidate only after exact integer floor verification. |
+| **Gradient stop walk & interpolation** | Carries each converted interval boundary into the next stop and bounds the fixed-point fraction to evaluate exact 32-bit quotients. | Retains full `Q48.16` fraction and exact integer byte-channel rounding; normalized MIRX offsets use exact `f32` conversion. |
+| **Path rasterization & span shading** | Records weighted interval boundaries in existing row scratch, clips scanline bounds before borrowing pixels, and batches constant-coverage spans for solid/scanline-constant gradients on opaque byte-channel targets. | Zero effective write alpha skips target offset and blending; no expanded coverage array, intermediate image, or per-draw allocation is added. |
+| **Nearest-neighbor RGBA upscaling** | Groups repeated source indices with the rational sampler + fixed-color span blender on opaque targets, and copies completed destination rows via disjoint row slices when source row and command are fully opaque. | Skips rows whose effective opacity cannot reach `1`; alpha-aware targets, downscaling, and masks retain point sampling. |
+| **Target pixel writes & blending** | Evaluates opaque-target R/B channels in separate integer lanes; writes `RGBA8888`, `BGRA8888`, and `RGB888` channels directly into bounded slices. | `AlphaMode::Blend` retains straight-alpha compositing; `RGB565` variants retain shared integer packing and quantization. |
+
+## Geometry and memory types {#geometry-and-memory-types}
 
 The types describe different boundaries and intentionally compose rather than
 alias one another:
@@ -96,7 +82,7 @@ Numeric conversion follows one direction:
 
 Logical bounds are scaled in `Fixed`; top and left are floored, bottom and right are ceiled; signed edges are clipped to the target; conversion to `u16` happens last. Empty logical bounds remain empty. Backends consume the resulting `PhysicalRect` and do not round it again. Web Canvas applies rectangular scissors in physical pixels; path clips retain their geometric coverage.
 
-## Aligned caller storage
+## Aligned caller storage {#aligned-caller-storage}
 
 `PlaneRequirements` declares start-address and row-stride alignment. The
 packed CPU default uses alignment 1. DMA, firmware, or GPU upload paths can
@@ -115,9 +101,9 @@ Binding checks the actual slice address, aligned stride, checked
 used for readback, software replay, and upload. The ordinary native route does
 not inspect or carry this storage.
 
-## Backend behavior
+## Backend behavior {#backend-behavior}
 
-### Backend fallback and dirty-region rendering
+### Backend fallback and dirty-region rendering {#backend-fallback-and-dirty-region-rendering}
 
 <div class="arch-diagram" role="img" aria-label="Dirty-region planning, redraw strategies, flush lifecycle, and multi-buffer mirroring">
   <svg viewBox="0 0 880 176" xmlns="http://www.w3.org/2000/svg">
@@ -162,7 +148,7 @@ not inspect or carry this storage.
 
 Frame write scopes preserve target readback and background sampling. A write boundary does not shrink a sampling request; sampled results are clipped when drawn back to the frame.
 
-### Dirty regions and partial flush
+### Dirty regions and partial flush {#dirty-regions-and-partial-flush}
 
 App owns the frame pixels it reconstructs. Redraw regions start from transparent zero on alpha targets and black on targets without alpha; the root's background is then drawn normally. Scroll transfers run first, and reusable transferred pixels are not cleared. Host backgrounds must be composed with the App output rather than retained implicitly in its writable target. Explicit `TargetUpdate::Incremental` offscreen edits retain their contents.
 
@@ -172,7 +158,7 @@ App owns the frame pixels it reconstructs. Redraw regions start from transparent
 
 `Surface::redraw_strategy()` selects physical damage grouping without consuming or modifying the logical damage query. The default `Adaptive` strategy preserves sparse regions and coalesces dense coverage. `BoundingBox` draws the bounding rectangle of nonempty damage to reduce repeated traversal; it does not promote idle frames to drawing. Surface wrappers forward this choice with the frame lifecycle.
 
-### Backend capabilities
+### Backend capabilities {#backend-capabilities}
 
 Single-sample SDL GPU windows with target-texture support keep one physical-size RGBA target and use `BoundingBox`. Its pixel storage costs four bytes per physical pixel, plus driver overhead; initialization, resize and renderer reset recreate it. Stable frames reuse storage, and successful submission copies it to the window once before presentation. This is surface storage, separate from image-upload caches and the Outputs budget. No CPU framebuffer is allocated. Multisampled windows, including the default OpenGL 4× configuration, use their original window target and full redraws when damaged because SDL texture targets do not retain window MSAA. Unsupported or unqueryable target capabilities also keep the direct window path; target-allocation failures are returned rather than accepted as a frame.
 
@@ -188,7 +174,7 @@ Linux DRM uses `LinuxDrmConfig::mode` to select a connector mode and `buffer_cou
 
 Compare processing times using the same scene, physical dimensions, build profile, presentation settings, and cache warm-up. Report average and tail frame times separately from presentation cadence. Readback, tracing, and synchronous logging add work to the measured path; exclude diagnostic captures when measuring ordinary interaction.
 
-### Region edits and flush lifecycle
+### Region edits and flush lifecycle {#region-edits-and-flush-lifecycle}
 
 An `App` draw or submission failure leaves the last accepted widget bounds unchanged and requires a full redraw before framebuffer scroll transfers resume. Layout or surface acquisition failures before drawing preserve the existing framebuffer. Full and partial frames both use `RendererFactory::mirror_buffers` to synchronize writable rotating buffers after `Surface::end_flush` succeeds.
 
@@ -221,7 +207,7 @@ A native route is preferred; fallback cost is proportional to the clipped
 physical region and the number of backend crossings, not to the full surface
 or glyph count.
 
-## Retained widget outputs
+## Retained widget outputs {#retained-widget-outputs}
 
 `App::snapshot()` renders and presents a complete frame while copying its target pixels before the renderer releases the target. It uses the normal frame preparation and completion path without advancing systems or polling input. The returned `Texture` owns its pixels and retains the renderer's format and stride; encoders must inspect these rather than assume RGBA bytes. No root returns `Ok(None)`. Unsupported synchronous readback returns `RenderError::Unsupported(RenderFeature::Readback)` without rendering through a substitute backend. A readback error still allows a successfully drawn frame to be presented and its painted baseline to be recorded.
 
@@ -243,7 +229,7 @@ Software rasterization acquires a writable borrow before each raster batch, not 
 
 `mix_inplace(&mut destination, &source, amount)` also takes pixel borrows. Prepare source reads before borrowing the destination for writing. Target readback copies advance the destination revision, and software scopes validate writable storage before invoking their body and flush before returning success.
 
-### Upload and geometry caches
+### Upload and geometry caches {#upload-and-geometry-caches}
 
 SDL, WGPU and Web Canvas uploads read through validated pixel borrows on cache misses. Packed RGBA uploads borrow the existing bytes; other formats and padded rows use the shared conversion. Upload failures remain available through submission and flush instead of being cleared by another draw. Web Canvas shares the texture identity and revision key used by the other GPU upload caches.
 
@@ -294,9 +280,19 @@ Typed callbacks can declare `textures: res!(Outputs<WidgetTexture>)`, importing 
 
 `App::take_widget_output(entity)` transfers an independent completed output into `WidgetTextureOwned` with its published `layout_rect()` and `local_bounds()`. `into_texture()` moves its original storage and budget ownership. Consumers, history, active batches and conflicting storage access prevent transfer. The operation synchronizes observations and consumes the latest available publication without rendering. Render first when newer application changes must appear in the capture. The source's `OffscreenRender` remains application-controlled, and later drawing can recreate its output. Retained storage continues charging the original output pool until its storage owners release it. Native access follows its creating backend's lifetime and thread rules, including owner maintenance for thread-bound storage reclamation.
 
-### Composing an output without CPU access
+### Composing an output without CPU access {#composing-an-output-without-cpu-access}
 
 Pass the source texture directly to a drawing command. The View does not request pixels, allocate a destination or select a device. Registering its component-filtered View activates the declared dependency; the source is produced before the consumer. Same-device native sampling and cross-device conversion follow the selected backend's existing texture path.
+
+<MiruiSnippet recipe="offscreen-preview" label="#[depends_on(WidgetTexture)]" file="recipes.rs" height="210px">
+
+<template #exercise>
+
+Tap `Mutate Source` on the left card; `MirrorPreview` on the right declares `#[depends_on(WidgetTexture)]` and blits the published offscreen texture via `res!(Outputs<WidgetTexture>)` without CPU readback.
+
+</template>
+
+</MiruiSnippet>
 
 ```rust
 use mirui::prelude::*;
@@ -358,7 +354,15 @@ This executable example uses a software framebuffer. The same component, View an
 
 For an effect that actually needs pixels, use `paint.read_pixels(source.texture())` inside its View and keep the returned borrow while reading. That call can synchronize and populate the source's reusable CPU copy. Merely composing the texture above does not make that request. `#[retain_previous(WidgetTexture)]` retains the consumer entity's own successful output; it does not retain history for its `source` field. Read that history with `outputs.previous(owner)`, obtaining `owner` through the existing `entity!()` role.
 
-### Output geometry and history
+### Output geometry and history {#output-geometry-and-history}
+
+| Output Type | Accessor / Attribute | Coordinate Space & Payload | Storage & Invalidation Contract |
+| --- | --- | --- | --- |
+| `WidgetTexture` | `layout_rect()` | Root layout coordinates `(x, y, w, h)` excluding ancestor scroll and external transforms. | Published alongside the completed offscreen texture slot in the `Outputs` pool. |
+| `WidgetTexture` | `local_bounds()` | Logical bounds relative to `layout_rect` origin, including borders, shadows, glows, and unclipped children. | Outward-rounded after scaling; changing logical size, local footprint, or output scale clears incompatible history. |
+| `WidgetTexture` | `#[retain_previous(WidgetTexture)]` | Frozen previous successful output read via `outputs.previous(owner)`. | Allocates a second history slot for `owner`; failed draws do not advance history; moving a source preserves history. |
+| `LayoutGeometry` | `border_rect()` / `content_rect()` | Widget-local logical coordinates (`content_rect` resolves layout and safe-area padding). | Snapshot-only (`#[depends_on(LayoutGeometry)]`); allocates zero pixel buffers or per-frame storage growth. |
+| `LayoutGeometry` | `transform()` / `clip()` | `transform()` maps local bounds to screen (incl. ancestor scroll & 2D/3D transforms); `clip()` is the screen-space intersection of ancestor clips and viewport. | Prepared before input and drawing; hidden, detached, or deleted sources return `None`. |
 
 Each published texture also exposes `layout_rect()` in root layout coordinates and `local_bounds()` in logical units relative to that origin. Local bounds include borders, shadow and glow extents, and unclipped children; explicit child clips and scrolling viewports still use the layout rectangle. Capture dimensions round outward after scaling, and composition uses the same footprint without moving the layout-based transform pivot. These values exclude ancestor scrolling and external transforms and belong to the same successful output as the pixels. Moving a source preserves local history; changing its logical size, local footprint, or output scale clears incompatible history even when its pixel dimensions stay the same.
 

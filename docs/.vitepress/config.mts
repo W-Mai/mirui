@@ -152,7 +152,7 @@ export default defineConfig({
             ],
           },
         ],
-        outline: { label: '本节内容' },
+        outline: { level: [2, 3], label: '本节内容' },
         docFooter: { prev: '上一节', next: '下一节' },
         editLink: { pattern: `${repository}/blob/${source}/docs/:path`, text: '查看本页源码' },
         skipToContentLabel: '跳到正文',
@@ -164,6 +164,7 @@ export default defineConfig({
   themeConfig: {
     siteTitle: false,
     i18nRouting: false,
+    outline: { level: [2, 3], label: 'On this page' },
     nav: navigation(false),
     socialLinks: [{ icon: 'github', link: repository }],
     sidebar,

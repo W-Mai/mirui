@@ -1,6 +1,53 @@
-# Clipboard
+# Clipboard {#clipboard}
 
 `commands.clipboard().copy(editor)` copies the selection belonging to an explicit entity. TextInput and custom widgets that attach TextEditing supply this capability automatically. Reversed UTF-8 selections are normalized; an empty selection leaves the platform clipboard unchanged. Copy does not change focus, selection, document content, or input-method composition.
+
+<MiruiSnippet recipe="clipboard-lab" label="Select All, Copy, Cut & Paste" file="recipes.rs" height="220px">
+
+<template #exercise>
+
+Tap `Select All` then `Copy`, `Cut`, or `Paste` (each button carries `PointerFocus::Preserve` so the editor keeps focus), and watch the `ClipboardFinished` outcome update below.
+
+</template>
+
+</MiruiSnippet>
+
+<div class="arch-diagram" role="img" aria-label="Clipboard lifecycle across command dispatch, selection inspection and export, host bridge, and commit notification">
+  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="clip-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · COMMAND / SHORTCUT</text>
+    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Explicit Target &amp; Order</text>
+    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">clipboard().copy / cut / paste</text>
+    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Ctrl/Cmd + A / C / X / V</text>
+    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Fixes entity &amp; row binding</text>
+    <path d="M210 84H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
+    <rect x="256" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · INSPECT &amp; EXPORT</text>
+    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Context &amp; Snapshot</text>
+    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">InspectSelection</text>
+    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">CopySelection</text>
+    <text x="272" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Revision-guarded export</text>
+    <path d="M450 84H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
+    <rect x="496" y="20" width="186" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · HOST BRIDGE</text>
+    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Sync or Async I/O</text>
+    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Surface::write_clipboard</text>
+    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Surface::read_clipboard</text>
+    <text x="512" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Multi-MIME &amp; format checks</text>
+    <path d="M682 84H720" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
+    <rect x="728" y="20" width="136" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="744" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · COMMIT &amp; NOTIFY</text>
+    <text x="744" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Apply &amp; Receipt</text>
+    <text x="744" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">CutSelection / PasteSelection</text>
+    <text x="744" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ClipboardFinished</text>
+    <text x="744" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Atomic edit after receipt</text>
+  </svg>
+</div>
 
 ```rust,ignore
 Button () [PointerFocus::Preserve, Text::label("Copy")]
@@ -19,9 +66,18 @@ Ctrl/Command+A selects all, C copies, X cuts, and V pastes into the focused comp
 
 Software input methods can send the same keys through `commands.text_input().key(session, key)`. They use the session's editor and the same selection defaults without reentering the input method's own Key interceptor.
 
-## Completion
+## Completion {#completion}
 
 Listen for `mirui::ui::clipboard::ClipboardFinished` on the target editor, not the toolbar button. Its operation ID identifies one request. `result` distinguishes `Copied`, `Cut`, `CopiedWithoutCut`, `Pasted`, `EmptySelection`, and `ClipboardError`. Copied means the platform write acknowledged success; Cut also confirms that the component accepted deletion. CopiedWithoutCut means the write succeeded but the source became unavailable or refused deletion. Pasted means the component accepted the imported data. Permission rejection, unsupported data, and platform failure are not success. Completion never retries a write or edit. Duplicate or foreign-App acknowledgments are ignored.
+
+| `ClipboardFinished.result` | Platform Clipboard | Editor / Component State | Typical Cause |
+| --- | --- | --- | --- |
+| `Ok(ClipboardOutcome::Copied)` | Updated with exported snapshot | Unchanged (selection, focus, and preedit preserved) | `copy` succeeded for a non-empty selection |
+| `Ok(ClipboardOutcome::Cut)` | Updated with exported snapshot | Selection deleted after write receipt; caret collapsed & IME retired | `cut` succeeded and selection context remained unchanged |
+| `Ok(ClipboardOutcome::CopiedWithoutCut)` | Updated with exported snapshot | Unchanged (deletion skipped safely) | `cut` write succeeded, but source/selection/IME changed while pending or `CutSelection` failed |
+| `Ok(ClipboardOutcome::Pasted)` | Read without mutation | Selection replaced (or inserted at caret); caret at end & IME retired | `paste` read succeeded, context matched, and `PasteSelection` accepted the payload |
+| `Ok(ClipboardOutcome::EmptySelection)` | Unchanged | Unchanged | `copy` or `cut` invoked when `InspectSelection` reported `has_selection == false` |
+| `Err(ClipboardError)` | Write rejected or read failed | Unchanged (document, selection, and preedit preserved) | Permission denied, `Unsupported` format/multi-item, `Capacity` exceeded, stale context, or `Unavailable` host |
 
 ```rust,ignore
 TextInput () on ClipboardFinished(|event: event!(ClipboardFinished)| {
@@ -33,7 +89,7 @@ The normal bounded event preset supports clipboard completion notifications. Exp
 
 Completion belongs to the entity and retained item binding that issued the operation. Deleted targets and reused cells do not receive the previous item's result. A captured copy can still finish its platform write after the original item disappears; pending cut and paste operations cannot edit the replacement item.
 
-## Custom selectable components
+## Custom selectable components {#custom-selectable-components}
 
 A component registers `InspectSelection` and `CopySelection` through the existing `#[event]` callbacks and View `input` list, or explicit `on` handlers. They are synchronous, single-provider requests, not bubbling gestures or queued notifications.
 
@@ -45,15 +101,36 @@ Components accepting imported data register `PasteSelection`, returning `Result<
 
 Pixel Loom registers these requests on PixelSurface. Its selection is the editing frame, independent of the animated preview. The toolbar copies, cuts, and pastes a 12×12 indexed frame using `application/x-mirui-pixel-frame`, including dimensions and palette data. Import validates the entire snapshot before changing pixels and records one undo step. Switching frames, editing, undoing, or replacing the component invalidates pending edits; preview playback does not. Binary transfer requires a platform bridge supporting the custom format, such as Web custom clipboard formats.
 
-## Data and allocation
+## Data and allocation {#data-and-allocation}
 
 ClipboardData contains items; each ClipboardItem contains MIME representations described by ClipboardFormat. Static items, formats, MIME strings, and bytes can remain borrowed for their entire lifetime. Dynamic `with_capacity` builders reserve explicit item/format counts and impose a total byte limit. Appending does not expand these limits or truncate data. Duplicate MIME representations are rejected case-insensitively. `ClipboardData::text(text)` creates an independent UTF-8 snapshot.
 
 Explicit clipboard operations may allocate snapshots, context values, and platform conversion buffers. They do not add allocations to ordinary per-frame drawing or Model/View updates. In-flight operations use storage prepared on the first clipboard command, bounded by the App's configured command record count; one pending platform read or write counts toward this bound. Platform reads reserve storage for the returned items, representations, and bytes. This is not a fixed upper bound on platform payload size; allocation failures return Capacity. No payload is copied merely to deliver its callback.
 
-## Platforms
+## Platforms {#platforms}
+
+| Platform / Bridge | Execution Model | Item & MIME Support | File / Image & Menu Integration |
+| --- | --- | --- | --- |
+| **Web** (`navigator.clipboard` + DOM events) | Async write/read; sync string paste, async `File` paste | 1 item (multi-MIME) on write; multi-item on read & `File` paste | Standard `text/plain`, `text/html`, `image/png` + Web custom formats; native DOM `copy`/`cut`/`paste` |
+| **macOS 11+** (`NSPasteboard` + `UniformTypeIdentifiers`) | Main-thread synchronous completion | Multi-item, multi-MIME (text, HTML, RTF, PNG, URI, binary) | 1 `text/uri-list` per item; TIFF → PNG; AppKit responder-chain menu routing |
+| **Windows** (Win32 + WIC) | Window-handle synchronous completion | 1 item (multi-MIME: text, HTML, RTF, PNG, URI list, opaque MIME) | PNG ↔ BGRA bitmap via WIC; native file-list drop paths without opening files |
+| **Linux X11** (`x11rb` + `XFixes` / timestamps) | Async worker over dedicated display socket | 1 item (multi-MIME, including binary & incremental chunks) | Selection ownership tracking; incremental `INCR` transfers |
+| **Linux Wayland** (`wl_data_device`) | Async non-blocking pipe on host event loop | 1 item (multi-MIME, including binary) | Requires keyboard focus & input serial; server-sync write receipt |
+| **iOS 14+** (`UIPasteboard`) | Main-thread synchronous submission | Multi-item, multi-MIME (text, HTML, RTF, PNG, URI, binary) | `UIImage` → oriented PNG; 1 URI per item |
+| **Android** (`ClipData` + `platform/android` provider) | Async Java worker + `CancellationSignal` | Multi-item, multi-MIME via private snapshot URI streams | Survives process recreation; suspension cancels in-flight work |
+| **Fallback / Custom `Surface`** | Sync `Complete` or async `Pending` | SDL fallback: 1 `text/plain` item; Custom: defined by `Surface` | `write_clipboard` / `read_clipboard` + `InputEvent::ClipboardInput` |
+
+### Web Clipboard API {#web-clipboard-api}
 
 Web uses the asynchronous Clipboard API and reports its acknowledgment or rejection. It writes one item with all its MIME representations; multiple-item writes return Unsupported instead of discarding items. Plain text, HTML, and PNG use standard browser formats. Other MIME types use Web custom formats when supported by the browser, with the platform prefix removed on import. Reads retain all returned items and representations for the target component to inspect. Browser clipboard access remains subject to user activation, format support, and platform permissions.
+
+Web native Copy, Cut, and Paste events use the focused component's same capabilities without synthesizing keys. Copy and cut require an acknowledged asynchronous write. Native paste owns the event's string representations and File objects before the event expires; it does not read the system clipboard again or insert hidden-textarea content. Events belonging to another DOM control are left alone.
+
+String-only native paste remains synchronous. File payloads use the existing ordered transfer queue and freeze the target selection at input delivery, before any file read. All files must finish reading before the component receives the payload. A changed selection rejects the edit; a failed file read does not paste the remaining files or text. Closing or discarding an unhandled paste releases its pending source.
+
+The DOM event does not expose ClipboardItem grouping: its string representations form one item, and each File forms a separate item containing the file bytes and MIME type. An absent MIME type uses `application/octet-stream`. Equal filenames do not merge items. File paths and filenames are not converted into text or loaded as external URLs. An inaccessible file rejects the operation rather than silently dropping it. The asynchronous Clipboard API retains the item grouping supplied by the browser.
+
+### macOS NSPasteboard {#macos-nspasteboard}
 
 On macOS 11 or newer, SDL software, SDL GPU, and WGPU surfaces share the native pasteboard bridge. It preserves multiple items and MIME representations, including plain text, HTML, RTF, PNG, file/URL items, and custom binary data. System type identifiers are translated through UniformTypeIdentifiers. TIFF imports retain their original representation and provide PNG. The system may supply additional representations, such as plain text for RTF. A changed pasteboard generation rejects the read instead of mixing snapshots.
 
@@ -62,6 +139,8 @@ macOS native file transfer uses one URI per item. Several files are several Clip
 macOS pasteboard operations run on the window's main thread and return synchronous Surface completions; calls from another thread return Unavailable. No worker, clipboard watcher, or additional per-surface queue is installed. Native calls may wait for another application's data provider; synchronous completion does not imply bounded latency. Snapshot and image conversion storage is allocated only for explicit clipboard operations.
 
 macOS SDL software, SDL GPU and WGPU windows route native Copy, Cut, Paste and Select All actions through their responder chain and existing host event loop. Registration follows the native window lifetime; retired window actions cannot be redirected to a replacement window. The bridge does not install or replace an application menu, synthesize keys, or read clipboard contents before an action is delivered. SDL non-Cocoa drivers do not install a native menu bridge.
+
+### Windows, X11, and Wayland {#windows-x11-and-wayland}
 
 On Windows, SDL software, SDL GPU, and WGPU share the native clipboard bridge. One item can contain multiple representations: Unicode text, HTML fragments, RTF, PNG, file URI lists, and registered MIME data. Multiple items return Unsupported before writing. PNG also supplies a native BGRA bitmap; native bitmaps are imported as PNG through Windows Imaging Component. File URI lists also supply native file paths without opening the files. Non-file URIs retain their MIME representation. Alpha or color profiles that the system codec cannot preserve return an error rather than being silently discarded.
 
@@ -77,6 +156,8 @@ On Linux Wayland, SDL software, SDL GPU, and WGPU use the window's native displa
 
 Wayland writes complete after server synchronization, unless the source is cancelled or the operation fails. This acknowledges processing, not a future consumer's read. The private queue and subscriptions are retired before their native window. Window suspension preserves failure acknowledgments while discarding stale input. Actual compositor and cross-application interoperability still require native validation; private protocol tests do not establish that result.
 
+### Mobile and embedded targets {#mobile-and-embedded-targets}
+
 On iOS 14 or newer, mobile WGPU, software upload, and SDL surfaces use the same UIKit bridge. It prepares every item and representation before a single native write. Reads capture all items once, preserving UTF-8 text, HTML, RTF, PNG, URI items, and custom binary data; native UIImage values become PNG with their display orientation applied. URI transfer uses one URI per item and does not open files. Native access stays on the main thread and remains subject to system privacy restrictions. A completed write means the synchronous UIKit submission returned, not that another application read the data. UIKit updates changeCount at the end of the event loop; it is not an immediate write acknowledgment.
 
 Android WGPU, software upload, SDL, and SDL-GPU share one asynchronous bridge. Each Surface retains its original request until a single completion; host work runs on a lazily started Java worker using the application context. Suspension cancels pending work without joining the worker or keeping an Activity alive. A cancelled write cannot authorize cutting the source selection, although an already-running system write may have copied its snapshot. JNI transfers allocate only for explicit clipboard operations; idle polling does not read the system clipboard.
@@ -87,19 +168,13 @@ The Android host library in `platform/android` supplies a non-exported, URI-gran
 
 On other platforms, SDL software and GPU surfaces read and write plain text through the SDL clipboard. Writes accept exactly one `text/plain` representation and explicitly reject other items or representations instead of silently discarding them; SDL also rejects embedded NUL bytes. WGPU surfaces outside macOS, iOS, Android, Windows, and Linux X11/Wayland, and other surfaces without a clipboard bridge, return Unsupported.
 
-Web native Copy, Cut, and Paste events use the focused component's same capabilities without synthesizing keys. Copy and cut require an acknowledged asynchronous write. Native paste owns the event's string representations and File objects before the event expires; it does not read the system clipboard again or insert hidden-textarea content. Events belonging to another DOM control are left alone.
-
-String-only native paste remains synchronous. File payloads use the existing ordered transfer queue and freeze the target selection at input delivery, before any file read. All files must finish reading before the component receives the payload. A changed selection rejects the edit; a failed file read does not paste the remaining files or text. Closing or discarding an unhandled paste releases its pending source.
-
-The DOM event does not expose ClipboardItem grouping: its string representations form one item, and each File forms a separate item containing the file bytes and MIME type. An absent MIME type uses `application/octet-stream`. Equal filenames do not merge items. File paths and filenames are not converted into text or loaded as external URLs. An inaccessible file rejects the operation rather than silently dropping it. The asynchronous Clipboard API retains the item grouping supplied by the browser.
-
 A custom Surface implements `write_clipboard(ClipboardWrite)` and `read_clipboard(ClipboardRead)`. The write request owns its immutable data; a read completion takes ownership of `Result<ClipboardData, ClipboardError>`. Return `ClipboardDispatch::Complete(request.complete(result))` for synchronous operations; for asynchronous operations, retain the request, return Pending, and enqueue `InputEvent::Clipboard(request.complete(result))` when finished. Every pending request must produce one completion, including failures. An App serializes platform reads and writes together and accepts completion while suspended.
 
 Custom Surface implementations deliver native menu actions through `InputEvent::ClipboardInput`: use `ClipboardInput::copy()`, `cut()`, `select_all()`, or `paste_requested()` when the action has no payload. Delivery uses the focused component; a requested paste captures its editing context before entering the existing Surface read protocol. Changing focus afterward does not redirect the result. Select All invokes the component's selection capability without accessing clipboard storage or emitting ClipboardFinished. These inputs do not synthesize keyboard events or install a menu.
 
 For platforms that supply a complete paste payload, `ClipboardInput::paste(data)` takes `Result<ClipboardData, ClipboardError>` and owns the snapshot before the native event expires. It imports that snapshot without reading the host again, using the same component validation and ClipboardFinished notification. Paste supplied this way is synchronous and does not wait for unrelated platform transfers; changing the selection can invalidate an earlier pending cut or paste.
 
-## Native contract checks
+## Native contract checks {#native-contract-checks}
 
 Include the Android host library as a Gradle application dependency so its manifest and consumer rules are merged into the APK. The application supplies the Android Gradle plugin; the library's standalone settings select a version only for independent builds. Its source-level instrumentation checks use AndroidX, so set `android.useAndroidX=true` when running them from an enclosing project.
 

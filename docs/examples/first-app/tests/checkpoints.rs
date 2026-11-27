@@ -31,6 +31,10 @@ fn every_recipe_mounts_and_draws() {
         "compose-niche",
         "state-at",
         "porting-inspector",
+        "events-playground",
+        "controls-gallery",
+        "clipboard-lab",
+        "offscreen-preview",
     ] {
         let mut app = App::headless(420, 260);
         install_named_recipe(&mut app, Recipe::parse(name).unwrap(), false, None);

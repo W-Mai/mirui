@@ -277,6 +277,25 @@ fn checkbox_input() {}
 
 ## 通知派发 {#notification-delivery}
 
+<MiruiSnippet recipe="controls-gallery" label="Slider, Switch & Checkbox" file="recipes.rs" height="220px">
+
+<template #exercise>
+
+点击顶部的 `Switch`（触发 `on Toggled`）或 `Checkbox`（切换 `Limiter`），并拖动 `Slider`（触发 `on ValueChanged`），观察内置控件通知如何实时更新 `ControlDeck` 并驱动下方 `ProgressBar`。
+
+</template>
+
+</MiruiSnippet>
+
+| 内置控件 | 业务通知载荷 | 触发时机与语义契约 |
+| --- | --- | --- |
+| **`Slider`** | `ValueChanged { new, old }`、`DragStarted`、`DragEnded`、`DragCancelled` | 用户拖动或点击滑轨时触发；中途取消会保留最后一次有效值且不再发送 `DragEnded` |
+| **`Switch`** | `Toggled { now: bool }` | 用户点击切换开关时触发（受 `WidgetSource<Switch>` 约束） |
+| **`Checkbox`** | `Toggled { now: bool }` | 用户点击复选框时触发（受 `WidgetSource<Checkbox>` 约束） |
+| **`ProgressBar`** | `ValueChanged { new: f32, old: f32 }` | 交互式拖动改变归一化进度（`0.0..=1.0`）时触发 |
+| **`TabBar`** | `SelectionChanged { index: usize }` | 用户切换到不同标签页下标时触发 |
+| **`TextEditing`** | `Changed { len }`、`SelectionChanged { anchor, cursor }`、`Submitted` | 用户输入/删除文本、移动光标/选区或按下回车键提交时触发 |
+
 `Slider` 会汇报 `DragStarted`、`ValueChanged`，并以 `DragEnded` 或 `DragCancelled` 收尾。取消拖拽会保留最后一次有效数值，且不会再额外汇报正常结束。
 
 `commands.emit(node, payload)` 记录一条延迟通知命令。在命令提交时，目标实体上必须存在匹配该载荷类型的监听器，否则载荷会被直接丢弃。被跳过的事件不占用业务通知存储，后续新增的订阅者也不会收到它们。但在记录命令当下，载荷表达式仍会正常求值。

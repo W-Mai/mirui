@@ -275,7 +275,26 @@ Callbacks are prepared when the first matching widget is assembled, after the Ap
 
 Gesture hooks run before authored listeners on the same node. Keyboard hooks run after authored listeners on the focused node and its ancestors, before App fallback. Within a View, matching hooks run in tuple order. Returning `true` or `()` consumes input; returning `false` continues the route. Keyboard-only hooks do not add pointer hit targets or interaction feedback. Entity lifetime and retained-cell guards apply to the frozen route. View hooks additionally require a successfully initialized, unchanged component attachment; replacing or removing that component invalidates its remaining frozen hooks even if a replacement is initialized before dispatch resumes.
 
-## Notification delivery
+## Notification delivery {#notification-delivery}
+
+<MiruiSnippet recipe="controls-gallery" label="Slider, Switch & Checkbox" file="recipes.rs" height="220px">
+
+<template #exercise>
+
+Toggle the `Switch` (`on Toggled`) or `Checkbox` (`Limiter`) and drag the `Slider` (`on ValueChanged`) to see built-in widget notifications update `ControlDeck` and drive the `ProgressBar` in real time.
+
+</template>
+
+</MiruiSnippet>
+
+| Built-in Widget | Notification Payload(s) | Emitted When |
+| --- | --- | --- |
+| **`Slider`** | `ValueChanged { new, old }`, `DragStarted`, `DragEnded`, `DragCancelled` | User drags or taps the track; cancellation preserves the last value without emitting `DragEnded` |
+| **`Switch`** | `Toggled { now: bool }` | User taps the switch (`WidgetSource<Switch>`) |
+| **`Checkbox`** | `Toggled { now: bool }` | User taps the checkbox (`WidgetSource<Checkbox>`) |
+| **`ProgressBar`** | `ValueChanged { new: f32, old: f32 }` | Interactive scrub changes normalized progress (`0.0..=1.0`) |
+| **`TabBar`** | `SelectionChanged { index: usize }` | User selects a different tab index |
+| **`TextEditing`** | `Changed { len }`, `SelectionChanged { anchor, cursor }`, `Submitted` | User commits/deletes text, moves caret/selection, or presses Return |
 
 Slider reports `DragStarted`, `ValueChanged`, and either `DragEnded` or `DragCancelled`. Cancellation preserves the last value and does not also report a normal end.
 

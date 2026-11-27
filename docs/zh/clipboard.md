@@ -2,6 +2,53 @@
 
 `commands.clipboard().copy(editor)` 复制指定实体所属的选区。`TextInput` 以及挂载了 `TextEditing` 的自定义控件会自动提供该能力。反向的 UTF-8 选区（游标在锚点之前）会被自动规范化为正向范围；若选区为空，平台剪贴板保持原样不变。复制操作不会改变焦点、选区、文档内容或正在进行的输入法预编辑（composition）。
 
+<MiruiSnippet recipe="clipboard-lab" label="Select All, Copy, Cut & Paste" file="recipes.rs" height="220px">
+
+<template #exercise>
+
+依次点击 `Select All` 与 `Copy`、`Cut` 或 `Paste`（每个按钮均挂载了 `PointerFocus::Preserve` 以保持编辑器焦点），观察下方 `ClipboardFinished` 完成状态的实时更新。
+
+</template>
+
+</MiruiSnippet>
+
+<div class="arch-diagram" role="img" aria-label="从命令触发、选区检查与导出、宿主平台桥接到提交编辑与完成通知的剪贴板四阶段生命周期">
+  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="clip-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
+      </marker>
+    </defs>
+    <rect x="16" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · COMMAND / SHORTCUT</text>
+    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">显式目标与顺序队列</text>
+    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">clipboard().copy / cut / paste</text>
+    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Ctrl/Cmd + A / C / X / V</text>
+    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">锁定实体与列表行身份</text>
+    <path d="M210 84H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
+    <rect x="256" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · INSPECT &amp; EXPORT</text>
+    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">上下文与不可变快照</text>
+    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">InspectSelection</text>
+    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">CopySelection</text>
+    <text x="272" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">修订号守卫与零修改导出</text>
+    <path d="M450 84H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
+    <rect x="496" y="20" width="186" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · HOST BRIDGE</text>
+    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">同步或异步宿主桥接</text>
+    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Surface::write_clipboard</text>
+    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Surface::read_clipboard</text>
+    <text x="512" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">多 MIME 表示与格式校验</text>
+    <path d="M682 84H720" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
+    <rect x="728" y="20" width="136" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="744" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · COMMIT &amp; NOTIFY</text>
+    <text x="744" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">确认落盘与回执</text>
+    <text x="744" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">CutSelection / PasteSelection</text>
+    <text x="744" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ClipboardFinished</text>
+    <text x="744" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">回执确认后原子修改</text>
+  </svg>
+</div>
+
 ```rust,ignore
 Button () [PointerFocus::Preserve, Text::label("Copy")]
 on Tap {
@@ -21,13 +68,16 @@ on Tap {
 
 ## 完成通知 (`ClipboardFinished`) {#completion}
 
-请在**目标编辑器**（而非工具栏上的“复制/粘贴”按钮）上监听 `mirui::ui::clipboard::ClipboardFinished`。其中的操作 ID 唯一标识一次请求，`result` 字段区分以下结果：
-- `Copied`：平台剪贴板写入已确认成功；
-- `Cut`：平台写入成功，且源组件已接受并执行了选区删除；
-- `CopiedWithoutCut`：平台写入成功，但源组件在等待期间变得不可用或拒绝了删除；
-- `Pasted`：目标组件已校验并接受了导入的数据；
-- `EmptySelection`：复制或剪切时的选区为空；
-- `ClipboardError`：权限被拒、格式不支持、容量不足或平台底层失败。
+请在**目标编辑器**（而非工具栏上的“复制/粘贴”按钮）上监听 `mirui::ui::clipboard::ClipboardFinished`。其中的操作 ID 唯一标识一次请求，`result` 字段区分各完成状态与错误：
+
+| `ClipboardFinished.result` | 平台剪贴板状态 | 编辑器 / 组件状态 | 典型触发场景 |
+| --- | --- | --- | --- |
+| `Ok(ClipboardOutcome::Copied)` | 已更新为导出的不可变快照 | 保持不变（选区、焦点与预编辑原样保留） | 非空选区 `copy` 经平台确认写入成功 |
+| `Ok(ClipboardOutcome::Cut)` | 已更新为导出的不可变快照 | 收到写入回执后删除选区；光标折叠至起点并退役旧 IME 会话 | `cut` 平台写入成功，且等待期间选区上下文未发生任何变化 |
+| `Ok(ClipboardOutcome::CopiedWithoutCut)` | 已更新为导出的不可变快照 | 保持不变（安全跳过删除操作） | `cut` 平台写入成功，但等待期间源实体/选区/预编辑已变或 `CutSelection` 拒绝删除 |
+| `Ok(ClipboardOutcome::Pasted)` | 仅读取，不修改系统剪贴板 | 替换选区（或在光标处插入）；光标移至新文本末尾并退役旧 IME 会话 | `paste` 平台读取成功、上下文校验一致且 `PasteSelection` 接受载荷 |
+| `Ok(ClipboardOutcome::EmptySelection)` | 保持不变 | 保持不变 | 调用 `copy` 或 `cut` 时 `InspectSelection` 汇报 `has_selection == false` |
+| `Err(ClipboardError)` | 写入被拒或读取失败 | 保持不变（文档、选区与预编辑原样保留） | 权限被拒、`Unsupported` 格式或多条目、`Capacity` 容量超限、上下文过期或宿主 `Unavailable` |
 
 完成通知绝不会自动重试失败的写入或编辑；重复确认或来自其他 `App` 实例的跨界确认会被直接忽略。
 
@@ -60,11 +110,44 @@ TextInput () on ClipboardFinished(|event: event!(ClipboardFinished)| {
 
 ## 各平台后端实现 {#platforms}
 
-- **Web 浏览器**：使用异步 Clipboard API 并汇报浏览器的确认或拒绝结果。每次写入支持包含多种 MIME 表示的单个条目（多条目写入返回 `Unsupported` 而非静默丢弃）。纯文本、HTML 与 PNG 使用浏览器标准格式；其他 MIME 类型在浏览器支持时自动使用 Web 自定义格式（导入时自动剥离平台前缀）。此外，Web 原生 `copy` / `cut` / `paste` DOM 事件会直接驱动当前聚焦组件的同一套剪贴板能力，无需合成虚假按键事件；粘贴包含 `File` 对象时会先锁定目标选区，待所有文件异步读取完毕后一次性交付，若中途选区已变或任一文件读取失败则整体拒绝。
-- **macOS（11 及以上）**：SDL 软件、SDL-GPU 与 WGPU 窗口共享原生 `NSPasteboard` 桥接，完整保留多条目与多 MIME 表示（纯文本、HTML、RTF、PNG、文件/URL 以及自定义二进制格式），并通过 `UniformTypeIdentifiers` 映射系统类型标识。若读取中途检测到系统剪贴板代数（changeCount）变化，会拒绝本次读取以避免混入不同时刻的快照。文件传输采用每个条目对应单个 `text/uri-list` URI 的规范。
-- **Linux Wayland 与 X11**：Wayland 与 X11 桥接在后台管理选区所有权（selection ownership）、多格式 MIME 协商与分块非阻塞管道传输，带有总字节数、系统调用次数与绝对超时保护。剪切操作严格等待写入回执完成后才删除源文本；焦点丢失或窗口关闭会安全取消挂起的读取请求。
-- **Android 与 iOS**：通过各自的宿主平台桥接与系统剪贴板通信，并在生命周期挂起/恢复期间维护会话一致性。
-- **自定义 `Surface` 扩展**：实现 `write_clipboard(ClipboardWrite)` 与 `read_clipboard(ClipboardRead)`。同步完成可直接返回 `ClipboardDispatch::Complete(request.complete(result))`；异步完成则保留请求、返回 `Pending`，并在就绪后向输入队列推入 `InputEvent::Clipboard(request.complete(result))`。原生菜单栏触发的“全选/复制/剪切/粘贴”可通过 `InputEvent::ClipboardInput`（`copy()`、`cut()`、`select_all()`、`paste_requested()` 或携带完整快照的 `paste(data)`）送入当前聚焦组件。
+| 平台 / 宿主桥接 | 执行模型 | 条目与 MIME 格式支持 | 文件 / 图像转换与菜单集成 |
+| --- | --- | --- | --- |
+| **Web** (`navigator.clipboard` + DOM 事件) | 异步读写；纯文本粘贴同步，`File` 粘贴异步 | 写入支持单条目多 MIME；读取与 `File` 粘贴支持多条目 | 标准 `text/plain`、`text/html`、`image/png` + Web 自定义格式；原生 DOM `copy`/`cut`/`paste` |
+| **macOS 11+** (`NSPasteboard` + `UniformTypeIdentifiers`) | 主线程同步完成 | 多条目、多 MIME（纯文本、HTML、RTF、PNG、URI、二进制） | 每个条目单个 `text/uri-list`；TIFF → PNG；AppKit 响应链原生菜单路由 |
+| **Windows** (Win32 + WIC) | 绑定窗口句柄同步完成 | 单条目多 MIME（文本、HTML、RTF、PNG、URI 列表、注册 MIME） | 通过 WIC 双向转换 PNG ↔ BGRA 位图；直接提供原生文件路径而不打开文件 |
+| **Linux X11** (`x11rb` + `XFixes` / 时间戳) | 独立显示连接上的异步工作线程 | 单条目多 MIME（含二进制载荷与增量分块传输） | 选区所有权（selection ownership）跟踪；超大载荷 `INCR` 增量流式传输 |
+| **Linux Wayland** (`wl_data_device`) | 宿主事件循环驱动的非阻塞管道 | 单条目多 MIME（含二进制载荷） | 要求窗口持有键盘焦点与真实输入序列号；服务端同步回执 |
+| **iOS 14+** (`UIPasteboard`) | 主线程同步提交 | 多条目、多 MIME（文本、HTML、RTF、PNG、URI、二进制） | `UIImage` 自动应用朝向并转为 PNG；每个条目单个 URI |
+| **Android** (`ClipData` + `platform/android` 提供方) | 异步 Java 工作线程 + `CancellationSignal` | 多条目、多 MIME（通过私有快照文件 URI 流式传输） | 跨进程重建保留快照；应用挂起时安全取消在途任务 |
+| **回退 / 自定义 `Surface`** | 同步 `Complete` 或异步 `Pending` | SDL 回退仅支持单条目 `text/plain`；自定义由 `Surface` 决定 | `write_clipboard` / `read_clipboard` + `InputEvent::ClipboardInput` |
+
+### Web Clipboard API {#web-clipboard-api}
+
+Web 端使用异步 Clipboard API 并汇报浏览器的确认或拒绝结果。每次写入支持包含多种 MIME 表示的单个条目（多条目写入返回 `Unsupported` 而非静默丢弃）。纯文本、HTML 与 PNG 使用浏览器标准格式；其他 MIME 类型在浏览器支持时自动使用 Web 自定义格式（导入时自动剥离平台前缀）。读取操作会保留浏览器返回的全部条目与表示供目标组件检查。浏览器剪贴板访问仍受用户激活状态（user activation）、格式支持与平台权限约束。
+
+此外，Web 原生 `copy`、`cut` 与 `paste` DOM 事件会直接驱动当前聚焦组件的同一套剪贴板能力，无需合成虚假按键事件。复制与剪切要求异步写入得到确认；原生粘贴在事件过期前接管事件中的字符串表示与 `File` 对象，不会再次读取系统剪贴板或插入隐藏 `<textarea>` 内容。纯字符串原生粘贴保持同步完成；包含 `File` 对象时则会先在输入投递瞬间锁定目标选区，待所有文件按序异步读取完毕后一次性交付（若中途选区已变或任一文件读取失败则整体拒绝）。DOM 事件中的字符串表示归为一个条目，每个 `File` 各自构成一个包含文件字节与 MIME 类型（缺失时回退为 `application/octet-stream`）的独立条目。
+
+### macOS NSPasteboard {#macos-nspasteboard}
+
+在 macOS 11 及以上版本中，SDL 软件、SDL-GPU 与 WGPU 窗口共享原生 `NSPasteboard` 桥接，完整保留多条目与多 MIME 表示（包括纯文本、HTML、RTF、PNG、文件/URL 条目以及自定义二进制格式），并通过 `UniformTypeIdentifiers` 转换系统类型标识。导入 TIFF 时在保留原始表示的同时额外提供 PNG。若读取中途检测到系统剪贴板代数（`changeCount`）变化，会拒绝本次读取以避免混入不同时刻的快照。
+
+macOS 原生文件传输采用“每个条目单个 URI”的规范：多个文件对应多个 `ClipboardItem`，每个条目携带各自的 `text/uri-list` 表示；单个条目内包含多个 URI 会在写入前直接返回 `Unsupported`。非法 UTF-8、非法 PNG、相对 URI 以及冲突的原生类型映射会在清空系统剪贴板之前被提前拒绝。所有 `NSPasteboard` 操作均在窗口所属的主线程上运行并返回同步完成结果（跨线程调用返回 `Unavailable`）。macOS 下的 SDL 软件、SDL-GPU 与 WGPU 窗口通过 AppKit 响应链（responder chain）与宿主事件循环直接路由原生菜单的 Copy、Cut、Paste 与 Select All 动作。
+
+### Windows、X11 与 Wayland {#windows-x11-and-wayland}
+
+在 Windows 上，SDL 软件、SDL-GPU 与 WGPU 共享原生 Win32 剪贴板桥接。单个条目可包含多种表示：Unicode 文本、HTML 片段、RTF、PNG、文件 URI 列表以及自定义注册的 MIME 数据（多条目写入返回 `Unsupported`）。导出 PNG 时会同时提供原生 BGRA 位图；导入原生位图时则通过 Windows Imaging Component (WIC) 转换为 PNG。文件 URI 列表会同时提供原生文件路径而不打开文件本身。写入前会使用表面自带的窗口句柄预先准备好所有格式与内存块；读取则在单次打开剪贴板期间拷贝完整快照并立即关闭句柄，随后再执行图像解码。被其他进程占用的剪贴板直接返回 `Unavailable`，不进行阻塞重试。
+
+在 Linux X11 上，SDL 软件、SDL-GPU 与 WGPU 共享异步选区（selection）桥接。单个条目支持多种 MIME 表示与二进制数据，超大表示自动采用 `INCR` 增量分块传输。支持 `XFixes` 时，读取操作通过最终服务端事件跟踪选区所有权声明；无 `XFixes` 时则校验源时间戳。X11 桥接按需延迟打开独立的显示连接，仅使用一个请求槽位与一个完成槽位，关闭 `Surface` 时可立即取消套接字等待而无需在 UI 线程阻塞等待工作线程退出。
+
+在 Linux Wayland 上，SDL 软件、SDL-GPU 与 WGPU 复用窗口原生的 display 与 seat。操作要求窗口拥有键盘焦点与真实输入序列号（serial）。读取操作绑定到单次选区提供项（selection offer），若中途焦点或选区改变则立即失败；源端传输保留已捕获的数据快照，通过宿主事件循环推进有界非阻塞管道读写（带有总字节数、系统调用次数与绝对超时保护），并在服务端同步（server sync）后确认写入完成。
+
+### 移动端与嵌入式目标 {#mobile-and-embedded-targets}
+
+在 iOS 14 及以上版本中，移动端 WGPU、软件上传与 SDL 表面共享同一套 UIKit `UIPasteboard` 主线程桥接。写入前一次性准备好全部条目与表示；读取时一次性捕获所有条目（保留 UTF-8 文本、HTML、RTF、PNG、单条目单 URI 以及自定义二进制数据，原生 `UIImage` 自动应用显示朝向并转为 PNG）。
+
+Android 端的 WGPU、软件上传、SDL 与 SDL-GPU 共享异步桥接。宿主任务运行在按需启动的 Java 工作线程上，应用挂起（suspension）时通过 `CancellationSignal` 安全取消在途任务而不会阻塞 UI 线程或泄漏 `Activity`。`platform/android` 宿主库提供了一个非导出的、支持 URI 临时授权的剪贴板 `ContentProvider`，通过私有快照文件跨进程重建保留每个条目的多种 MIME 表示。
+
+在其他桌面或嵌入式平台上，SDL 软件与 GPU 表面通过 SDL 剪贴板读写单个 `text/plain` 纯文本表示（显式拒绝其他多格式或多条目而非静默丢弃）。自定义 `Surface` 可实现 `write_clipboard(ClipboardWrite)` 与 `read_clipboard(ClipboardRead)`：同步完成直接返回 `ClipboardDispatch::Complete(request.complete(result))`；异步完成保留请求、返回 `Pending`，并在就绪后向输入队列推入 `InputEvent::Clipboard(request.complete(result))`。原生菜单动作可通过 `InputEvent::ClipboardInput`（`copy()`、`cut()`、`select_all()`、`paste_requested()` 或携带完整快照的 `paste(data)`）送入当前聚焦组件。
 
 ## 原生契约测试 {#native-contract-checks}
 

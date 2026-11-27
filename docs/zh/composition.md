@@ -51,17 +51,6 @@
   </svg>
 </div>
 
-## 目录 {#contents}
-
-1. [选择状态与渲染角色](#choosing-state-and-rendering-roles)
-2. [组合函数与 `prop!(T)` 输入](#compositions-and-prop-inputs)
-3. [应用级资源 (`res!`)](#application-resources)
-4. [具名控件身份 (`id`)](#named-widget-identities)
-5. [命令式构建闭包 (`App::compose` closures)](#programmatic-builders)
-6. [系统、查询与定时器 (`#[system]`、`#[timer]`、`#[animate]`)](#systems-queries-and-timers)
-7. [自定义视图 (`#[view]`)](#custom-views)
-8. [可复用插槽组件 (`ui!(compose Name)`)](#reusable-niches)
-
 ---
 
 ## 选择状态与渲染角色 {#choosing-state-and-rendering-roles}

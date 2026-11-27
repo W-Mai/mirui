@@ -1,43 +1,8 @@
-# Resources
+# Resources {#resources}
 
 `ResourceManager<T>` resolves tokens into shared values under its existing cache budget. `ResourceHandle::get()` and `ResourceManager::resolve()` return `cache::Handle<T>` for the completed value or the manager's fallback, retaining the same cache entry without copying its contents. A retained value remains readable after replacement, eviction or manager destruction; a subsequent demand-handle read follows the manager's current value. Static registrations and completed handle reads do not run loaders.
 
-<div class="arch-diagram" role="img" aria-label="Resource pipeline from ImageSource and ResourceManager through ProbeLoader and AssetProvider to budgeted pixel residency">
-  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <marker id="res-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
-      </marker>
-    </defs>
-    <rect x="16" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · SOURCE BINDING</text>
-    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Token, Path or Texture</text>
-    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Image(src: ...) · prop!</text>
-    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ImageSource::from</text>
-    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Demand handle &amp; subscription</text>
-    <path d="M210 84H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#res-arrow)" />
-    <rect x="256" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · MANAGER &amp; PROBE</text>
-    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Cache &amp; Cooperative Poll</text>
-    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ResourceManager&lt;T&gt;</text>
-    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Loader · ProbeLoader</text>
-    <text x="272" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">4 invocation slots per loader</text>
-    <path d="M450 84H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#res-arrow)" />
-    <rect x="496" y="20" width="186" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · BYTE PROVIDER</text>
-    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Mapped or Block I/O</text>
-    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">AssetProvider · AssetSource</text>
-    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">AssetCacheConfig</text>
-    <text x="512" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Bounded blocks &amp; in-flight I/O</text>
-    <path d="M682 84H720" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#res-arrow)" />
-    <rect x="728" y="20" width="136" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="744" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · RESIDENCY</text>
-    <text x="744" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Pixels &amp; Handles</text>
-    <text x="744" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">cache::Handle&lt;T&gt;</text>
-    <text x="744" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">poll_pixels_in</text>
-    <text x="744" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Decode budget &amp; fallback</text>
-  </svg>
-</div>
+<ArchFlow kind="resource-pipeline" />
 
 `Image(src: ${expression})` binds a resource token, vector path or retained texture through the existing reactive property mechanism. A `prop!(ImageSource)` input can forward the source across compositions. Source changes preserve the image's paint configuration, release the previous resource demand and subscribe to the current resource; equal values leave the component unchanged. Typed builders use `bind_property::<prop::ImageSource>(getter)`, and callbacks can use `commands.set::<prop::ImageSource>(entity, source.into())`.
 
@@ -63,7 +28,7 @@ app.compose(root, picture(source));
 
 An `ImageSource` field can use the existing `#[observe]` Model declaration. Its generated getter can feed `Image(src: ${model.source()})` or a forwarded `prop!(ImageSource)` input. Tokens and fixed-point vector commands compare by value; texture handles compare by shared-entry identity.
 
-## Metadata
+## Metadata {#metadata}
 
 The optional `sync` feature allows transferable textures, immutable value handles and byte sources while leaving resource managers and demand handles on their owning App thread. See [shared textures](shared-textures.md) for worker handoff, source constraints, device lifetimes and budget retention.
 
@@ -82,7 +47,7 @@ app.add_plugin(
 
 `MirxLoader` probes the MIRX image metadata without decoding pixels. Metadata cache budgets are enabled with `with_probes` or `enable_probes`; without that cache, available metadata is still returned. An ordinary loader without a probe stops the metadata chain: its token ownership cannot be inferred without decoding. Completed cached values can still provide metadata. Replacement, removal and completed loading invalidate cached metadata.
 
-## Callback lifetime
+## Callback lifetime {#callback-lifetime}
 
 Loader and probe callbacks run without a borrow of the resource manager. Resolving the same token from its own loader returns the fallback rather than recursively invoking that loader. Other tokens remain accessible. Replacing or removing the active token invalidates the earlier call's completion; it cannot overwrite the replacement. Unwinding releases the active-call guard.
 
@@ -100,7 +65,7 @@ With shared resource storage enabled, `AssetSource` is transferable and shareabl
 
 Decoded image preparation uses the same shared cache and decode budget across sources. Cache lookup, admission and publication release their metadata gates before I/O, decoding, buffer allocation or eviction cleanup. Prepared pixel guards can be shared across threads without copying or retaining a cache borrow; their allocation stays charged until the final guard releases it. Static and mapped RAW images continue to borrow their original bytes without using decode storage.
 
-## Deferred loading
+## Deferred loading {#deferred-loading}
 
 `Loader` provides `State`, `recognize`, `poll_load` and `reset`; `ProbeLoader` provides `poll_probe` using the same state. A pending invocation retains its progress and returns the fallback to consumers. The loader must register `LoadContext::waker()` with its completion mechanism. `LoadContext::consume_work()` bounds cooperative decoding work and schedules another poll when the allowance is exhausted. Simple `Fn(&str) -> Result<T, LoadError>` loaders complete immediately through this same protocol.
 
@@ -116,7 +81,7 @@ Handles share demand for a token. Releasing the last handle retires a pending lo
 
 Refresh leaves the previous successful value in the value cache until replacement succeeds. Failed refresh does not discard it. The old value remains subject to the existing cache budget and eviction policy; independently held values stay immutable and valid. A source binding resolves and opens its key again, so changing a resolver's captured directory or alias takes effect after an explicit reload.
 
-## Image updates
+## Image updates {#image-updates}
 
 Image loaders advance in the existing owner-thread systems, including when an App has no UI root. Mobile hosts connect completion wakes to their event loop without running loaders on the notifying thread. Suspended Apps retain readiness until resume; active Apps respect the existing tick deadline. Desktop, Web and self-driven embedded hosts advance ready work on their next tick. Pending work does not schedule additional animation frames, and an unobserved resource completion does not request drawing.
 
@@ -124,7 +89,16 @@ Image loaders advance in the existing owner-thread systems, including when an Ap
 
 The image owns its resource handle. Replacing or removing it releases its loading demand through normal component ownership; switching to another token or a vector releases the previous demand when the component's dependencies are reconciled, even before another visible paint. Other images requesting the same token continue to share its pending work.
 
-## Byte providers
+## Byte providers {#byte-providers}
+
+| Budget / Configuration | Scope & Charged Storage | Default / Typical Limit | Exhaustion / Eviction Behavior |
+| --- | --- | --- | --- |
+| **`values` budget** (`ResourceManager<T>`) | Completed cached resource entries (`cache::Handle<T>`), mapped RAW lengths, and texture control storage | Configured per `ResourceManager` (`MaxSize::Bytes` or `Count`) | Evicts cold unreferenced index entries; held `cache::Handle<T>` values remain valid until dropped |
+| **`probes` budget** (`with_probes` / `enable_probes`) | Probed metadata (`ProbeLoader<T>`, dimensions & format headers) without pixel decoding | Optional metadata cache (`MaxSize::Bytes` or `Count`) | Invalidated on token replacement, removal, or full load completion; returns metadata without caching when disabled |
+| **`AssetCacheConfig`** (`ResourcePlugin::with_cache`) | Shared source byte blocks, evicted blocks still borrowed by readers, and in-flight physical reads | `1 KiB` blocks, `4 KiB` budget, `2` in-flight reads, `4` sessions/provider, `1 KiB` keys, `256 B` prefix | Rejects unbounded cache; exhausted session/read slots return `Capacity` without growing storage |
+| **`with_decode_budget(bytes)`** (`ImageResourcesPlugin`) | Shared live decoder pool: decoded region tiles, pending region reads, pinned evicted pixels, encoded group metadata, and codec scratch | `128 KiB` prepared on demand (bypassed by static & mapped RAW images) | Reuses unpinned cold tiles; returns `ResourceLimit(Texture)` when pinned regions exhaust the budget |
+
+### AssetProvider and mapped slices {#asset-provider-and-mapped-slices}
 
 After a source-backed Texture has been published, its retained read progress belongs to that value, not to an individual Image. Removing or changing an Image stops driving its old pixels but does not remove successful cached values or invalidate independent Texture owners. Cached values retain their budget charges and can resume on a later request. Releasing the final Texture owner retires submitted physical reads through the original provider sessions without continuing decoding.
 
@@ -136,11 +110,15 @@ Each read takes ownership of an `AssetBuffer` and returns it in `ReadComplete`, 
 
 `ReadProgress::filled` and `eof` are independent: a short read may continue, while zero bytes without EOF on a nonempty request is invalid. `SourceConsistency::Stable` guarantees one immutable content version across reads, not merely an open file descriptor. `Unverified` must not be used to assemble a supposedly consistent media object.
 
+### Block cache and session budgets {#block-cache-and-session-budgets}
+
 `ResourcePlugin` registers named providers. `ImageResourcesPlugin::with_source` maps image tokens to provider keys; its existing `with_loader` configuration installs byte recognizers and decoders. The plugins bind during App startup, after all plugin resources are installed. Decoders recognize `LoadInput::Bytes`, request bounded prefixes with `FormatMatch::Need`, and read through `LoadContext::poll_read_exact`. Multiple recognizers claiming the same content fail rather than choosing by registration order.
 
 Image source bindings include a MIRX byte decoder for mapped FLAT and CHUNK RAW images. CHUNK selects the declared primary image through the existing reader, including container and critical-payload validation. The texture retains the opened reader and borrows the checked single pixel plane, preserving row stride without copying pixels. Opening can be asynchronous; completion updates existing Image subscriptions. Metadata probing and value loading share the same opened source. The value cache charges the complete mapping length and its texture control storage. A mapping is read-only and must report its exact length. Static `with_mirx_bytes` registrations retain their direct borrowing path and do not install source sessions.
 
 Nonmapped FLAT and CHUNK images support random-access sources. Known lengths must match the container exactly; unknown lengths are checked at the declared final byte and EOF before publication. FLAT boundary validation does not read the entire image. CHUNK validation uses bounded windows for the directory and metadata, validates the primary and critical image payloads, and verifies their DATA checksums. Encoded images retain group metadata and one reusable unit-input buffer, sharing the resident reader's coverage, scalar codec and work-limit checks. Validation scans encoded DATA but does not retain full bitmaps. Unhandled critical payload types and sequential sources are rejected rather than skipped.
+
+### Lazy viewport pixel residency {#lazy-viewport-pixel-residency}
 
 Loading publishes the image geometry and retained source. `Texture::poll_pixels_in(region, context)` reads RAW rows or decodes intersecting encoded units through the existing source block cache; short reads and `Pending` retain progress without exposing partial pixels. Encoded inputs and decoded-unit workspace are reused across regions. Supported primary surfaces have one directly representable color plane; palette and multiplanar surfaces are not implicitly converted. Returned regions preserve absolute source coordinates, while their continuous pixel views contain packed local rows. `poll_read_pixels` requests the complete image under the same budget. `pixels` and `pixels_in` only query residency; `read_pixels` returns `ResourcePending` when a complete view is unavailable, without starting I/O. Mapped encoded images use this same budgeted decoding path, not an implicit full-image decode.
 
@@ -200,7 +178,7 @@ app.add_plugin(
 
 This binding does not require a separate `ImageResourcesPlugin::with_source`. The provider is still registered with `ResourcePlugin`. Wrapping a loader prepares one resolver allocation during registration, with no additional per-poll decoder state or task queue.
 
-### Retaining an opened source
+### Retaining an opened source {#retaining-an-opened-source}
 
 `LoadContext::take_source()` transfers the opened `AssetSource` into decoder state or a completed resource. It does not reopen the key, copy source bytes or allocate another session. Complete any exact read before transferring; a repeated transfer or a transfer during an incomplete exact read fails. The context no longer supplies that source after transfer.
 
@@ -220,7 +198,7 @@ let count = core::task::ready!(source.poll_read(offset, destination, &mut task))
 
 App systems advance ready image loads and retire submitted source operations on the owning thread, including when no UI root exists. An application driving `App::tick` delivers completions on a subsequent tick; an externally driven sleeping loop supplies its wake through the manager's polling context. Publication uses the same resource subscription that invalidates `Image`.
 
-### Read storage
+### Read storage {#read-storage}
 
 `AssetCacheConfig` defaults to 1 KiB blocks, a 4 KiB shared payload budget, two physical reads in flight, four prepared sessions per provider, 1 KiB keys and 256-byte recognition prefixes. `max_requests`, `max_key_bytes` and `probe_bytes` adjust the latter limits. `MaxSize::Count` limits payload blocks; `Disabled` disables residency but retains `max_in_flight` working blocks. Unbounded source storage is rejected. These settings do not limit third-party decoder output or driver-owned storage.
 

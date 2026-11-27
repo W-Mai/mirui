@@ -1,45 +1,30 @@
-# Events and callbacks
+# Events and callbacks {#events-and-callbacks}
 
-Declare typed payloads, bind callbacks, and configure bounded notification and command storage. For widget-specific input and notifications, see [Widget events](widget-events.md); for document editing and input methods, see [Text editing](text-editing.md); for selection snapshots and platform writes, see [Clipboard](clipboard.md).
+Declare typed payloads, bind gesture and widget callbacks, and configure bounded notification and command storage. For widget-specific input and notifications, see [Widget events](widget-events.md); for document editing and input methods, see [Text editing](text-editing.md); for selection snapshots and platform writes, see [Clipboard](clipboard.md).
 
-<div class="arch-diagram" role="img" aria-label="Event routing from pointer/key input through gesture recognition, bubbling, notifications, and deferred commands">
-  <svg viewBox="0 0 880 182" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <marker id="ev-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-        <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
-      </marker>
-    </defs>
-    <rect x="16" y="22" width="184" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · RAW INPUT</text>
-    <text x="32" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Hit Test &amp; Gestures</text>
-    <text x="32" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Tap(n) · LongPress</text>
-    <text x="32" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Drag · Pinch · Rotate</text>
-    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Refreshes stale hit geometry</text>
-    <path d="M200 91H240" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ev-arrow)" />
-    <rect x="248" y="22" width="212" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="264" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · ROUTE DISPATCH</text>
-    <text x="264" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Typed Event Routes</text>
-    <text x="264" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">EntityBubble (target → root)</text>
-    <text x="264" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">EntityNotification (widget)</text>
-    <text x="264" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">InputFallback → App listeners</text>
-    <path d="M460 91H500" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ev-arrow)" />
-    <rect x="508" y="22" width="184" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="524" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · #[event] HANDLER</text>
-    <text x="524" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Scoped Execution</text>
-    <text x="524" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">event!(E) · entity!()</text>
-    <text x="524" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">model!(T) · query!(...)</text>
-    <text x="524" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">BubbleControl::Allow / Stop</text>
-    <path d="M692 91H732" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ev-arrow)" />
-    <rect x="740" y="22" width="124" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="756" y="48" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · COMMIT</text>
-    <text x="756" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Commands</text>
-    <text x="756" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">commands!()</text>
-    <text x="756" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Model effects</text>
-    <text x="756" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Before next input</text>
-  </svg>
-</div>
+<MiruiSnippet recipe="events-playground" label="Tap, Double-Tap & Drag" file="recipes.rs" height="220px">
 
-## Event type contracts
+<template #exercise>
+
+Click `Tap or Double-Tap` to fire single `on Tap` and counted `on Tap(2)` handlers, toggle `Bubble: Allow (false) / Stop (true)` to see whether the parent `Row` receives the bubbled tap, and drag `Drag puck ↔` horizontally to observe `DragMove` deltas.
+
+</template>
+
+</MiruiSnippet>
+
+<ArchFlow kind="event-routing" />
+
+## Event type contracts {#event-type-contracts}
+
+| Route Type | Typical Payloads | Delivery Path | Return / Propagation Contract |
+| --- | --- | --- | --- |
+| **`EntityBubble`** | `Tap`, `LongPress`, `DragStart/Move/End`, `Pinch`, `Rotate` | Hit target → `Parent` chain → root | Return `false` / `BubbleControl::Allow` to continue; `()` / `true` / `Stop` to consume |
+| **`EntityNotification`** | `Slider::ValueChanged`, `Switch::Toggled`, `ClipboardFinished` | Direct to listeners on the emitting entity (ping-pong FIFO) | Always returns `()` (non-consumable fan-out) |
+| **`EntityRequest<R>`** | `SelectAll`, `InspectSelection`, `Copy/Cut/PasteSelection` | Synchronous single-provider call on the target entity | Returns typed `R` (e.g. `Result<..., RequestError>`) |
+| **`InputFallback`** | `Key`, `TextCommitted`, `Wheel`, `Rotary` | Focused / scroll target → ancestors → `App::on_event` | Consumed editor/scroll input stops before reaching `App` shortcuts |
+| **`AppNotification`** | `Started`, `Suspended`, `Resumed`, `MemoryWarning`, `Quit` | Direct to `App::on_event` listeners after lifecycle hooks | Always returns `()` |
+
+### Selection requests and `Event` traits {#selection-requests-and-event-traits}
 
 Selection requests use `ui::selection::SelectAll` and return `Result<(), RequestError>`. `commands.selection().select_all(entity)` invokes one provider on that node without bubbling, App fallback, or notification storage. TextEditing registers a default provider. Custom components can register `#[event]` callbacks in a View's `input` tuple, or use any existing `on SelectAll` callback form to override the default on a specific node. Multiple matching View providers are rejected before invocation unless an explicit node handler resolves the ambiguity. Request-only bindings do not add pointer feedback or hit targets. Commands run after callback parameter borrows end and before the next command; unavailable, conflicting, or recursive requests warn and are skipped.
 

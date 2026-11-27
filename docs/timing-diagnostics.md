@@ -63,7 +63,17 @@ app.request_timings(false);
 
 The explicit request is independent of reporter and capture demand: releasing it does not turn off those consumers. An operation keeps the demand selected at entry, including nested drawing. With no demand, App skips timing clock reads, recording and publication, and never creates timing resources. When demand ends, existing `FrameTimings` becomes invalid and the `FrameStats` window becomes empty; retained storage is reused. An explicit release outside an operation clears results immediately if no other demand remains. A global capture ending is observed at each App's next operation boundary, before its business work. A copied historical sample remains a historical value.
 
-### Phase timings and ring summaries
+### Phase timings and ring summaries {#phase-timings-and-ring-summaries}
+
+| Phase / Metric | Accessor on `FrameTimings` / `FrameStats` | What It Measures |
+| --- | --- | --- |
+| **`input`** | `timings.input()` | Draining `Surface::poll_event()`, gesture recognition, and input/notification callbacks |
+| **`systems`** | `timings.systems()` | Scheduled `#[system]` and `#[timer]` execution, plus deferred `commands!()` commits |
+| **`layout`** | `timings.layout()` | Reactive signal flush, Flexbox/text measurement, and dirty-region collection (`dirty.layout`) |
+| **`render`** | `timings.render()` | Scene traversal, offscreen target production, and `Renderer::submit` |
+| **`flush`** | `timings.flush()` | `Surface::begin_flush()`, `flush(PhysicalRect)`, `end_flush()`, and `mirror_buffers` |
+| **`seed`** | `timings.seed()` | Seeding previous visual coverage for next frame's partial-damage diffing |
+| **256-Sample Ring** | `stats.summary(op, phases)` | `avg`, `min`, `max`, nearest-rank `P99`, and `jitter` across the last 256 completed operations |
 
 Operation wall time includes business `post_render` hooks and platform maintenance. It excludes the subsequent timing reports and host pacing. Instrumentation inside an operation remains included. Wall time includes blocking and time when the thread is not scheduled; it must not be described as CPU time. A long poll can wait for an earlier submission while still belonging to the operation that called it. Without submission and scheduling evidence, the cause of that wait is unknown.
 

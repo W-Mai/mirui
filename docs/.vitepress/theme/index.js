@@ -6,6 +6,8 @@ import ReadingNotice from './ReadingNotice.vue';
 import ManualHome from './ManualHome.vue';
 import TutorialWorkspace from './TutorialWorkspace.vue';
 import SidebarSelection from './SidebarSelection.vue';
+import OutlineDrawer from './OutlineDrawer.vue';
+import ArchFlow from './ArchFlow.vue';
 import { installReadingMotion } from './reading-motion';
 import lightMark from '../../assets/logo-light.svg?url';
 import darkMark from '../../assets/logo-dark.svg?url';
@@ -23,6 +25,7 @@ export default {
     app.component('ManualHome', ManualHome);
     app.component('TutorialWorkspace', TutorialWorkspace);
     app.component('MiruiSnippet', TutorialWorkspace);
+    app.component('ArchFlow', ArchFlow);
   },
   Layout() {
     return h(DefaultTheme.Layout, null, {
@@ -32,7 +35,7 @@ export default {
         h('span', { class: 'manual-brand-section', 'aria-hidden': 'true' }, 'Docs'),
       ],
       'nav-bar-content-after': () => h(VersionBar),
-      'doc-before': () => h(ReadingNotice),
+      'doc-before': () => [h(ReadingNotice), h(OutlineDrawer)],
       'doc-footer-before': () => h(ReadingNotice, { revision: true }),
       'sidebar-nav-before': () => h(SidebarSelection),
     });
