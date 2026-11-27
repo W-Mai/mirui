@@ -5,39 +5,39 @@ TextEditing supplies editor-local selection, copying, acknowledged cutting, and 
 `TextDocument` stores the UTF-8 content and its byte capacity. `TextEditing` binds that document to one editor's selection, focus, and input handling. `TextInput` draws the editor. Custom components can combine these capabilities on the same entity without accessing World or implementing their own keyboard handling.
 
 <div class="arch-diagram" role="img" aria-label="Text editor composition from shared TextDocument through TextEditing and TextInput to native or software IME sessions">
-  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 168" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="edit-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · DOCUMENT MODEL</text>
-    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Shared UTF-8 Storage</text>
-    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">TextDocument · revision()</text>
-    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">set_capacity · replace</text>
-    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Independent of editor view</text>
-    <path d="M210 84H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#edit-arrow)" />
-    <rect x="256" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · EDITING STATE</text>
-    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Selection &amp; Input</text>
-    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">TextEditing · TextSelection</text>
-    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Changed · Submitted</text>
-    <text x="272" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Per-editor caret &amp; preedit</text>
-    <path d="M450 84H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#edit-arrow)" />
-    <rect x="496" y="20" width="186" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · APPEARANCE</text>
-    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Visual Runs &amp; Caret</text>
-    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">TextInput · Placeholder</text>
-    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">attach = callback()</text>
-    <text x="512" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">No duplicate text copy</text>
-    <path d="M682 84H720" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#edit-arrow)" />
-    <rect x="728" y="20" width="136" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="744" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · IME BRIDGE</text>
-    <text x="744" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Session &amp; Keys</text>
-    <text x="744" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">TextInputSession</text>
-    <text x="744" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">preedit · commit</text>
-    <text x="744" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Native / Software</text>
+    <rect x="16" y="20" width="208" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="30" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">01 · DOCUMENT MODEL</text>
+    <text x="30" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Shared UTF-8 Storage</text>
+    <text x="30" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">TextDocument · revision()</text>
+    <text x="30" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">set_capacity · replace</text>
+    <text x="30" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Independent of editor view</text>
+    <path d="M224 84H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#edit-arrow)" />
+    <rect x="250" y="20" width="208" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="264" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">02 · EDITING STATE</text>
+    <text x="264" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Selection &amp; Input</text>
+    <text x="264" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">TextEditing · TextSelection</text>
+    <text x="264" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Changed · Submitted</text>
+    <text x="264" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Per-editor caret &amp; preedit</text>
+    <path d="M458 84H478" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#edit-arrow)" />
+    <rect x="484" y="20" width="208" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="498" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">03 · APPEARANCE</text>
+    <text x="498" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Visual Runs &amp; Caret</text>
+    <text x="498" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">TextInput · Placeholder</text>
+    <text x="498" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">attach = callback()</text>
+    <text x="498" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">No duplicate text copy</text>
+    <path d="M692 84H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#edit-arrow)" />
+    <rect x="718" y="20" width="206" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="732" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">04 · IME BRIDGE</text>
+    <text x="732" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Session &amp; Keys</text>
+    <text x="732" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">TextInputSession</text>
+    <text x="732" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">preedit · commit</text>
+    <text x="732" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Native / Software</text>
   </svg>
 </div>
 

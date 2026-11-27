@@ -214,8 +214,8 @@ pub fn install_recipe<B: Surface, F: RendererFactory<B>>(
         Recipe::TypoBend => {
             let mut geometry = Path::try_with_capacity(2).expect("path storage");
             geometry
-                .move_to(Point::new(16, 62))
-                .quad_to(Point::new(136, 98), Point::new(256, 62));
+                .move_to(Point::new(12, 58))
+                .quad_to(Point::new(114, 92), Point::new(216, 58));
             let path = app.paths().insert(geometry).expect("path capacity");
             app.compose(root, bendable_label(path));
         }
@@ -1059,8 +1059,8 @@ fn vector_scene() {
 
 // #region recipe-curve
 //~focus-start:curve
-static WAVE_CREST: Path = path!(M 12 68 Q 70 20 128 68 Q 186 116 244 68);
-static WAVE_VALLEY: Path = path!(M 12 52 Q 70 100 128 52 Q 186 4 244 52);
+static WAVE_CREST: Path = path!(M 8 64 Q 60 18 112 64 Q 164 110 216 64);
+static WAVE_VALLEY: Path = path!(M 8 50 Q 60 96 112 50 Q 164 4 216 50);
 
 #[model]
 pub struct CurveRoute {
@@ -1078,7 +1078,7 @@ impl CurveRoute {
             crest,
             valley,
             inverted: false,
-            offset: 8,
+            offset: 4,
         }
     }
 }
@@ -1100,7 +1100,7 @@ impl CurveRoute {
     }
 
     pub fn advance(&mut self) {
-        self.offset = (self.offset + 18) % 72;
+        self.offset = (self.offset + 14) % 42;
     }
 }
 
@@ -1109,11 +1109,11 @@ fn curve_scene(route: model!(CurveRoute)) {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(18),
-            justify: JustifyContent::SpaceBetween,
+            padding: Padding::all(16),
+            row_gap: 10,
             text_color: ColorToken::OnSurface
         ) {
-            Row (height: 32, column_gap: 6, align: AlignItems::Center) {
+            Row (height: 30, column_gap: 6, align: AlignItems::Center) {
                 Text (
                     text: ${ format_args!("+{} px", route.offset()) },
                     capacity: 16,
@@ -1125,9 +1125,9 @@ fn curve_scene(route: model!(CurveRoute)) {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Button (
-                    "Slide +18",
+                    "Slide +14",
                     width: 72,
-                    height: 30,
+                    height: 28,
                     font_size: 12,
                     border_radius: 7,
                     normal_color: ColorToken::SurfaceVariant,
@@ -1137,7 +1137,7 @@ fn curve_scene(route: model!(CurveRoute)) {
                 Button (
                     "Flip wave",
                     width: 74,
-                    height: 30,
+                    height: 28,
                     font_size: 12,
                     border_radius: 7,
                     normal_color: ColorToken::Primary,
@@ -1156,10 +1156,10 @@ fn curve_scene(route: model!(CurveRoute)) {
                     path: ${ route.placement() },
                     position: Position::Absolute,
                     left: 6,
-                    top: 10,
+                    top: 8,
                     width: Dimension::percent(96),
-                    height: Dimension::percent(85),
-                    font_size: 15,
+                    height: Dimension::percent(88),
+                    font_size: 14,
                     text_color: ColorToken::Primary
                 )
             }
@@ -1322,7 +1322,7 @@ fn typo_ellipsis_scene(mode: model!(OverflowDemo)) {
 //~focus-end:typo-ellipsis
 
 //~focus-start:typo-static
-static ARC: Path = path!(M 18 76 Q 136 8 254 76);
+static ARC: Path = path!(M 12 72 Q 114 10 216 72);
 
 fn register_arc<B: Surface, F: RendererFactory<B>>(app: &mut App<B, F>) -> PathId {
     app.paths()
@@ -1335,23 +1335,24 @@ fn curved_title(arc: PathId) {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(18),
+            padding: Padding::all(16),
             justify: JustifyContent::Center
         ) {
             View (
                 height: 104,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 12
+                border_radius: 12,
+                clip_children: true
             ) {
                 Text (
-                    "Status · Ready on static arc",
+                    "Status · Ready on arc",
                     path: arc,
                     position: Position::Absolute,
                     left: 8,
                     top: 10,
                     width: Dimension::percent(94),
                     height: 86,
-                    font_size: 16,
+                    font_size: 14,
                     text_color: ColorToken::Primary
                 )
             }
@@ -1362,8 +1363,8 @@ fn curved_title(arc: PathId) {
 
 //~focus-start:typo-multiline
 static LINES: Path = path!(
-    M 18 32 L 254 32
-    M 24 68 Q 138 106 252 68
+    M 12 30 L 216 30
+    M 14 66 Q 114 100 214 66
 );
 
 fn register_lines<B: Surface, F: RendererFactory<B>>(app: &mut App<B, F>) -> PathId {
@@ -1377,23 +1378,24 @@ fn multiline_label(lines: PathId) {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(18),
+            padding: Padding::all(16),
             justify: JustifyContent::Center
         ) {
             View (
                 height: 112,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 12
+                border_radius: 12,
+                clip_children: true
             ) {
                 Text (
-                    "The first line stays straight\nand the next follows the curve.",
+                    "First line stays straight\nand line two curves.",
                     path: lines,
                     position: Position::Absolute,
                     left: 8,
                     top: 8,
                     width: Dimension::percent(94),
                     height: 96,
-                    font_size: 14,
+                    font_size: 13,
                     text_color: ColorToken::OnSurface,
                     paragraph: ParagraphStyle {
                         wrap: TextWrap::Word,
@@ -1409,8 +1411,8 @@ fn multiline_label(lines: PathId) {
 
 //~focus-start:typo-range
 static RING_PATH: Path = path!(
-    M 14 26 L 254 26
-    M 22 68 Q 138 22 254 68
+    M 12 24 L 216 24
+    M 14 66 Q 114 20 214 66
 );
 
 #[model]
@@ -1428,7 +1430,7 @@ impl RangeControl {
         Self {
             path,
             reversed: false,
-            offset: 8,
+            offset: 6,
         }
     }
 
@@ -1441,7 +1443,7 @@ impl RangeControl {
         };
         TextPath::new(self.path)
             .with_subpath(1)
-            .with_range(Fixed::from_int(12)..Fixed::from_int(230))
+            .with_range(Fixed::from_int(8)..Fixed::from_int(202))
             .with_offset(Fixed::from_int(self.offset))
             .with_direction(dir)
     }
@@ -1451,7 +1453,7 @@ impl RangeControl {
     }
 
     pub fn step_offset(&mut self) {
-        self.offset = (self.offset + 16) % 64;
+        self.offset = (self.offset + 12) % 36;
     }
 }
 
@@ -1460,11 +1462,11 @@ fn typo_range_scene(state: model!(RangeControl)) {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(18),
-            justify: JustifyContent::SpaceBetween,
+            padding: Padding::all(16),
+            row_gap: 10,
             text_color: ColorToken::OnSurface
         ) {
-            Row (height: 32, column_gap: 6, align: AlignItems::Center) {
+            Row (height: 30, column_gap: 6, align: AlignItems::Center) {
                 Text (
                     text: ${
                         format_args!(
@@ -1481,9 +1483,9 @@ fn typo_range_scene(state: model!(RangeControl)) {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Button (
-                    "Offset +16",
-                    width: 80,
-                    height: 30,
+                    "Offset +12",
+                    width: 78,
+                    height: 28,
                     font_size: 12,
                     border_radius: 7,
                     normal_color: ColorToken::SurfaceVariant,
@@ -1492,8 +1494,8 @@ fn typo_range_scene(state: model!(RangeControl)) {
                 ) on Tap { state.step_offset(); }
                 Button (
                     "Reverse",
-                    width: 72,
-                    height: 30,
+                    width: 68,
+                    height: 28,
                     font_size: 12,
                     border_radius: 7,
                     normal_color: ColorToken::Primary,
@@ -1502,18 +1504,19 @@ fn typo_range_scene(state: model!(RangeControl)) {
                 ) on Tap { state.flip_dir(); }
             }
             View (
-                height: 92,
+                grow: 1.0,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 12
+                border_radius: 12,
+                clip_children: true
             ) {
                 Text (
-                    "Range & direction on subpath 1",
+                    "Range on subpath 1",
                     path: ${ state.placement() },
                     position: Position::Absolute,
                     left: 6,
                     top: 8,
                     width: Dimension::percent(95),
-                    height: 76,
+                    height: Dimension::percent(86),
                     font_size: 14,
                     text_color: ColorToken::Primary
                 )
@@ -1532,11 +1535,11 @@ fn selectable_path(first: PathId, second: PathId) {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(18),
-            justify: JustifyContent::SpaceBetween,
+            padding: Padding::all(16),
+            row_gap: 10,
             text_color: ColorToken::OnSurface
         ) {
-            Row (height: 32, align: AlignItems::Center) {
+            Row (height: 30, align: AlignItems::Center) {
                 Text (
                     "Signal<PathId> binding",
                     grow: 1.0,
@@ -1546,8 +1549,8 @@ fn selectable_path(first: PathId, second: PathId) {
                 )
                 Button (
                     "Switch path",
-                    width: 92,
-                    height: 30,
+                    width: 90,
+                    height: 28,
                     font_size: 12,
                     border_radius: 7,
                     normal_color: ColorToken::Primary,
@@ -1560,9 +1563,10 @@ fn selectable_path(first: PathId, second: PathId) {
                 }
             }
             View (
-                height: 92,
+                grow: 1.0,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 12
+                border_radius: 12,
+                clip_children: true
             ) {
                 Text (
                     "Live route swaps PathId",
@@ -1571,8 +1575,8 @@ fn selectable_path(first: PathId, second: PathId) {
                     left: 6,
                     top: 10,
                     width: Dimension::percent(95),
-                    height: 74,
-                    font_size: 15,
+                    height: Dimension::percent(85),
+                    font_size: 14,
                     text_color: ColorToken::Primary
                 )
             }
@@ -1586,20 +1590,20 @@ fn selectable_path(first: PathId, second: PathId) {
 fn elastic_baseline(amplitude: Signal<Fixed>) {
     let mut geometry = Path::try_with_capacity(2).expect("path storage");
     geometry
-        .move_to(Point::new(16, 54))
-        .quad_to(Point::new(136, 54), Point::new(256, 54));
+        .move_to(Point::new(12, 52))
+        .quad_to(Point::new(114, 52), Point::new(216, 52));
     let path = cx.paths().insert(geometry).expect("path capacity");
     let live_amplitude = amplitude.clone();
     let toggle_amp = amplitude.clone();
 
     cx.bind_path(path, move |geometry| {
-        let y = Fixed::from_int(54) - live_amplitude.get();
+        let y = Fixed::from_int(52) - live_amplitude.get();
         geometry
             .set_command(
                 1,
                 PathCmd::QuadTo {
-                    ctrl: Point::new(Fixed::from_int(136), y),
-                    end: Point::new(256, 54),
+                    ctrl: Point::new(Fixed::from_int(114), y),
+                    end: Point::new(216, 52),
                 },
             )
             .expect("stable command shape");
@@ -1609,11 +1613,11 @@ fn elastic_baseline(amplitude: Signal<Fixed>) {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(18),
-            justify: JustifyContent::SpaceBetween,
+            padding: Padding::all(16),
+            row_gap: 10,
             text_color: ColorToken::OnSurface
         ) {
-            Row (height: 32, align: AlignItems::Center) {
+            Row (height: 30, align: AlignItems::Center) {
                 Text (
                     "cx.bind_path(path, ...)",
                     grow: 1.0,
@@ -1622,9 +1626,9 @@ fn elastic_baseline(amplitude: Signal<Fixed>) {
                     text_color: ColorToken::OnSurfaceVariant
                 )
                 Button (
-                    "Invert amplitude",
-                    width: 112,
-                    height: 30,
+                    "Invert curve",
+                    width: 96,
+                    height: 28,
                     font_size: 12,
                     border_radius: 7,
                     normal_color: ColorToken::Primary,
@@ -1635,9 +1639,10 @@ fn elastic_baseline(amplitude: Signal<Fixed>) {
                 }
             }
             View (
-                height: 92,
+                grow: 1.0,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 12
+                border_radius: 12,
+                clip_children: true
             ) {
                 Text (
                     "Signal-driven curve",
@@ -1646,8 +1651,8 @@ fn elastic_baseline(amplitude: Signal<Fixed>) {
                     left: 8,
                     top: 8,
                     width: Dimension::percent(94),
-                    height: 76,
-                    font_size: 15,
+                    height: Dimension::percent(86),
+                    font_size: 14,
                     text_color: ColorToken::Primary
                 )
             }
@@ -1662,37 +1667,38 @@ fn bendable_label(path: PathId) {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(18),
+            padding: Padding::all(16),
             justify: JustifyContent::Center
         ) {
             View (
                 height: 108,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 12
+                border_radius: 12,
+                clip_children: true
             ) {
                 Text (
-                    "Tap this text to bend its curve",
+                    "Tap text to bend curve",
                     path: path,
                     position: Position::Absolute,
                     left: 8,
                     top: 10,
                     width: Dimension::percent(94),
                     height: 88,
-                    font_size: 15,
+                    font_size: 14,
                     text_color: ColorToken::Primary
                 ) on Tap(|paths: res!(mut PathStore)| {
                     paths
                         .edit(path, |geometry| {
                             let next_y = match geometry.commands().get(1) {
-                                Some(PathCmd::QuadTo { ctrl, .. }) if ctrl.y < Fixed::from_int(40) => 98,
+                                Some(PathCmd::QuadTo { ctrl, .. }) if ctrl.y < Fixed::from_int(40) => 92,
                                 _ => 12,
                             };
                             geometry
                                 .set_command(
                                     1,
                                     PathCmd::QuadTo {
-                                        ctrl: Point::new(136, next_y),
-                                        end: Point::new(256, 62),
+                                        ctrl: Point::new(114, next_y),
+                                        end: Point::new(216, 58),
                                     },
                                 )
                                 .expect("stable command shape");
@@ -1738,23 +1744,24 @@ fn typo_carets_scene(arc: PathId) {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(18),
+            padding: Padding::all(16),
             justify: JustifyContent::Center
         ) {
             View (
                 height: 108,
                 bg_color: ColorToken::SurfaceVariant,
-                border_radius: 12
+                border_radius: 12,
+                clip_children: true
             ) {
                 Text (
-                    "Oriented carets along arc",
+                    "Carets along arc",
                     path: arc,
                     position: Position::Absolute,
                     left: 8,
                     top: 14,
                     width: Dimension::percent(94),
                     height: 84,
-                    font_size: 16,
+                    font_size: 15,
                     text_color: ColorToken::OnSurface
                 ) [CaretOverlay]
             }
@@ -1829,13 +1836,14 @@ fn editor_shared_scene(form: model!(SearchForm)) {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(18),
+            padding: Padding::all(16),
+            row_gap: 10,
             justify: JustifyContent::SpaceBetween,
             text_color: ColorToken::OnSurface
         ) {
-            Row (height: 32, column_gap: 6, align: AlignItems::Center) {
+            Row (height: 30, column_gap: 6, align: AlignItems::Center) {
                 Text (
-                    text: ${ format_args!("Submitted: {}", form.submissions()) },
+                    text: ${ format_args!("Submits: {}", form.submissions()) },
                     capacity: 24,
                     grow: 1.0,
                     height: 20,
@@ -1845,7 +1853,7 @@ fn editor_shared_scene(form: model!(SearchForm)) {
                 )
                 Button (
                     "Set 'SPI'",
-                    width: 72,
+                    width: 68,
                     height: 28,
                     font_size: 12,
                     border_radius: 7,
@@ -1855,7 +1863,7 @@ fn editor_shared_scene(form: model!(SearchForm)) {
                 ) on Tap { form.preset("SPI 128x160"); }
                 Button (
                     "Submit",
-                    width: 68,
+                    width: 64,
                     height: 28,
                     font_size: 12,
                     border_radius: 7,
@@ -1864,34 +1872,32 @@ fn editor_shared_scene(form: model!(SearchForm)) {
                     text_color: ColorToken::OnPrimary
                 ) on Tap { form.submit(); }
             }
-            Column (row_gap: 10) {
-                SearchEditor (
-                    document: Some(form.query()),
-                    width: Dimension::percent(100),
-                    height: 38,
-                    padding: Padding::all(9),
-                    font_size: 14,
-                    bg_color: ColorToken::SurfaceVariant,
-                    border_radius: 8,
-                    border_width: 1,
-                    border_color: ColorToken::Outline
-                ) [Placeholder("Primary SearchEditor")] on TextEditing::Submitted {
-                    form.submit();
-                }
-                TextInput (
-                    width: Dimension::percent(100),
-                    height: 38,
-                    padding: Padding::all(9),
-                    font_size: 14,
-                    bg_color: ColorToken::SurfaceVariant,
-                    border_radius: 8,
-                    border_width: 1,
-                    border_color: ColorToken::Outline
-                ) [
-                    TextEditing::new(form.query()),
-                    Placeholder("Mirror TextInput (independent caret)"),
-                ]
+            SearchEditor (
+                document: Some(form.query()),
+                width: Dimension::percent(100),
+                height: 38,
+                padding: Padding::all(9),
+                font_size: 14,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 8,
+                border_width: 1,
+                border_color: ColorToken::Outline
+            ) [Placeholder("Primary SearchEditor")] on TextEditing::Submitted {
+                form.submit();
             }
+            TextInput (
+                width: Dimension::percent(100),
+                height: 38,
+                padding: Padding::all(9),
+                font_size: 14,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 8,
+                border_width: 1,
+                border_color: ColorToken::Outline
+            ) [
+                TextEditing::new(form.query()),
+                Placeholder("Mirror TextInput (independent caret)"),
+            ]
         }
     };
 }
@@ -2166,8 +2172,9 @@ fn nav_pageview_scene(session: model!(ViewSession), reduced: bool) {
 //~focus-start:compose-niche
 ui!(compose StatusCard(title: prop!(String)) {
     Column (
+        height: 92,
         padding: Padding::all(14),
-        row_gap: 8,
+        justify: JustifyContent::SpaceBetween,
         bg_color: ColorToken::SurfaceVariant,
         border_radius: 10
     ) {
@@ -2195,8 +2202,8 @@ fn compose_niche_scene(state: model!(NicheState)) {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(18),
-            justify: JustifyContent::SpaceBetween,
+            padding: Padding::all(16),
+            justify: JustifyContent::Center,
             text_color: ColorToken::OnSurface
         ) {
             StatusCard (
@@ -2205,7 +2212,7 @@ fn compose_niche_scene(state: model!(NicheState)) {
                 @body {
                     Row (height: 32, align: AlignItems::Center) {
                         Text (
-                            "Slot @body injected by caller",
+                            "Slot @body injected",
                             grow: 1.0,
                             height: 20,
                             font_size: 12,
@@ -2445,7 +2452,7 @@ impl GestureLab {
     }
 
     pub fn on_drag(&mut self, dx: i32) {
-        self.drag_dx = (self.drag_dx + dx).clamp(-120, 120);
+        self.drag_dx = (self.drag_dx + dx).clamp(-40, 40);
     }
 
     pub fn on_parent_bubble(&mut self) {
@@ -2473,8 +2480,8 @@ fn events_playground_scene(lab: model!(GestureLab)) {
         ) {
             Row (height: 30, column_gap: 8, align: AlignItems::Center) {
                 Button (
-                    text: ${ if lab.allow_bubble() { "Bubble: Allow (false)" } else { "Bubble: Stop (true)" } },
-                    width: 158,
+                    text: ${ if lab.allow_bubble() { "Bubble: Allow" } else { "Bubble: Stop" } },
+                    width: 118,
                     height: 28,
                     font_size: 12,
                     border_radius: 7,
@@ -2483,7 +2490,7 @@ fn events_playground_scene(lab: model!(GestureLab)) {
                     text_color: ColorToken::OnSurface
                 ) on Tap { lab.toggle_bubble(); }
                 Text (
-                    text: ${ format_args!("Parent hits: {}", lab.bubble_hits()) },
+                    text: ${ format_args!("Row hits: {}", lab.bubble_hits()) },
                     capacity: 24,
                     grow: 1.0,
                     height: 20,
@@ -2494,14 +2501,14 @@ fn events_playground_scene(lab: model!(GestureLab)) {
             Row (
                 height: 76,
                 padding: Padding::all(10),
-                column_gap: 10,
+                column_gap: 8,
                 align: AlignItems::Center,
                 bg_color: ColorToken::SurfaceVariant,
                 border_radius: 10
             ) on Tap { lab.on_parent_bubble(); } {
                 Button (
-                    "Tap or Double-Tap",
-                    width: 148,
+                    "Tap / 2×Tap",
+                    width: 104,
                     height: 52,
                     font_size: 12,
                     border_radius: 8,
@@ -2522,13 +2529,13 @@ fn events_playground_scene(lab: model!(GestureLab)) {
                 ) {
                     View (
                         position: Position::Absolute,
-                        left: ${ 10 + lab.drag_dx() },
+                        left: ${ 12 + lab.drag_dx() },
                         top: 16,
-                        width: 112,
+                        width: 96,
                         height: 20
                     ) {
                         Text (
-                            "Drag puck ↔",
+                            "Drag ↔",
                             height: 20,
                             font_size: 12,
                             text_color: ColorToken::OnSecondary
@@ -2537,7 +2544,7 @@ fn events_playground_scene(lab: model!(GestureLab)) {
                 } on DragMove(drag_puck::callback(lab))
             }
             Text (
-                text: ${ format_args!("Tap(1): {} · Tap(2): {} · Drag dx: {}px", lab.single_taps(), lab.double_taps(), lab.drag_dx()) },
+                text: ${ format_args!("Tap(1): {} · Tap(2): {} · dx: {}px", lab.single_taps(), lab.double_taps(), lab.drag_dx()) },
                 capacity: 56,
                 height: 18,
                 font_size: 12,

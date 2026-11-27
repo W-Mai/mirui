@@ -15,7 +15,7 @@
 </MiruiSnippet>
 
 <div class="arch-diagram" role="img" aria-label="滚动视口裁剪、帧缓冲平移与虚拟化 LazyList 单元格池">
-  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 168" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="scr-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />

@@ -3,39 +3,39 @@
 `mirui::render::BackendTarget` 描述原生离屏输出存储（native output storage）与数据源持有的 CPU 回读（readback）能力。它是面向渲染后端开发者的扩展接口；上层应用与自定义控件则统一通过 `Texture` 与 `Outputs` 消费离屏输出。
 
 <div class="arch-diagram" role="img" aria-label="从 TargetPlan 经由工作集预算准入与 BackendTarget 存储到 ThreadOwner::collect() 退役回收的渲染目标管线">
-  <svg viewBox="0 0 880 184" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 184" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="bt-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="20" width="186" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · TARGETPLAN</text>
-    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">存储与回读规划</text>
-    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">PlaneLayout · TargetAlpha</text>
-    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">storage + readback_bytes</text>
-    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">界定工作区与中转缓冲上限</text>
-    <path d="M202 92H238" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
-    <rect x="246" y="20" width="204" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="262" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · BUDGET ADMISSION</text>
-    <text x="262" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">工作集预算准入</text>
-    <text x="262" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">保护待决输出保守工作集</text>
-    <text x="262" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">retain_storage(receipt)</text>
-    <text x="262" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">CPU 与原生目标择优准入</text>
-    <path d="M450 92H486" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
-    <rect x="494" y="20" width="188" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="510" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · BACKENDTARGET</text>
-    <text x="510" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Software / SDL-GPU / WGPU</text>
-    <text x="510" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Rebuild / Incremental</text>
-    <text x="510" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">同设备直采或按需回读</text>
-    <text x="510" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">校验设备身份与资源代数</text>
-    <path d="M682 92H718" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
-    <rect x="726" y="20" width="138" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="742" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · RETIREMENT</text>
-    <text x="742" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">ThreadOwner 回收</text>
-    <text x="742" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ThreadOwner::collect()</text>
-    <text x="742" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">安全所属线程边界销毁</text>
-    <text x="742" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">释放底层资源与回执配额</text>
+    <rect x="16" y="20" width="208" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="30" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">01 · TARGETPLAN</text>
+    <text x="30" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">存储与回读规划</text>
+    <text x="30" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">PlaneLayout · TargetAlpha</text>
+    <text x="30" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">storage + readback_bytes</text>
+    <text x="30" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">界定工作区与中转缓冲上限</text>
+    <path d="M224 92H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
+    <rect x="250" y="20" width="208" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="264" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">02 · BUDGET ADMISSION</text>
+    <text x="264" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">工作集预算准入</text>
+    <text x="264" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">保护待决输出保守工作集</text>
+    <text x="264" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">retain_storage(receipt)</text>
+    <text x="264" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">CPU 与原生目标择优准入</text>
+    <path d="M458 92H478" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
+    <rect x="484" y="20" width="208" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="498" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">03 · BACKENDTARGET</text>
+    <text x="498" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Software / SDL-GPU / WGPU</text>
+    <text x="498" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Rebuild / Incremental</text>
+    <text x="498" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">同设备直采或按需回读</text>
+    <text x="498" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">校验设备身份与资源代数</text>
+    <path d="M692 92H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
+    <rect x="718" y="20" width="206" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="732" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">04 · RETIREMENT</text>
+    <text x="732" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">ThreadOwner 回收</text>
+    <text x="732" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">ThreadOwner::collect()</text>
+    <text x="732" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">安全所属线程边界销毁</text>
+    <text x="732" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">释放底层资源与回执配额</text>
   </svg>
 </div>
 
@@ -49,6 +49,8 @@
 当启用可选的 `sync` 特性时，目标载荷必须实现 `Send + Sync`。对于受创建线程约束的原生图形对象（如 SDL 纹理），后端将其保留在所属线程所有者内部，仅跨线程传递轻量令牌与元数据；默认特性集则直接保留线程本地载荷。关于应用层的跨线程传递，请参阅[跨线程纹理移交](shared-textures.md)。
 
 ## 存储规划与生命周期 {#storage-and-lifetime}
+
+<ArchFlow kind="target-admission" />
 
 `TargetDescriptor` 将经过校验的 `PlaneLayout` 与通道透明度编码（`TargetAlpha::Straight` 直通 Alpha 或 `Premultiplied` 预乘 Alpha）组合在一起。`TargetAlpha` 描述存储在纹理中的通道编码，独立于绘制目标合成时使用的 `AlphaMode`。
 

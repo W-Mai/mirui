@@ -13,39 +13,39 @@ Type an item and press Return (or tap `+ Add`) to append to the bounded `ModelLi
 </MiruiSnippet>
 
 <div class="arch-diagram" role="img" aria-label="Bounded model collections, stable ModelItemId handles, and RetainedItems keyed row reconciliation">
-  <svg viewBox="0 0 880 176" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 176" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="mc-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="22" width="198" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · COLLECTION</text>
-    <text x="32" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Bounded Model Storage</text>
-    <text x="32" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ModelList&lt;T&gt; · ModelMap&lt;K,V&gt;</text>
-    <text x="32" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ModelSet&lt;T&gt; · bounded(N)</text>
-    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Zero-alloc capacity edits</text>
-    <path d="M214 88H252" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#mc-arrow)" />
-    <rect x="260" y="22" width="196" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="276" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · IDENTITY</text>
-    <text x="276" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Stable ModelItemId</text>
-    <text x="276" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">entries() → (id, item)</text>
-    <text x="276" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">get_by_id(id) · reconcile</text>
-    <text x="276" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Survives reorder &amp; merge</text>
-    <path d="M456 88H494" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#mc-arrow)" />
-    <rect x="502" y="22" width="196" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="518" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · RECONCILE</text>
-    <text x="518" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">RetainedItems Keyed Diff</text>
-    <text x="518" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">walk $entries by entry.0</text>
-    <text x="518" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">LazyList(items: ...)</text>
-    <text x="518" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Matches rows by ModelItemId</text>
-    <path d="M698 88H736" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#mc-arrow)" />
-    <rect x="744" y="22" width="120" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="760" y="48" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · RETAINED</text>
-    <text x="760" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Sibling Reuse</text>
-    <text x="760" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Focus &amp; anim</text>
-    <text x="760" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">No rebuild</text>
-    <text x="760" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Preserves state</text>
+    <rect x="16" y="22" width="208" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="30" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">01 · COLLECTION</text>
+    <text x="30" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Bounded Model Storage</text>
+    <text x="30" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">ModelList&lt;T&gt; · ModelMap&lt;K,V&gt;</text>
+    <text x="30" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">ModelSet&lt;T&gt; · bounded(N)</text>
+    <text x="30" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Zero-alloc capacity edits</text>
+    <path d="M224 88H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#mc-arrow)" />
+    <rect x="250" y="22" width="208" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="264" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">02 · IDENTITY</text>
+    <text x="264" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Stable ModelItemId</text>
+    <text x="264" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">entries() → (id, item)</text>
+    <text x="264" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">get_by_id(id) · reconcile</text>
+    <text x="264" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Survives reorder &amp; merge</text>
+    <path d="M458 88H478" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#mc-arrow)" />
+    <rect x="484" y="22" width="208" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="498" y="48" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">03 · RECONCILE</text>
+    <text x="498" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">RetainedItems Keyed Diff</text>
+    <text x="498" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">walk $entries by entry.0</text>
+    <text x="498" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">LazyList(items: ...)</text>
+    <text x="498" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Matches rows by ModelItemId</text>
+    <path d="M692 88H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#mc-arrow)" />
+    <rect x="718" y="22" width="206" height="132" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="732" y="48" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">04 · RETAINED</text>
+    <text x="732" y="72" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Sibling Reuse</text>
+    <text x="732" y="96" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Focus &amp; anim</text>
+    <text x="732" y="116" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">No rebuild</text>
+    <text x="732" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Preserves state</text>
   </svg>
 </div>
 

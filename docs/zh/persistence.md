@@ -13,39 +13,39 @@
 </MiruiSnippet>
 
 <div class="arch-diagram" role="img" aria-label="从 #[persist] 字段编解码器经由注册期恢复与候选追踪到去重写入 Storage 的四阶段持久化流水线">
-  <svg viewBox="0 0 880 176" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 176" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="ps-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="20" width="190" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · ARCHIVE CODEC</text>
-    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">字段与自定义编解码器</text>
-    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">#[model(persistence)]</text>
-    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">#[persist] · ModelCodec</text>
-    <text x="32" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">与 #[observe] 正交解耦</text>
-    <path d="M206 88H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ps-arrow)" />
-    <rect x="252" y="20" width="196" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="268" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · REGISTER &amp; RESTORE</text>
-    <text x="268" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">先校验准备再原子应用</text>
-    <text x="268" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">add_model(v).finish()</text>
-    <text x="268" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">with_key("docs/42")</text>
-    <text x="268" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">损坏存档自动防覆盖保护</text>
-    <path d="M448 88H486" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ps-arrow)" />
-    <rect x="494" y="20" width="190" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="510" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · SAVE CANDIDATE</text>
-    <text x="510" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">自动保存与挂起钩子</text>
-    <text x="510" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">.autosave(ms) · Suspend</text>
-    <text x="510" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">EncodeOutcome::Deferred</text>
-    <text x="510" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">业务修改期间零拷贝标记</text>
-    <path d="M684 88H722" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ps-arrow)" />
-    <rect x="730" y="20" width="134" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="746" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · STORAGE</text>
-    <text x="746" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">字节存储后端</text>
-    <text x="746" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Unchanged 去重跳过</text>
-    <text x="746" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">File / Web / Flash</text>
-    <text x="746" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">减少 Flash 擦写磨损</text>
+    <rect x="16" y="20" width="208" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="30" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">01 · ARCHIVE CODEC</text>
+    <text x="30" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">字段与自定义编解码器</text>
+    <text x="30" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">#[model(persistence)]</text>
+    <text x="30" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">#[persist] · ModelCodec</text>
+    <text x="30" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">与 #[observe] 正交解耦</text>
+    <path d="M224 88H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ps-arrow)" />
+    <rect x="250" y="20" width="208" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="264" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">02 · REGISTER &amp; RESTORE</text>
+    <text x="264" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">先校验准备再原子应用</text>
+    <text x="264" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">add_model(v).finish()</text>
+    <text x="264" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">with_key("docs/42")</text>
+    <text x="264" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">损坏存档自动防覆盖保护</text>
+    <path d="M458 88H478" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ps-arrow)" />
+    <rect x="484" y="20" width="208" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="498" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">03 · SAVE CANDIDATE</text>
+    <text x="498" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">自动保存与挂起钩子</text>
+    <text x="498" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">.autosave(ms) · Suspend</text>
+    <text x="498" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">EncodeOutcome::Deferred</text>
+    <text x="498" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">业务修改期间零拷贝标记</text>
+    <path d="M692 88H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#ps-arrow)" />
+    <rect x="718" y="20" width="206" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="732" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">04 · STORAGE</text>
+    <text x="732" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">字节存储后端</text>
+    <text x="732" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Unchanged 去重跳过</text>
+    <text x="732" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">File / Web / Flash</text>
+    <text x="732" y="136" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">减少 Flash 擦写磨损</text>
   </svg>
 </div>
 
@@ -133,6 +133,8 @@ let document = app.add_model(Settings {
 带有持久化声明的已注册根模型为整棵内联模型树维护单一的待保存候选状态。任何可变方法调用（即使返回 `Err`）都会在不分配、不拷贝持久化字段的前提下将其标为待保存；只读访问不会修改该标志。未声明持久化的模型使用零大小（ZST）持久化状态。候选追踪与存储注册及写入确认相互独立。
 
 ## 自定义模型编解码器 (`ModelCodec`) {#model-codecs}
+
+<ArchFlow kind="persistence-codec" />
 
 自定义编解码器配置在 `PersistencePlugin` 上，而非模型声明宏上：
 

@@ -5,37 +5,37 @@
 阅读本文只需熟悉基本的 `cargo` 与 Rust 语法；如果你打算直接点亮一块嵌入式 SPI 屏幕，还需要一点翻阅屏幕驱动 IC 数据手册的习惯。
 
 <div class="arch-diagram" role="img" aria-label="共享同一个 no_std UI 核心库并同时驱动桌面端、Web 浏览器、移动端与嵌入式 MCU 的多端 Cargo 工作区架构">
-  <svg viewBox="0 0 880 188" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 188" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="qs-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="24" width="236" height="140" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="50" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">SHARED CORE · app/</text>
-    <text x="32" y="74" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Shared UI Crate (no_std + alloc)</text>
-    <text x="32" y="98" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">#[model] · #[compose] · ui!</text>
-    <text x="32" y="118" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">#[view] · #[system] · StyleSheet</text>
-    <text x="32" y="142" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">100% 平台无关的共享 UI 逻辑</text>
-    <path d="M252 54H304" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
-    <path d="M252 94H304" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
-    <path d="M252 134H304" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
-    <rect x="312" y="20" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="328" y="42" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 01 · DESKTOP</text>
-    <text x="328" y="61" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Desktop SDL / WGPU</text>
-    <text x="328" y="78" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">SdlSurface · SdlGpuSurface · WgpuSurface</text>
-    <rect x="596" y="20" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="612" y="42" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 02 · BROWSER</text>
-    <text x="612" y="61" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Web Canvas (Trunk Wasm)</text>
-    <text x="612" y="78" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">WebCanvasSurface · wasm32-unknown-unknown</text>
-    <rect x="312" y="100" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="328" y="122" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 03 · EMBEDDED</text>
-    <text x="328" y="141" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Embedded MCU (ESP32 / NuttX / STM32)</text>
-    <text x="328" y="158" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">FramebufSurface · DMA2D · RGB565 SPI</text>
-    <rect x="596" y="100" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="612" y="122" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 04 · MOBILE</text>
-    <text x="612" y="141" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Mobile (Android / iOS)</text>
-    <text x="612" y="158" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">MobileHost · NativeActivity · UIWindowScene</text>
+    <rect x="16" y="24" width="256" height="140" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="50" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.2" font-weight="600">SHARED CORE · app/</text>
+    <text x="32" y="74" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Shared UI Crate (no_std + alloc)</text>
+    <text x="32" y="98" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">#[model] · #[compose] · ui!</text>
+    <text x="32" y="118" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">#[view] · #[system] · StyleSheet</text>
+    <text x="32" y="142" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.2">100% 平台无关的共享 UI 逻辑</text>
+    <path d="M272 54H312" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
+    <path d="M272 94H312" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
+    <path d="M272 134H312" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
+    <rect x="320" y="20" width="294" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="334" y="42" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 01 · DESKTOP</text>
+    <text x="334" y="61" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Desktop SDL / WGPU</text>
+    <text x="334" y="78" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.2">SdlSurface · SdlGpuSurface · WgpuSurface</text>
+    <rect x="630" y="20" width="294" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="644" y="42" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 02 · BROWSER</text>
+    <text x="644" y="61" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Web Canvas (Trunk Wasm)</text>
+    <text x="644" y="78" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.2">WebCanvasSurface · wasm32-unknown-unknown</text>
+    <rect x="320" y="100" width="294" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="334" y="122" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 03 · EMBEDDED</text>
+    <text x="334" y="141" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Embedded MCU (ESP32 / NuttX / STM32)</text>
+    <text x="334" y="158" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.2">FramebufSurface · DMA2D · RGB565 SPI</text>
+    <rect x="630" y="100" width="294" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="644" y="122" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 04 · MOBILE</text>
+    <text x="644" y="141" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Mobile (Android / iOS)</text>
+    <text x="644" y="158" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.2">MobileHost · Android · iOS</text>
   </svg>
 </div>
 

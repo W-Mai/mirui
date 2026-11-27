@@ -91,6 +91,16 @@ View ()
 
 `SizeChanged` 在节点首次算出有效逻辑尺寸以及后续宽度或高度发生变化时触发。首次投递时 `event.old` 为 `None`，`event.new` 为包含 `width` 与 `height` 的 `LayoutSize`。单纯的位置平移、滚动偏移、输出缩放比或视觉变换不会触发尺寸事件；隐藏或未挂载节点不参与测量。
 
+<MiruiSnippet recipe="state-at" label="Container Size & @width" file="recipes.rs" height="200px">
+
+<template #exercise>
+
+拖动预览画布右下角的尺寸调节手柄跨过 `320 px` 宽度阈值，观察容器几何变化如何实时驱动字号与子视图宽度更新。
+
+</template>
+
+</MiruiSnippet>
+
 ```rust,ignore
 View(width: Dimension::percent(100), height: 360) on SizeChanged {
     model.set_stage_size(event.new.width, event.new.height);

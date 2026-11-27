@@ -15,7 +15,7 @@ Tap `Top (#1)`, `Middle (#4)`, or `Bottom (#7)` to call `commands.scroll_to` wit
 </MiruiSnippet>
 
 <div class="arch-diagram" role="img" aria-label="Scroll viewport clipping, framebuffer transfer, and virtualized LazyList window">
-  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 168" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="scr-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />

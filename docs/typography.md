@@ -15,39 +15,39 @@ Tap `Slide +18` to advance the leading offset along the Bézier curve, or tap `F
 </MiruiSnippet>
 
 <div class="arch-diagram" role="img" aria-label="Typography pipeline from FontStack and shaping to linear or path glyph placement">
-  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 168" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="typo-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · FONT STACK</text>
-    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Primary + FALLBACK</text>
-    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">FontToken::Default</text>
-    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">FontToken::FALLBACK</text>
-    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">MIRX A1 / A8 / SDF strikes</text>
-    <path d="M210 84H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#typo-arrow)" />
-    <rect x="256" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · SHAPING</text>
-    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Bidi &amp; Line Breaking</text>
-    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">TextWrap · Ellipsis</text>
-    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">TextLayoutCapacity</text>
-    <text x="272" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Bounded workspace buffers</text>
-    <path d="M450 84H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#typo-arrow)" />
-    <rect x="496" y="20" width="186" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · PLACEMENT</text>
-    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Box or Bézier Path</text>
-    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">TextPath::with_offset</text>
-    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Outputs&lt;TextGeometry&gt;</text>
-    <text x="512" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Tangent frames &amp; carets</text>
-    <path d="M682 84H720" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#typo-arrow)" />
-    <rect x="728" y="20" width="136" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="744" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · RASTER</text>
-    <text x="744" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Glyph &amp; Hit Test</text>
-    <text x="744" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Selection runs</text>
-    <text x="744" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Oriented carets</text>
-    <text x="744" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">SW / GPU / Web</text>
+    <rect x="16" y="20" width="208" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="30" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">01 · FONT STACK</text>
+    <text x="30" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Primary + FALLBACK</text>
+    <text x="30" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">FontToken::Default</text>
+    <text x="30" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">FontToken::FALLBACK</text>
+    <text x="30" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">MIRX A1 / A8 / SDF strikes</text>
+    <path d="M224 84H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#typo-arrow)" />
+    <rect x="250" y="20" width="208" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="264" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">02 · SHAPING</text>
+    <text x="264" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Bidi &amp; Line Breaking</text>
+    <text x="264" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">TextWrap · Ellipsis</text>
+    <text x="264" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">TextLayoutCapacity</text>
+    <text x="264" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Bounded workspace buffers</text>
+    <path d="M458 84H478" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#typo-arrow)" />
+    <rect x="484" y="20" width="208" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="498" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">03 · PLACEMENT</text>
+    <text x="498" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Box or Bézier Path</text>
+    <text x="498" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">TextPath::with_offset</text>
+    <text x="498" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Outputs&lt;TextGeometry&gt;</text>
+    <text x="498" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Tangent frames &amp; carets</text>
+    <path d="M692 84H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#typo-arrow)" />
+    <rect x="718" y="20" width="206" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="732" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">04 · RASTER</text>
+    <text x="732" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Glyph &amp; Hit Test</text>
+    <text x="732" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Selection runs</text>
+    <text x="732" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Oriented carets</text>
+    <text x="732" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">SW / GPU / Web</text>
   </svg>
 </div>
 
@@ -277,7 +277,7 @@ Mixed-direction selections are split at visual-run and line boundaries. Exhauste
 
 ## Backend behavior
 
-![Backend fallback routing and bounded execution](backend-fallback.svg)
+<ArchFlow kind="compose-backend-route" />
 
 | Geometry | Software | WGPU | SDL GPU | Web Canvas |
 |---|---|---|---|---|
@@ -290,22 +290,9 @@ SDL GPU run textures store straight RGB and glyph coverage separately. Transpare
 
 SDL GPU posed coverage batches split geometry at the region's outer texel centers, preserving the source sampling scale while clamping interpolation to each glyph. Empty clips do not submit text geometry.
 
-`render::PosedGlyphs` pairs borrowed positioned glyphs and placement frames for
-render commands, Canvas calls, and scene replay. Construction rejects mismatched
-slice lengths without allocating.
+`render::PosedGlyphs` pairs borrowed positioned glyphs and placement frames for render commands, Canvas calls, and scene replay. Construction rejects mismatched slice lengths without allocating.
 
-SDL GPU and Web Canvas use a `ProjectiveFallback` supplied through their
-renderer factory for projective glyphs, fills, borders, and image blits with
-rounded corners, opacity, and composite modes. Its
-fixed RGBA storage is both the target and scratch space.
-`ProjectiveFallback::borrowed(&mut bytes)` uses a caller-owned fixed buffer;
-`ProjectiveFallback::new(bytes)` owns its buffer. Shape and image requests use
-projected visual bounds to limit the required storage; glyph
-requests use projected ink bounds. Preflight rejects missing or insufficient
-capacity before drawing. Unsupported projective commands remain errors.
-Gallery reserves 2 MiB for this target on Web Canvas and SDL GPU.
-The complete routing, numeric-domain, and aligned-memory contract is described
-in [Exact backend fallback](backend-fallback.md).
+SDL GPU and Web Canvas use a `ProjectiveFallback` supplied through their renderer factory for projective glyphs, fills, borders, and image blits with rounded corners, opacity, and composite modes. Its fixed RGBA storage is both the target and scratch space. `ProjectiveFallback::borrowed(&mut bytes)` uses a caller-owned fixed buffer; `ProjectiveFallback::new(bytes)` owns its buffer. Shape and image requests use projected visual bounds to limit the required storage; glyph requests use projected ink bounds. Preflight rejects missing or insufficient capacity before drawing. Unsupported projective commands remain errors. Gallery reserves 2 MiB for this target on Web Canvas and SDL GPU. The complete routing, numeric-domain, and aligned-memory contract is described in [Exact backend fallback](backend-fallback.md).
 
 ## Storage and invalidation
 

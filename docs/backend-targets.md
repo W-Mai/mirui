@@ -3,39 +3,39 @@
 `mirui::render::BackendTarget` describes native output storage and source-owned CPU readback. It is a backend extension interface; application components use `Texture` and `Outputs`.
 
 <div class="arch-diagram" role="img" aria-label="Backend target pipeline from TargetPlan through working-set budget admission and BackendTarget storage to ThreadOwner::collect() retirement">
-  <svg viewBox="0 0 880 184" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 184" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="bt-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="20" width="186" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · TARGETPLAN</text>
-    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Storage &amp; Readback Plan</text>
-    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">PlaneLayout · TargetAlpha</text>
-    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">storage + readback_bytes</text>
-    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Bounds workspace &amp; staging</text>
-    <path d="M202 92H238" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
-    <rect x="246" y="20" width="204" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="262" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · BUDGET ADMISSION</text>
-    <text x="262" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Working-Set Admission</text>
-    <text x="262" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Protects pending outputs</text>
-    <text x="262" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">retain_storage(receipt)</text>
-    <text x="262" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">CPU vs Native selection</text>
-    <path d="M450 92H486" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
-    <rect x="494" y="20" width="188" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="510" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · BACKENDTARGET</text>
-    <text x="510" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Software / SDL-GPU / WGPU</text>
-    <text x="510" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Rebuild / Incremental</text>
-    <text x="510" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Direct sample or readback</text>
-    <text x="510" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Device &amp; generation checked</text>
-    <path d="M682 92H718" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
-    <rect x="726" y="20" width="138" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="742" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · RETIREMENT</text>
-    <text x="742" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">ThreadOwner</text>
-    <text x="742" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ThreadOwner::collect()</text>
-    <text x="742" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Safe owner boundary</text>
-    <text x="742" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Releases receipt charge</text>
+    <rect x="16" y="20" width="208" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="30" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">01 · TARGETPLAN</text>
+    <text x="30" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Storage &amp; Readback Plan</text>
+    <text x="30" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">PlaneLayout · TargetAlpha</text>
+    <text x="30" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">storage + readback_bytes</text>
+    <text x="30" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Bounds workspace &amp; staging</text>
+    <path d="M224 92H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
+    <rect x="250" y="20" width="208" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="264" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">02 · BUDGET ADMISSION</text>
+    <text x="264" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Working-Set Admission</text>
+    <text x="264" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Protects pending outputs</text>
+    <text x="264" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">retain_storage(receipt)</text>
+    <text x="264" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">CPU vs Native selection</text>
+    <path d="M458 92H478" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
+    <rect x="484" y="20" width="208" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="498" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">03 · BACKENDTARGET</text>
+    <text x="498" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Software / SDL-GPU / WGPU</text>
+    <text x="498" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Rebuild / Incremental</text>
+    <text x="498" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Direct sample or readback</text>
+    <text x="498" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Device &amp; generation checked</text>
+    <path d="M692 92H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bt-arrow)" />
+    <rect x="718" y="20" width="206" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="732" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">04 · RETIREMENT</text>
+    <text x="732" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">ThreadOwner</text>
+    <text x="732" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">ThreadOwner::collect()</text>
+    <text x="732" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Safe owner boundary</text>
+    <text x="732" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Releases receipt charge</text>
   </svg>
 </div>
 
@@ -49,6 +49,8 @@
 With the optional `sync` feature, target payloads must implement `Send + Sync`. This constrains the transferable representation; raw objects with creating-thread restrictions remain in their thread owner. The default feature set retains local payloads. See [shared textures](shared-textures.md) for application handoff.
 
 ## Storage and lifetime {#storage-and-lifetime}
+
+<ArchFlow kind="target-admission" />
 
 `TargetDescriptor` combines a checked `PlaneLayout` with `TargetAlpha::Straight` or `Premultiplied`. The alpha encoding describes stored channels, independently of the destination blending policy in `AlphaMode`.
 

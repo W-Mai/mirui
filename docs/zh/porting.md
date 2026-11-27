@@ -256,6 +256,8 @@ app.render().unwrap();
 1. 先在空闲缓冲上原地执行本帧的滚动像素平移（`plan.shifts`）；
 2. 再将本帧实际重绘的物理脏矩形（`redraw`）从已完成缓冲拷贝到空闲缓冲中。
 
+<ArchFlow kind="double-buffer-mirror" />
+
 ```rust
 use alloc::{vec, vec::Vec};
 use mirui::core::cache::InspectCaches;
@@ -512,6 +514,8 @@ impl<const N: usize> IsrRing<N> {
 1. 在 `route(&self, target, request)` 中检查 `DrawRequest`；
 2. 若几何变换、圆角与不透明度完全符合硬件外设能力，返回 `Ok(RenderRoute::Native)` 并在 `submit` 中启动硬件加速；
 3. 其余不支持的绘制请求直接委托给 `target.route(request)`——`compose_backend!` 会在从硬件引擎切回 `SwRenderer` 时自动调用一次 `end(&mut self, target)`（等待 DMA 完成屏障），随后由 `SwRenderer` 在同一块帧缓冲上无缝接力绘制。
+
+<ArchFlow kind="compose-backend-route" />
 
 ```rust
 use mirui::core::cache::InspectCaches;

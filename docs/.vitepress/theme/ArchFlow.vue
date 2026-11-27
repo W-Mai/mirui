@@ -184,9 +184,9 @@ const SPECS = {
         steps: [
           {
             node: 0,
-            en: 'A widget input handler (such as `Slider` drag or `TextEditing` Enter key) calls `commands.emit(entity, Slider::ValueChanged { value })`.',
-            zh: '内置或自定义控件在输入回调中调用 `commands.emit(entity, Slider::ValueChanged { value })`。',
-            code: 'commands.emit(node, ValueChanged { value: 72 });',
+            en: 'A widget input handler (such as `Slider` drag or `TextEditing` Enter key) calls `commands.emit(entity, Slider::ValueChanged { new, old })`.',
+            zh: '内置或自定义控件在输入回调中调用 `commands.emit(entity, Slider::ValueChanged { new, old })`。',
+            code: 'commands.emit(node, ValueChanged { new: Fixed::from_int(72), old });',
             metric: 'Compile-time check: WidgetSource<Slider>',
           },
           {
@@ -200,7 +200,7 @@ const SPECS = {
             node: 2,
             en: 'During the drain pass, listeners borrow stable read-only payloads from Buffer A (`&ValueChanged`). Any new notifications emitted inside that listener write into Buffer B.',
             zh: '排空阶段，监听器从缓冲区 A 稳定地只读借用载荷（`&ValueChanged`）；回调内部若再次发出新通知，则写入独立的缓冲区 B。',
-            code: 'Slider(0, 100) on Slider::ValueChanged(|e| model.set_vol(e.value))',
+            code: 'Slider(min: 0, max: 100) on ValueChanged { model.set_vol(event.new); }',
             metric: 'Zero cloning · No recursive borrow panic',
           },
           {
@@ -266,7 +266,6 @@ const SPECS = {
           {
             from: 0,
             to: 1,
-            y: 38,
             label: 'spawn(compressed_bytes)',
             en: 'Main thread spawns a background worker with raw file bytes. `App`, `World`, and `Model` stay strictly on the Main Thread.',
             zh: '主线程将压缩字节交给后台 Worker 线程。`App`、`World` 与 `Model` 严格留在主线程，无需加锁。',
@@ -276,8 +275,7 @@ const SPECS = {
           {
             from: 1,
             to: 1,
-            y: 78,
-            label: 'Texture::from_vec (no copy)',
+            label: 'Texture::from_vec(rgba)',
             en: 'Worker decodes pixels into a `Vec<u8>` and wraps it in `Texture::from_vec`—moving ownership of the allocation with zero pixel copying.',
             zh: 'Worker 线程将像素解码进 `Vec<u8>` 并构造 `Texture::from_vec`，直接转移内存所有权，零像素拷贝。',
             code: 'let tex: Texture<\'static> = Texture::from_vec(bytes, w, h, RGBA8888)?;',
@@ -286,7 +284,6 @@ const SPECS = {
           {
             from: 1,
             to: 0,
-            y: 118,
             label: 'ImageSource::from(tex)',
             en: 'Worker finishes and wakes the task/channel. Main thread converts the `Texture` or `Handle<Texture>` into `ImageSource` and updates `Image(src: ...)`.',
             zh: 'Worker 完成后唤醒主线程轮询，主线程将其转为 `ImageSource` 并绑定到 `Image(src: ${ model.source() })`。',
@@ -296,7 +293,6 @@ const SPECS = {
           {
             from: 0,
             to: 2,
-            y: 156,
             label: 'upload / sample cache',
             en: 'During `render_dirty()`, the GPU/SDL backend uploads the new texture revision once on the Main Thread and caches it.',
             zh: '在 `render_dirty()` 绘制阶段，渲染后端在主线程上传该纹理并记入驻留缓存。',
@@ -312,7 +308,6 @@ const SPECS = {
           {
             from: 0,
             to: 2,
-            y: 42,
             label: 'source.read_pixels()?',
             en: 'For thread-bound backends (like SDL), calling `read_pixels()` on a worker thread returns `RenderError::WrongThread`. Prepare the guard on the Main Thread first!',
             zh: '对于受创建线程约束的后端（如 SDL），在子线程直接调用 `read_pixels()` 会返回 `WrongThread`。请先在主线程获取像素守卫！',
@@ -322,7 +317,6 @@ const SPECS = {
           {
             from: 0,
             to: 1,
-            y: 96,
             label: 'scope.spawn(|| pixels.bytes())',
             en: 'Pass the borrowed `TexturePixels` guard into `std::thread::scope`. Multiple workers can read `pixels.bytes()` or `get_pixel(x, y)` concurrently without locks.',
             zh: '通过 `std::thread::scope` 将 `TexturePixels` 守卫借用给子线程。多个子线程可无锁并发读取 `pixels.bytes()`。',
@@ -332,7 +326,6 @@ const SPECS = {
           {
             from: 1,
             to: 0,
-            y: 150,
             label: 'scope join & guard drop',
             en: 'When the scoped threads finish and `pixels` drops, the read lease is released cleanly on the Main Thread.',
             zh: '当作用域内子线程全部返回、守卫释放后，读取租约在主线程安全归还。',
@@ -348,8 +341,7 @@ const SPECS = {
           {
             from: 2,
             to: 0,
-            y: 42,
-            label: 'ThreadOwner::register(raw_tex)',
+            label: 'ThreadOwner::insert(raw)',
             en: 'Thread-bound backends keep raw driver textures inside `ThreadOwner` on the creating thread and hand out a transferable `ThreadResource<T>` token.',
             zh: '线程绑定后端将原生驱动纹理留在创建线程的 `ThreadOwner` 内，对外仅发放可跨线程传递的 `ThreadResource<T>` 令牌。',
             code: 'let token: ThreadResource<SdlTex> = owner.insert(raw_tex)?;',
@@ -358,7 +350,6 @@ const SPECS = {
           {
             from: 0,
             to: 1,
-            y: 86,
             label: 'Drop Handle<Texture> on worker',
             en: 'A worker thread drops the last `Handle<Texture>` holding `token`. Instead of calling the GPU driver from the wrong thread, `Drop` atomically marks the slot retired.',
             zh: '后台 Worker 线程丢弃了最后一个持有该令牌的句柄。此时绝不会在异线程调用图形驱动，而是以原子方式将该槽位标记为“已退役（retired）”。',
@@ -368,8 +359,7 @@ const SPECS = {
           {
             from: 2,
             to: 2,
-            y: 144,
-            label: 'owner.collect() at frame boundary',
+            label: 'owner.collect() on main',
             en: 'At the next safe Main Thread maintenance boundary, `ThreadOwner::collect()` destroys all retired raw textures outside registry borrows and releases the budget receipt.',
             zh: '在主线程的下一个帧维护安全边界处，`ThreadOwner::collect()` 统一销毁所有已退役的原生纹理并归还内存预算回执。',
             code: 'owner.collect(); // destroys retired native objects on creating thread',
@@ -397,18 +387,16 @@ const SPECS = {
           {
             from: 0,
             to: 1,
-            y: 36,
-            label: 'EXTI IRQ -> RingQueue::push',
+            label: 'EXTI IRQ -> IsrRing::push',
             en: 'Touch IC pulls INT low or rotary encoder steps. ISR pushes raw sample into a lock-free SPSC ring buffer and wakes the UI thread (`sev` / RTOS semaphore).',
             zh: '触摸芯片拉低 INT 引脚或表冠旋转触发中断。ISR 将采样推入无锁 SPSC 环形队列，并唤醒 UI 主线程（`sev` 或释放 RTOS 信号量）。',
-            code: 'IRQ_QUEUE.enqueue(RawInput::Touch { x, y, down }); cortex_m::asm::sev();',
+            code: 'IRQ_RING.push_from_isr(RawIrqEvent::RotaryStep(1)); cortex_m::asm::sev();',
             metric: 'ISR never touches App or World directly',
           },
           {
             from: 1,
             to: 1,
-            y: 78,
-            label: 'poll_event -> SwRenderer raster',
+            label: 'poll_event & SwRenderer',
             en: '`app.tick()` drains `poll_event()`, flushes reactive models, solves layout, and rasterizes only the damaged `PhysicalRect` into SRAM in `RGB565Swapped` format.',
             zh: '`app.tick()` 排空 `poll_event()`、合并响应式状态、计算布局，并将变化的 `PhysicalRect` 以 `RGB565Swapped` 格式光栅化到 SRAM 帧缓冲。',
             code: 'SwRenderer::draw_request(&mut fb, dirty_rect); // writes CPU D-Cache',
@@ -417,8 +405,7 @@ const SPECS = {
           {
             from: 1,
             to: 2,
-            y: 120,
-            label: 'Clean D-Cache -> CASET/RASET + DMA',
+            label: 'Clean D-Cache -> SPI DMA',
             en: 'On Cortex-M7 / RISC-V with D-Cache, `flush(area)` cleans D-Cache for the dirty address range before starting SPI DMA so the DMA controller reads fresh SRAM bytes!',
             zh: '在带数据缓存（D-Cache）的 Cortex-M7 / RISC-V 上，`flush(area)` 先对脏区地址范围执行 `Clean D-Cache`，再发送 `CASET/RASET` 并启动 SPI DMA，防止 DMA 读到旧 SRAM 数据！',
             code: 'scb.clean_dcache_by_slice(dirty_slice); spi_dma.send_window(area, dirty_slice);',
@@ -427,8 +414,7 @@ const SPECS = {
           {
             from: 2,
             to: 1,
-            y: 160,
-            label: 'DMA TC IRQ -> begin_flush guard',
+            label: 'DMA TC IRQ -> begin_flush',
             en: 'While DMA streams bytes over SPI, the CPU can prepare the next tick. `begin_flush()` waits on the DMA Transfer-Complete flag before modifying the buffer again.',
             zh: 'DMA 后台推流期间 CPU 可并行处理逻辑；下一帧进入 `begin_flush()` 时等待上一轮 DMA 传输完成标志，确保不发生写冲突。',
             code: 'fn begin_flush(&mut self) -> Result<(), RenderError> { self.dma.wait_ready() }',
@@ -443,8 +429,7 @@ const SPECS = {
           {
             from: 1,
             to: 1,
-            y: 38,
-            label: 'Draw into Back Buffer (buf[draw_idx])',
+            label: 'Draw into Back Buffer',
             en: 'Display controller continuously scans out `buf[front]`. `SwRenderer` (or DMA2D) draws this frame’s dirty rectangles into `buf[back]` without disturbing scanout.',
             zh: '显示控制器持续扫描输出前台缓冲 `buf[front]`；`SwRenderer`（或 DMA2D）将本帧脏矩形画入后台缓冲 `buf[back]`，互不干扰。',
             code: 'fn framebuffer(&mut self) -> Texture { Texture::new(&mut self.buf[self.back], ..) }',
@@ -453,8 +438,7 @@ const SPECS = {
           {
             from: 1,
             to: 2,
-            y: 82,
-            label: 'end_flush() -> VSync page flip',
+            label: 'end_flush() -> VSync flip',
             en: '`end_flush()` cleans D-Cache for `buf[back]`, programs the LTDC/DRM layer address for the next vertical blanking interval (VSync), and swaps `front <-> back`.',
             zh: '`end_flush()` 刷出 `buf[back]` 的 D-Cache，将 LTDC/DRM 图层地址切换挂载到下一个垂直消隐期（VSync），并交换前后缓冲下标。',
             code: 'ltdc.set_layer_address_on_vsync(self.buf[self.back].as_ptr()); self.swap();',
@@ -463,8 +447,7 @@ const SPECS = {
           {
             from: 2,
             to: 1,
-            y: 124,
-            label: 'VSync Flip Complete -> all_buffers()',
+            label: 'VSync Ack -> all_buffers()',
             en: 'Once the old front buffer is released by scanout, `FramebufferAccess::all_buffers()` exposes `[completed_buffer, released_buffer]`.',
             zh: '当 VSync 翻页完成、旧前台缓冲解除扫描占用后，`all_buffers()` 返回 `[刚画完的前台缓冲, 刚释放的后台缓冲]`。',
             code: 'fn all_buffers(&mut self) -> Vec<Texture> { vec![completed, released] }',
@@ -473,12 +456,285 @@ const SPECS = {
           {
             from: 1,
             to: 1,
-            y: 162,
-            label: 'mirror_buffers(shifts + redraw)',
+            label: 'mirror_buffers(shifts+rects)',
             en: '`SwRendererFactory::mirror_buffers` applies `plan.shifts` first and copies only `redraw` rects into the released buffer so both buffers are identical again.',
             zh: '`SwRendererFactory::mirror_buffers` 自动先在后台缓冲上执行 `plan.shifts` 滚动平移，再只拷贝本帧 `redraw` 脏区，使两个缓冲区恢复完全一致。',
             code: 'factory.mirror_buffers(surface, &plan, &redraw, &viewport)?;',
             metric: 'Avoids full-screen memcpy on partial updates',
+          },
+        ],
+      },
+    ],
+  },
+  'double-buffer-mirror': {
+    badge: 'DOUBLE-BUFFER MIRRORING ORDER',
+    titleEn: 'Why scroll shifts must run before dirty-rect blits on multi-buffer surfaces',
+    titleZh: '双缓冲表面为何必须先执行滚动平移（shifts）再拷贝重绘矩形（redraw）',
+    mode: 'pipeline',
+    nodes: [
+      { id: 'draw', tag: '01 · DRAW BACK', en: 'Shift & Paint Active', zh: '后台缓冲平移与重绘', sub: 'buffers[draw_index]' },
+      { id: 'flip', tag: '02 · VSYNC FLIP', en: 'end_flush() Page Flip', zh: 'end_flush() 翻页呈现', sub: 'swap active <-> inactive' },
+      { id: 'shift', tag: '03 · MIRROR SHIFT', en: 'Replay plan.shifts First', zh: '先在空闲缓冲重放平移', sub: 'texture_scroll_in_place' },
+      { id: 'blit', tag: '04 · MIRROR BLIT', en: 'Copy redraw Rectangles', zh: '再拷贝本帧重绘脏矩形', sub: 'blit_region(inact, act)' },
+    ],
+    scenarios: [
+      {
+        en: 'Correct order (Shift → Blit)',
+        zh: '正确顺序（先平移 → 后拷贝脏区）',
+        steps: [
+          {
+            node: 0,
+            en: 'When a scroll container moves by `dy = -24`, `App` shifts existing pixels inside `buffers[draw_index]` in place and repaints only the newly exposed 24 px strip at the bottom.',
+            zh: '当滚动容器向上滚动 `dy = -24` 时，`App` 先在当前绘制缓冲 `buffers[draw_index]` 内原地平移既有像素，并仅重绘底部新露出的 24 px 条带。',
+            code: 'plan.shifts = [ScrollShift { area, dx: 0, dy: -24 }]; redraw = [bottom_strip];',
+            metric: 'Rasterized pixels: ~10% of scroll viewport',
+          },
+          {
+            node: 1,
+            en: '`end_flush()` presents `buffers[draw_index]` to the display controller at VSync. The previous front buffer becomes the writable `inactive` buffer, still holding last frame’s unshifted pixels.',
+            zh: '`end_flush()` 在 VSync 边界将 `buffers[draw_index]` 切换为前台扫描缓冲；旧的前台缓冲退居为可写的 `inactive` 缓冲，但里面装的仍是上一帧未滚动的画面。',
+            code: 'let [completed, inactive] = surface.all_buffers();',
+            metric: 'completed = Frame N · inactive = Frame N-1',
+          },
+          {
+            node: 2,
+            en: '`SwRendererFactory::mirror_buffers` first runs `texture_scroll_in_place` on `inactive` for every shift in `plan.shifts`, moving Frame N-1’s preserved rows to their new scrolled positions.',
+            zh: '`SwRendererFactory::mirror_buffers` 首先在 `inactive` 缓冲上按 `plan.shifts` 原地平移复用行，把第 N-1 帧保留下来的像素移到滚动后的新位置。',
+            code: 'texture_scroll_in_place(&mut inactive, area, dx_phys, dy_phys)?;',
+            metric: 'Preserved rows aligned between both buffers',
+          },
+          {
+            node: 3,
+            en: 'Finally, `mirror_buffers` copies each `area` in `redraw` (the newly exposed 24 px strip) from `completed` into `inactive`. Both buffers are now bit-for-bit identical!',
+            zh: '最后，`mirror_buffers` 将 `redraw` 中的物理脏矩形（底部新露出的 24 px 条带）从 `completed` 拷贝到 `inactive`。至此两个缓冲区逐像素 100% 一致！',
+            code: 'blit_region(&mut inactive, &completed, bottom_strip)?;',
+            metric: 'Reversing steps 03 & 04 would smear the newly drawn strip!',
+          },
+        ],
+      },
+    ],
+  },
+  'compose-backend-route': {
+    badge: 'HYBRID ENGINE & EXACT FALLBACK',
+    titleEn: 'Per-command routing between hardware engines, SwRenderer & bounded fallback',
+    titleZh: '混合后端命令路由、DMA/缓存屏障与有界软件回退流水线',
+    mode: 'pipeline',
+    nodes: [
+      { id: 'classify', tag: '01 · ROUTE', en: 'Engine::route(request)', zh: '引擎语义与几何判定', sub: 'Native vs ExactFallback' },
+      { id: 'begin', tag: '02 · BARRIER IN', en: 'Engine::begin(target)', zh: '切入硬件引擎会话', sub: 'Clean/Invalidate Cache' },
+      { id: 'submit', tag: '03 · EXECUTE', en: 'Hardware or Fallback', zh: '硬件执行或局部回退重放', sub: 'DMA2D / FallbackRegion' },
+      { id: 'end', tag: '04 · BARRIER OUT', en: 'Engine::end(target)', zh: '等待硬件完成并交接', sub: 'Wait TCIF before CPU' },
+    ],
+    scenarios: [
+      {
+        en: 'Hardware Native path (DMA2D / GPU)',
+        zh: '硬件原生快路径 (Native)',
+        steps: [
+          {
+            node: 0,
+            en: '`Dma2dEngine::route` checks `request.validate()?`, `projective.is_identity()`, `transform().is_identity()`, and `radius == 0`. All constraints match, so it returns `Ok(RenderRoute::Native)`.',
+            zh: '`Dma2dEngine::route` 校验几何无旋转、无透视且 `radius == 0`，确认外设可精确表达该矩形填充，返回 `Ok(RenderRoute::Native)`。',
+            code: 'if is_axis_aligned_sharp_rect(request) { return Ok(RenderRoute::Native); }',
+            metric: 'Fallback allocation: 0 B',
+          },
+          {
+            node: 1,
+            en: 'When transitioning from `SwRenderer` to `Dma2dEngine`, `compose_backend!` calls `dma2d.begin(&mut sw)` once to flush CPU D-Cache lines before hardware writes to SRAM.',
+            zh: '当命令流从 `SwRenderer` 切换到 `Dma2dEngine` 时，`compose_backend!` 自动调用一次 `dma2d.begin(&mut sw)`，在硬件写 SRAM 前刷出并作废相关 D-Cache 行。',
+            code: 'dma2d.begin(&mut sw_target)?; // runs once per consecutive batch',
+            metric: 'Consecutive DMA2D commands share one session',
+          },
+          {
+            node: 2,
+            en: '`dma2d.submit(&mut sw, &draw)` programs the peripheral registers (`OMAR`, `OOR`, `NLR`, `ocolr`) for the physical clip intersection and starts the transfer.',
+            zh: '`dma2d.submit(&mut sw, &draw)` 根据物理裁剪交集配置 `OMAR`、`OOR`、`NLR` 寄存器并启动总线填充。',
+            code: 'dma2d_regs.start_fill(phys_rect, stride, packed_color);',
+            metric: 'Bus-speed hardware fill',
+          },
+          {
+            node: 3,
+            en: 'When the next command routes back to `SwRenderer` (e.g. SDF text or a rounded border), `compose_backend!` calls `dma2d.end(&mut sw)` to wait for `TCIF` before CPU touches RAM.',
+            zh: '当下一条命令（如圆角边框或文字）切回 `SwRenderer` 时，`compose_backend!` 自动调用 `dma2d.end(&mut sw)` 等待硬件传输完成标志（TCIF）。',
+            code: 'dma2d.end(&mut sw_target); // CPU and DMA never race on RAM',
+            metric: 'Deterministic barrier ordering',
+          },
+        ],
+      },
+      {
+        en: 'Bounded ExactFallback scope',
+        zh: '有界软件回退路径 (ExactFallback)',
+        steps: [
+          {
+            node: 0,
+            en: 'A GPU backend encounters an unsupported projective stroke or custom clip path. `route()` quantizes and clips the logical bounds once into `RenderRoute::ExactFallback(FallbackRegion)`.',
+            zh: 'GPU 后端遇到不支持的透视描边或路径裁剪，`route()` 将逻辑边界一次性量化并裁剪为 `RenderRoute::ExactFallback(FallbackRegion)`。',
+            code: 'FallbackRegion::from_logical_bounds(bounds, viewport, budget)?',
+            metric: 'Preflight checks stride, alignment & byte capacity',
+          },
+          {
+            node: 1,
+            en: 'If the blend mode depends on existing backdrop pixels, the backend reads back only the clipped `FallbackRegion` rectangle into the reusable `ProjectiveFallback` RGBA plane.',
+            zh: '若混合模式依赖背景像素，后端仅将裁剪后的 `FallbackRegion` 局部矩形回读到可复用的 `ProjectiveFallback` RGBA 平面中（不透明覆盖则直接跳过回读）。',
+            code: 'if needs_backdrop { target.read_region(region, &mut fallback_plane)?; }',
+            metric: 'Opaque isolated scopes skip readback',
+          },
+          {
+            node: 2,
+            en: '`SwRenderer` replays the unsupported command (or consecutive clipped scope) locally inside that bounded RGBA plane with exact subpixel anti-aliasing.',
+            zh: '`SwRenderer` 在这块有界局部 RGBA 平面内重放该命令（或连续裁剪作用域），保持完全一致的亚像素抗锯齿精度。',
+            code: 'sw_replay.draw_in_region(&mut fallback_plane, rebased_request)?;',
+            metric: 'Reuses caller/factory scratch buffer',
+          },
+          {
+            node: 3,
+            en: 'The completed region is uploaded/composited back into the native target once. If preflight failed, zero target pixels were modified.',
+            zh: '重放完毕的局部区域一次性写回原生渲染目标；若前置预算校验失败，则目标像素保持原样，绝不产生半截写入。',
+            code: 'target.write_region(region, &fallback_plane)?;',
+            metric: 'Atomic failure semantics',
+          },
+        ],
+      },
+    ],
+  },
+  'clipboard-protocol': {
+    badge: 'SELECTION & CLIPBOARD REQUEST PROTOCOL',
+    titleEn: 'Four-request handshake between commands.clipboard(), custom widgets & host OS',
+    titleZh: '剪贴板命令、自定义可选组件与宿主操作系统的四步握手协议',
+    mode: 'pipeline',
+    nodes: [
+      { id: 'inspect', tag: '01 · INSPECT', en: 'InspectSelection', zh: '快照选区上下文', sub: 'SelectionState::new' },
+      { id: 'export', tag: '02 · EXPORT', en: 'CopySelection', zh: '导出不可变数据', sub: 'ClipboardData (MIME)' },
+      { id: 'bridge', tag: '03 · HOST BRIDGE', en: 'Surface Read / Write', zh: '宿主剪贴板异步读写', sub: 'write_clipboard / read' },
+      { id: 'commit', tag: '04 · COMMIT', en: 'Cut / Paste & Notify', zh: '核对上下文并原子修改', sub: 'ClipboardFinished' },
+    ],
+    scenarios: [
+      {
+        en: 'Cut lifecycle (Write-before-delete)',
+        zh: '剪切（Cut）安全时序（先确认写入、后删除）',
+        steps: [
+          {
+            node: 0,
+            en: '`commands.clipboard().cut(editor)` synchronously invokes `InspectSelection` on `editor`, capturing `SelectionState::new(has_selection, revision_snapshot)`.',
+            zh: '`commands.clipboard().cut(editor)` 先在目标节点上同步调用 `InspectSelection`，捕获选区存在性与版本快照 `SelectionState`。',
+            code: 'SelectionState::new(!range.is_empty(), (doc_rev, sel_rev, ime_active))',
+            metric: 'Empty selection finishes immediately as EmptySelection',
+          },
+          {
+            node: 1,
+            en: '`CopySelection` exports an immutable `ClipboardData` snapshot (such as `text/plain` or custom `application/x-mirui-pixel-frame`) without deleting the source yet.',
+            zh: '`CopySelection` 导出不可变的 `ClipboardData` 快照（如 `text/plain` 或自定义二进制格式），此时绝不提前删除编辑器内的原内容！',
+            code: 'Ok(ClipboardData::text(selected_utf8_slice))',
+            metric: 'Source remains untouched while OS write is in flight',
+          },
+          {
+            node: 2,
+            en: '`Surface::write_clipboard` submits the snapshot to the host OS (synchronous on macOS/Windows/X11/Wayland, asynchronous Promise on Web Clipboard API).',
+            zh: '`Surface::write_clipboard` 将快照提交给宿主系统（桌面端同步完成，Web 端通过异步 Clipboard API 等待浏览器确认）。',
+            code: 'surface.write_clipboard(request) -> ClipboardDispatch',
+            metric: 'Write failure preserves source text & selection',
+          },
+          {
+            node: 3,
+            en: 'After the host acknowledges the write, `mirui` re-runs `InspectSelection`: if the context still matches, `CutSelection` deletes the range and emits `ClipboardFinished(Ok(Cut))`; if the document changed mid-flight, it emits `Ok(CopiedWithoutCut)`.',
+            zh: '收到宿主写入成功回执后，`mirui` 再次调用 `InspectSelection` 比对上下文：若期间文档与选区未被篡改，才调用 `CutSelection` 删除选区并派发 `Ok(Cut)`；若已变化则保留原文档并汇报 `Ok(CopiedWithoutCut)`。',
+            code: 'if ctx_before == ctx_after { invoke_cut(); emit(Cut); } else { emit(CopiedWithoutCut); }',
+            metric: 'Prevents deleting wrong offsets after async Web delay',
+          },
+        ],
+      },
+    ],
+  },
+  'target-admission': {
+    badge: 'OFFSCREEN WORKING-SET ADMISSION',
+    titleEn: 'How TargetPlan admits native GPU targets vs software fallback within budget',
+    titleZh: '离屏渲染目标的工作集预算准入、CPU 消费者偏好与回退决策',
+    mode: 'pipeline',
+    nodes: [
+      { id: 'plan', tag: '01 · TARGET PLAN', en: 'Storage & Readback', zh: '计算目标与回读开销', sub: 'TargetPlan::storage_bytes' },
+      { id: 'workset', tag: '02 · WORKING SET', en: 'Active + Dependents', zh: '工作集峰值预算核验', sub: 'current + history + inputs' },
+      { id: 'select', tag: '03 · ROUTE CHOICE', en: 'Native vs Software', zh: '选择原生 GPU 或 CPU 生产', sub: 'CpuConsumerPreferred' },
+      { id: 'retire', tag: '04 · RECLAIM', en: 'Reuse or Collect', zh: '同尺寸槽位复用与回收', sub: 'ThreadOwner::collect()' },
+    ],
+    scenarios: [
+      {
+        en: 'Working-set admission check',
+        zh: '工作集峰值准入与回退保护',
+        steps: [
+          {
+            node: 0,
+            en: 'Before producing an offscreen `WidgetTexture`, the renderer builds a `TargetPlan` accounting for both device texture storage and any required fallback/readback staging bytes.',
+            zh: '在生成离屏 `WidgetTexture` 前，渲染器先构造 `TargetPlan`，同时计入设备纹理字节数与潜在的回读/回退暂存区开销。',
+            code: 'let plan = renderer.plan_target(TargetDescriptor { width, height, alpha })?;',
+            metric: 'Includes SDL-GPU / WGPU 256-byte row alignment padding',
+          },
+          {
+            node: 1,
+            en: 'Admission checks that the active target, its retained previous-frame history (`#[retain_previous]`), and all live source dependencies fit simultaneously without evicting active inputs.',
+            zh: '准入检查确保当前目标、其保留的上一帧历史槽位（`#[retain_previous]`）以及所有上游依赖纹理能够同时驻留，绝不驱逐正在被依赖的活跃输入。',
+            code: 'required = plan.total_bytes() + active_dependents + retained_history;',
+            metric: 'Rejects before paint callback runs (WorkingSetProtected)',
+          },
+          {
+            node: 2,
+            en: 'If a downstream consumer will call `read_pixels()` on the CPU, admission selects software production up front (`CpuConsumerPreferred`) to avoid a costly GPU-to-CPU readback stall.',
+            zh: '若下游消费者声明了 CPU 像素读取需求，准入器会直接选择在 CPU 上生产该离屏纹理（`CpuConsumerPreferred`），避免昂贵的 GPU 同步回读停顿。',
+            code: 'if has_cpu_consumer || required > native_budget { produce_in_software(); }',
+            metric: 'Traceable via `output.target` perf event',
+          },
+          {
+            node: 3,
+            en: 'Unchanged subtrees reuse their completed texture slot; resized or retired targets release their `ThreadResource` token and are destroyed at `ThreadOwner::collect()`.',
+            zh: '未变化的子树直接复用已完成的离屏纹理；尺寸变化或退役的目标归还令牌，并在所属线程的 `ThreadOwner::collect()` 边界安全销毁。',
+            code: 'owner.collect(); // reclaims retired GPU targets & budget receipts',
+            metric: 'Zero per-frame allocation when size is stable',
+          },
+        ],
+      },
+    ],
+  },
+  'persistence-codec': {
+    badge: 'ATOMIC RESTORE & DEFERRED SAVE STATE MACHINE',
+    titleEn: 'Two-phase ModelCodec restoration, corrupt-archive protection & stroke deferral',
+    titleZh: 'ModelCodec 两阶段原子恢复、损坏存档防覆盖保护与笔触暂缓状态机',
+    mode: 'pipeline',
+    nodes: [
+      { id: 'read', tag: '01 · STORAGE READ', en: 'Fetch Raw Archive', zh: '读取原始存档字节', sub: 'Storage::read(key)' },
+      { id: 'prep', tag: '02 · PREPARE', en: 'Validate & Construct', zh: '校验并构造临时值', sub: 'ModelCodec::prepare' },
+      { id: 'apply', tag: '03 · APPLY', en: 'Infallible Swap', zh: '无失败原子写入模型', sub: 'ModelCodec::apply' },
+      { id: 'save', tag: '04 · ENCODE & DEDUP', en: 'Encoded vs Deferred', zh: '暂缓判定与去重落盘', sub: 'WriteOutcome::Unchanged' },
+    ],
+    scenarios: [
+      {
+        en: 'Safe restore & corrupt guard',
+        zh: '两阶段恢复与损坏存档防覆盖保护',
+        steps: [
+          {
+            node: 0,
+            en: 'During `app.add_model(default).finish()`, `PersistencePlugin` reads the raw bytes for `key` from `Storage` before any UI observers are attached.',
+            zh: '在调用 `app.add_model(default).finish()` 时，`PersistencePlugin` 在挂载任何 UI 观察者之前先从 `Storage` 读取对应 `key` 的字节。',
+            code: 'let bytes = storage.read("settings")?;',
+            metric: 'Runs once at registration time',
+          },
+          {
+            node: 1,
+            en: '`ModelCodec::prepare` validates checksums, version headers, and collection bounds into a temporary value without mutating the live Model. If corrupt, it activates **restore protection**!',
+            zh: '`ModelCodec::prepare` 在不触碰当前模型的前提下校验校验和、版本号与集合容量上限。若存档损坏，立即开启**防覆盖保护（restore protection）**，阻止后续自动保存覆盖旧文件！',
+            code: 'let prepared = codec.prepare(&bytes)?; // Err enables restore protection',
+            metric: 'Corrupt archives never half-mutate a Model',
+          },
+          {
+            node: 2,
+            en: '`ModelCodec::apply` moves the validated prepared state into the Model infallibly (zero allocation, zero fallible checks), so `App::compose` immediately sees the restored state.',
+            zh: '`ModelCodec::apply` 将校验通过的临时值无失败地移入模型（此阶段零分配、无失败分支），使随后的 `App::compose` 直接读到恢复后的状态。',
+            code: 'codec.apply(&mut model, prepared); // infallible',
+            metric: 'All #[observe] fields initialized cleanly',
+          },
+          {
+            node: 3,
+            en: 'On autosave or `AppSuspend`, `codec.encode` can return `EncodeOutcome::Deferred` (e.g. while a drawing stroke is in progress) to postpone saving until the stroke finishes.',
+            zh: '在自动保存或挂起时，`codec.encode` 可返回 `EncodeOutcome::Deferred`（例如手绘笔触尚未抬起），暂缓落盘而不报错，待笔触完成后在下一周期自动重试并按字节去重写入。',
+            code: 'if self.stroke_active { return Ok(EncodeOutcome::Deferred); }',
+            metric: 'Storage::write skips identical bytes (Unchanged)',
           },
         ],
       },
@@ -622,8 +878,8 @@ const SPECS = {
     nodes: [
       { id: 'prep', tag: '01 · DISCOVERY', en: 'Cargo Metadata & Matrix', zh: '元数据发现与矩阵准备', sub: '.github/ci-matrix.json' },
       { id: 'static', tag: '02 · STATIC & CHA', en: 'Format, Policy & Lint', zh: '格式、Cha 策略与静态分析', sub: 'rustfmt · xrune-fmt · cha' },
-      { id: 'test', tag: '03 · DUAL SUITES', en: 'Runtime & Trybuild', zh: '双配置运行时与编译器契约', sub: 'std + linux-fb · 1.97.0' },
-      { id: 'gate', tag: '04 · SUMMARY GATE', en: 'Cross Targets & Gate', zh: '交叉目标与全绿门禁汇总', sub: 'wasm32 · riscv32imc · docs' },
+      { id: 'test', tag: '03 · DUAL SUITES', en: 'Runtime & Trybuild', zh: '双配置运行时与契约', sub: 'std + linux-fb · 1.97.0' },
+      { id: 'gate', tag: '04 · SUMMARY GATE', en: 'Cross Targets & Gate', zh: '交叉目标与汇总门禁', sub: 'wasm32 · riscv32 · docs' },
     ],
     scenarios: [
       {
@@ -675,6 +931,21 @@ function prevStep() {
 function nextStep() {
   activeStep.value = (activeStep.value + 1) % currentScenario.value.steps.length;
 }
+
+function laneCenterPct(laneIndex) {
+  return `${(laneIndex + 0.5) * (100 / 3)}%`;
+}
+
+function arrowSegmentStyle(st) {
+  const leftLane = Math.min(st.from, st.to);
+  const rightLane = Math.max(st.from, st.to);
+  const leftPct = (leftLane + 0.5) * (100 / 3);
+  const widthPct = (rightLane - leftLane) * (100 / 3);
+  return {
+    left: `${leftPct}%`,
+    width: `${widthPct}%`,
+  };
+}
 </script>
 
 <template>
@@ -698,185 +969,79 @@ function nextStep() {
       </div>
     </header>
 
-    <!-- Mode A: Interactive 4-Stage Pipeline -->
-    <div v-if="spec.mode === 'pipeline'" class="arch-flow-stage">
-      <svg viewBox="0 0 880 156" xmlns="http://www.w3.org/2000/svg" role="img">
-        <defs>
-          <marker :id="`af-arrow-${kind}`" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-            <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
-          </marker>
-        </defs>
-        <g v-for="(node, idx) in spec.nodes" :key="node.id">
-          <path
-            v-if="idx < spec.nodes.length - 1"
-            :d="`M${202 + idx * 218} 78H${234 + idx * 218}`"
-            :stroke="activeStep >= idx + 1 ? 'var(--logo-see)' : 'var(--site-blue-ink)'"
-            :stroke-width="activeStep === idx + 1 ? '2.2' : '1.5'"
-            :marker-end="`url(#af-arrow-${kind})`"
-          />
-          <g
-            class="arch-node-group"
-            :class="{ active: currentStep.node === idx, visited: activeStep >= idx }"
-            @click="activeStep = Math.min(idx, currentScenario.steps.length - 1)"
-          >
-            <rect
-              :x="16 + idx * 218"
-              y="18"
-              width="186"
-              height="120"
-              rx="12"
-              :fill="currentStep.node === idx ? 'color-mix(in srgb, var(--site-blue-wash) 65%, var(--site-panel))' : 'var(--site-panel)'"
-              :stroke="currentStep.node === idx ? 'var(--site-blue-ink)' : 'var(--site-rule-strong)'"
-              :stroke-width="currentStep.node === idx ? '1.8' : '1'"
-            />
-            <circle
-              v-if="currentStep.node === idx"
-              :cx="186 + idx * 218"
-              cy="36"
-              r="4.5"
-              fill="var(--logo-see)"
-            />
-            <text
-              :x="32 + idx * 218"
-              y="42"
-              :fill="currentStep.node === idx ? 'var(--logo-see)' : 'var(--site-blue-ink)'"
-              font-family="var(--font-mono)"
-              font-size="10.5"
-              font-weight="600"
-            >{{ node.tag }}</text>
-            <text
-              :x="32 + idx * 218"
-              y="68"
-              fill="var(--site-ink)"
-              font-family="var(--font-ui)"
-              font-size="13.5"
-              font-weight="630"
-            >{{ zh ? node.zh : node.en }}</text>
-            <text
-              :x="32 + idx * 218"
-              y="94"
-              fill="var(--site-muted)"
-              font-family="var(--font-mono)"
-              font-size="11"
-            >{{ node.sub }}</text>
-            <text
-              :x="32 + idx * 218"
-              y="120"
-              fill="var(--site-faint)"
-              font-family="var(--font-ui)"
-              font-size="10.5"
-            >{{ zh ? `点击查看阶段 0${idx + 1}` : `Click for stage 0${idx + 1}` }}</text>
-          </g>
-        </g>
-      </svg>
+    <!-- Mode A: Responsive 4-Stage Pipeline Grid (Zero SVG Text Overflow) -->
+    <div v-if="spec.mode === 'pipeline'" class="arch-pipeline-grid" role="list">
+      <button
+        v-for="(node, idx) in spec.nodes"
+        :key="node.id"
+        type="button"
+        role="listitem"
+        class="arch-stage-card"
+        :class="{ active: currentStep.node === idx, visited: activeStep >= idx }"
+        @click="activeStep = Math.min(idx, currentScenario.steps.length - 1)"
+      >
+        <div class="arch-stage-top">
+          <span class="arch-stage-tag">{{ node.tag }}</span>
+          <span class="arch-stage-dot" aria-hidden="true"></span>
+        </div>
+        <strong class="arch-stage-name">{{ zh ? node.zh : node.en }}</strong>
+        <code class="arch-stage-sub">{{ node.sub }}</code>
+        <span class="arch-stage-hint">{{ zh ? `阶段 0${idx + 1}` : `Stage 0${idx + 1}` }} →</span>
+      </button>
     </div>
 
-    <!-- Mode B: Interactive Multi-Thread / Interrupt Swimlane Sequence Diagram -->
-    <div v-else class="arch-flow-stage">
-      <svg viewBox="0 0 880 196" xmlns="http://www.w3.org/2000/svg" role="img">
-        <defs>
-          <marker :id="`af-seq-${kind}`" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-            <path d="M0 0L8 4L0 8Z" fill="var(--logo-see)" />
-          </marker>
-          <marker :id="`af-seq-dim-${kind}`" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-            <path d="M0 0L7 3.5L0 7Z" fill="var(--site-muted)" />
-          </marker>
-        </defs>
-        <!-- 3 Swimlane Headers & Lifelines -->
-        <g v-for="(lane, lIdx) in spec.lanes" :key="lIdx">
-          <rect
-            :x="44 + lIdx * 290"
-            y="10"
-            width="212"
-            height="30"
-            rx="8"
-            fill="var(--site-panel)"
-            stroke="var(--site-rule-strong)"
-          />
-          <text
-            :x="150 + lIdx * 290"
-            y="29"
-            text-anchor="middle"
-            fill="var(--site-ink)"
-            font-family="var(--font-ui)"
-            font-size="12"
-            font-weight="620"
-          >{{ zh ? lane.zh : lane.en }}</text>
-          <line
-            :x1="150 + lIdx * 290"
-            y1="40"
-            :x2="150 + lIdx * 290"
-            y2="184"
-            stroke="var(--site-rule-strong)"
-            stroke-dasharray="4 4"
-          />
-        </g>
-
-        <!-- Sequence Step Arrows / Self-Loops -->
-        <g
+    <!-- Mode B: Responsive 3-Lane Swimlane Sequence Diagram with Opaque Pill Labels -->
+    <div v-else class="arch-swimlane-board">
+      <div class="arch-swimlane-headers">
+        <div v-for="(lane, lIdx) in spec.lanes" :key="lIdx" class="arch-lane-header">
+          <span class="arch-lane-index">0{{ lIdx + 1 }}</span>
+          <strong>{{ zh ? lane.zh : lane.en }}</strong>
+        </div>
+      </div>
+      <div class="arch-swimlane-body">
+        <div
+          v-for="lIdx in 3"
+          :key="lIdx"
+          class="arch-lane-lifeline"
+          :style="{ left: laneCenterPct(lIdx - 1) }"
+          aria-hidden="true"
+        ></div>
+        <button
           v-for="(st, sIdx) in currentScenario.steps"
           :key="sIdx"
-          class="arch-seq-row"
+          type="button"
+          class="arch-seq-step"
           :class="{ active: activeStep === sIdx }"
           @click="activeStep = sIdx"
         >
-          <rect
-            x="24"
-            :y="st.y + 12"
-            width="832"
-            height="28"
-            rx="6"
-            :fill="activeStep === sIdx ? 'color-mix(in srgb, var(--site-blue-wash) 55%, transparent)' : 'transparent'"
-          />
           <template v-if="st.from !== st.to">
-            <line
-              :x1="150 + st.from * 290"
-              :y1="st.y + 26"
-              :x2="150 + st.to * 290 + (st.to > st.from ? -8 : 8)"
-              :y2="st.y + 26"
-              :stroke="activeStep === sIdx ? 'var(--logo-see)' : 'var(--site-muted)'"
-              :stroke-width="activeStep === sIdx ? '2' : '1.3'"
-              :marker-end="activeStep === sIdx ? `url(#af-seq-${kind})` : `url(#af-seq-dim-${kind})`"
-            />
-            <circle
-              :cx="150 + st.from * 290"
-              :cy="st.y + 26"
-              r="4"
-              :fill="activeStep === sIdx ? 'var(--logo-see)' : 'var(--site-blue-ink)'"
-            />
-            <text
-              :x="(150 + st.from * 290 + 150 + st.to * 290) / 2"
-              :y="st.y + 21"
-              text-anchor="middle"
-              :fill="activeStep === sIdx ? 'var(--site-ink)' : 'var(--site-muted)'"
-              font-family="var(--font-mono)"
-              font-size="11"
-              font-weight="600"
-            >0{{ sIdx + 1 }} · {{ st.label }}</text>
+            <div
+              class="arch-seq-connector"
+              :class="{ reverse: st.to < st.from }"
+              :style="arrowSegmentStyle(st)"
+            >
+              <span class="arch-seq-origin" aria-hidden="true"></span>
+              <span class="arch-seq-line" aria-hidden="true"></span>
+              <span class="arch-seq-head" aria-hidden="true"></span>
+              <span class="arch-seq-pill">
+                <b>0{{ sIdx + 1 }}</b>
+                <code>{{ st.label }}</code>
+              </span>
+            </div>
           </template>
           <template v-else>
-            <rect
-              :x="54 + st.from * 290"
-              :y="st.y + 14"
-              width="192"
-              height="24"
-              rx="6"
-              :fill="activeStep === sIdx ? 'var(--site-panel)' : 'var(--site-panel-2)'"
-              :stroke="activeStep === sIdx ? 'var(--logo-see)' : 'var(--site-rule-strong)'"
-              :stroke-width="activeStep === sIdx ? '1.6' : '1'"
-            />
-            <text
-              :x="150 + st.from * 290"
-              :y="st.y + 30"
-              text-anchor="middle"
-              :fill="activeStep === sIdx ? 'var(--site-ink)' : 'var(--site-muted)'"
-              font-family="var(--font-mono)"
-              font-size="11"
-              font-weight="600"
-            >0{{ sIdx + 1 }} · {{ st.label }}</text>
+            <div
+              class="arch-seq-self"
+              :style="{ left: laneCenterPct(st.from) }"
+            >
+              <span class="arch-seq-pill self">
+                <b>0{{ sIdx + 1 }}</b>
+                <code>{{ st.label }}</code>
+              </span>
+            </div>
           </template>
-        </g>
-      </svg>
+        </button>
+      </div>
     </div>
 
     <!-- Interactive Step Controls & Live Inspector -->

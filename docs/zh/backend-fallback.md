@@ -2,7 +2,7 @@
 
 `mirui` 在任何绘制命令真正修改目标像素之前，都会先行分类并校验其渲染路由（RenderRoute）。只有当某个硬件后端的原生路径能够**一字不差地完整保留**本次请求的几何形状、画刷（paint）、裁剪、混合模式、滤波与透视投影时，才会走原生硬件路径；其余任何超出硬件原生能力的操作，要么进入**有界局部软件回退（exact bounded fallback）**，要么直接返回结构化的 `RenderError`。
 
-![后端回退路由与有界执行](../backend-fallback.svg)
+<ArchFlow kind="compose-backend-route" />
 
 ## 路由判定契约 (`RenderRoute`) {#route-contract}
 
@@ -77,39 +77,39 @@ let fallback = ProjectiveFallback::borrowed_with(&mut bytes, requirements)?;
 ### 混合后端回退与脏区渲染流水线 {#backend-fallback-and-dirty-region-rendering}
 
 <div class="arch-diagram" role="img" aria-label="脏区查询、物理重绘策略、表面刷新生命周期与多缓冲镜像同步">
-  <svg viewBox="0 0 880 176" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 176" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="bf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="20" width="194" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · DAMAGE QUERY</text>
-    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">失效收集与滚动平移</text>
-    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">app.dirty_regions()?</text>
-    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Surface::persistence()</text>
-    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">逻辑脏矩形 + 滚动像素拷贝</text>
-    <path d="M210 88H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
-    <rect x="256" y="20" width="194" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · REDRAW PLAN</text>
-    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">物理脏区分组策略</text>
-    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Adaptive (稀疏保留 / 密集合并)</text>
-    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">BoundingBox (单外接矩形)</text>
-    <text x="272" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">裁剪后的 PhysicalRect&lt;u16&gt;</text>
-    <path d="M450 88H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
-    <rect x="496" y="20" width="194" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · FLUSH LIFECYCLE</text>
-    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">受控表面刷新传输</text>
-    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">begin_flush() → flush(area)</text>
-    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">end_flush() / abort_flush()</text>
-    <text x="512" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Renderer::flush() 先于表面提交</text>
-    <path d="M690 88H728" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
-    <rect x="736" y="20" width="128" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="752" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · MIRROR</text>
-    <text x="752" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">多缓冲镜像同步</text>
-    <text x="752" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">mirror_buffers</text>
-    <text x="752" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">shifts + redraw</text>
-    <text x="752" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">轮换扫描缓冲同步</text>
+    <rect x="16" y="20" width="208" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="30" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">01 · DAMAGE QUERY</text>
+    <text x="30" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">失效收集与滚动平移</text>
+    <text x="30" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">app.dirty_regions()?</text>
+    <text x="30" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Surface::persistence()</text>
+    <text x="30" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">逻辑脏矩形 + 滚动像素拷贝</text>
+    <path d="M224 88H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
+    <rect x="250" y="20" width="208" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="264" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">02 · REDRAW PLAN</text>
+    <text x="264" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">物理脏区分组策略</text>
+    <text x="264" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Adaptive (稀疏保留 / 密集合并)</text>
+    <text x="264" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">BoundingBox (单外接矩形)</text>
+    <text x="264" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">裁剪后的 PhysicalRect&lt;u16&gt;</text>
+    <path d="M458 88H478" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
+    <rect x="484" y="20" width="208" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="498" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">03 · FLUSH LIFECYCLE</text>
+    <text x="498" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">受控表面刷新传输</text>
+    <text x="498" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">begin_flush() → flush(area)</text>
+    <text x="498" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">end_flush() / abort_flush()</text>
+    <text x="498" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Renderer::flush() 先于表面提交</text>
+    <path d="M692 88H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
+    <rect x="718" y="20" width="206" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="732" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">04 · MIRROR</text>
+    <text x="732" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">多缓冲镜像同步</text>
+    <text x="732" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">mirror_buffers</text>
+    <text x="732" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">shifts + redraw</text>
+    <text x="732" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">轮换扫描缓冲同步</text>
   </svg>
 </div>
 

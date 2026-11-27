@@ -24,7 +24,7 @@
     <text x="612" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">State-Driven Active Page</text>
     <text x="612" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">PageView(page: ${state.page()})</text>
     <text x="612" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">PageTransition::slide / fade</text>
-    <text x="612" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Reversible transitions &amp; zero-copy slide</text>
+    <text x="612" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Reversible &amp; zero-copy slide</text>
   </svg>
 </div>
 

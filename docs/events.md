@@ -107,6 +107,16 @@ Active input simulation suppresses competing pointer, wheel, rotary, keyboard, a
 
 `SizeChanged` reports a node's first available logical size and subsequent width or height changes. `event.old` is `None` for a listener's first delivery; `event.new` is a `LayoutSize` with `width` and `height`. Position, scroll offsets, output scaling, and visual transforms are not size changes. Hidden or detached nodes are not measured for this notification.
 
+<MiruiSnippet recipe="state-at" label="Container Size & @width" file="recipes.rs" height="200px">
+
+<template #exercise>
+
+Drag the bottom-right resize grip on the preview frame to cross the `320 px` container width threshold and watch the reactive geometry update live.
+
+</template>
+
+</MiruiSnippet>
+
 ```rust,ignore
 View(width: Dimension::percent(100), height: 360) on SizeChanged {
     model.set_stage_size(event.new.width, event.new.height);

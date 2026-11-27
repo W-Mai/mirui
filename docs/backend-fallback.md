@@ -1,33 +1,22 @@
 # Exact backend fallback {#exact-backend-fallback}
 
-MIRUI classifies every checked draw before it changes the target. A backend
-uses its native path only when that path preserves the complete request:
-geometry, paint, clipping, compositing, filtering, and projection. Everything
-else either enters an exact bounded fallback or returns a typed error.
+MIRUI classifies every checked draw before it changes the target. A backend uses its native path only when that path preserves the complete request: geometry, paint, clipping, compositing, filtering, and projection. Everything else either enters an exact bounded fallback or returns a typed error.
 
-![Backend fallback routing and bounded execution](backend-fallback.svg)
+<ArchFlow kind="compose-backend-route" />
 
 ## Route contract {#route-contract}
 
 ### ExactFallback vs Native routing {#exactfallback-vs-native-routing}
 
-`RenderRoute::Native` performs no fallback allocation, readback, or upload.
-`RenderRoute::ExactFallback(FallbackRegion)` carries the physical destination
-and row stride required by a prepared software replay. Planning completes
-before target access, so missing storage, invalid alignment, and insufficient
-capacity cannot leave a partially updated scope.
+`RenderRoute::Native` performs no fallback allocation, readback, or upload. `RenderRoute::ExactFallback(FallbackRegion)` carries the physical destination and row stride required by a prepared software replay. Planning completes before target access, so missing storage, invalid alignment, and insufficient capacity cannot leave a partially updated scope.
 
 The fallback path has three transfers at most:
 
-1. Read the clipped target region when the operation depends on existing
-   destination pixels.
+1. Read the clipped target region when the operation depends on existing destination pixels.
 2. Replay the unsupported scope into the same region-local RGBA plane.
 3. Write or composite that region back once.
 
-Opaque isolated content can skip the first step when its blend semantics do
-not depend on the destination. Consecutive operations that share ordering and
-clip state stay inside one fallback scope instead of crossing the backend
-boundary per command.
+Opaque isolated content can skip the first step when its blend semantics do not depend on the destination. Consecutive operations that share ordering and clip state stay inside one fallback scope instead of crossing the backend boundary per command.
 
 SDL-GPU and native WGPU use bounded destination-region fallback for affine and projective lines and arcs. Planning includes stroke extent and clipping before device access. Affine requests retain the software affine raster path; projected strokes are rebased in physical coordinates to avoid scaling a fractional region offset twice.
 
@@ -49,8 +38,7 @@ When a command executes on the software backend or inside a bounded `ExactFallba
 
 ## Geometry and memory types {#geometry-and-memory-types}
 
-The types describe different boundaries and intentionally compose rather than
-alias one another:
+The types describe different boundaries and intentionally compose rather than alias one another:
 
 ```text
 Rect<Fixed>                     logical geometry with subpixels
@@ -61,12 +49,7 @@ Rect<Fixed>                     logical geometry with subpixels
             └─ AlignedPlane     validated caller-owned bytes
 ```
 
-`PhysicalRect` is shared by surfaces, dirty flushes, target readback, mirror
-copies, scrolling, and fallback routes. `FallbackRegion` remains separate
-because only a fallback route promises a row layout and byte budget. Embedding
-the full `PlaneLayout` in every retained route would repeat format, required
-size, and alignment fields; scene replay can retain many routes on a small
-target.
+`PhysicalRect` is shared by surfaces, dirty flushes, target readback, mirror copies, scrolling, and fallback routes. `FallbackRegion` remains separate because only a fallback route promises a row layout and byte budget. Embedding the full `PlaneLayout` in every retained route would repeat format, required size, and alignment fields; scene replay can retain many routes on a small target.
 
 Numeric conversion follows one direction:
 
@@ -84,9 +67,7 @@ Logical bounds are scaled in `Fixed`; top and left are floored, bottom and right
 
 ## Aligned caller storage {#aligned-caller-storage}
 
-`PlaneRequirements` declares start-address and row-stride alignment. The
-packed CPU default uses alignment 1. DMA, firmware, or GPU upload paths can
-request aligned storage explicitly:
+`PlaneRequirements` declares start-address and row-stride alignment. The packed CPU default uses alignment 1. DMA, firmware, or GPU upload paths can request aligned storage explicitly:
 
 ```rust
 use mirui::render::{PlaneRequirements, ProjectiveFallback};
@@ -95,50 +76,46 @@ let requirements = PlaneRequirements::new(64, 64)?;
 let fallback = ProjectiveFallback::borrowed_with(&mut bytes, requirements)?;
 ```
 
-Planning rounds the minimum RGBA row size up to the requested stride alignment.
-Binding checks the actual slice address, aligned stride, checked
-`stride_bytes * height`, and available capacity. The same validated stride is
-used for readback, software replay, and upload. The ordinary native route does
-not inspect or carry this storage.
+Planning rounds the minimum RGBA row size up to the requested stride alignment. Binding checks the actual slice address, aligned stride, checked `stride_bytes * height`, and available capacity. The same validated stride is used for readback, software replay, and upload. The ordinary native route does not inspect or carry this storage.
 
 ## Backend behavior {#backend-behavior}
 
 ### Backend fallback and dirty-region rendering {#backend-fallback-and-dirty-region-rendering}
 
 <div class="arch-diagram" role="img" aria-label="Dirty-region planning, redraw strategies, flush lifecycle, and multi-buffer mirroring">
-  <svg viewBox="0 0 880 176" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 176" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="bf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="20" width="194" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · DAMAGE QUERY</text>
-    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Invalidation &amp; Shifts</text>
-    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">app.dirty_regions()?</text>
-    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Surface::persistence()</text>
-    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Logical rects + scroll shifts</text>
-    <path d="M210 88H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
-    <rect x="256" y="20" width="194" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · REDRAW PLAN</text>
-    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Physical Strategy</text>
-    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Adaptive (sparse / coalesce)</text>
-    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">BoundingBox (single rect)</text>
-    <text x="272" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Clipped PhysicalRect&lt;u16&gt;</text>
-    <path d="M450 88H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
-    <rect x="496" y="20" width="194" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · FLUSH LIFECYCLE</text>
-    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Scoped Surface Transfer</text>
-    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">begin_flush() → flush(area)</text>
-    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">end_flush() / abort_flush()</text>
-    <text x="512" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Renderer::flush() precedes end</text>
-    <path d="M690 88H728" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
-    <rect x="736" y="20" width="128" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="752" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · MIRROR</text>
-    <text x="752" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Buffer Sync</text>
-    <text x="752" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">mirror_buffers</text>
-    <text x="752" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">shifts + redraw</text>
-    <text x="752" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Rotating scanout</text>
+    <rect x="16" y="20" width="208" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="30" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">01 · DAMAGE QUERY</text>
+    <text x="30" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Invalidation &amp; Shifts</text>
+    <text x="30" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">app.dirty_regions()?</text>
+    <text x="30" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Surface::persistence()</text>
+    <text x="30" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Logical rects + scroll shifts</text>
+    <path d="M224 88H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
+    <rect x="250" y="20" width="208" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="264" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">02 · REDRAW PLAN</text>
+    <text x="264" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Physical Strategy</text>
+    <text x="264" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Adaptive (sparse / coalesce)</text>
+    <text x="264" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">BoundingBox (single rect)</text>
+    <text x="264" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Clipped PhysicalRect&lt;u16&gt;</text>
+    <path d="M458 88H478" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
+    <rect x="484" y="20" width="208" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="498" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">03 · FLUSH LIFECYCLE</text>
+    <text x="498" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Scoped Surface Transfer</text>
+    <text x="498" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">begin_flush() → flush(area)</text>
+    <text x="498" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">end_flush() / abort_flush()</text>
+    <text x="498" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Renderer::flush() precedes end</text>
+    <path d="M692 88H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#bf-arrow)" />
+    <rect x="718" y="20" width="206" height="136" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="732" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">04 · MIRROR</text>
+    <text x="732" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Buffer Sync</text>
+    <text x="732" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">mirror_buffers</text>
+    <text x="732" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">shifts + redraw</text>
+    <text x="732" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Rotating scanout</text>
   </svg>
 </div>
 
@@ -192,20 +169,12 @@ Native WGPU region edits and composite fallbacks share a CPU plane retained by t
 
 `Surface::begin_flush()` prepares the target before drawing. `flush(area)` transfers each physical region; `end_flush()` accepts the completed frame. These methods return `Result<(), RenderError>`. App calls `abort_flush()` on an unsuccessful frame and retains its pending damage. `SurfaceUnavailable` means acquisition can be retried; it is returned by explicit rendering and does not produce repeated tick warnings. `frame_end()` maintains platform completion and retained presentation retries, including idle and failed ticks. A successful submission does not generally mean the display has scanned the pixels. DRM waits for the flip event before exposing released buffers as mirror destinations; a timeout does not release them.
 
-- Software writes directly into its framebuffer and normally needs no RGBA
-  fallback plane.
-- WGPU keeps supported projective geometry and glyph sampling native; exact
-  destination-dependent operations use a clipped target edit on desktop.
-- SDL GPU reads one clipped region into the configured aligned plane, performs
-  local software replay, and uploads it with the same pitch.
-- Web Canvas copies packed `ImageData` rows into the configured plane, replays
-  locally, compacts only at the browser API boundary, and writes one
-  `ImageData` region.
+- Software writes directly into its framebuffer and normally needs no RGBA fallback plane.
+- WGPU keeps supported projective geometry and glyph sampling native; exact destination-dependent operations use a clipped target edit on desktop.
+- SDL GPU reads one clipped region into the configured aligned plane, performs local software replay, and uploads it with the same pitch.
+- Web Canvas copies packed `ImageData` rows into the configured plane, replays locally, compacts only at the browser API boundary, and writes one `ImageData` region.
 
-The public route result is semantic rather than predictive performance data.
-A native route is preferred; fallback cost is proportional to the clipped
-physical region and the number of backend crossings, not to the full surface
-or glyph count.
+The public route result is semantic rather than predictive performance data. A native route is preferred; fallback cost is proportional to the clipped physical region and the number of backend crossings, not to the full surface or glyph count.
 
 ## Retained widget outputs {#retained-widget-outputs}
 

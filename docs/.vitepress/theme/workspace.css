@@ -1,9 +1,8 @@
-/* Keep prose at a reading measure and give the live workbench the full column. */
+/* Keep prose and the live workbench aligned to the same full column. */
 .tutorial-page .VPDoc .container,
 .tutorial-page .VPDoc .content-container,
-.tutorial-page .VPDoc:not(.has-sidebar) .content { max-width: 1220px; }
+.tutorial-page .VPDoc:not(.has-sidebar) .content { max-width: 1120px; }
 .tutorial-page .VPDoc .content { min-width: 0; width: 100%; }
-.tutorial-page .vp-doc > div > :is(p, ol, ul) { max-width: 74ch; }
 
 :root {
   --syn-kw: #b3261e;
@@ -43,9 +42,10 @@
 
 .lesson-tools, .lesson-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px 12px;
   padding: 9px 14px;
   background: var(--site-panel-2);
 }
@@ -55,11 +55,15 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 240px;
 }
 
 .lesson-badge {
-  flex: none;
+  flex: 0 1 auto;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 2px 8px;
   border: 1px solid var(--site-rule-strong);
   border-radius: 6px;
@@ -385,7 +389,7 @@
   align-items: center;
   background: radial-gradient(circle, var(--dot) 1px, transparent 1px) 0 0 / 10px 10px var(--site-panel-2);
 }
-.lesson-device { width: 100%; padding: 20px; box-sizing: border-box; }
+.lesson-device { width: 100%; padding: 14px; box-sizing: border-box; }
 .lesson-divider {
   position: absolute;
   z-index: 4;

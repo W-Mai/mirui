@@ -15,39 +15,39 @@ Tap `Toggle width` or drag the bottom-right grip to resize the viewport—the pr
 </MiruiSnippet>
 
 <div class="arch-diagram" role="img" aria-label="Role flow from App::compose to ECS systems and custom Views">
-  <svg viewBox="0 0 880 186" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 186" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="comp-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="24" width="186" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="52" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · #[compose]</text>
-    <text x="32" y="76" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">UI Tree &amp; Props</text>
-    <text x="32" y="102" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">model!(T) · prop!(T)</text>
-    <text x="32" y="122" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">res!(T) · id("name")</text>
-    <text x="32" y="144" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Stack-held, runs in App::compose</text>
-    <path d="M202 93H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#comp-arrow)" />
-    <rect x="252" y="24" width="186" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="268" y="52" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · #[event] / #[timer]</text>
-    <text x="268" y="76" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Input &amp; Callbacks</text>
-    <text x="268" y="102" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">event!(Tap) · entity!()</text>
-    <text x="268" y="122" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">query!(...) · commands!()</text>
-    <text x="268" y="144" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Mutates Models &amp; queues commands</text>
-    <path d="M438 93H480" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#comp-arrow)" />
-    <rect x="488" y="24" width="176" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="504" y="52" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · #[system] / #[animate]</text>
-    <text x="504" y="76" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Frame Schedule</text>
-    <text x="504" y="102" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">query!(mut C) · motion!()</text>
-    <text x="504" y="122" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">flush_signal_dirty</text>
-    <text x="504" y="144" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Advances springs &amp; layout</text>
-    <path d="M664 93H706" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#comp-arrow)" />
-    <rect x="714" y="24" width="150" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="730" y="52" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · #[view]</text>
-    <text x="730" y="76" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Paint &amp; Damage</text>
-    <text x="730" y="102" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">component!()</text>
-    <text x="730" y="122" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">paint!() · watch(...)</text>
-    <text x="730" y="144" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">Submits DrawCommands</text>
+    <rect x="16" y="24" width="208" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="30" y="52" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">01 · #[compose]</text>
+    <text x="30" y="76" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">UI Tree &amp; Props</text>
+    <text x="30" y="102" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">model!(T) · prop!(T)</text>
+    <text x="30" y="122" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">res!(T) · id("name")</text>
+    <text x="30" y="144" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Stack-held in App::compose</text>
+    <path d="M224 93H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#comp-arrow)" />
+    <rect x="250" y="24" width="208" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="264" y="52" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">02 · #[event] / #[timer]</text>
+    <text x="264" y="76" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Input &amp; Callbacks</text>
+    <text x="264" y="102" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">event!(Tap) · entity!()</text>
+    <text x="264" y="122" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">query!(...) · commands!()</text>
+    <text x="264" y="144" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Mutates Models &amp; commands</text>
+    <path d="M458 93H478" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#comp-arrow)" />
+    <rect x="484" y="24" width="208" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="498" y="52" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">03 · #[system] / #[animate]</text>
+    <text x="498" y="76" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Frame Schedule</text>
+    <text x="498" y="102" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">query!(mut C) · motion!()</text>
+    <text x="498" y="122" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">flush_signal_dirty</text>
+    <text x="498" y="144" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Advances springs &amp; layout</text>
+    <path d="M692 93H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#comp-arrow)" />
+    <rect x="718" y="24" width="206" height="138" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="732" y="52" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">04 · #[view]</text>
+    <text x="732" y="76" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">Paint &amp; Damage</text>
+    <text x="732" y="102" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">component!()</text>
+    <text x="732" y="122" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">paint!() · watch(...)</text>
+    <text x="732" y="144" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">Submits DrawCommands</text>
   </svg>
 </div>
 

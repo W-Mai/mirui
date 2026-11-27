@@ -13,39 +13,39 @@
 </MiruiSnippet>
 
 <div class="arch-diagram" role="img" aria-label="从命令触发、选区检查与导出、宿主平台桥接到提交编辑与完成通知的剪贴板四阶段生命周期">
-  <svg viewBox="0 0 880 168" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 168" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="clip-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · COMMAND / SHORTCUT</text>
-    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">显式目标与顺序队列</text>
-    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">clipboard().copy / cut / paste</text>
-    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Ctrl/Cmd + A / C / X / V</text>
-    <text x="32" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">锁定实体与列表行身份</text>
-    <path d="M210 84H248" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
-    <rect x="256" y="20" width="194" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="272" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · INSPECT &amp; EXPORT</text>
-    <text x="272" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">上下文与不可变快照</text>
-    <text x="272" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">InspectSelection</text>
-    <text x="272" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">CopySelection</text>
-    <text x="272" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">修订号守卫与零修改导出</text>
-    <path d="M450 84H488" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
-    <rect x="496" y="20" width="186" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="512" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · HOST BRIDGE</text>
-    <text x="512" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">同步或异步宿主桥接</text>
-    <text x="512" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Surface::write_clipboard</text>
-    <text x="512" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Surface::read_clipboard</text>
-    <text x="512" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">多 MIME 表示与格式校验</text>
-    <path d="M682 84H720" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
-    <rect x="728" y="20" width="136" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="744" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · COMMIT &amp; NOTIFY</text>
-    <text x="744" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">确认落盘与回执</text>
-    <text x="744" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">CutSelection / PasteSelection</text>
-    <text x="744" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">ClipboardFinished</text>
-    <text x="744" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">回执确认后原子修改</text>
+    <rect x="16" y="20" width="208" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="30" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">01 · COMMAND / SHORTCUT</text>
+    <text x="30" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">显式目标与顺序队列</text>
+    <text x="30" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">copy · cut · paste(editor)</text>
+    <text x="30" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Ctrl/Cmd + A / C / X / V</text>
+    <text x="30" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">锁定实体与列表行身份</text>
+    <path d="M224 84H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
+    <rect x="250" y="20" width="208" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="264" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">02 · INSPECT &amp; EXPORT</text>
+    <text x="264" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">上下文与不可变快照</text>
+    <text x="264" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">InspectSelection</text>
+    <text x="264" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">CopySelection</text>
+    <text x="264" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">修订号守卫与零修改导出</text>
+    <path d="M458 84H478" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
+    <rect x="484" y="20" width="208" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="498" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">03 · HOST BRIDGE</text>
+    <text x="498" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">同步或异步宿主桥接</text>
+    <text x="498" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Surface::write_clipboard</text>
+    <text x="498" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Surface::read_clipboard</text>
+    <text x="498" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">多 MIME 表示与格式校验</text>
+    <path d="M692 84H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#clip-arrow)" />
+    <rect x="718" y="20" width="206" height="128" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="732" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">04 · COMMIT &amp; NOTIFY</text>
+    <text x="732" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">确认落盘与回执</text>
+    <text x="732" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Cut / PasteSelection</text>
+    <text x="732" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">ClipboardFinished</text>
+    <text x="732" y="134" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">回执确认后原子修改</text>
   </svg>
 </div>
 
@@ -94,6 +94,8 @@ TextInput () on ClipboardFinished(|event: event!(ClipboardFinished)| {
 ## 自定义可选中与可粘贴组件 {#custom-selectable-components}
 
 自定义组件可以通过现有的 `#[event]` 回调与 `View` 的 `input` 列表（或节点上的显式 `on` 绑定）注册 `InspectSelection` 与 `CopySelection`。它们是同步的单提供者请求（request），而非冒泡手势或异步队列通知：
+
+<ArchFlow kind="clipboard-protocol" />
 
 - **`InspectSelection`**：返回 `Result<SelectionState, ClipboardError>`。使用 `SelectionState::new(has_selection, context)` 构造状态，其中 `context: Eq + 'static` 持有源身份以及内容/选区修订号的值快照（哪怕内容修改后又改回原值，修订号也应当递增；切勿在其中存放动态查询闭包）。
 - **`CopySelection`**：返回 `Result<ClipboardData, ClipboardError>`，且绝不能修改源组件。框架会在导出前后比对选区上下文，并独立校验节点、提供者、组件挂载状态与列表行身份。

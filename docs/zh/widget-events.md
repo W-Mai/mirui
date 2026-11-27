@@ -92,6 +92,16 @@ document.replace(6..11, "world")?;
 
 关于完整的自定义 `Component`、挂载回调、嵌套文档 `Model` 以及 `View` 注册示例，请参阅[组装文本编辑器](text-editing.md)。
 
+<MiruiSnippet recipe="editor-shared" label="SearchEditor & TextDocument" file="recipes.rs" height="220px">
+
+<template #exercise>
+
+在任一输入框中键入字符或点击 `Set 'SPI'`，观察自定义 `SearchEditor` 与标准 `TextInput` 如何共享同一个 `TextDocument` 并各自保留独立光标。
+
+</template>
+
+</MiruiSnippet>
+
 Gallery 中的 `editor_lab` 包含 `SearchEditor`、`CommandEditor` 与 `SharedEditor`。每个编辑器都是一个带无绘制 `View` 的组件，在 `attach` 回调中向同一节点插入 `TextEditing` 并复用 `TextInput` 绘制外观。搜索框通过观察文档修订号过滤固定目录；命令框处理 `TextEditing::Submitted`；两个共享编辑器绑定同一个自有 `TextDocument`，并各自保留独立选区。源码拆分为[组件实现](../../src/gallery/demos/editor_lab/editors.rs)、[状态模型](../../src/gallery/demos/editor_lab/model.rs)与[界面组合](../../src/gallery/demos/editor_lab/composition.rs)三个模块。
 
 ## 指针身份 {#pointer-identity}

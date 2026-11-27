@@ -15,39 +15,39 @@ app.add_plugin(FpsSummaryPlugin::new(120).with_sink(|report| {
 ```
 
 <div class="arch-diagram" role="img" aria-label="从 App 操作入口经由 FrameTimings 六阶段测量到 256 样本环形窗口与有界 Capture 追踪流的诊断流水线">
-  <svg viewBox="0 0 880 184" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 184" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="td-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="20" width="186" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">01 · OPERATION TICK</text>
-    <text x="32" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">按需开启采样</text>
-    <text x="32" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Tick · Update · Draw</text>
-    <text x="32" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">request_timings(true)</text>
-    <text x="32" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">无订阅时完全跳过时钟读取</text>
-    <path d="M202 92H238" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#td-arrow)" />
-    <rect x="246" y="20" width="214" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="262" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">02 · FRAMETIMINGS (6 PHASES)</text>
-    <text x="262" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">六阶段墙钟耗时测量</text>
-    <text x="262" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">input · systems · layout</text>
-    <text x="262" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">render · flush · seed</text>
-    <text x="262" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">phase_wall_nanos() : Option&lt;u64&gt;</text>
-    <path d="M460 92H496" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#td-arrow)" />
-    <rect x="504" y="20" width="174" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="520" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">03 · FRAMESTATS RING</text>
-    <text x="520" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">256 样本环形统计</text>
-    <text x="520" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">avg · min · max · P99</text>
-    <text x="520" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">FpsSummaryPlugin</text>
-    <text x="520" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">回调频率与接受提交率</text>
-    <path d="M678 92H714" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#td-arrow)" />
-    <rect x="722" y="20" width="142" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="738" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="11" font-weight="600">04 · CAPTURE</text>
-    <text x="738" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">有界追踪事件流</text>
-    <text x="738" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">128 KiB / 8 KiB</text>
-    <text x="738" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">Chrome JSON</text>
-    <text x="738" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">满载时丢弃并记数，绝不扩容</text>
+    <rect x="16" y="20" width="208" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="30" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">01 · OPERATION TICK</text>
+    <text x="30" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">按需开启采样</text>
+    <text x="30" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Tick · Update · Draw</text>
+    <text x="30" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">request_timings(true)</text>
+    <text x="30" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">无订阅时完全跳过时钟读取</text>
+    <path d="M224 92H244" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#td-arrow)" />
+    <rect x="250" y="20" width="208" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="264" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">02 · FRAMETIMINGS (6 PHASES)</text>
+    <text x="264" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">六阶段墙钟耗时测量</text>
+    <text x="264" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">input · systems · layout</text>
+    <text x="264" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">render · flush · seed</text>
+    <text x="264" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">phase_wall_nanos() -> u64</text>
+    <path d="M458 92H478" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#td-arrow)" />
+    <rect x="484" y="20" width="208" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="498" y="46" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">03 · FRAMESTATS RING</text>
+    <text x="498" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">256 样本环形统计</text>
+    <text x="498" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">avg · min · max · P99</text>
+    <text x="498" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">FpsSummaryPlugin</text>
+    <text x="498" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">回调频率与接受提交率</text>
+    <path d="M692 92H712" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#td-arrow)" />
+    <rect x="718" y="20" width="206" height="144" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="732" y="46" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">04 · CAPTURE</text>
+    <text x="732" y="70" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13.2" font-weight="620">有界追踪事件流</text>
+    <text x="732" y="94" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">128 KiB / 8 KiB</text>
+    <text x="732" y="114" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">Chrome JSON</text>
+    <text x="732" y="138" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.5">满载时丢弃并记数，绝不扩容</text>
   </svg>
 </div>
 

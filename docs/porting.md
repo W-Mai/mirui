@@ -256,6 +256,8 @@ You do **not** need to copy the entire screen on every frame or manually track d
 1. Apply any in-place scroll pixel shifts (`plan.shifts`) to the inactive buffer first;
 2. Copy only the redrawn physical rectangles (`redraw`) from the just-completed buffer into the inactive buffer.
 
+<ArchFlow kind="double-buffer-mirror" />
+
 ```rust
 use alloc::{vec, vec::Vec};
 use mirui::core::cache::InspectCaches;
@@ -512,6 +514,8 @@ With `RenderEngine<T>` and `compose_backend!`, you only write the fast path for 
 1. Your engine's `route(&self, target, request)` inspects the `DrawRequest`;
 2. If the hardware supports the exact geometry, paint, and blend mode, `route` returns `Ok(RenderRoute::Native)` and `submit` drives the peripheral;
 3. For everything else (rounded corners, arbitrary paths, rotated quads), `route` delegates to `target.route(request)` or returns `ExactFallback`, and `compose_backend!` automatically runs `end(&mut self, target)` (synchronizing DMA completion) before letting `SwRenderer` draw directly into the shared framebuffer.
+
+<ArchFlow kind="compose-backend-route" />
 
 ```rust
 use mirui::core::cache::InspectCaches;

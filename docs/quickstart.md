@@ -2,42 +2,40 @@
 
 How to go from zero to a running mirui application on desktop, mobile, WebAssembly, or embedded hardware while sharing the same UI model.
 
-This guide is the long-form companion to the README and the docs.rs
-crate-level introduction. It expects familiarity with `cargo` and
-basic Rust, plus an SPI datasheet reading habit if you target an MCU.
+This guide is the long-form companion to the README and the docs.rs crate-level introduction. It expects familiarity with `cargo` and basic Rust, plus an SPI datasheet reading habit if you target an MCU.
 
 <div class="arch-diagram" role="img" aria-label="Multi-target Cargo workspace architecture sharing a single no_std UI crate across desktop, web, mobile, and embedded MCU targets">
-  <svg viewBox="0 0 880 188" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 940 188" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="qs-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
         <path d="M0 0L8 4L0 8Z" fill="var(--site-blue-ink)" />
       </marker>
     </defs>
-    <rect x="16" y="24" width="236" height="140" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="32" y="50" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="11" font-weight="600">SHARED CORE · app/</text>
-    <text x="32" y="74" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="14" font-weight="620">Shared UI Crate (no_std + alloc)</text>
-    <text x="32" y="98" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">#[model] · #[compose] · ui!</text>
-    <text x="32" y="118" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11.5">#[view] · #[system] · StyleSheet</text>
-    <text x="32" y="142" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="11">100% platform-agnostic UI logic</text>
-    <path d="M252 54H304" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
-    <path d="M252 94H304" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
-    <path d="M252 134H304" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
-    <rect x="312" y="20" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="328" y="42" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 01 · DESKTOP</text>
-    <text x="328" y="61" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Desktop SDL / WGPU</text>
-    <text x="328" y="78" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">SdlSurface · SdlGpuSurface · WgpuSurface</text>
-    <rect x="596" y="20" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="612" y="42" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 02 · BROWSER</text>
-    <text x="612" y="61" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Web Canvas (Trunk Wasm)</text>
-    <text x="612" y="78" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">WebCanvasSurface · wasm32-unknown-unknown</text>
-    <rect x="312" y="100" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="328" y="122" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 03 · EMBEDDED</text>
-    <text x="328" y="141" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Embedded MCU (ESP32 / NuttX / STM32)</text>
-    <text x="328" y="158" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">FramebufSurface · DMA2D · RGB565 SPI</text>
-    <rect x="596" y="100" width="268" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
-    <text x="612" y="122" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 04 · MOBILE</text>
-    <text x="612" y="141" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Mobile (Android / iOS)</text>
-    <text x="612" y="158" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="11">MobileHost · NativeActivity · UIWindowScene</text>
+    <rect x="16" y="24" width="256" height="140" rx="12" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="32" y="50" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.2" font-weight="600">SHARED CORE · app/</text>
+    <text x="32" y="74" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Shared UI Crate (no_std + alloc)</text>
+    <text x="32" y="98" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">#[model] · #[compose] · ui!</text>
+    <text x="32" y="118" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.5">#[view] · #[system] · StyleSheet</text>
+    <text x="32" y="142" fill="var(--site-faint)" font-family="var(--font-ui)" font-size="10.2">100% platform-agnostic UI logic</text>
+    <path d="M272 54H312" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
+    <path d="M272 94H312" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
+    <path d="M272 134H312" stroke="var(--site-blue-ink)" stroke-width="1.5" marker-end="url(#qs-arrow)" />
+    <rect x="320" y="20" width="294" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="334" y="42" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 01 · DESKTOP</text>
+    <text x="334" y="61" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Desktop SDL / WGPU</text>
+    <text x="334" y="78" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.2">SdlSurface · SdlGpuSurface · WgpuSurface</text>
+    <rect x="630" y="20" width="294" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="644" y="42" fill="var(--site-blue-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 02 · BROWSER</text>
+    <text x="644" y="61" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Web Canvas (Trunk Wasm)</text>
+    <text x="644" y="78" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.2">WebCanvasSurface · wasm32-unknown-unknown</text>
+    <rect x="320" y="100" width="294" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="334" y="122" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 03 · EMBEDDED</text>
+    <text x="334" y="141" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Embedded MCU (ESP32 / NuttX / STM32)</text>
+    <text x="334" y="158" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.2">FramebufSurface · DMA2D · RGB565 SPI</text>
+    <rect x="630" y="100" width="294" height="68" rx="10" fill="var(--site-panel)" stroke="var(--site-rule-strong)" />
+    <text x="644" y="122" fill="var(--logo-see)" font-family="var(--font-mono)" font-size="10.5" font-weight="600">TARGET 04 · MOBILE</text>
+    <text x="644" y="141" fill="var(--site-ink)" font-family="var(--font-ui)" font-size="13" font-weight="620">Mobile (Android / iOS)</text>
+    <text x="644" y="158" fill="var(--site-muted)" font-family="var(--font-mono)" font-size="10.2">MobileHost · Android · iOS</text>
   </svg>
 </div>
 
@@ -50,16 +48,14 @@ rustup default stable
 rustup update
 ```
 
-The ESP32-C3 path also wants a `riscv32imc` target and the `espflash`
-flasher. Both work on stable:
+The ESP32-C3 path also wants a `riscv32imc` target and the `espflash` flasher. Both work on stable:
 
 ```bash
 rustup target add riscv32imc-unknown-none-elf
 cargo install espflash
 ```
 
-The desktop and ESP32-C3 targets in the workspace template use stable
-Rust; browser and mobile targets need their respective toolchains.
+The desktop and ESP32-C3 targets in the workspace template use stable Rust; browser and mobile targets need their respective toolchains.
 
 ## Desktop SDL {#desktop-sdl}
 
@@ -157,11 +153,9 @@ Run it:
 cargo run
 ```
 
-A 480x320 window appears with a blue header, a darker content area, and
-a footer strip — three widgets stacked inside a column container.
+A 480x320 window appears with a blue header, a darker content area, and a footer strip — three widgets stacked inside a column container.
 
-If `cargo run` fails to find `libSDL2.dylib` on macOS (Apple Silicon),
-add the Homebrew lib path:
+If `cargo run` fails to find `libSDL2.dylib` on macOS (Apple Silicon), add the Homebrew lib path:
 
 ```bash
 export LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH"
@@ -184,24 +178,13 @@ if let Some(audio) = app.audio() {
 }
 ```
 
-`audio.state()` returns a snapshot. `audio.state_signal()` returns the same
-read-only state as a reactive source; call `get()` inside a `ui!` property to
-follow mute and output changes. Cloned handles stop accepting commands after
-the app is dropped. `AudioBus<N>` remains available for standalone use.
+`audio.state()` returns a snapshot. `audio.state_signal()` returns the same read-only state as a reactive source; call `get()` inside a `ui!` property to follow mute and output changes. Cloned handles stop accepting commands after the app is dropped. `AudioBus<N>` remains available for standalone use.
 
 ## ESP32-C3 embedded {#esp32-c3-embedded}
 
-The embedded path takes a hardware kit, an SPI display, and a USB cable.
-The shape of an mirui ESP project is small — `no_std` `main`, esp-hal
-peripherals, and a `FramebufSurface` whose flush closure speaks SPI to
-the panel — but the BSP wiring (clock setup, SPI mode + DMA buffers,
-ST7735/ST7789/GC9A01 init sequence, panel reset) is dozens of lines and
-moves with each esp-hal release.
+The embedded path takes a hardware kit, an SPI display, and a USB cable. The shape of an mirui ESP project is small — `no_std` `main`, esp-hal peripherals, and a `FramebufSurface` whose flush closure speaks SPI to the panel — but the BSP wiring (clock setup, SPI mode + DMA buffers, ST7735/ST7789/GC9A01 init sequence, panel reset) is dozens of lines and moves with each esp-hal release.
 
-Rather than reproduce that wiring here and let it bit-rot, the
-canonical reference is the
-[mirui-examples](https://github.com/W-Mai/mirui-examples) project, which
-this guide tracks. Start there:
+Rather than reproduce that wiring here and let it bit-rot, the canonical reference is the [mirui-examples](https://github.com/W-Mai/mirui-examples) project, which this guide tracks. Start there:
 
 ```bash
 git clone https://github.com/W-Mai/mirui-examples
@@ -209,11 +192,7 @@ cd mirui-examples/examples/esp32c3-animation
 cargo build --release --no-default-features --features=demo-threebody
 ```
 
-The `esp32c3-animation` crate's `src/board.rs` carries the SPI + ST7735
-driver, `src/main.rs` ties it into `App::new(FramebufSurface::…)`, and
-`Cargo.toml` pins compatible esp-hal / esp-alloc / esp-bootloader-esp-idf
-versions. Copy that repository, point `board.rs` at the target panel's
-pinout, and replace the demo widgets with an application `ui!` tree.
+The `esp32c3-animation` crate's `src/board.rs` carries the SPI + ST7735 driver, `src/main.rs` ties it into `App::new(FramebufSurface::…)`, and `Cargo.toml` pins compatible esp-hal / esp-alloc / esp-bootloader-esp-idf versions. Copy that repository, point `board.rs` at the target panel's pinout, and replace the demo widgets with an application `ui!` tree.
 
 Once it builds, flash with:
 
@@ -237,21 +216,11 @@ app.with_default_widgets().with_default_systems();
 // app.spawn_root(), build the ui! tree, app.run() — same as the desktop hello.
 ```
 
-`ColorFormat::RGB565Swapped` is the byte order most ST7735/ST7789 panels
-expect when the host MCU is little-endian; use `RGB565` if the panel
-takes the bytes the other way around. mirui's
-[Surface trait docs](../src/surface/mod.rs) cover the rest of the
-contract — `display_info`, `flush`, `poll_event`, persistence — and
-which to override for a custom backend.
+`ColorFormat::RGB565Swapped` is the byte order most ST7735/ST7789 panels expect when the host MCU is little-endian; use `RGB565` if the panel takes the bytes the other way around. mirui's [Surface trait docs](../src/surface/mod.rs) cover the rest of the contract — `display_info`, `flush`, `poll_event`, persistence — and which to override for a custom backend.
 
 ## Cargo workspace {#cargo-workspace}
 
-When the same UI code should drive both a desktop window and an MCU
-panel, put the UI in a shared library crate and let one binary crate
-per target consume it. mirui ships a Cargo workspace template that
-sets this up; you can also build it by hand. The layout below shows
-the desktop and ESP32-C3 targets only. The generated workspace also
-includes WebAssembly, Android, and iOS targets.
+When the same UI code should drive both a desktop window and an MCU panel, put the UI in a shared library crate and let one binary crate per target consume it. mirui ships a Cargo workspace template that sets this up; you can also build it by hand. The layout below shows the desktop and ESP32-C3 targets only. The generated workspace also includes WebAssembly, Android, and iOS targets.
 
 Layout:
 
@@ -281,10 +250,7 @@ members = ["app", "targets/*"]
 default-members = ["app", "targets/desktop"]
 ```
 
-The `targets/*` glob means a new target crate dropped into
-`targets/<name>/` is picked up without editing the workspace manifest.
-Plain `cargo check` at the root checks the shared app and desktop target;
-build each other target with its own platform toolchain and target triple.
+The `targets/*` glob means a new target crate dropped into `targets/<name>/` is picked up without editing the workspace manifest. Plain `cargo check` at the root checks the shared app and desktop target; build each other target with its own platform toolchain and target triple.
 
 `app/Cargo.toml`:
 
@@ -321,28 +287,18 @@ pub fn build_ui() -> Entity {
 }
 ```
 
-`targets/desktop/Cargo.toml` enables `sdl` on mirui and `std` on `app`;
-`targets/esp32c3/Cargo.toml` keeps both at `default-features = false`
-and adds the esp-hal stack. Each target's `main.rs` opens a Surface,
-constructs `App`, then registers the shared composition with
-`app.compose(root, app::build_ui())`.
+`targets/desktop/Cargo.toml` enables `sdl` on mirui and `std` on `app`; `targets/esp32c3/Cargo.toml` keeps both at `default-features = false` and adds the esp-hal stack. Each target's `main.rs` opens a Surface, constructs `App`, then registers the shared composition with `app.compose(root, app::build_ui())`.
 
 ### Adding a new target {#adding-a-new-target}
 
-The workspace is meant to grow. To add ESP32-S3, RP2040, STM32, or any
-other MCU:
+The workspace is meant to grow. To add ESP32-S3, RP2040, STM32, or any other MCU:
 
 1. Copy an existing target as a starting point: `cp -r targets/esp32c3 targets/esp32s3`.
-2. Update the new crate's `Cargo.toml` with the right `[package].name`
-   and BSP dependencies.
-3. Update `.cargo/config.toml` and `rust-toolchain.toml` for the new
-   target triple and linker script.
-4. Adjust `src/main.rs` to talk to the new chip's clocks, SPI, and
-   panel.
+2. Update the new crate's `Cargo.toml` with the right `[package].name` and BSP dependencies.
+3. Update `.cargo/config.toml` and `rust-toolchain.toml` for the new target triple and linker script.
+4. Adjust `src/main.rs` to talk to the new chip's clocks, SPI, and panel.
 
-Build it with `cargo build -p esp32s3`. Workspace membership is
-automatic — the glob picks the new directory up on the next `cargo`
-invocation.
+Build it with `cargo build -p esp32s3`. Workspace membership is automatic — the glob picks the new directory up on the next `cargo` invocation.
 
 ## WGPU configuration {#wgpu-configuration}
 
@@ -406,9 +362,7 @@ Software-rendered hosts use native device density within an explicit framebuffer
 
 ## Skip the boilerplate {#skip-the-boilerplate}
 
-The same templates this guide walks through by hand are published as a
-[`cargo-generate`](https://github.com/cargo-generate/cargo-generate)
-template repository. After installing the tool:
+The same templates this guide walks through by hand are published as a [`cargo-generate`](https://github.com/cargo-generate/cargo-generate) template repository. After installing the tool:
 
 ```bash
 cargo install cargo-generate
