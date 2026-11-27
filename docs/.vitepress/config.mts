@@ -21,7 +21,7 @@ function navigation(zh: boolean) {
   return [
     { text: zh ? '教程' : 'Tutorial', link: zh ? '/zh/learn/' : '/learn/', activeMatch: '/learn/(?!recipes)' },
     { text: zh ? '常用写法' : 'Patterns', link: zh ? '/zh/learn/recipes' : '/learn/recipes', activeMatch: '/learn/recipes' },
-    { text: zh ? '指南' : 'Guides', link: zh ? '/zh/#guides' : '/#guides', activeMatch: '^/(?!.*learn/)(?:quickstart|state-management|composition|model-collections|events|widget-events|navigation|scrolling|typography|text-editing|clipboard|resources|shared-textures|persistence|surface-sizing|backend-targets|backend-fallback|timing-diagnostics|ci)\\b' },
+    { text: zh ? '指南' : 'Guides', link: zh ? '/zh/#guides' : '/#guides', activeMatch: '^/(?!.*learn/)(?:quickstart|state-management|composition|model-collections|events|widget-events|navigation|scrolling|typography|text-editing|clipboard|resources|shared-textures|persistence|porting|surface-sizing|backend-targets|backend-fallback|timing-diagnostics|ci)\\b' },
     { text: 'Gallery', link: 'https://mirui.rs/' },
     { text: 'API', link: api },
   ];
@@ -68,6 +68,7 @@ const sidebar = [
   {
     text: 'Backend and development',
     items: [
+      { text: 'Porting display & input', link: '/porting' },
       { text: 'Surface sizing', link: '/surface-sizing' },
       { text: 'Backend targets', link: '/backend-targets' },
       { text: 'Backend fallback', link: '/backend-fallback' },
@@ -142,6 +143,7 @@ export default defineConfig({
           {
             text: '渲染后端与帧诊断',
             items: [
+              { text: '屏幕、输入与硬件加速移植', link: '/zh/porting' },
               { text: '逻辑视口与缩放比', link: '/zh/surface-sizing' },
               { text: '各平台后端实现', link: '/zh/backend-targets' },
               { text: '混合后端与软件回退', link: '/zh/backend-fallback' },

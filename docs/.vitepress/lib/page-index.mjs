@@ -59,6 +59,7 @@ function buildLlmsTxt(base, context) {
 - [Resources](${origin}resources.html) / [静态与托管资源池](${origin}zh/resources.html): \`ResourceManager\`, static/factory entries, and bounded caches.
 - [Shared Textures](${origin}shared-textures.html) / [跨线程纹理移交](${origin}zh/shared-textures.html): Cross-thread \`sync\` textures and device upload lifetimes.
 - [Persistence](${origin}persistence.html) / [状态快照与自动落盘](${origin}zh/persistence.html): \`PersistencePlugin\`, \`#[persist]\`, and storage backends.
+- [Porting Display & Input](${origin}porting.html) / [屏幕、输入与硬件加速移植](${origin}zh/porting.html): \`FramebufSurface\`, custom \`Surface\` + \`FramebufferAccess\`, double-buffered mirroring, touch/rotary/key input, \`compose_backend!\` 2D DMA engines, and \`no_std\` clocks/storage/audio.
 - [Surface Sizing](${origin}surface-sizing.html) / [逻辑视口与缩放比](${origin}zh/surface-sizing.html): Logical viewports, HiDPI scale factors, and dynamic resizing.
 - [Backend Targets](${origin}backend-targets.html) / [各平台后端实现](${origin}zh/backend-targets.html): Software rasterizer, SDL2, SDL-GPU, WGPU, Web Canvas, Linux DRM/fbdev, and NuttX.
 - [Backend Fallback](${origin}backend-fallback.html) / [混合后端与软件回退](${origin}zh/backend-fallback.html): \`compose_backend!\`, partial damage redraws, and offscreen composition.

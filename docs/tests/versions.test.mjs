@@ -33,7 +33,7 @@ test('version and language fallbacks stay within the requested version', () => {
   expect(chapterTarget(index, 'zh/', 'en')).toBe('/docs/0.57.0/');
 });
 
-test('all 19 reference guides have Chinese counterparts with 1:1 anchor parity', async () => {
+test('all 20 reference guides have Chinese counterparts with 1:1 anchor parity', async () => {
   const { existsSync, readFileSync } = await import('node:fs');
   const { resolve } = await import('node:path');
   const distIndex = resolve(import.meta.dir, '../.vitepress/dist/page-index.json');
@@ -43,8 +43,8 @@ test('all 19 reference guides have Chinese counterparts with 1:1 anchor parity',
     'quickstart', 'state-management', 'composition', 'model-collections',
     'events', 'widget-events', 'navigation', 'scrolling',
     'typography', 'text-editing', 'clipboard', 'resources',
-    'shared-textures', 'persistence', 'surface-sizing', 'backend-targets',
-    'backend-fallback', 'timing-diagnostics', 'ci',
+    'shared-textures', 'persistence', 'porting', 'surface-sizing',
+    'backend-targets', 'backend-fallback', 'timing-diagnostics', 'ci',
   ];
   for (const guide of guides) {
     const enIds = built.pages[`${guide}.html`];

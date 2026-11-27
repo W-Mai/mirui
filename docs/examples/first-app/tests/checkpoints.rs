@@ -30,6 +30,7 @@ fn every_recipe_mounts_and_draws() {
         "nav-pageview",
         "compose-niche",
         "state-at",
+        "porting-inspector",
     ] {
         let mut app = App::headless(420, 260);
         install_named_recipe(&mut app, Recipe::parse(name).unwrap(), false, None);

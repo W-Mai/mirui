@@ -420,7 +420,7 @@ You have a running mirui app. The next steps depend on what you want to build:
 
 - **Add a custom widget** — inspect the built-in widgets and Gallery compositions for rendering, theme integration, typed properties, and animation contracts.
 - **Compose a text editor** — [`text-editing.md`](text-editing.md) combines a custom Component, TextEditing, TextInput, and a shared document owned by an application Model.
-- **Drive an LCD or touch IC** — implement the `Surface` boundary and use the ESP32-C3 board integration in [`mirui-examples`](https://github.com/W-Mai/mirui-examples) as a complete framebuffer and input reference.
+- **Drive an LCD, touch IC, or 2D DMA engine** — [`porting.md`](porting.md) walks through `FramebufSurface` SPI windows, custom `Surface` + `FramebufferAccess` double buffering, touch/rotary/key events, and `compose_backend!` hardware acceleration.
 - **React to state changes declaratively** — [`state-management.md`](state-management.md) covers registered models, model-backed components, typed Views, `Signal<T>`, `Computed<T>`, `Effect`, and DSL bindings.
 - **Handle input and notifications** — [`events.md`](events.md) covers typed callbacks, delivery order, and event capacity; [`widget-events.md`](widget-events.md) lists widget input and notifications.
 - **Persist user state across runs** — the `persistence_settings` Gallery demo saves Model preferences while keeping preview expansion local to the session. See [Persistence](persistence.md) for field declarations and storage configuration.

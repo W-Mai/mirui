@@ -347,5 +347,6 @@ cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/ios 
 - **写一个完整应用**：跟着[动手教程](learn/index.md)从空窗口写到带持久化与弹簧过渡的任务清单；
 - **速查常见 UI 模式**：查看[常用界面写法](learn/recipes.md)里的状态换色、弹性布局、弹簧跟随框、自定义矢量控件、曲线排字与平滑滚动示例；
 - **深入声明式状态与组合**：阅读[响应式状态与样式](state-management.md)与[组合、角色与自定义视图](composition.md)；
-- **处理手势、按键与自定义控件**：阅读[手势识别与事件回调](events.md)、[自定义控件与绘制](widget-events.md)与[文本编辑与输入法](text-editing.md)。
+- **处理手势、按键与自定义控件**：阅读[手势识别与事件回调](events.md)、[自定义控件与绘制](widget-events.md)与[文本编辑与输入法](text-editing.md)；
+- **移植新屏幕、触摸芯片或 2D 硬件加速**：阅读[屏幕、输入与硬件加速移植](porting.md)，按三层渐进式路径对接 `FramebufSurface`、双缓冲 `Surface`、触控/表冠事件与 `compose_backend!` DMA2D 加速；
 - **翻阅完整可运行示例**：参考仓库内的 [`gallery/examples/`](../../gallery/examples/) 与 [`mirui-examples`](https://github.com/W-Mai/mirui-examples)。

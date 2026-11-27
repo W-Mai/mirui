@@ -47,6 +47,7 @@ pub enum Recipe {
     NavPageView,
     ComposeNiche,
     StateAt,
+    PortingInspector,
 }
 
 impl Recipe {
@@ -77,6 +78,7 @@ impl Recipe {
             "nav-pageview" => Some(Self::NavPageView),
             "compose-niche" => Some(Self::ComposeNiche),
             "state-at" => Some(Self::StateAt),
+            "porting-inspector" => Some(Self::PortingInspector),
             _ => None,
         }
     }
@@ -238,6 +240,10 @@ pub fn install_recipe<B: Surface, F: RendererFactory<B>>(
         }
         Recipe::StateAt => {
             app.compose(root, state_at_scene());
+        }
+        Recipe::PortingInspector => {
+            let probe = app.add_model(SurfaceProbe::default()).finish();
+            app.compose(root, porting_inspector_scene(probe));
         }
     }
 }
@@ -2235,3 +2241,149 @@ fn state_at_scene() {
     };
 }
 //~focus-end:state-at
+
+//~focus-start:porting-inspector
+#[model]
+pub struct SurfaceProbe {
+    #[observe]
+    pub rgb565: bool,
+    #[observe]
+    pub zone: u8,
+    #[observe]
+    pub rotary: i16,
+}
+
+impl Default for SurfaceProbe {
+    fn default() -> Self {
+        Self {
+            rgb565: true,
+            zone: 0,
+            rotary: 0,
+        }
+    }
+}
+
+#[model]
+impl SurfaceProbe {
+    pub fn tap_touch(&mut self) {
+        self.zone = (self.zone + 1) % 3;
+    }
+
+    pub fn turn_rotary(&mut self) {
+        self.rotary = self.rotary.wrapping_add(1);
+        self.zone = (self.zone + 1) % 3;
+    }
+
+    pub fn toggle_format(&mut self) {
+        self.rgb565 = !self.rgb565;
+    }
+
+    #[observe]
+    pub fn rect(&self) -> (u16, u16, u16, u16) {
+        match self.zone {
+            0 => (16, 14, 108, 34),
+            1 => (88, 30, 124, 38),
+            _ => (12, 10, 216, 58),
+        }
+    }
+
+    #[observe]
+    pub fn transfer_bytes(&self) -> u32 {
+        let (_, _, w, h) = self.rect();
+        let bpp = if self.rgb565 { 2_u32 } else { 4_u32 };
+        u32::from(w) * u32::from(h) * bpp
+    }
+}
+
+#[compose]
+fn porting_inspector_scene(probe: model!(SurfaceProbe)) {
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(16),
+            justify: JustifyContent::SpaceBetween,
+            text_color: ColorToken::OnSurface
+        ) {
+            Row (height: 30, column_gap: 6, align: AlignItems::Center) {
+                Button (
+                    "Touch Tap",
+                    grow: 1.0,
+                    height: 28,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) on Tap { probe.tap_touch(); }
+                Button (
+                    "Rotary +1",
+                    grow: 1.0,
+                    height: 28,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { probe.turn_rotary(); }
+                Button (
+                    text: ${ if probe.rgb565() { "RGB565 (2B)" } else { "RGBA8 (4B)" } },
+                    grow: 1.0,
+                    height: 28,
+                    font_size: 12,
+                    border_radius: 7,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Outline,
+                    text_color: ColorToken::OnSurface
+                ) on Tap { probe.toggle_format(); }
+            }
+            View (
+                height: 82,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 10,
+                clip_children: true
+            ) {
+                View (
+                    position: Position::Absolute,
+                    left: ${ i32::from(probe.rect().0) },
+                    top: ${ i32::from(probe.rect().1) },
+                    width: ${ Dimension::px(i32::from(probe.rect().2)) },
+                    height: ${ Dimension::px(i32::from(probe.rect().3)) },
+                    padding: Padding::all(6),
+                    bg_color: ColorToken::Secondary,
+                    border_width: 2,
+                    border_color: ColorToken::Primary,
+                    border_radius: 6
+                ) {
+                    Text (
+                        text: ${
+                            let (x, y, w, h) = probe.rect();
+                            format_args!("flush({x},{y} {w}x{h})")
+                        },
+                        capacity: 32,
+                        height: 18,
+                        font_size: 12,
+                        text_color: ColorToken::OnSecondary
+                    )
+                }
+            }
+            Text (
+                text: ${
+                    let (x, y, w, h) = probe.rect();
+                    format_args!(
+                        "CASET {x}..{} · RASET {y}..{} · {} B · rotary #{}",
+                        x + w - 1,
+                        y + h - 1,
+                        probe.transfer_bytes(),
+                        probe.rotary()
+                    )
+                },
+                capacity: 64,
+                height: 18,
+                font_size: 12,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+        }
+    };
+}
+//~focus-end:porting-inspector

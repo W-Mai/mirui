@@ -42,10 +42,10 @@ const featured = [
     step: 'IV',
     en: 'Backends & bare metal',
     zh: '从 MCU 到浏览器',
-    descEn: 'One scene graph across software framebuffers, SDL GPU, WGPU, Web Canvas, DRM, and NuttX.',
-    descZh: '同一套声明式界面树，既能在 ESP32-C3 的 128×160 小屏上只刷局部脏区，也能跑在桌面 GPU 与 WebAssembly。',
+    descEn: 'Port SPI panels, touch/rotary drivers, double-buffered scanout, and 2D DMA engines via Surface and compose_backend!.',
+    descZh: '通过 Surface 与 compose_backend! 将同一套界面树移植到 SPI 小屏、触摸/表冠驱动、双缓冲显存与 DMA2D 硬件加速器。',
     tag: 'no_std · Surface',
-    href: '/backend-targets.html',
+    href: '/porting.html',
   },
 ];
 
@@ -84,7 +84,8 @@ const catalog = computed(() => [
     titleEn: 'Backends & runtime',
     titleZh: '渲染后端与帧诊断',
     items: [
-      { en: 'Surface sizing', zh: '逻辑视口与缩放比', href: '/surface-sizing.html', code: 'Surface' },
+      { en: 'Porting display & input', zh: '屏幕、输入与硬件加速移植', href: '/porting.html', code: 'Surface' },
+      { en: 'Surface sizing', zh: '逻辑视口与缩放比', href: '/surface-sizing.html', code: 'size_control' },
       { en: 'Backend targets', zh: '各平台后端实现', href: '/backend-targets.html', code: 'Renderer' },
       { en: 'Backend fallback', zh: '混合后端与软件回退', href: '/backend-fallback.html', code: 'compose_backend!' },
       { en: 'Timing diagnostics', zh: '帧耗时剖析与追踪', href: '/timing-diagnostics.html', code: 'perf' },
