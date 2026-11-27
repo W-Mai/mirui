@@ -8,7 +8,7 @@ error[E0521]: borrowed data escapes outside of closure
    |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^ a temporary borrow escapes the closure body here
    |
    = help: `retained` is declared outside the closure, so any data borrowed inside the closure cannot be stored into it
-   = note: requirement occurs because of the type `Cell<Option<&State>>`, which makes the generic argument `Option<&State>` invariant
+   = note: requirement occurs because of the type `Cell<std::option::Option<&State>>`, which makes the generic argument `std::option::Option<&State>` invariant
    = note: the struct `Cell<T>` is invariant over the parameter `T`
    = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
 
