@@ -241,6 +241,14 @@ impl<I: Copy, S: ObjectSource<I>> Projected<'_, I, S> {
                             sprite.data(),
                             |view| self.draw_sampled(tile, view, sprite.data().palette(), material),
                         ),
+                        Geometry::Solid(stack) => {
+                            let stack = stack.get();
+                            let transform =
+                                transform.stack(Fixed::from_ratio(stack.spacing_q8(), 256));
+                            stack.draw(tile, &self.camera.projection, &transform, |rgba, index| {
+                                material.shade(rgba, Some(index))
+                            });
+                        }
                         Geometry::Field(field) => draw_field(tile, &transform, field.get()),
                         Geometry::LiveField(field) => {
                             use mirui::core::model::ModelHandle;

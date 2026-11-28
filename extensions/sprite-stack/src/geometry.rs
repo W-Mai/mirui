@@ -29,6 +29,8 @@ pub enum Geometry {
     /// Samples projected cells of a sparse model and depth-tests them against other scene objects.
     Sampled(&'static crate::PreparedSpriteStack<'static>),
     Generated(GeneratedStackAsset),
+    /// Renders the exposed faces of opaque cells with the scene depth buffer.
+    Solid(Handle<crate::SolidStack<'static>>),
     Field(Handle<HeightField>),
     LiveField(HeightFieldHandle),
 }
@@ -42,6 +44,12 @@ impl From<&'static crate::PreparedSpriteStack<'static>> for Geometry {
 impl From<Handle<SpriteStackAsset>> for Geometry {
     fn from(s: Handle<SpriteStackAsset>) -> Self {
         Self::Sprite(s)
+    }
+}
+
+impl From<Handle<crate::SolidStack<'static>>> for Geometry {
+    fn from(stack: Handle<crate::SolidStack<'static>>) -> Self {
+        Self::Solid(stack)
     }
 }
 
@@ -71,7 +79,11 @@ impl Geometry {
         match self {
             Self::Field(field) => Some(read(field.get())),
             Self::LiveField(field) => Some(field.read(read)),
-            Self::Sprite(_) | Self::Prepared(_) | Self::Sampled(_) | Self::Generated(_) => None,
+            Self::Sprite(_)
+            | Self::Prepared(_)
+            | Self::Sampled(_)
+            | Self::Generated(_)
+            | Self::Solid(_) => None,
         }
     }
 }

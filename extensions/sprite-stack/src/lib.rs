@@ -21,6 +21,8 @@ mod generated;
 #[cfg(feature = "widget")]
 pub mod raster;
 #[cfg(feature = "widget")]
+pub use raster::SolidStack;
+#[cfg(feature = "widget")]
 mod widget;
 
 #[cfg(feature = "widget")]

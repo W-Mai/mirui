@@ -79,6 +79,8 @@ Tools and build scripts can depend directly on [mirui-sprite-stack-format](forma
 
 Register `SpriteStackPlugin` and create a stage with `app.add_model(StackStage::bounded(capacity)).finish()`. Import `StackStageCommands` in systems that use `commands.stage(&stage)`. Call `spawn(bundle, visual)` to create a member or `attach(entity, visual)` for an existing entity. Create a static value with `StackVisual::new(asset).at(pose)` or bind the visual to an observed game Model with `StackVisual::from_model(model, visual)`.
 
+For an opaque model that needs closed sides as the camera turns, prepare a `SolidStack` from a `PreparedSpriteStack` and share it as a handle. For example, given a static `MODEL`, `StackVisual::new(Handle::new(SolidStack::new(&MODEL, 8 * 1024)?)).at(pose)` submits its exposed cell faces to the shared depth buffer. It uses full-resolution cells in both orthographic and perspective views. The preparation budget covers eight bytes per group of 64 columns for each row of each layer. Rendering reuses that occupancy data and makes no allocations.
+
 ```rust
 use mirui::prelude::*;
 use mirui_sprite_stack::{Camera, StackStage, StackViewport};

@@ -51,6 +51,7 @@ impl Material {
             Geometry::Sprite(sprite) => sprite.get().atlas().indexed_color_table().map(|p| p.len()),
             Geometry::Prepared(sprite) | Geometry::Sampled(sprite) => Some(sprite.palette().len()),
             Geometry::Generated(sprite) => Some(sprite.data().palette().len()),
+            Geometry::Solid(stack) => Some(stack.get().palette().len()),
             Geometry::Field(_) | Geometry::LiveField(_) => None,
         };
         palette_size == Some(palette.len())
@@ -457,6 +458,7 @@ fn same_geometry(left: &Geometry, right: &Geometry) -> bool {
         | (Geometry::Sampled(a), Geometry::Sampled(b)) => core::ptr::eq(*a, *b),
         (Geometry::Field(a), Geometry::Field(b)) => a.ptr_eq(b),
         (Geometry::Generated(a), Geometry::Generated(b)) => a == b,
+        (Geometry::Solid(a), Geometry::Solid(b)) => a.ptr_eq(b),
         _ => false,
     }
 }

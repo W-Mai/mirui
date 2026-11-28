@@ -329,6 +329,57 @@ fn edge_on_camera_draws_the_nearest_slice_cells_for_atlases_and_prepared_levels(
 }
 
 #[test]
+fn stage_solid_cells_cover_the_whole_side_at_zero_pitch() {
+    use mirui::core::cache::Handle;
+    use mirui_sprite_stack::{PreparedSpriteStack, SolidStack, SparseLevel, StackSample};
+
+    static CELL: StackSample = StackSample {
+        x: 0,
+        y: 0,
+        color: 0,
+    };
+    static MODEL: PreparedSpriteStack<'_> = PreparedSpriteStack::new(
+        [1, 1, 3],
+        [0, 0, 256],
+        256,
+        &[[200, 20, 30, 255]],
+        &[SparseLevel::new(1, &[0, 1, 2, 3], &[CELL; 3]).unwrap()],
+    )
+    .unwrap();
+
+    #[mirui::compose]
+    fn view(stage: model!(StackStage)) -> Entity {
+        ui! {
+            StackViewport(
+                width: 16,
+                height: 16,
+                stage: stage,
+                camera: Camera { pitch: Fixed::ZERO, scale: Fixed::from_int(4), ..Camera::default() }
+            )
+        }
+    }
+
+    let mut app = App::headless(16, 16);
+    app.with_default_widgets().add_plugin(SpriteStackPlugin);
+    let stage = app.add_model(StackStage::bounded(2)).finish();
+    let root = app.spawn_root().id();
+    app.compose(root, view(stage.clone()));
+    let solid = Handle::new(SolidStack::new(&MODEL, 24).unwrap());
+    app.add_resource(EdgeSprites(Some([solid.clone().into(), solid.into()])));
+    app.add_system(populate_edges::system(stage));
+    app.tick();
+
+    let frame = app.snapshot().unwrap().unwrap();
+    let pixels = frame.read_pixels().unwrap();
+    for x in [4, 12] {
+        for y in 2..14 {
+            assert_eq!(pixels.get_pixel(x, y), RED, "{x}, {y}");
+        }
+        assert_ne!(pixels.get_pixel(x, 14), RED);
+    }
+}
+
+#[test]
 fn translated_finite_source_uses_the_same_local_cell_for_height_and_drawing() {
     let mut app = App::headless(32, 16);
     app.with_default_widgets().add_plugin(SpriteStackPlugin);
